@@ -16,6 +16,7 @@ import numpy as np
 from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
+from Auxiliary import constants as c
 
 
 def execute():
@@ -64,8 +65,8 @@ def execute():
     print("="*60)
     print(f"\t* Semi-major axis:\t\t\t{a/1000:.2f} km")
     print(f"\t* Eccentricity:\t\t\t\t{e:.6f}")
-    print(f"\t* Apoapsis altitude:\t\t\t{(r_apo - sim_params.TARGET_ORBITAL_ALTITUDE)/1000:.2f} km")
-    print(f"\t* Periapsis altitude:\t\t\t{(r_peri - sim_params.TARGET_ORBITAL_ALTITUDE)/1000:.2f} km")
+    print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
+    print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     
     print("\n" + "="*60)
