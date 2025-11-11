@@ -1,0 +1,168 @@
+""" ===============================================
+    TRAJECTORY OPTIMIZATION SOLVERS
+    
+    This module contains optimization algorithms for finding
+    optimal gravity turn parameters for coasting single burn
+    trajectories.
+=============================================== """
+
+import numpy as np
+from scipy.optimize import differential_evolution, brute
+import time
+import constants as c
+import simulation_parameters as sim_params
+import rocket_ascent as ra
+
+
+#===================================================
+# Coasting Single Burn Optimization
+#===================================================
+
+def coasting_single_burn_objective(kick_angle):
+    """
+    Objective function to find the initial kick angle for the gravity turn 
+    which minimizes the used propellant in the second stage.
+    
+    Parameters:
+    -----------
+    kick_angle : float
+        Initial kick angle [rad]
+    
+    Returns:
+    --------
+    m_propellant_total_used_2nd_stage : float
+        Total mass of propellant used in the second stage [kg]
+    """
+    time_steps, data, alt_stopped, delta_v, m_propellant_total_used_2nd_stage = ra.run(kick_angle)
+
+    # Debugging output
+    print("Kick angle:\t\t", np.rad2deg(kick_angle))
+    print("Propellant used:\t", m_propellant_total_used_2nd_stage, "kg")
+    print("\n")
+
+    return m_propellant_total_used_2nd_stage
+
+
+def find_initial_kick_angle_coast_single_burn():
+    """
+    Finds the initial kick angle for the gravity turn using an optimization method.
+    
+    Returns:
+    --------
+    alpha_optimal : float
+        Optimal initial kick angle [rad]
+    """
+    bounds = [(sim_params.ALPHA_LOWEST, sim_params.ALPHA_HIGHEST)]
+    initial_guess = sim_params.ALPHA_INITIAL_GUESS
+
+    print("\nFinding initial kick angle for coasting single burn...\n")
+
+    # Time measurement
+    start_time = time.time()
+
+    # -- DIFFERENTIAL EVOLUTION --
+    if sim_params.OPTIMIZATION_METHOD == 1:
+        result = differential_evolution(
+            lambda x: abs(coasting_single_burn_objective(x[0])),
+            bounds=bounds,
+            tol=1e-7,
+            strategy='best1bin',
+            maxiter=1000,
+            popsize=15,
+            mutation=(0.5, 1),
+            recombination=0.7,
+            x0=[initial_guess]
+        )
+        alpha_optimal = result.x[0]
+
+    # -- BRUTE FORCE --
+    elif sim_params.OPTIMIZATION_METHOD == 2:
+        result = brute(
+            lambda x: abs(coasting_single_burn_objective(x[0])),
+            ranges=bounds,
+            Ns=1000,
+            finish=None,
+            full_output=True
+        )
+        alpha_optimal = result[0]
+    
+    else:
+        raise ValueError("Invalid optimization method. Use 1 (Differential Evolution) or 2 (Brute Force).")
+
+    # Time measurement
+    end_time = time.time()
+    print("-----------------------------------------------------\n")
+    print(f"Optimization finished after {np.round(end_time - start_time, 2)} seconds.")
+
+    return alpha_optimal
+
+
+#===================================================
+# Utility Functions for Orbital Mechanics
+#===================================================
+
+def hohman_transfer(v_initial, r_initial, r_final):
+    """
+    Calculate delta-v required for a Hohmann transfer.
+    
+    Parameters:
+    -----------
+    v_initial : float
+        Initial velocity at starting orbit [m/s]
+    r_initial : float
+        Initial orbital radius [m]
+    r_final : float
+        Final orbital radius [m]
+        
+    Returns:
+    --------
+    delta_v_total : float
+        Total delta-v required [m/s]
+    delta_v1 : float
+        First burn delta-v [m/s]
+    delta_v2 : float
+        Second burn delta-v [m/s]
+    """
+    # Transfer orbit semi-major axis
+    a_transfer = (r_initial + r_final) / 2.0
+    
+    # Delta-v for first burn (periapsis)
+    v_transfer_peri = np.sqrt(c.MU_EARTH * (2.0 / r_initial - 1.0 / a_transfer))
+    delta_v1 = v_transfer_peri - v_initial
+    
+    # Velocity at apoapsis of transfer orbit
+    v_transfer_apo = np.sqrt(c.MU_EARTH * (2.0 / r_final - 1.0 / a_transfer))
+    
+    # Circular velocity at final orbit
+    v_final = np.sqrt(c.MU_EARTH / r_final)
+    
+    # Delta-v for second burn (apoapsis)
+    delta_v2 = v_final - v_transfer_apo
+    
+    # Total delta-v
+    delta_v_total = abs(delta_v1) + abs(delta_v2)
+    
+    return delta_v_total, delta_v1, delta_v2
+
+
+def circularize_delta_v(r_val, v):
+    """
+    Computes the delta-v required to circularize an orbit at radius r with velocity v.
+
+    Parameters:
+    -----------
+    r_val : float
+        Orbital radius [m]
+    v : float
+        Current velocity [m/s]
+
+    Returns:
+    --------
+    delta_v : float
+        Delta-v required for circularization [m/s]
+    """
+    v_circular = np.sqrt(c.MU_EARTH / r_val)
+    delta_v = abs(v_circular - v)
+    
+    return delta_v
+
