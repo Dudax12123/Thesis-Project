@@ -9,9 +9,15 @@ Functions:
 - drag_force: Calculate aerodynamic drag force
 - lift_force: Calculate aerodynamic lift force
 """
+import sys
+from pathlib import Path
+
+# Add parent directory to path to enable imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import numpy as np
-import rocket_specs as r
-import constants as c
+from Auxiliary import rocket_specs as r
+from Auxiliary import constants as c
 
 
 def atmospheric_density(altitude, RHO_0=c.RHO_0, H=c.H):

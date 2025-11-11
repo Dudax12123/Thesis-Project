@@ -6,10 +6,16 @@
     that minimizes propellant usage.
 =============================================== """
 
+import sys
+from pathlib import Path
+
+# Add current directory to path to enable imports
+sys.path.insert(0, str(Path(__file__).parent))
+
 import numpy as np
-import solver
-import rocket_ascent as ra
-import simulation_parameters as sim_params
+from Simulation import solver
+from Simulation import rocket_ascent as ra
+from Input_File import simulation_parameters as sim_params
 
 
 def execute():

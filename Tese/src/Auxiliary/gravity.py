@@ -1,5 +1,11 @@
+import sys
+from pathlib import Path
+
+# Add parent directory to path to enable imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import numpy as np
-import constants as c
+from Auxiliary import constants as c
 
 def gravitational_acceleration(r, MU_EARTH=c.MU_EARTH):
     """

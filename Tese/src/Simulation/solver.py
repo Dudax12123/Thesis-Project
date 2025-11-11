@@ -6,12 +6,18 @@
     trajectories.
 =============================================== """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path to enable imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import numpy as np
-from scipy.optimize import differential_evolution, brute
+from scipy.optimize import brute
 import time
-import constants as c
-import simulation_parameters as sim_params
-import rocket_ascent as ra
+from Auxiliary import constants as c
+from Input_File import simulation_parameters as sim_params
+from Simulation import rocket_ascent as ra
 
 
 #===================================================
@@ -45,7 +51,7 @@ def coasting_single_burn_objective(kick_angle):
 
 def find_initial_kick_angle_coast_single_burn():
     """
-    Finds the initial kick angle for the gravity turn using an optimization method.
+    Finds the initial kick angle for the gravity turn using brute force optimization.
     
     Returns:
     --------
@@ -53,41 +59,21 @@ def find_initial_kick_angle_coast_single_burn():
         Optimal initial kick angle [rad]
     """
     bounds = [(sim_params.ALPHA_LOWEST, sim_params.ALPHA_HIGHEST)]
-    initial_guess = sim_params.ALPHA_INITIAL_GUESS
 
-    print("\nFinding initial kick angle for coasting single burn...\n")
+    print("\nFinding initial kick angle for coasting single burn using Brute Force...\n")
 
     # Time measurement
     start_time = time.time()
 
-    # -- DIFFERENTIAL EVOLUTION --
-    if sim_params.OPTIMIZATION_METHOD == 1:
-        result = differential_evolution(
-            lambda x: abs(coasting_single_burn_objective(x[0])),
-            bounds=bounds,
-            tol=1e-7,
-            strategy='best1bin',
-            maxiter=1000,
-            popsize=15,
-            mutation=(0.5, 1),
-            recombination=0.7,
-            x0=[initial_guess]
-        )
-        alpha_optimal = result.x[0]
-
-    # -- BRUTE FORCE --
-    elif sim_params.OPTIMIZATION_METHOD == 2:
-        result = brute(
-            lambda x: abs(coasting_single_burn_objective(x[0])),
-            ranges=bounds,
-            Ns=1000,
-            finish=None,
-            full_output=True
-        )
-        alpha_optimal = result[0]
-    
-    else:
-        raise ValueError("Invalid optimization method. Use 1 (Differential Evolution) or 2 (Brute Force).")
+    # Brute force grid search
+    result = brute(
+        lambda x: abs(coasting_single_burn_objective(x[0])),
+        ranges=bounds,
+        Ns=1000,
+        finish=None,
+        full_output=True
+    )
+    alpha_optimal = result[0]
 
     # Time measurement
     end_time = time.time()

@@ -5,11 +5,17 @@
     single-burn coasting strategy for orbital insertion.
 =============================================== """
 
-import atmosphere as atm
-import gravity as grav
-import constants as c
-import simulation_parameters as sim_params
-import rocket_specs as r
+import sys
+from pathlib import Path
+
+# Add parent directory to path to enable imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from Auxiliary import atmosphere as atm
+from Auxiliary import gravity as grav
+from Auxiliary import constants as c
+from Input_File import simulation_parameters as sim_params
+from Auxiliary import rocket_specs as r
 import numpy as np
 from scipy.integrate import solve_ivp
 
