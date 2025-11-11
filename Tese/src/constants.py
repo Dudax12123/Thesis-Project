@@ -1,0 +1,6 @@
+G_0 = 9.81                  # Earth Gravitational Acceleration at sea level [m/s^2]
+R_EARTH = 6378e3            # Earth Radius [m] 
+MU_EARTH = 3.986004418e14   # Earth Gravitational Constant [m^3/s^2]
+OMEGA_EARTH = 7.2921159e-5  # Earth Rotation Rate [rad/s]
+RHO_0 = 1.225               # Earth Sea-Level Air Density [kg/m^3]
+H = 8500                    # Earth Scale Height [m]
