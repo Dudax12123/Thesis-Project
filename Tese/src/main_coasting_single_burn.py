@@ -26,7 +26,8 @@ def execute():
     This function:
     1. Finds the optimal kick angle that minimizes propellant usage
     2. Runs a full simulation with the optimal parameters
-    3. Prints the results
+    3. Prints the results including final orbital elements
+    4. Returns the time history, state data, and optimal kick angle
     """
     
     print("="*60)
