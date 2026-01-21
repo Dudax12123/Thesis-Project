@@ -17,6 +17,7 @@ from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
+import Plots.plots as plots
 
 
 def execute():
@@ -32,6 +33,17 @@ def execute():
     
     print("="*60)
     print("COASTING SINGLE BURN TRAJECTORY OPTIMIZATION")
+    print("="*60)
+    
+    # Display guidance mode
+    if sim_params.ENABLE_POLYNOMIAL_GUIDANCE:
+        print("Guidance Mode: Gravity Turn + Polynomial Guidance")
+        print("  - Initial kick maneuver followed by polynomial guidance")
+        print("  - Guidance activates after atmosphere exit (>65 km)")
+    else:
+        print("Guidance Mode: Pure Gravity Turn")
+        print("  - Traditional gravity turn all the way")
+        print("  - Zero angle of attack after initial kick")
     print("="*60)
     
     # Set to optimization mode
@@ -73,6 +85,11 @@ def execute():
     print("\n" + "="*60)
     print("SIMULATION COMPLETE")
     print("="*60 + "\n")
+    
+    # Plot the results
+    print("Generating plots...")
+    plots.single_run(time, data, kick_angle_optimal)
+    plots.plot_trajectory_xy(data)
     
     return time, data, kick_angle_optimal
 

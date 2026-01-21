@@ -11,6 +11,21 @@ DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
+# -------------- Guidance Mode Selection --------------
+# Choose the guidance strategy for the trajectory:
+#   False: Pure gravity turn all the way (traditional method)
+#          - Initial kick maneuver, then zero angle of attack throughout
+#   True:  Gravity turn + Polynomial explicit guidance (advanced method)
+#          - Initial kick maneuver until atmosphere exit
+#          - Polynomial guidance takes over after leaving atmosphere (>65 km)
+#          - Actively steers to optimize trajectory to target orbit
+ENABLE_POLYNOMIAL_GUIDANCE = True               # Enable polynomial guidance after atmosphere exit
+
+# -------------- Polynomial Guidance Parameters --------------
+# (Only used if ENABLE_POLYNOMIAL_GUIDANCE = True)
+POLY_GUIDANCE_ORDER = 3                         # Order of polynomial (1, 2, 3, etc.)
+GUIDANCE_UPDATE_RATE = 0.1                      # How often to update guidance coefficients [s]
+
 # -------------- Optimization --------------
 ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]
@@ -35,4 +50,4 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 # FOR DEBUGGING
 # ===================================================
 INTERRUPTS_PRINT = False
-EVENTS_PRINT = False
+EVENTS_PRINT = True

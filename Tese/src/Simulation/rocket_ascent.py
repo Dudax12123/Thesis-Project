@@ -37,6 +37,13 @@ current_kick_angle = 0.0  # Store current kick angle for interrupt functions
 SINGLE_BURN_FULL_SIMULATION = False
 TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
+# Guidance phase flags
+atmosphere_exited = False
+guidance_phase_active = False
+time_atmosphere_exit = None
+last_guidance_update_time = 0.0
+guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # a0, a1, a2, a3
+
 #===================================================
 # Interrupt functions for simulation
 #===================================================
@@ -411,6 +418,121 @@ def pitch_program_linear(t, initial_kick_angle):
             return initial_kick_angle * (1 - angle_rate)
 
 
+def estimate_time_to_target(state, target_altitude):
+    """
+    Estimate time remaining until reaching target altitude.
+    
+    Parameters:
+    -----------
+    state : array
+        Current state [s, r, v, gamma, m]
+    target_altitude : float
+        Target altitude [m]
+        
+    Returns:
+    --------
+    t_go : float
+        Estimated time-to-go [s]
+    """
+    s, r_val, v, gamma, m = state
+    
+    current_alt = r_val - c.R_EARTH
+    altitude_remaining = target_altitude - current_alt
+    
+    # Simple estimation based on current radial velocity
+    v_radial = v * np.sin(gamma)
+    
+    if v_radial > 1e-3:
+        t_go = altitude_remaining / v_radial
+    else:
+        # If not climbing much, estimate based on average velocity
+        t_go = 1000.0  # Large default value
+    
+    return max(t_go, 0.1)  # Avoid division by zero issues
+
+
+def compute_guidance_coefficients(current_state, target_altitude, t_go):
+    """
+    Compute polynomial guidance coefficients based on current state and target.
+    
+    This implements a simplified polynomial guidance law that smoothly transitions
+    from the current flight path angle to the desired terminal conditions.
+    
+    Parameters:
+    -----------
+    current_state : array
+        Current state [s, r, v, gamma, m]
+    target_altitude : float
+        Target orbital altitude [m]
+    t_go : float
+        Time-to-go [s]
+        
+    Returns:
+    --------
+    coefficients : list
+        Polynomial coefficients [a0, a1, a2, a3]
+    """
+    s, r_val, v, gamma, m = current_state
+    
+    current_alt = r_val - c.R_EARTH
+    
+    # Terminal conditions for circular orbit
+    gamma_terminal = 0.0  # Horizontal flight for circular orbit
+    
+    # Boundary conditions:
+    # At t_go = t_go (now): gamma = current gamma
+    # At t_go = 0 (terminal): gamma = 0, dgamma/dt = 0
+    
+    # Using 3rd order polynomial: alpha(tau) = a0 + a1*tau + a2*tau^2 + a3*tau^3
+    # where tau = t_go/t_go_initial (goes from 1 to 0)
+    
+    # Simplified approach: linearly transition from current gamma to zero
+    a0 = gamma_terminal  # Terminal angle
+    a1 = (gamma - gamma_terminal)  # Linear term to transition
+    a2 = 0.0  # Quadratic term (can be used for shaping)
+    a3 = 0.0  # Cubic term (can be used for shaping)
+    
+    return [a0, a1, a2, a3]
+
+
+def polynomial_guidance(t, t_go, current_state, coefficients):
+    """
+    Polynomial explicit guidance for thrust angle control.
+    
+    Parameters:
+    -----------
+    t : float
+        Current time [s]
+    t_go : float
+        Time-to-go until target [s]
+    current_state : array
+        Current state [s, r, v, gamma, m]
+    coefficients : list
+        Polynomial coefficients [a0, a1, a2, a3]
+        
+    Returns:
+    --------
+    alpha : float
+        Commanded angle of attack [rad]
+    """
+    s, r_val, v, gamma, m = current_state
+    
+    # Normalized time-to-go (1 at start, 0 at end)
+    if t_go > 0.1:
+        tau = np.clip(t_go / 100.0, 0.0, 1.0)  # Normalize by typical guidance duration
+    else:
+        tau = 0.0
+    
+    # Polynomial guidance law
+    a0, a1, a2, a3 = coefficients
+    alpha = a0 + a1*tau + a2*tau**2 + a3*tau**3
+    
+    # Limit angle of attack to reasonable values
+    alpha = np.clip(alpha, -np.deg2rad(10), np.deg2rad(10))
+    
+    return alpha
+
+
 def calculate_burn_time(mass_initial, delta_v):
     """
     Calculate the burn time required for a given delta-v maneuver.
@@ -500,6 +622,8 @@ def rocket_dynamics(t, state):
     """
     global time_kick_start, kick_performed, main_engine_cutoff, flag_falling_single_burn
     global current_kick_angle
+    global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
+    global last_guidance_update_time, guidance_coefficients
 
     # Get state components
     s, r_val, v, gamma, m = state
@@ -515,10 +639,49 @@ def rocket_dynamics(t, state):
     # --- Get current thrust, Isp ---
     F_T, Isp = thrust_Isp()
 
-    # --- Get current angle of attack ---
+    # --- Get current angle of attack (GUIDANCE LOGIC) ---
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
+        # Phase 1: Initial gravity turn (pitchover)
         alpha = pitch_program_linear(t, current_kick_angle)
+        
+    elif (kick_performed and sim_params.ENABLE_POLYNOMIAL_GUIDANCE and 
+          alt > sim_params.ALT_NO_ATMOSPHERE and (not atmosphere_exited) and F_T > 0):
+        # Detect atmosphere exit (only if engines are still burning)
+        atmosphere_exited = True
+        time_atmosphere_exit = t
+        guidance_phase_active = True
+        last_guidance_update_time = t
+        
+        # Initialize guidance coefficients
+        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        guidance_coefficients = compute_guidance_coefficients(state, 
+                                                             sim_params.TARGET_ORBITAL_ALTITUDE, 
+                                                             t_go)
+        
+        if sim_params.EVENTS_PRINT:
+            print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+            print(f"  Switching to polynomial guidance mode")
+            print(f"  Initial t_go = {t_go:.2f} s")
+        
+        alpha = polynomial_guidance(t, t_go, state, guidance_coefficients)
+        
+    elif guidance_phase_active and sim_params.ENABLE_POLYNOMIAL_GUIDANCE and F_T > 0:
+        # Phase 2: Polynomial explicit guidance (only while engines are burning)
+        
+        # Update guidance coefficients periodically
+        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+            guidance_coefficients = compute_guidance_coefficients(state,
+                                                                 sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                 t_go)
+            last_guidance_update_time = t
+        
+        # Compute guidance angle
+        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        alpha = polynomial_guidance(t, t_go, state, guidance_coefficients)
+        
     else:
+        # Default: zero angle of attack
         alpha = 0.
 
     # --- Determine current accelerations and forces ---
@@ -683,6 +846,8 @@ def run(initial_kick_angle):
     global time_kick_start, kick_performed, time_raise, main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
+    global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
+    global last_guidance_update_time, guidance_coefficients
     
     #===================================================
     # Reset global variables
@@ -697,6 +862,13 @@ def run(initial_kick_angle):
     second_stage_cutoff = False
     flag_falling_single_burn = False
     current_kick_angle = initial_kick_angle  # Store for use in dynamics
+    
+    # Reset guidance phase variables
+    atmosphere_exited = False
+    guidance_phase_active = False
+    time_atmosphere_exit = None
+    last_guidance_update_time = 0.0
+    guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
 
     #===================================================
     # Simulation until stage separation
