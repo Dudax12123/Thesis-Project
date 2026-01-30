@@ -18,6 +18,7 @@ from Input_File import simulation_parameters as sim_params
 from Auxiliary import rocket_specs as r
 import Guidance.gravity_turn as gravity_turn_guidance
 import Guidance.simple_polynomial as simple_poly_guidance
+import Guidance.linear_tangent_steering as lts_guidance
 import Guidance.apollo_guidance as apollo_guidance_module
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -45,7 +46,7 @@ atmosphere_exited = False
 guidance_phase_active = False
 time_atmosphere_exit = None
 last_guidance_update_time = 0.0
-guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # For simple_poly: [a0, a1, a2, a3] or apollo: [k1, k2, k3, k4]
+guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # For simple_poly: [a0, a1] or apollo: [k1, k2, k3, k4]
 apollo_coefficients_frozen = False  # Flag to indicate if Apollo coefficients are frozen
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 
@@ -570,7 +571,7 @@ def rocket_dynamics(t, state):
         # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         alpha = pitch_program_linear(t, current_kick_angle)
         
-    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "apollo"] and 
+    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "apollo"] and 
           alt > sim_params.ALT_NO_ATMOSPHERE and (not atmosphere_exited) and F_T > 0):
         # Detect atmosphere exit and initialize guidance (only if engines burning)
         atmosphere_exited = True
@@ -592,6 +593,20 @@ def rocket_dynamics(t, state):
                 print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
                 print(f"  Switching to SIMPLE POLYNOMIAL guidance mode")
                 print(f"  Initial t_go = {t_go:.2f} s")
+        
+        elif sim_params.GUIDANCE_MODE == "linear_tangent":
+            # Linear tangent steering: tan(α + γ) varies linearly with time
+            guidance_coefficients = lts_guidance.compute_lts_coefficients(state,
+                                                               sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                               t_go)
+            alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
+            
+            if sim_params.EVENTS_PRINT:
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"  Switching to LINEAR TANGENT STEERING guidance mode")
+                print(f"  Initial t_go = {t_go:.2f} s")
+                print(f"  LTS coefficients: a={guidance_coefficients[0]:.6f}, b={guidance_coefficients[1]:.6f}")
+                print(f"  Initial alpha command: {np.rad2deg(alpha):.2f} deg")
                 
         elif sim_params.GUIDANCE_MODE == "apollo":
             # Apollo polynomial: acceleration profiles with terminal constraints
@@ -627,6 +642,21 @@ def rocket_dynamics(t, state):
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = simple_poly_guidance.polynomial_guidance(t, t_go, state, guidance_coefficients)
+    
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "linear_tangent" and F_T > 0:
+        # Phase 2b: Linear tangent steering guidance (only while engines burning)
+        
+        # Update guidance coefficients periodically
+        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+            guidance_coefficients = lts_guidance.compute_lts_coefficients(state,
+                                                               sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                               t_go)
+            last_guidance_update_time = t
+        
+        # Compute guidance angle
+        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
         # Phase 2b: Apollo polynomial guidance (only while engines burning)

@@ -20,10 +20,10 @@ def compute_polynomial_coefficients(current_state, target_altitude, t_go):
     """
     Compute polynomial guidance coefficients based on current state and target.
     
-    This implements a simplified polynomial guidance law that smoothly transitions
+    This implements a simplified polynomial guidance law that linearly transitions
     from the current flight path angle to the desired terminal conditions.
     
-    The polynomial is of the form: alpha(tau) = a0 + a1*tau + a2*tau^2 + a3*tau^3
+    The polynomial is of the form: alpha(tau) = a0 + a1*tau
     where tau is a normalized time parameter.
     
     Parameters:
@@ -43,7 +43,7 @@ def compute_polynomial_coefficients(current_state, target_altitude, t_go):
     Returns:
     --------
     coefficients : list
-        Polynomial coefficients [a0, a1, a2, a3]
+        Polynomial coefficients [a0, a1] for linear guidance law
     """
     s, r_val, v, gamma, m = current_state
     
@@ -52,24 +52,21 @@ def compute_polynomial_coefficients(current_state, target_altitude, t_go):
     # Terminal conditions for circular orbit
     gamma_terminal = 0.0  # Horizontal flight for circular orbit
     
-    # Boundary conditions:
-    # At t_go = t_go (now): gamma = current gamma
-    # At t_go = 0 (terminal): gamma = 0, dgamma/dt = 0
-    
-    # Simplified approach: linearly transition from current gamma to zero
+    # Linear transition from current gamma to zero
+    # alpha(tau) = a0 + a1*tau
+    # At tau=1 (now): alpha = gamma
+    # At tau=0 (end): alpha = 0
     a0 = gamma_terminal  # Terminal angle
-    a1 = (gamma - gamma_terminal)  # Linear term to transition
-    a2 = 0.0  # Quadratic term (can be used for shaping)
-    a3 = 0.0  # Cubic term (can be used for shaping)
+    a1 = (gamma - gamma_terminal)  # Linear slope for transition
     
-    return [a0, a1, a2, a3]
+    return [a0, a1]
 
 
 def polynomial_guidance(t, t_go, current_state, coefficients):
     """
     Polynomial explicit guidance for thrust angle control.
     
-    Computes the commanded angle of attack using a polynomial function
+    Computes the commanded angle of attack using a linear polynomial function
     that smoothly transitions the flight path angle to the terminal condition.
     
     Parameters:
@@ -86,7 +83,7 @@ def polynomial_guidance(t, t_go, current_state, coefficients):
         - gamma: flight path angle [rad]
         - m: current mass [kg]
     coefficients : list
-        Polynomial coefficients [a0, a1, a2, a3]
+        Polynomial coefficients [a0, a1] for linear guidance law
         
     Returns:
     --------
@@ -102,8 +99,8 @@ def polynomial_guidance(t, t_go, current_state, coefficients):
         tau = 0.0
     
     # Polynomial guidance law
-    a0, a1, a2, a3 = coefficients
-    alpha = a0 + a1*tau + a2*tau**2 + a3*tau**3
+    a0, a1 = coefficients
+    alpha = a0 + a1*tau 
     
     # Limit angle of attack to reasonable values
     alpha = np.clip(alpha, -np.deg2rad(10), np.deg2rad(10))
