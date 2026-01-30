@@ -150,7 +150,7 @@ def execute():
     # Plot the results
     print("Generating plots...")
     plots.single_run(time, data, kick_angle_optimal)
-    plots.plot_trajectory_xy(data)
+    plots.plot_trajectory_xy(data, time)
     
     return time, data, kick_angle_optimal
 
