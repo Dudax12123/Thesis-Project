@@ -13,18 +13,28 @@ TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desire
 
 # -------------- Guidance Mode Selection --------------
 # Choose the guidance strategy for the trajectory:
-#   False: Pure gravity turn all the way (traditional method)
-#          - Initial kick maneuver, then zero angle of attack throughout
-#   True:  Gravity turn + Polynomial explicit guidance (advanced method)
-#          - Initial kick maneuver until atmosphere exit
-#          - Polynomial guidance takes over after leaving atmosphere (>65 km)
-#          - Actively steers to optimize trajectory to target orbit
-ENABLE_POLYNOMIAL_GUIDANCE = True               # Enable polynomial guidance after atmosphere exit
+#   "gravity_turn": Pure gravity turn all the way (traditional method)
+#                   - Initial kick maneuver, then zero angle of attack throughout
+#                   - No active guidance after kick
+#   "simple_poly":  Simplified polynomial guidance (linear gamma transition)
+#                   - Initial kick until atmosphere exit
+#                   - Linear transition from current flight path angle to horizontal
+#                   - Simple, stable, but not optimal
+#   "apollo":       Apollo polynomial guidance (classical explicit guidance)
+#                   - Initial kick until atmosphere exit
+#                   - Polynomial acceleration profiles in x and y directions
+#                   - Enforces position and velocity terminal constraints
+#                   - Used in Apollo missions, more accurate than simple_poly
+GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "apollo"
 
 # -------------- Polynomial Guidance Parameters --------------
-# (Only used if ENABLE_POLYNOMIAL_GUIDANCE = True)
-POLY_GUIDANCE_ORDER = 3                         # Order of polynomial (1, 2, 3, etc.)
-GUIDANCE_UPDATE_RATE = 0.1                      # How often to update guidance coefficients [s]
+# (Only used if GUIDANCE_MODE is "simple_poly" or "apollo")
+GUIDANCE_UPDATE_RATE = 0.5                      # How often to recompute guidance coefficients [s]
+APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
+                                                 # (prevents numerical instability as tgo->0)
+APOLLO_THRUST_MAGNITUDE_CONTROL = True          # Enable thrust magnitude control for Apollo guidance
+                                                 # If True: Apollo commands both thrust angle AND magnitude
+                                                 # If False: Apollo only commands angle (fixed thrust)
 
 # -------------- Optimization --------------
 ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to be tested; [rad]

@@ -36,14 +36,28 @@ def execute():
     print("="*60)
     
     # Display guidance mode
-    if sim_params.ENABLE_POLYNOMIAL_GUIDANCE:
-        print("Guidance Mode: Gravity Turn + Polynomial Guidance")
-        print("  - Initial kick maneuver followed by polynomial guidance")
-        print("  - Guidance activates after atmosphere exit (>65 km)")
-    else:
-        print("Guidance Mode: Pure Gravity Turn")
-        print("  - Traditional gravity turn all the way")
+    guidance_mode_names = {
+        "gravity_turn": "Pure Gravity Turn",
+        "simple_poly": "Simplified Polynomial Guidance",
+        "apollo": "Apollo Polynomial Guidance"
+    }
+    
+    mode_name = guidance_mode_names.get(sim_params.GUIDANCE_MODE, "Unknown")
+    print(f"Guidance Mode: {mode_name}")
+    
+    if sim_params.GUIDANCE_MODE == "gravity_turn":
+        print("  - Traditional gravity turn throughout flight")
         print("  - Zero angle of attack after initial kick")
+    elif sim_params.GUIDANCE_MODE == "simple_poly":
+        print("  - Gravity turn until atmosphere exit (65 km)")
+        print("  - Linear flight path angle transition to horizontal")
+        print("  - Simple and stable")
+    elif sim_params.GUIDANCE_MODE == "apollo":
+        print("  - Gravity turn until atmosphere exit (65 km)")
+        print("  - Apollo-style acceleration command profiles")
+        print("  - Enforces position & velocity terminal constraints")
+        print("  - Coefficient freezing at t_go < 10s for stability")
+    
     print("="*60)
     
     # Set to optimization mode
@@ -74,6 +88,41 @@ def execute():
     a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
     print("\n" + "="*60)
+    print("MISSION EVENT TIMELINE")
+    print("="*60)
+    
+    # Get event timestamps from the simulation
+    print(f"\t* T+{0.0:.2f}s\t\t\tLiftoff")
+    
+    if ra.time_kick_start is not None:
+        print(f"\t* T+{ra.time_kick_start:.2f}s\t\tKick maneuver start")
+        kick_end_time = ra.time_kick_start + sim_params.DURATION_INITIAL_KICK
+        print(f"\t* T+{kick_end_time:.2f}s\t\tKick maneuver end")
+    
+    if ra.time_atmosphere_exit is not None:
+        print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
+        if sim_params.GUIDANCE_MODE != "gravity_turn":
+            guidance_activation_msg = {
+                "simple_poly": "Simple polynomial guidance",
+                "apollo": "Apollo polynomial guidance"
+            }.get(sim_params.GUIDANCE_MODE, "Guidance")
+            print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\t{guidance_activation_msg} activation")
+    
+    if ra.time_main_engine_cutoff is not None:
+        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
+        stage_sep_time = ra.time_main_engine_cutoff + 3.0  # TIME_First_STAGE_SEPARATION
+        print(f"\t* T+{stage_sep_time:.2f}s\t\tStage separation")
+        stage2_ignition_time = ra.time_main_engine_cutoff + 8.0  # TIME_SECOND_ENGINE_IGNITION
+        print(f"\t* T+{stage2_ignition_time:.2f}s\t\tStage 2 ignition")
+    
+    if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+        print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tStage 2 cutoff (SECO)")
+        print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tCoast phase to apogee begins")
+    
+    # Final state at end of simulation
+    print(f"\t* T+{time[-1]:.2f}s\t\tApogee reached / Simulation end")
+    
+    print("\n" + "="*60)
     print("FINAL ORBITAL ELEMENTS")
     print("="*60)
     print(f"\t* Semi-major axis:\t\t\t{a/1000:.2f} km")
@@ -81,6 +130,12 @@ def execute():
     print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
+    
+    print("\n" + "="*60)
+    print("PROPELLANT USAGE")
+    print("="*60)
+    print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
+    print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
     
     print("\n" + "="*60)
     print("SIMULATION COMPLETE")

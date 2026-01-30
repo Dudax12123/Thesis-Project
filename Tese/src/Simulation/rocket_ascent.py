@@ -16,6 +16,9 @@ from Auxiliary import gravity as grav
 from Auxiliary import constants as c
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import rocket_specs as r
+import Guidance.gravity_turn as gravity_turn_guidance
+import Guidance.simple_polynomial as simple_poly_guidance
+import Guidance.apollo_guidance as apollo_guidance_module
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -42,7 +45,9 @@ atmosphere_exited = False
 guidance_phase_active = False
 time_atmosphere_exit = None
 last_guidance_update_time = 0.0
-guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # a0, a1, a2, a3
+guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # For simple_poly: [a0, a1, a2, a3] or apollo: [k1, k2, k3, k4]
+apollo_coefficients_frozen = False  # Flag to indicate if Apollo coefficients are frozen
+apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 
 #===================================================
 # Interrupt functions for simulation
@@ -451,88 +456,6 @@ def estimate_time_to_target(state, target_altitude):
     return max(t_go, 0.1)  # Avoid division by zero issues
 
 
-def compute_guidance_coefficients(current_state, target_altitude, t_go):
-    """
-    Compute polynomial guidance coefficients based on current state and target.
-    
-    This implements a simplified polynomial guidance law that smoothly transitions
-    from the current flight path angle to the desired terminal conditions.
-    
-    Parameters:
-    -----------
-    current_state : array
-        Current state [s, r, v, gamma, m]
-    target_altitude : float
-        Target orbital altitude [m]
-    t_go : float
-        Time-to-go [s]
-        
-    Returns:
-    --------
-    coefficients : list
-        Polynomial coefficients [a0, a1, a2, a3]
-    """
-    s, r_val, v, gamma, m = current_state
-    
-    current_alt = r_val - c.R_EARTH
-    
-    # Terminal conditions for circular orbit
-    gamma_terminal = 0.0  # Horizontal flight for circular orbit
-    
-    # Boundary conditions:
-    # At t_go = t_go (now): gamma = current gamma
-    # At t_go = 0 (terminal): gamma = 0, dgamma/dt = 0
-    
-    # Using 3rd order polynomial: alpha(tau) = a0 + a1*tau + a2*tau^2 + a3*tau^3
-    # where tau = t_go/t_go_initial (goes from 1 to 0)
-    
-    # Simplified approach: linearly transition from current gamma to zero
-    a0 = gamma_terminal  # Terminal angle
-    a1 = (gamma - gamma_terminal)  # Linear term to transition
-    a2 = 0.0  # Quadratic term (can be used for shaping)
-    a3 = 0.0  # Cubic term (can be used for shaping)
-    
-    return [a0, a1, a2, a3]
-
-
-def polynomial_guidance(t, t_go, current_state, coefficients):
-    """
-    Polynomial explicit guidance for thrust angle control.
-    
-    Parameters:
-    -----------
-    t : float
-        Current time [s]
-    t_go : float
-        Time-to-go until target [s]
-    current_state : array
-        Current state [s, r, v, gamma, m]
-    coefficients : list
-        Polynomial coefficients [a0, a1, a2, a3]
-        
-    Returns:
-    --------
-    alpha : float
-        Commanded angle of attack [rad]
-    """
-    s, r_val, v, gamma, m = current_state
-    
-    # Normalized time-to-go (1 at start, 0 at end)
-    if t_go > 0.1:
-        tau = np.clip(t_go / 100.0, 0.0, 1.0)  # Normalize by typical guidance duration
-    else:
-        tau = 0.0
-    
-    # Polynomial guidance law
-    a0, a1, a2, a3 = coefficients
-    alpha = a0 + a1*tau + a2*tau**2 + a3*tau**3
-    
-    # Limit angle of attack to reasonable values
-    alpha = np.clip(alpha, -np.deg2rad(10), np.deg2rad(10))
-    
-    return alpha
-
-
 def calculate_burn_time(mass_initial, delta_v):
     """
     Calculate the burn time required for a given delta-v maneuver.
@@ -624,6 +547,7 @@ def rocket_dynamics(t, state):
     global current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
     global last_guidance_update_time, guidance_coefficients
+    global apollo_coefficients_frozen, apollo_freeze_time
 
     # Get state components
     s, r_val, v, gamma, m = state
@@ -640,48 +564,108 @@ def rocket_dynamics(t, state):
     F_T, Isp = thrust_Isp()
 
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
+    # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
+    
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
-        # Phase 1: Initial gravity turn (pitchover)
+        # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         alpha = pitch_program_linear(t, current_kick_angle)
         
-    elif (kick_performed and sim_params.ENABLE_POLYNOMIAL_GUIDANCE and 
+    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "apollo"] and 
           alt > sim_params.ALT_NO_ATMOSPHERE and (not atmosphere_exited) and F_T > 0):
-        # Detect atmosphere exit (only if engines are still burning)
+        # Detect atmosphere exit and initialize guidance (only if engines burning)
         atmosphere_exited = True
         time_atmosphere_exit = t
         guidance_phase_active = True
         last_guidance_update_time = t
         
-        # Initialize guidance coefficients
+        # Initialize guidance coefficients based on mode
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-        guidance_coefficients = compute_guidance_coefficients(state, 
-                                                             sim_params.TARGET_ORBITAL_ALTITUDE, 
-                                                             t_go)
         
-        if sim_params.EVENTS_PRINT:
-            print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
-            print(f"  Switching to polynomial guidance mode")
-            print(f"  Initial t_go = {t_go:.2f} s")
+        if sim_params.GUIDANCE_MODE == "simple_poly":
+            # Simple polynomial: linear gamma transition
+            guidance_coefficients = simple_poly_guidance.compute_polynomial_coefficients(state, 
+                                                                 sim_params.TARGET_ORBITAL_ALTITUDE, 
+                                                                 t_go)
+            alpha = simple_poly_guidance.polynomial_guidance(t, t_go, state, guidance_coefficients)
+            
+            if sim_params.EVENTS_PRINT:
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"  Switching to SIMPLE POLYNOMIAL guidance mode")
+                print(f"  Initial t_go = {t_go:.2f} s")
+                
+        elif sim_params.GUIDANCE_MODE == "apollo":
+            # Apollo polynomial: acceleration profiles with terminal constraints
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
+                                                               sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                               t_go)
+            apollo_freeze_time = t  # Initialize freeze time
+            apollo_coefficients_frozen = False
+            alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
+            
+            if sim_params.EVENTS_PRINT:
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"  Switching to APOLLO POLYNOMIAL guidance mode")
+                print(f"  Thrust magnitude control: {sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL}")
+                print(f"  Current downrange: {s/1000:.2f} km")
+                print(f"  Initial t_go = {t_go:.2f} s")
+                print(f"  Apollo coefficients: k1={guidance_coefficients[0]:.6f}, k2={guidance_coefficients[1]:.6f}, k3={guidance_coefficients[2]:.6f}, k4={guidance_coefficients[3]:.6f}")
+                print(f"  Initial alpha command: {np.rad2deg(alpha):.2f} deg")
+                if sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL:
+                    print(f"  Commanded thrust accel: {a_thrust_cmd:.2f} m/s²")
         
-        alpha = polynomial_guidance(t, t_go, state, guidance_coefficients)
-        
-    elif guidance_phase_active and sim_params.ENABLE_POLYNOMIAL_GUIDANCE and F_T > 0:
-        # Phase 2: Polynomial explicit guidance (only while engines are burning)
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "simple_poly" and F_T > 0:
+        # Phase 2a: Simple polynomial guidance (only while engines burning)
         
         # Update guidance coefficients periodically
         if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-            guidance_coefficients = compute_guidance_coefficients(state,
+            guidance_coefficients = simple_poly_guidance.compute_polynomial_coefficients(state,
                                                                  sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                  t_go)
             last_guidance_update_time = t
         
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-        alpha = polynomial_guidance(t, t_go, state, guidance_coefficients)
+        alpha = simple_poly_guidance.polynomial_guidance(t, t_go, state, guidance_coefficients)
+        
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
+        # Phase 2b: Apollo polynomial guidance (only while engines burning)
+        
+        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        
+        # Check if we should freeze coefficients (t_go below threshold)
+        if t_go < sim_params.APOLLO_FREEZE_THRESHOLD and not apollo_coefficients_frozen:
+            # Freeze coefficients to prevent numerical instability
+            # Justification: As t_go->0, denominators in k1,k2,k3,k4 cause unbounded growth
+            apollo_coefficients_frozen = True
+            apollo_freeze_time = t
+            
+            if sim_params.EVENTS_PRINT:
+                print(f"\n  Apollo coefficients FROZEN at t = {t:.2f} s (t_go = {t_go:.2f} s)")
+        
+        # Update coefficients if not frozen and update interval reached
+        if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
+                                                               sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                               t_go)
+            apollo_freeze_time = t  # Update epoch time
+            last_guidance_update_time = t
+        
+        # Compute guidance angle using current or frozen coefficients
+        alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
+        
+        # Apply thrust magnitude control if enabled
+        if sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL:
+            # Override thrust with commanded magnitude
+            # Convert acceleration command to force
+            F_T_commanded = m * a_thrust_cmd
+            # Get the nominal (maximum) thrust available
+            F_T_nominal, _ = thrust_Isp()
+            # Use commanded thrust but limit to maximum available
+            F_T = min(F_T_commanded, F_T_nominal)
         
     else:
-        # Default: zero angle of attack
+        # Default: zero angle of attack (gravity turn mode or coasting)
         alpha = 0.
 
     # --- Determine current accelerations and forces ---
