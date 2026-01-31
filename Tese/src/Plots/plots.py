@@ -40,9 +40,9 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         - angle of attack over time
         
     Phase transition markers are added to show:
-        - Guidance activation (atmosphere exit)
+        - Guidance activation (atmosphere exit at 65 km)
         - Powered ascent to coasting transition (SECO)
-        - Coasting end / orbit insertion (apogee)
+        - Orbit insertion (circularization burn at apogee)
     """
 
     # Reduce data array
@@ -52,7 +52,24 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
     # Get phase transition times from rocket_ascent module
     time_guidance = ra.time_atmosphere_exit  # Guidance activation (atmosphere exit)
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL  # End of powered ascent
-    time_apogee = time_steps[-1]  # End of coasting (apogee)
+    
+    # Find orbit insertion (apogee) by detecting velocity discontinuity
+    # The instantaneous circularization burn causes a velocity jump
+    time_insertion = None
+    if time_seco is not None:
+        # Look for velocity discontinuity after SECO
+        velocity_full = data[2]  # Full velocity array (not reduced)
+        for i in range(1, len(velocity_full)):
+            if time_steps[i] > time_seco:
+                # Check for sudden velocity increase (delta-v application)
+                velocity_jump = velocity_full[i] - velocity_full[i-1]
+                time_diff = time_steps[i] - time_steps[i-1]
+                if time_diff > 0:
+                    accel = velocity_jump / time_diff
+                    # Delta-v application shows as very high acceleration (>100 m/s²)
+                    if accel > 100.0:
+                        time_insertion = time_steps[i]
+                        break
     
     # Helper function to find closest index in reduced time array
     def find_closest_index(time_array, target_time):
@@ -63,7 +80,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
     # Find indices for phase transitions
     idx_guidance = find_closest_index(time_reduced, time_guidance)
     idx_seco = find_closest_index(time_reduced, time_seco)
-    idx_apogee = find_closest_index(time_reduced, time_apogee)
+    idx_insertion = find_closest_index(time_reduced, time_insertion)
 
     # -------------- Prepare data --------------
     h = (data_reduced[1] - c.R_EARTH) / 1000.       # altitude h; [km]
@@ -157,8 +174,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[0, 0].plot(s[idx_guidance], h[idx_guidance], 'b^', markersize=8, label='Guidance Activation', zorder=5)
     if idx_seco is not None:
         axs1[0, 0].plot(s[idx_seco], h[idx_seco], 'ro', markersize=8, label='SECO (Coasting Start)', zorder=5)
-    if idx_apogee is not None:
-        axs1[0, 0].plot(s[idx_apogee], h[idx_apogee], 'gs', markersize=8, label='Apogee (Insertion)', zorder=5)
+    if idx_insertion is not None:
+        axs1[0, 0].plot(s[idx_insertion], h[idx_insertion], 'gs', markersize=8, label='Orbit Insertion', zorder=5)
     axs1[0, 0].set_xlabel('downtrack s [km]')
     axs1[0, 0].set_ylabel('altitude h [km]')
     axs1[0, 0].set_title('Trajectory of Rocket')
@@ -171,8 +188,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[0, 1].plot(time_reduced[idx_guidance], s[idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[0, 1].plot(time_reduced[idx_seco], s[idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[0, 1].plot(time_reduced[idx_apogee], s[idx_apogee], 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[0, 1].plot(time_reduced[idx_insertion], s[idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[0, 1].set_xlabel('time [s]')
     axs1[0, 1].set_ylabel('downtrack s [km]')
     axs1[0, 1].set_title('Downtrack over Time')
@@ -185,8 +202,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[0, 2].plot(time_reduced[idx_guidance], h[idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[0, 2].plot(time_reduced[idx_seco], h[idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[0, 2].plot(time_reduced[idx_apogee], h[idx_apogee], 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[0, 2].plot(time_reduced[idx_insertion], h[idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[0, 2].set_xlabel('time [s]')
     axs1[0, 2].set_ylabel('altitude h [km]')
     axs1[0, 2].set_title('Altitude over Time')
@@ -199,8 +216,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[0, 3].plot(time_reduced[idx_guidance], data_reduced[2][idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[0, 3].plot(time_reduced[idx_seco], data_reduced[2][idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[0, 3].plot(time_reduced[idx_apogee], data_reduced[2][idx_apogee], 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[0, 3].plot(time_reduced[idx_insertion], data_reduced[2][idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[0, 3].set_xlabel('time [s]')
     axs1[0, 3].set_ylabel('v [m/s]')
     axs1[0, 3].set_title('Velocity Norm over Time')
@@ -213,8 +230,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[1, 0].plot(time_reduced[idx_guidance], np.rad2deg(data_reduced[3][idx_guidance]), 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[1, 0].plot(time_reduced[idx_seco], np.rad2deg(data_reduced[3][idx_seco]), 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[1, 0].plot(time_reduced[idx_apogee], np.rad2deg(data_reduced[3][idx_apogee]), 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[1, 0].plot(time_reduced[idx_insertion], np.rad2deg(data_reduced[3][idx_insertion]), 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[1, 0].set_xlabel('time [s]')
     axs1[1, 0].set_ylabel('gamma [deg]')
     axs1[1, 0].set_title('Flight Path Angle over Time')
@@ -227,8 +244,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[1, 1].plot(time_reduced[idx_guidance], data_reduced[4][idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[1, 1].plot(time_reduced[idx_seco], data_reduced[4][idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[1, 1].plot(time_reduced[idx_apogee], data_reduced[4][idx_apogee], 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[1, 1].plot(time_reduced[idx_insertion], data_reduced[4][idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[1, 1].set_xlabel('time [s]')
     axs1[1, 1].set_ylabel('mass [kg]')
     axs1[1, 1].set_title('Mass of Rocket over Time')
@@ -241,8 +258,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[1, 2].plot(time_reduced[idx_guidance], q[idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[1, 2].plot(time_reduced[idx_seco], q[idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[1, 2].plot(time_reduced[idx_apogee], q[idx_apogee], 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[1, 2].plot(time_reduced[idx_insertion], q[idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[1, 2].set_xlabel('time [s]')
     axs1[1, 2].set_ylabel('q [Pa]')
     axs1[1, 2].set_title('Dynamic Pressure over Time')
@@ -255,8 +272,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
         axs1[1, 3].plot(time_reduced[idx_guidance], np.rad2deg(angle_of_attacks[idx_guidance]), 'b^', markersize=8, label='Guidance', zorder=5)
     if idx_seco is not None:
         axs1[1, 3].plot(time_reduced[idx_seco], np.rad2deg(angle_of_attacks[idx_seco]), 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_apogee is not None:
-        axs1[1, 3].plot(time_reduced[idx_apogee], np.rad2deg(angle_of_attacks[idx_apogee]), 'gs', markersize=8, label='Apogee', zorder=5)
+    if idx_insertion is not None:
+        axs1[1, 3].plot(time_reduced[idx_insertion], np.rad2deg(angle_of_attacks[idx_insertion]), 'gs', markersize=8, label='Insertion', zorder=5)
     axs1[1, 3].set_xlabel('time [s]')
     axs1[1, 3].set_ylabel('angle of attack [deg]')
     axs1[1, 3].set_title('Angle of Attack over Time')
@@ -300,7 +317,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
 def plot_trajectory_xy(data, time_steps):
     """
     Plots the rocket trajectory in x-y coordinates with Earth shown as a blue disk.
-    Phase transition markers show guidance activation, powered-to-coasting, and coasting-to-insertion.
+    Phase transition markers show guidance activation, powered-to-coasting, and orbit insertion.
     
     Inputs:
         - data: array of data points with the following structure:
@@ -315,7 +332,20 @@ def plot_trajectory_xy(data, time_steps):
     # Get phase transition times
     time_guidance = ra.time_atmosphere_exit
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
-    time_apogee = time_steps[-1]
+    
+    # Find orbit insertion by detecting velocity discontinuity
+    time_insertion = None
+    if time_seco is not None:
+        velocity_full = data[2]
+        for i in range(1, len(velocity_full)):
+            if time_steps[i] > time_seco:
+                velocity_jump = velocity_full[i] - velocity_full[i-1]
+                time_diff = time_steps[i] - time_steps[i-1]
+                if time_diff > 0:
+                    accel = velocity_jump / time_diff
+                    if accel > 100.0:
+                        time_insertion = time_steps[i]
+                        break
     
     # Helper function to find closest index
     def find_closest_index(time_array, target_time):
@@ -326,7 +356,7 @@ def plot_trajectory_xy(data, time_steps):
     # Find indices for phase transitions
     idx_guidance = find_closest_index(time_reduced, time_guidance)
     idx_seco = find_closest_index(time_reduced, time_seco)
-    idx_apogee = find_closest_index(time_reduced, time_apogee)
+    idx_insertion = find_closest_index(time_reduced, time_insertion)
 
     # -------------- Prepare data --------------
     h = (data_reduced[1] - c.R_EARTH)       # altitude h; [m]
@@ -351,9 +381,9 @@ def plot_trajectory_xy(data, time_steps):
     if idx_seco is not None:
         ax.plot(x[idx_seco], y[idx_seco], 'ro', markersize=12, 
                label='SECO (Coasting Start)', zorder=5)
-    if idx_apogee is not None:
-        ax.plot(x[idx_apogee], y[idx_apogee], 'gs', markersize=12, 
-               label='Apogee (Insertion)', zorder=5)
+    if idx_insertion is not None:
+        ax.plot(x[idx_insertion], y[idx_insertion], 'gs', markersize=12, 
+               label='Orbit Insertion', zorder=5)
     
     # Create Earth representation (circular disk)
     earth_radius_km = c.R_EARTH / 1000.0

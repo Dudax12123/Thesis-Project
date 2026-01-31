@@ -18,6 +18,7 @@ from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
 import Plots.plots as plots
+import Plots.guidance_phase_plots as guidance_plots
 
 
 def execute():
@@ -124,9 +125,26 @@ def execute():
     if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
         print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tStage 2 cutoff (SECO)")
         print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tCoast phase to apogee begins")
+        
+        # Find orbit insertion time by detecting velocity discontinuity
+        time_insertion = None
+        velocity_full = data[2]
+        for i in range(1, len(velocity_full)):
+            if time[i] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:
+                velocity_jump = velocity_full[i] - velocity_full[i-1]
+                time_diff = time[i] - time[i-1]
+                if time_diff > 0:
+                    accel = velocity_jump / time_diff
+                    if accel > 100.0:  # Delta-v application shows high acceleration
+                        time_insertion = time[i]
+                        break
+        
+        if time_insertion is not None:
+            print(f"\t* T+{time_insertion:.2f}s\t\t\tOrbit insertion (circularization burn)")
     
     # Final state at end of simulation
-    print(f"\t* T+{time[-1]:.2f}s\t\tApogee reached / Simulation end")
+    print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
+
     
     print("\n" + "="*60)
     print("FINAL ORBITAL ELEMENTS")
@@ -151,6 +169,11 @@ def execute():
     print("Generating plots...")
     plots.single_run(time, data, kick_angle_optimal)
     plots.plot_trajectory_xy(data, time)
+    
+    # Generate detailed guidance phase plots
+    if sim_params.GUIDANCE_MODE != "gravity_turn" and ra.time_atmosphere_exit is not None:
+        print("\nGenerating detailed guidance phase analysis...")
+        guidance_plots.plot_guidance_phase(time, data)
     
     return time, data, kick_angle_optimal
 
