@@ -239,3 +239,98 @@ def plot_guidance_phase(time_steps, data):
     print(f"\t* Distance covered:\t{s[-1] - s[0]:.2f} km")
     
     print("="*60 + "\n")
+
+
+def plot_trajectory_to_seco(time_steps, data):
+    """
+    Plots the rocket trajectory from launch to SECO with Earth shown as a blue disk.
+    The guidance phase is highlighted in a different color.
+    
+    Inputs:
+        - time_steps: array of time steps [s]
+        - data: array of data points with structure:
+            * data[0]: downtrack s; [m]
+            * data[1]: current radius r from Earth's center; [m]
+    """
+    
+    # Get phase transition times
+    time_guidance = ra.time_atmosphere_exit
+    time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    
+    if time_seco is None:
+        print("Cannot plot trajectory to SECO: SECO time not available")
+        return
+    
+    # Find index for SECO
+    idx_seco = np.argmin(np.abs(time_steps - time_seco))
+    
+    # Extract data up to SECO
+    data_to_seco = data[:, :idx_seco+1]
+    
+    # Reduce data for plotting
+    reduction_factor = 10
+    data_reduced = data_to_seco[:, ::reduction_factor]
+    time_reduced = time_steps[:idx_seco+1:reduction_factor]
+    
+    # Prepare data
+    h = (data_reduced[1] - c.R_EARTH)       # altitude h; [m]
+    s = data_reduced[0]                     # downtrack s; [m]
+    
+    # Convert to cartesian coordinates
+    x, y = ra.cartesian_coordinates(h, s)
+    x = x / 1000.
+    y = y / 1000.
+    
+    # Find guidance phase indices in reduced data
+    if time_guidance is not None:
+        idx_guidance_reduced = np.argmin(np.abs(time_reduced - time_guidance))
+    else:
+        idx_guidance_reduced = 0
+    
+    # Plot setup
+    fig, ax = plt.subplots(figsize=(12, 12))
+    ax.set_facecolor("black")
+    
+    # Plot trajectory in two segments with different colors
+    # Segment 1: Launch to atmosphere exit (gravity turn phase) - white
+    ax.plot(x[:idx_guidance_reduced+1], y[:idx_guidance_reduced+1], 
+           color="white", linewidth=2, label="Initial Gravity Turn", zorder=3)
+    
+    # Segment 2: Atmosphere exit to SECO (guidance phase) - cyan
+    if time_guidance is not None:
+        ax.plot(x[idx_guidance_reduced:], y[idx_guidance_reduced:], 
+               color="cyan", linewidth=2.5, label="Active Guidance Phase", zorder=4)
+    
+    # Add markers
+    ax.plot(x[0], y[0], 'go', markersize=12, label='Launch', zorder=5)
+    
+    if time_guidance is not None:
+        ax.plot(x[idx_guidance_reduced], y[idx_guidance_reduced], 'y^', 
+               markersize=14, label='Guidance Activation', zorder=5)
+    
+    ax.plot(x[-1], y[-1], 'ro', markersize=14, label='SECO (Coasting Start)', zorder=5)
+    
+    # Create Earth representation (circular disk)
+    earth_radius_km = c.R_EARTH / 1000.0
+    earth = plt.Circle((0, 0), earth_radius_km, color='blue', zorder=1)
+    
+    # Show Earth
+    ax.add_patch(earth)
+    
+    # Labels and aesthetics
+    ax.set_xlabel("Downtrack Distance (km)", color="white", fontsize=12)
+    ax.set_ylabel("Altitude (km)", color="white", fontsize=12)
+    ax.set_title("Powered Ascent Trajectory (Launch to SECO)", color="white", fontsize=14, fontweight='bold')
+    ax.tick_params(colors='white')
+    ax.grid(color='gray', linestyle='--', linewidth=0.5, alpha=0.3)
+    ax.legend(loc='upper left', fontsize=10)
+    
+    # Set limits to show the trajectory clearly
+    margin = 500
+    ax.set_xlim(min(x) - margin, max(x) + margin)
+    ax.set_ylim(min(y) - margin, max(y) + margin)
+    ax.set_aspect('equal')
+    
+    plt.tight_layout()
+    plt.show()
+

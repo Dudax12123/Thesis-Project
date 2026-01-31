@@ -174,6 +174,7 @@ def execute():
     if sim_params.GUIDANCE_MODE != "gravity_turn" and ra.time_atmosphere_exit is not None:
         print("\nGenerating detailed guidance phase analysis...")
         guidance_plots.plot_guidance_phase(time, data)
+        guidance_plots.plot_trajectory_to_seco(time, data)
     
     return time, data, kick_angle_optimal
 
