@@ -20,7 +20,6 @@ from Auxiliary import constants as c
 import Plots.plots as plots
 import Plots.guidance_phase_plots as guidance_plots
 
-
 def execute():
     """
     Main execution function for coasting single burn optimization.
