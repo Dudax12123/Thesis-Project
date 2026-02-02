@@ -16,6 +16,130 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from Auxiliary import constants as c
 from Input_File import simulation_parameters as sim_params
 from Simulation import rocket_ascent as ra
+from Auxiliary import rocket_specs as r
+
+
+def plot_key_parameters(time_steps, data):
+    """
+    Creates a 4-panel plot showing key trajectory parameters over time.
+    
+    Plots:
+        - Altitude vs Time
+        - Thrust vs Time
+        - Propellant Mass vs Time
+        - Flight Path Angle vs Time
+    
+    Inputs:
+        - time_steps: array of time steps [s]
+        - data: array of data points with structure:
+            * data[0]: downtrack s; [m]
+            * data[1]: current radius r from Earth's center; [m]
+            * data[2]: velocity norm; [m/s]
+            * data[3]: flight path angle; [rad]
+            * data[4]: mass of the rocket; [kg]
+    """
+    
+    # Get phase transition times
+    time_guidance = ra.time_atmosphere_exit
+    time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    time_meco = ra.time_main_engine_cutoff
+    
+    # Reduce data for plotting
+    reduction_factor = 10
+    time_reduced = time_steps[::reduction_factor]
+    data_reduced = data[:, ::reduction_factor]
+    
+    # Prepare data
+    h = (data_reduced[1] - c.R_EARTH) / 1000.       # altitude h; [km]
+    gamma = data_reduced[3]                          # flight path angle; [rad]
+    m_total = data_reduced[4]                        # total mass; [kg]
+    
+    # Compute propellant mass (total mass minus structure and payload)
+    m_prop = m_total - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD)
+    
+    # Compute thrust over time
+    thrust = np.zeros(len(time_reduced))
+    for i, t in enumerate(time_reduced):
+        if time_meco is None or t < time_meco:
+            # First stage burning
+            thrust[i] = r.F_THRUST_1 / 1000.  # Convert to kN
+        elif time_seco is None or t < time_seco:
+            # Check if second stage ignited
+            if time_meco is not None and t < (time_meco + r.TIME_SECOND_ENGINE_IGNITION):
+                thrust[i] = 0.0  # Coast between stages
+            else:
+                thrust[i] = r.F_THRUST_2 / 1000.  # Second stage burning
+        else:
+            thrust[i] = 0.0  # Coasting
+    
+    # Create figure with single plot and multiple y-axes
+    fig, ax1 = plt.subplots(figsize=(14, 8))
+    fig.suptitle('Key Trajectory Parameters Over Time', fontsize=16, fontweight='bold')
+    
+    # First y-axis: Altitude (left side)
+    color1 = 'tab:blue'
+    ax1.set_xlabel('Time [s]', fontsize=12, fontweight='bold')
+    ax1.set_ylabel('Altitude [km]', color=color1, fontsize=12, fontweight='bold')
+    line1 = ax1.plot(time_reduced, h, color=color1, linewidth=2.5, label='Altitude')
+    ax1.tick_params(axis='y', labelcolor=color1)
+    ax1.grid(True, alpha=0.3)
+    
+    # Second y-axis: Thrust
+    ax2 = ax1.twinx()
+    color2 = 'tab:red'
+    ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=12, fontweight='bold')
+    line2 = ax2.plot(time_reduced, thrust, color=color2, linewidth=2.5, label='Thrust')
+    ax2.tick_params(axis='y', labelcolor=color2)
+    
+    # Third y-axis: Propellant Mass
+    ax3 = ax1.twinx()
+    ax3.spines['right'].set_position(('outward', 60))
+    color3 = 'tab:green'
+    ax3.set_ylabel('Propellant Mass [kg]', color=color3, fontsize=12, fontweight='bold')
+    line3 = ax3.plot(time_reduced, m_prop, color=color3, linewidth=2.5, label='Propellant Mass')
+    ax3.tick_params(axis='y', labelcolor=color3)
+    
+    # Fourth y-axis: Flight Path Angle
+    ax4 = ax1.twinx()
+    ax4.spines['right'].set_position(('outward', 120))
+    color4 = 'tab:purple'
+    ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=12, fontweight='bold')
+    line4 = ax4.plot(time_reduced, np.rad2deg(gamma), color=color4, linewidth=2.5, label='Flight Path Angle')
+    ax4.tick_params(axis='y', labelcolor=color4)
+    ax4.axhline(y=0, color=color4, linestyle=':', linewidth=1, alpha=0.3)
+    
+    # Add vertical lines for phase transitions
+    if time_guidance is not None:
+        ax1.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7)
+    if time_meco is not None:
+        ax1.axvline(x=time_meco, color='orange', linestyle='--', linewidth=2, alpha=0.7)
+    if time_seco is not None:
+        ax1.axvline(x=time_seco, color='black', linestyle='--', linewidth=2, alpha=0.7)
+    
+    # Create combined legend
+    lines = line1 + line2 + line3 + line4
+    labels = [l.get_label() for l in lines]
+    
+    # Add phase markers to legend
+    from matplotlib.lines import Line2D
+    legend_elements = lines.copy()
+    legend_labels = labels.copy()
+    
+    if time_guidance is not None:
+        legend_elements.append(Line2D([0], [0], color='cyan', linestyle='--', linewidth=2))
+        legend_labels.append('Guidance Activation')
+    if time_meco is not None:
+        legend_elements.append(Line2D([0], [0], color='orange', linestyle='--', linewidth=2))
+        legend_labels.append('MECO (Stage 1 Cutoff)')
+    if time_seco is not None:
+        legend_elements.append(Line2D([0], [0], color='black', linestyle='--', linewidth=2))
+        legend_labels.append('SECO (Coasting Start)')
+    
+    ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=10, framealpha=0.9)
+    
+    plt.tight_layout()
+    plt.show()
+
 
 
 def plot_guidance_phase(time_steps, data):

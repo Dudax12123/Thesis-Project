@@ -167,6 +167,11 @@ def execute():
     
     # Plot the results
     print("Generating plots...")
+    
+    # Key parameters plot (always shown)
+    guidance_plots.plot_key_parameters(time, data)
+    
+    # Full mission plots
     plots.single_run(time, data, kick_angle_optimal)
     plots.plot_trajectory_xy(data, time)
     
@@ -177,7 +182,6 @@ def execute():
         guidance_plots.plot_trajectory_to_seco(time, data)
     
     return time, data, kick_angle_optimal
-
 
 if __name__ == "__main__":
     execute()

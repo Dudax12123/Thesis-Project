@@ -85,6 +85,26 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
     # -------------- Prepare data --------------
     h = (data_reduced[1] - c.R_EARTH) / 1000.       # altitude h; [km]
     s = data_reduced[0] / 1000.                     # downtrack s; [km]
+    
+    # Compute propellant mass (total mass minus structure and payload)
+    m_total = data_reduced[4]
+    m_prop = m_total - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD)
+    
+    # Compute thrust over time
+    time_meco = ra.time_main_engine_cutoff
+    thrust = np.zeros(len(time_reduced))
+    for i, t in enumerate(time_reduced):
+        if time_meco is None or t < time_meco:
+            # First stage burning
+            thrust[i] = r.F_THRUST_1 / 1000.  # Convert to kN
+        elif time_seco is None or t < time_seco:
+            # Check if second stage ignited
+            if time_meco is not None and t < (time_meco + r.TIME_SECOND_ENGINE_IGNITION):
+                thrust[i] = 0.0  # Coast between stages
+            else:
+                thrust[i] = r.F_THRUST_2 / 1000.  # Second stage burning
+        else:
+            thrust[i] = 0.0  # Coasting
 
     q = [0.0] * len(time_reduced)          # dynamic pressure; [Pa]
     for i in range(len(time_reduced)):
@@ -166,120 +186,65 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
 
 
     # -------------- Plotting --------------
-    fig1, axs1 = plt.subplots(2, 4, figsize=(15, 15))
+    fig1, axs1 = plt.subplots(2, 2, figsize=(14, 10))
+    fig1.suptitle('Full Mission Trajectory', fontsize=16, fontweight='bold')
 
-    # Position plot: r over s
-    axs1[0, 0].plot(s, h)
+    # Altitude over time
+    axs1[0, 0].plot(time_reduced, h, 'b-', linewidth=2)
     if idx_guidance is not None:
-        axs1[0, 0].plot(s[idx_guidance], h[idx_guidance], 'b^', markersize=8, label='Guidance Activation', zorder=5)
+        axs1[0, 0].plot(time_reduced[idx_guidance], h[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
     if idx_seco is not None:
-        axs1[0, 0].plot(s[idx_seco], h[idx_seco], 'ro', markersize=8, label='SECO (Coasting Start)', zorder=5)
+        axs1[0, 0].plot(time_reduced[idx_seco], h[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
     if idx_insertion is not None:
-        axs1[0, 0].plot(s[idx_insertion], h[idx_insertion], 'gs', markersize=8, label='Orbit Insertion', zorder=5)
-    axs1[0, 0].set_xlabel('downtrack s [km]')
-    axs1[0, 0].set_ylabel('altitude h [km]')
-    axs1[0, 0].set_title('Trajectory of Rocket')
-    axs1[0, 0].legend(fontsize=7)
-    axs1[0, 0].grid()
+        axs1[0, 0].plot(time_reduced[idx_insertion], h[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+    axs1[0, 0].set_xlabel('Time [s]', fontsize=11)
+    axs1[0, 0].set_ylabel('Altitude [km]', fontsize=11)
+    axs1[0, 0].set_title('Altitude over Time', fontsize=12, fontweight='bold')
+    axs1[0, 0].legend(fontsize=9)
+    axs1[0, 0].grid(True, alpha=0.3)
 
-    # Position plot: downtrack over time
-    axs1[0, 1].plot(time_reduced, s)
+    # Thrust over time
+    axs1[0, 1].plot(time_reduced, thrust, 'r-', linewidth=2)
     if idx_guidance is not None:
-        axs1[0, 1].plot(time_reduced[idx_guidance], s[idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
+        axs1[0, 1].plot(time_reduced[idx_guidance], thrust[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
     if idx_seco is not None:
-        axs1[0, 1].plot(time_reduced[idx_seco], s[idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
+        axs1[0, 1].plot(time_reduced[idx_seco], thrust[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
     if idx_insertion is not None:
-        axs1[0, 1].plot(time_reduced[idx_insertion], s[idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[0, 1].set_xlabel('time [s]')
-    axs1[0, 1].set_ylabel('downtrack s [km]')
-    axs1[0, 1].set_title('Downtrack over Time')
-    axs1[0, 1].legend(fontsize=7)
-    axs1[0, 1].grid()
+        axs1[0, 1].plot(time_reduced[idx_insertion], thrust[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+    axs1[0, 1].set_xlabel('Time [s]', fontsize=11)
+    axs1[0, 1].set_ylabel('Thrust [kN]', fontsize=11)
+    axs1[0, 1].set_title('Thrust over Time', fontsize=12, fontweight='bold')
+    axs1[0, 1].legend(fontsize=9)
+    axs1[0, 1].grid(True, alpha=0.3)
 
-    # Position plot: y over time
-    axs1[0, 2].plot(time_reduced, h)
+    # Propellant mass over time
+    axs1[1, 0].plot(time_reduced, m_prop, 'g-', linewidth=2)
     if idx_guidance is not None:
-        axs1[0, 2].plot(time_reduced[idx_guidance], h[idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
+        axs1[1, 0].plot(time_reduced[idx_guidance], m_prop[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
     if idx_seco is not None:
-        axs1[0, 2].plot(time_reduced[idx_seco], h[idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
+        axs1[1, 0].plot(time_reduced[idx_seco], m_prop[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
     if idx_insertion is not None:
-        axs1[0, 2].plot(time_reduced[idx_insertion], h[idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[0, 2].set_xlabel('time [s]')
-    axs1[0, 2].set_ylabel('altitude h [km]')
-    axs1[0, 2].set_title('Altitude over Time')
-    axs1[0, 2].legend(fontsize=7)
-    axs1[0, 2].grid()
+        axs1[1, 0].plot(time_reduced[idx_insertion], m_prop[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+    axs1[1, 0].set_xlabel('Time [s]', fontsize=11)
+    axs1[1, 0].set_ylabel('Propellant Mass [kg]', fontsize=11)
+    axs1[1, 0].set_title('Propellant Mass over Time', fontsize=12, fontweight='bold')
+    axs1[1, 0].legend(fontsize=9)
+    axs1[1, 0].grid(True, alpha=0.3)
 
-    # Velocity plot
-    axs1[0, 3].plot(time_reduced, data_reduced[2])
+    # Flight path angle over time
+    axs1[1, 1].plot(time_reduced, np.rad2deg(data_reduced[3]), 'm-', linewidth=2)
     if idx_guidance is not None:
-        axs1[0, 3].plot(time_reduced[idx_guidance], data_reduced[2][idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
+        axs1[1, 1].plot(time_reduced[idx_guidance], np.rad2deg(data_reduced[3][idx_guidance]), 'b^', markersize=10, label='Guidance', zorder=5)
     if idx_seco is not None:
-        axs1[0, 3].plot(time_reduced[idx_seco], data_reduced[2][idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
+        axs1[1, 1].plot(time_reduced[idx_seco], np.rad2deg(data_reduced[3][idx_seco]), 'ro', markersize=10, label='SECO', zorder=5)
     if idx_insertion is not None:
-        axs1[0, 3].plot(time_reduced[idx_insertion], data_reduced[2][idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[0, 3].set_xlabel('time [s]')
-    axs1[0, 3].set_ylabel('v [m/s]')
-    axs1[0, 3].set_title('Velocity Norm over Time')
-    axs1[0, 3].legend(fontsize=7)
-    axs1[0, 3].grid()
-
-    # Flight path angle plot
-    axs1[1, 0].plot(time_reduced, np.rad2deg(data_reduced[3]))
-    if idx_guidance is not None:
-        axs1[1, 0].plot(time_reduced[idx_guidance], np.rad2deg(data_reduced[3][idx_guidance]), 'b^', markersize=8, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[1, 0].plot(time_reduced[idx_seco], np.rad2deg(data_reduced[3][idx_seco]), 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[1, 0].plot(time_reduced[idx_insertion], np.rad2deg(data_reduced[3][idx_insertion]), 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[1, 0].set_xlabel('time [s]')
-    axs1[1, 0].set_ylabel('gamma [deg]')
-    axs1[1, 0].set_title('Flight Path Angle over Time')
-    axs1[1, 0].legend(fontsize=7)
-    axs1[1, 0].grid()
-
-    # Mass plot
-    axs1[1, 1].plot(time_reduced, data_reduced[4])
-    if idx_guidance is not None:
-        axs1[1, 1].plot(time_reduced[idx_guidance], data_reduced[4][idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[1, 1].plot(time_reduced[idx_seco], data_reduced[4][idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[1, 1].plot(time_reduced[idx_insertion], data_reduced[4][idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[1, 1].set_xlabel('time [s]')
-    axs1[1, 1].set_ylabel('mass [kg]')
-    axs1[1, 1].set_title('Mass of Rocket over Time')
-    axs1[1, 1].legend(fontsize=7)
-    axs1[1, 1].grid()
-
-    # Dynamic Pressure plot
-    axs1[1, 2].plot(time_reduced, q)
-    if idx_guidance is not None:
-        axs1[1, 2].plot(time_reduced[idx_guidance], q[idx_guidance], 'b^', markersize=8, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[1, 2].plot(time_reduced[idx_seco], q[idx_seco], 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[1, 2].plot(time_reduced[idx_insertion], q[idx_insertion], 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[1, 2].set_xlabel('time [s]')
-    axs1[1, 2].set_ylabel('q [Pa]')
-    axs1[1, 2].set_title('Dynamic Pressure over Time')
-    axs1[1, 2].legend(fontsize=7)
-    axs1[1, 2].grid()
-
-    # Angle of Attack plot
-    axs1[1, 3].plot(time_reduced, np.rad2deg(angle_of_attacks))
-    if idx_guidance is not None:
-        axs1[1, 3].plot(time_reduced[idx_guidance], np.rad2deg(angle_of_attacks[idx_guidance]), 'b^', markersize=8, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[1, 3].plot(time_reduced[idx_seco], np.rad2deg(angle_of_attacks[idx_seco]), 'ro', markersize=8, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[1, 3].plot(time_reduced[idx_insertion], np.rad2deg(angle_of_attacks[idx_insertion]), 'gs', markersize=8, label='Insertion', zorder=5)
-    axs1[1, 3].set_xlabel('time [s]')
-    axs1[1, 3].set_ylabel('angle of attack [deg]')
-    axs1[1, 3].set_title('Angle of Attack over Time')
-    axs1[1, 3].legend(fontsize=7)
-    axs1[1, 3].grid()
-
+        axs1[1, 1].plot(time_reduced[idx_insertion], np.rad2deg(data_reduced[3][idx_insertion]), 'gs', markersize=10, label='Insertion', zorder=5)
+    axs1[1, 1].axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    axs1[1, 1].set_xlabel('Time [s]', fontsize=11)
+    axs1[1, 1].set_ylabel('Flight Path Angle [deg]', fontsize=11)
+    axs1[1, 1].set_title('Flight Path Angle over Time', fontsize=12, fontweight='bold')
+    axs1[1, 1].legend(fontsize=9)
+    axs1[1, 1].grid(True, alpha=0.3)
 
     if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
         # Find SECO point in loss time array
