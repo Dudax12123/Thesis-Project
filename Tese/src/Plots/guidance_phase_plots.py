@@ -19,7 +19,7 @@ from Simulation import rocket_ascent as ra
 from Auxiliary import rocket_specs as r
 
 
-def plot_key_parameters(time_steps, data):
+def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     """
     Creates a 4-panel plot showing key trajectory parameters over time.
     
@@ -57,20 +57,8 @@ def plot_key_parameters(time_steps, data):
     # Compute propellant mass (total mass minus structure and payload)
     m_prop = m_total - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD)
     
-    # Compute thrust over time
-    thrust = np.zeros(len(time_reduced))
-    for i, t in enumerate(time_reduced):
-        if time_meco is None or t < time_meco:
-            # First stage burning
-            thrust[i] = r.F_THRUST_1 / 1000.  # Convert to kN
-        elif time_seco is None or t < time_seco:
-            # Check if second stage ignited
-            if time_meco is not None and t < (time_meco + r.TIME_SECOND_ENGINE_IGNITION):
-                thrust[i] = 0.0  # Coast between stages
-            else:
-                thrust[i] = r.F_THRUST_2 / 1000.  # Second stage burning
-        else:
-            thrust[i] = 0.0  # Coasting
+    # Interpolate actual thrust data to match reduced time steps
+    thrust = np.interp(time_reduced, time_thrust, thrust_data) / 1000.  # Convert to kN
     
     # Create figure with single plot and multiple y-axes
     fig, ax1 = plt.subplots(figsize=(14, 8))
@@ -142,7 +130,7 @@ def plot_key_parameters(time_steps, data):
 
 
 
-def plot_guidance_phase(time_steps, data):
+def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     """
     Creates detailed plots for the active guidance phase only.
     

@@ -83,7 +83,7 @@ def execute():
     print("="*60 + "\n")
     
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust = ra.run(kick_angle_optimal)
 
     # Calculate final orbital elements
     r_final = data[1, -1]
@@ -168,16 +168,16 @@ def execute():
     print("Generating plots...")
     
     # Key parameters plot (always shown)
-    guidance_plots.plot_key_parameters(time, data)
+    guidance_plots.plot_key_parameters(time, data, thrust_data, time_thrust)
     
     # Full mission plots
-    plots.single_run(time, data, kick_angle_optimal)
+    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust)
     plots.plot_trajectory_xy(data, time)
     
     # Generate detailed guidance phase plots
     if sim_params.GUIDANCE_MODE != "gravity_turn" and ra.time_atmosphere_exit is not None:
         print("\nGenerating detailed guidance phase analysis...")
-        guidance_plots.plot_guidance_phase(time, data)
+        guidance_plots.plot_guidance_phase(time, data, thrust_data, time_thrust)
         guidance_plots.plot_trajectory_to_seco(time, data)
     
     return time, data, kick_angle_optimal

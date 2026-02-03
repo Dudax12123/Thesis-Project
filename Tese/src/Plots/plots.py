@@ -18,7 +18,7 @@ from Auxiliary import atmosphere as atm
 from Simulation import rocket_ascent as ra
 
 
-def single_run(time_steps, data, INITIAL_KICK_ANGLE):
+def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
     """
     Inputs:
         - time_steps: array of time steps (for the data array); [s]
@@ -28,6 +28,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
             * data[2]: velocity norm; [m/s]
             * data[3]: flight path angle; [rad]
             * data[4]: mass of the rocket; [kg]
+        - thrust_data: array of actual thrust values from simulation; [N]
+        - time_thrust: array of time steps corresponding to thrust values; [s]
 
     Plots the following data over time:
         - altitude over downtrack
@@ -90,21 +92,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
     m_total = data_reduced[4]
     m_prop = m_total - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD)
     
-    # Compute thrust over time
-    time_meco = ra.time_main_engine_cutoff
-    thrust = np.zeros(len(time_reduced))
-    for i, t in enumerate(time_reduced):
-        if time_meco is None or t < time_meco:
-            # First stage burning
-            thrust[i] = r.F_THRUST_1 / 1000.  # Convert to kN
-        elif time_seco is None or t < time_seco:
-            # Check if second stage ignited
-            if time_meco is not None and t < (time_meco + r.TIME_SECOND_ENGINE_IGNITION):
-                thrust[i] = 0.0  # Coast between stages
-            else:
-                thrust[i] = r.F_THRUST_2 / 1000.  # Second stage burning
-        else:
-            thrust[i] = 0.0  # Coasting
+    # Interpolate actual thrust data to match reduced time steps
+    thrust = np.interp(time_reduced, time_thrust, thrust_data) / 1000.  # Convert to kN
 
     q = [0.0] * len(time_reduced)          # dynamic pressure; [Pa]
     for i in range(len(time_reduced)):
@@ -217,17 +206,18 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE):
     axs1[0, 1].legend(fontsize=9)
     axs1[0, 1].grid(True, alpha=0.3)
 
-    # Propellant mass over time
-    axs1[1, 0].plot(time_reduced, m_prop, 'g-', linewidth=2)
+    # Total mass over time
+    m_total = data_reduced[4]
+    axs1[1, 0].plot(time_reduced, m_total, 'b-', linewidth=2)
     if idx_guidance is not None:
-        axs1[1, 0].plot(time_reduced[idx_guidance], m_prop[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
+        axs1[1, 0].plot(time_reduced[idx_guidance], m_total[idx_guidance], 'c^', markersize=10, label='Guidance', zorder=5)
     if idx_seco is not None:
-        axs1[1, 0].plot(time_reduced[idx_seco], m_prop[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
+        axs1[1, 0].plot(time_reduced[idx_seco], m_total[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
     if idx_insertion is not None:
-        axs1[1, 0].plot(time_reduced[idx_insertion], m_prop[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+        axs1[1, 0].plot(time_reduced[idx_insertion], m_total[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
     axs1[1, 0].set_xlabel('Time [s]', fontsize=11)
-    axs1[1, 0].set_ylabel('Propellant Mass [kg]', fontsize=11)
-    axs1[1, 0].set_title('Propellant Mass over Time', fontsize=12, fontweight='bold')
+    axs1[1, 0].set_ylabel('Total Mass [kg]', fontsize=11)
+    axs1[1, 0].set_title('Total Mass over Time', fontsize=12, fontweight='bold')
     axs1[1, 0].legend(fontsize=9)
     axs1[1, 0].grid(True, alpha=0.3)
 
