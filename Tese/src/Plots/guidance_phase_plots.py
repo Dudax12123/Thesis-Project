@@ -278,7 +278,7 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     axs1[2, 2].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
     
     # -------------- Second Figure: Rates and Performance --------------
     fig2, axs2 = plt.subplots(2, 2, figsize=(14, 10))
@@ -322,7 +322,7 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     axs2[1, 1].grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
     
     # -------------- Print Summary Statistics --------------
     print("GUIDANCE PHASE STATISTICS")
@@ -444,5 +444,125 @@ def plot_trajectory_to_seco(time_steps, data):
     ax.set_aspect('equal')
     
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
 
+
+def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
+    """
+    Creates a single plot with 4 overlaid y-axes showing key trajectory parameters 
+    from launch to 100s after SECO.
+    
+    Parameters overlaid with different colors:
+        - Altitude (blue, left y-axis)
+        - Thrust (red, right y-axis 1)
+        - Total Mass (green, right y-axis 2, offset)
+        - Flight Path Angle (purple, right y-axis 3, offset more)
+    
+    Time range: T+0 to SECO + 100 seconds
+    
+    Inputs:
+        - time_steps: array of time steps [s]
+        - data: array of data points
+        - thrust_data: array of thrust values [N]
+        - time_thrust: array of time steps for thrust [s]
+    """
+    
+    # Get SECO time
+    time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    if time_seco is None:
+        print("Warning: SECO time not available, cannot create ascent phase plot")
+        return
+    
+    # Define time limit: SECO + 100 seconds
+    time_limit = time_seco + 100.0
+    
+    # Filter data to time limit
+    mask = time_steps <= time_limit
+    time_filtered = time_steps[mask]
+    data_filtered = data[:, mask]
+    
+    # Filter thrust data
+    thrust_mask = time_thrust <= time_limit
+    time_thrust_filtered = time_thrust[thrust_mask]
+    thrust_filtered = thrust_data[thrust_mask]
+    
+    # Reduce data for plotting
+    reduction_factor = 5
+    time_reduced = time_filtered[::reduction_factor]
+    data_reduced = data_filtered[:, ::reduction_factor]
+    
+    # Prepare data
+    h = (data_reduced[1] - c.R_EARTH) / 1000.       # altitude; [km]
+    gamma = data_reduced[3]                          # flight path angle; [rad]
+    m_total = data_reduced[4]                        # total mass; [kg]
+    
+    # Interpolate thrust to match reduced time steps
+    thrust = np.interp(time_reduced, time_thrust_filtered, thrust_filtered) / 1000.  # kN
+    
+    # Get phase transition times
+    time_guidance = ra.time_atmosphere_exit
+    time_meco = ra.time_main_engine_cutoff
+    
+    # Create figure with single plot
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+    fig.suptitle(f'Ascent Phase: Key Parameters (Launch to SECO + 100s)', fontsize=14, fontweight='bold')
+    
+    # Plot 1: Altitude (left y-axis)
+    color1 = 'tab:blue'
+    ax1.set_xlabel('Time [s]', fontsize=12)
+    ax1.set_ylabel('Altitude [km]', color=color1, fontsize=12)
+    line1 = ax1.plot(time_reduced, h, color=color1, linewidth=2, label='Altitude')
+    ax1.tick_params(axis='y', labelcolor=color1)
+    ax1.grid(True, alpha=0.3)
+    
+    # Plot 2: Thrust (right y-axis 1)
+    ax2 = ax1.twinx()
+    color2 = 'tab:red'
+    ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=12)
+    line2 = ax2.plot(time_reduced, thrust, color=color2, linewidth=2, label='Thrust')
+    ax2.tick_params(axis='y', labelcolor=color2)
+    
+    # Plot 3: Total Mass (right y-axis 2, offset)
+    ax3 = ax1.twinx()
+    ax3.spines['right'].set_position(('outward', 60))
+    color3 = 'tab:green'
+    ax3.set_ylabel('Total Mass [kg]', color=color3, fontsize=12)
+    line3 = ax3.plot(time_reduced, m_total, color=color3, linewidth=2, label='Total Mass')
+    ax3.tick_params(axis='y', labelcolor=color3)
+    
+    # Plot 4: Flight Path Angle (right y-axis 3, offset more)
+    ax4 = ax1.twinx()
+    ax4.spines['right'].set_position(('outward', 120))
+    color4 = 'tab:purple'
+    ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=12)
+    line4 = ax4.plot(time_reduced, np.rad2deg(gamma), color=color4, linewidth=2, label='Flight Path Angle')
+    ax4.tick_params(axis='y', labelcolor=color4)
+    ax4.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.3)
+    
+    # Add vertical lines for phase transitions
+    if time_guidance is not None and time_guidance <= time_limit:
+        ax1.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=1.5, alpha=0.7, label='Guidance')
+    if time_meco is not None and time_meco <= time_limit:
+        ax1.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=1.5, alpha=0.7, label='MECO')
+    if time_seco is not None and time_seco <= time_limit:
+        ax1.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='SECO')
+    
+    # Create combined legend
+    lines = line1 + line2 + line3 + line4
+    labels = [l.get_label() for l in lines]
+    
+    # Add phase transition labels
+    if time_guidance is not None and time_guidance <= time_limit:
+        labels.append('Guidance')
+        lines.append(plt.Line2D([0], [0], color='cyan', linestyle='--', linewidth=1.5))
+    if time_meco is not None and time_meco <= time_limit:
+        labels.append('MECO')
+        lines.append(plt.Line2D([0], [0], color='magenta', linestyle='--', linewidth=1.5))
+    if time_seco is not None and time_seco <= time_limit:
+        labels.append('SECO')
+        lines.append(plt.Line2D([0], [0], color='red', linestyle='--', linewidth=1.5))
+    
+    ax1.legend(lines, labels, loc='best', fontsize=10)
+    
+    plt.tight_layout()
+    plt.show(block=False)

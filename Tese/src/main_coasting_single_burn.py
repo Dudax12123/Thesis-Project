@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import numpy as np
+import matplotlib.pyplot as plt
 from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
@@ -170,6 +171,9 @@ def execute():
     # Key parameters plot (always shown)
     guidance_plots.plot_key_parameters(time, data, thrust_data, time_thrust)
     
+    # Ascent phase plot (launch to SECO + 100s)
+    guidance_plots.plot_ascent_phase(time, data, thrust_data, time_thrust)
+    
     # Full mission plots
     plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust)
     plots.plot_trajectory_xy(data, time)
@@ -177,8 +181,12 @@ def execute():
     # Generate detailed guidance phase plots
     if sim_params.GUIDANCE_MODE != "gravity_turn" and ra.time_atmosphere_exit is not None:
         print("\nGenerating detailed guidance phase analysis...")
-        guidance_plots.plot_guidance_phase(time, data, thrust_data, time_thrust)
+        # guidance_plots.plot_guidance_phase(time, data, thrust_data, time_thrust)  # Commented out: Detailed analysis and rates/performances
         guidance_plots.plot_trajectory_to_seco(time, data)
+    
+    # Keep all plot windows open until user closes them
+    print("\nAll plots generated. Close plot windows to exit.")
+    plt.show()
     
     return time, data, kick_angle_optimal
 

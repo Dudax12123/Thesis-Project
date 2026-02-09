@@ -265,7 +265,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         print("\n\n")
 
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
     
     
     
@@ -361,4 +361,4 @@ def plot_trajectory_xy(data, time_steps):
     ax.set_aspect('equal')  # Keep aspect ratio realistic
 
     # plt.savefig("rocket_trajectory.jpg", dpi=1000, bbox_inches="tight", pad_inches=0)
-    plt.show()
+    plt.show(block=False)
