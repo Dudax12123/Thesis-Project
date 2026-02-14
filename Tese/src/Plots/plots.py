@@ -135,6 +135,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         # Gravity loss
         grav_loss = []
         drag_loss = []
+        steering_loss = []
         time_loss = []
         
         # Use the actual drag coefficient used during ascent (0.3)
@@ -157,6 +158,13 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
             grav_accel = grav.gravitational_acceleration(current_radius)
             drag_accel = (q[i] * C_D_actual * A_actual) / current_mass
             
+            # Steering loss: thrust not aligned with velocity
+            # Interpolate thrust at this time point
+            thrust_N = np.interp(time_reduced[i], time_thrust, thrust_data)  # Thrust in N
+            thrust_accel = thrust_N / current_mass
+            alpha = angle_of_attacks[i]
+            steering_accel = thrust_accel * (1.0 - np.cos(alpha))  # Loss due to angle of attack
+            
             # Debug output for first few iterations
             if i < 3:
                 print(f"\nIteration {i}:")
@@ -165,11 +173,14 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
                 print(f"  Velocity: {data_reduced[2][i]:.2f} m/s")
                 print(f"  Dynamic pressure q: {q[i]:.2f} Pa")
                 print(f"  Mass: {current_mass:.2f} kg")
+                print(f"  Angle of attack: {np.rad2deg(alpha):.4f} deg")
                 print(f"  Drag accel: {drag_accel:.6f} m/s^2")
                 print(f"  Gravity accel component: {grav_accel * np.sin(current_theta):.6f} m/s^2")
+                print(f"  Steering accel loss: {steering_accel:.6f} m/s^2")
 
             grav_loss.append(grav_accel * np.sin(current_theta) * (time_reduced[i] - time_reduced[i-1]) + grav_loss[i-1] if i > 0 else 0.0)
             drag_loss.append(drag_accel * (time_reduced[i] - time_reduced[i-1]) + drag_loss[i-1] if i > 0 else 0.0)
+            steering_loss.append(steering_accel * (time_reduced[i] - time_reduced[i-1]) + steering_loss[i-1] if i > 0 else 0.0)
 
             time_loss.append(time_reduced[i])
 
@@ -240,29 +251,69 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         # Find SECO point in loss time array
         idx_seco_loss = find_closest_index(np.array(time_loss), time_seco) if time_seco is not None else None
         
-        # Plot the gravity loss, the drag loss and the total loss in one plot
-        fig2, axs2 = plt.subplots(figsize=(10, 5))
-        axs2.plot(time_loss, grav_loss, label="Gravity Loss", color="blue")
-        axs2.plot(time_loss, drag_loss, label="Drag Loss", color="orange")
-        axs2.plot(time_loss, np.array(grav_loss) + np.array(drag_loss), label="Total Loss", color="red")
+        # Plot the gravity loss, the drag loss, steering loss and the total loss in one plot
+        fig2, axs2 = plt.subplots(figsize=(12, 6))
+        axs2.plot(time_loss, grav_loss, label="Gravity Loss", color="blue", linewidth=2)
+        axs2.plot(time_loss, drag_loss, label="Drag Loss", color="orange", linewidth=2)
+        axs2.plot(time_loss, steering_loss, label="Steering Loss", color="green", linewidth=2)
+        axs2.plot(time_loss, np.array(grav_loss) + np.array(drag_loss) + np.array(steering_loss), 
+                 label="Total Loss", color="red", linewidth=2.5, linestyle='--')
         
         # Add SECO marker (losses only calculated during powered ascent)
         if idx_seco_loss is not None:
-            total_loss_at_seco = grav_loss[idx_seco_loss] + drag_loss[idx_seco_loss]
+            total_loss_at_seco = grav_loss[idx_seco_loss] + drag_loss[idx_seco_loss] + steering_loss[idx_seco_loss]
             axs2.plot(time_loss[idx_seco_loss], total_loss_at_seco, 'ro', markersize=10, 
                      label='SECO (End of Loss Accumulation)', zorder=5)
         
-        axs2.set_xlabel('time [s]')
-        axs2.set_ylabel('loss [m/s]')
-        axs2.set_title('Losses over Time')
-        axs2.legend()
-        axs2.grid()
+        axs2.set_xlabel('Time [s]', fontsize=11)
+        axs2.set_ylabel('Delta-V Loss [m/s]', fontsize=11)
+        axs2.set_title('Trajectory Losses over Time (Powered Ascent)', fontsize=12, fontweight='bold')
+        axs2.legend(fontsize=10)
+        axs2.grid(True, alpha=0.3)
         
         print("\nLosses:")
         print("\t* Gravity loss:\t\t\t\t\t", grav_loss[-1], "m/s")
         print("\t* Drag loss:\t\t\t\t\t", drag_loss[-1], "m/s")
-        print("\t* Total loss:\t\t\t\t\t", grav_loss[-1] + drag_loss[-1], "m/s")
+        print("\t* Steering loss:\t\t\t\t", steering_loss[-1], "m/s")
+        print("\t* Total loss:\t\t\t\t\t", grav_loss[-1] + drag_loss[-1] + steering_loss[-1], "m/s")
         print("\n\n")
+
+    # Plot angle of attack over time
+    fig3, axs3 = plt.subplots(figsize=(12, 6))
+    
+    # Convert angle of attack to degrees for plotting
+    alpha_deg = np.rad2deg(angle_of_attacks)
+    
+    # Plot alpha
+    axs3.plot(time_reduced, alpha_deg, 'b-', linewidth=2, label='Angle of Attack (α)')
+    
+    # Add phase transition markers
+    if time_guidance is not None and idx_guidance is not None:
+        axs3.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+                    label=f'Atmosphere Exit ({time_guidance:.1f}s)')
+    if time_seco is not None and idx_seco is not None:
+        axs3.axvline(x=time_seco, color='red', linestyle='--', linewidth=2, alpha=0.7,
+                    label=f'SECO ({time_seco:.1f}s)')
+    
+    # Mark the kick maneuver period
+    kick_start = sim_params.TIME_TO_START_KICK
+    kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
+    axs3.axvspan(kick_start, kick_end, alpha=0.2, color='yellow', label='Pitch Kick Maneuver')
+    
+    # Add horizontal line at zero
+    axs3.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    
+    axs3.set_xlabel('Time [s]', fontsize=11)
+    axs3.set_ylabel('Angle of Attack [deg]', fontsize=11)
+    axs3.set_title('Angle of Attack (Steering Angle) over Time', fontsize=12, fontweight='bold')
+    axs3.legend(fontsize=10, loc='best')
+    axs3.grid(True, alpha=0.3)
+    
+    # Add annotation about guidance phases
+    axs3.text(0.02, 0.98, 
+             'Phase 1: Pitch Kick\nPhase 2: Gravity Turn (α=0)\nPhase 3: Active Guidance',
+             transform=axs3.transAxes, fontsize=9, verticalalignment='top',
+             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     plt.tight_layout()
     plt.show(block=False)
