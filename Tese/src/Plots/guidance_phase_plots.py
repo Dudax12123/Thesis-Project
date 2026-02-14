@@ -569,17 +569,17 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
 
 def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     """
-    Plot Apollo guidance steering angles (angle of attack) during the guidance phase.
+    Plot steering angles (angle of attack) throughout the entire flight.
     
     This function creates a detailed plot showing:
-    - Steering angle (alpha) commanded by Apollo guidance
-    - Flight path angle (gamma) for reference
-    - Angle of attack relative to velocity vector
+    - Steering angle (alpha) throughout the flight
+    - Flight path angle (gamma) for reference  
+    - Different flight phases marked (kick, guidance, coast)
     
     Parameters:
     -----------
     alpha_data : array
-        Steering angle history during guidance phase [rad]
+        Steering angle history throughout flight [rad]
     alpha_time_data : array
         Time values corresponding to steering angles [s]
     time_steps : array
@@ -593,91 +593,146 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
             * data[4]: mass of the rocket; [kg]
     """
     
-    # Check if we have Apollo guidance data
+    # Check if we have steering angle data
     if len(alpha_data) == 0 or len(alpha_time_data) == 0:
-        print("No Apollo guidance data available - skipping steering angle plot")
+        print("No steering angle data available - skipping steering angle plot")
         return
     
+    # Check if Apollo guidance angles are hitting the limits
+    if sim_params.GUIDANCE_MODE == "apollo":
+        alpha_limit = np.deg2rad(15)
+        
+        # Only check angles during guidance phase
+        time_guidance = ra.time_atmosphere_exit
+        time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+        
+        if time_guidance is not None and time_seco is not None:
+            # Find indices for guidance phase
+            guidance_mask = (alpha_time_data >= time_guidance) & (alpha_time_data <= time_seco)
+            alpha_guidance = alpha_data[guidance_mask]
+            
+            if len(alpha_guidance) > 0:
+                num_at_limit = np.sum(np.abs(alpha_guidance) >= alpha_limit * 0.99)
+                pct_at_limit = 100.0 * num_at_limit / len(alpha_guidance)
+                
+                if pct_at_limit > 50:
+                    print(f"\nWARNING: {pct_at_limit:.1f}% of Apollo guidance commands are at the +/-15 deg safety limit!")
+                    print("   This indicates the guidance is commanding angles larger than the limit.")
+                    print("   Possible causes:")
+                    print("   - Horizontal coefficients creating large horizontal thrust requirements")
+                    print("   - Time-to-go estimate might be inaccurate")
+                    print("   - Target conditions might be inconsistent with current trajectory")
+    
     # Get phase transition times
+    time_kick_start = ra.time_kick_start
     time_guidance = ra.time_atmosphere_exit
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     apollo_freeze_time = ra.apollo_freeze_time
     
     # Create figure with two subplots
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
-    fig.suptitle('Apollo Guidance: Steering Angles During Guidance Phase', fontsize=16, fontweight='bold')
+    
+    if sim_params.GUIDANCE_MODE == "apollo":
+        fig.suptitle('Apollo Guidance: Steering Angles Throughout Flight', fontsize=16, fontweight='bold')
+    else:
+        fig.suptitle('Steering Angles Throughout Flight', fontsize=16, fontweight='bold')
     
     # ============= SUBPLOT 1: Steering Angle (Alpha) =============
     ax1.set_xlabel('Time [s]', fontsize=12)
     ax1.set_ylabel('Angle [deg]', fontsize=12, fontweight='bold')
-    ax1.set_title('Commanded Steering Angle (Angle of Attack)', fontsize=13, fontweight='bold')
+    ax1.set_title('Steering Angle (Angle of Attack) vs Time', fontsize=13, fontweight='bold')
     
-    # Plot steering angle commanded by Apollo guidance
-    ax1.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2.5, label='Steering Angle (α)')
+    # Plot steering angle throughout the flight
+    ax1.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2, label='Steering Angle (α)', alpha=0.8)
     ax1.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
     ax1.grid(True, alpha=0.3)
     
     # Add phase transition markers
+    if time_kick_start is not None:
+        ax1.axvline(x=time_kick_start, color='green', linestyle='--', linewidth=1.5, alpha=0.6, label='Kick Start')
+        kick_end = time_kick_start + sim_params.DURATION_INITIAL_KICK
+        ax1.axvline(x=kick_end, color='lime', linestyle='--', linewidth=1.5, alpha=0.6, label='Kick End')
+        # Add shaded region for kick phase
+        ax1.axvspan(time_kick_start, kick_end, alpha=0.1, color='green', label='Kick Phase')
+    
     if time_guidance is not None:
         ax1.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=1.5, alpha=0.7, label='Guidance Start')
-        ax1.text(time_guidance, ax1.get_ylim()[1]*0.9, 'Guidance\nActivation', 
-                ha='center', va='top', fontsize=9, bbox=dict(boxstyle='round', facecolor='cyan', alpha=0.3))
+        if time_seco is not None:
+            # Add shaded region for guidance phase
+            ax1.axvspan(time_guidance, time_seco, alpha=0.1, color='cyan', label='Guidance Phase')
     
-    if apollo_freeze_time is not None:
+    if apollo_freeze_time is not None and sim_params.GUIDANCE_MODE == "apollo":
         ax1.axvline(x=apollo_freeze_time, color='orange', linestyle='--', linewidth=1.5, alpha=0.7, label='Coeff. Frozen')
-        ax1.text(apollo_freeze_time, ax1.get_ylim()[1]*0.75, 'Coefficients\nFrozen', 
-                ha='center', va='top', fontsize=9, bbox=dict(boxstyle='round', facecolor='orange', alpha=0.3))
     
     if time_seco is not None:
         ax1.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='SECO')
-        ax1.text(time_seco, ax1.get_ylim()[1]*0.6, 'SECO\n(Guidance End)', 
-                ha='center', va='top', fontsize=9, bbox=dict(boxstyle='round', facecolor='red', alpha=0.3))
     
-    ax1.legend(loc='best', fontsize=11)
+    ax1.legend(loc='best', fontsize=10, ncol=2)
     
     # ============= SUBPLOT 2: Flight Path Angle and Steering Angle =============
     ax2.set_xlabel('Time [s]', fontsize=12)
     ax2.set_ylabel('Angle [deg]', fontsize=12, fontweight='bold')
     ax2.set_title('Flight Path Angle vs Steering Angle', fontsize=13, fontweight='bold')
     
-    # Interpolate flight path angle to match guidance time points
+    # Interpolate flight path angle to match steering angle time points
     gamma_full = data[3]  # Full flight path angle array [rad]
-    gamma_guidance = np.interp(alpha_time_data, time_steps, gamma_full)
+    gamma_interp = np.interp(alpha_time_data, time_steps, gamma_full)
     
     # Plot both angles
-    ax2.plot(alpha_time_data, np.rad2deg(gamma_guidance), 'g-', linewidth=2.5, label='Flight Path Angle (γ)', alpha=0.8)
-    ax2.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2.5, label='Steering Angle (α)', alpha=0.8)
+    ax2.plot(alpha_time_data, np.rad2deg(gamma_interp), 'g-', linewidth=2, label='Flight Path Angle (γ)', alpha=0.8)
+    ax2.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2, label='Steering Angle (α)', alpha=0.8)
     
     # Plot the sum (thrust vector inertial angle)
-    thrust_angle_inertial = gamma_guidance + alpha_data
-    ax2.plot(alpha_time_data, np.rad2deg(thrust_angle_inertial), 'r--', linewidth=2, 
+    thrust_angle_inertial = gamma_interp + alpha_data
+    ax2.plot(alpha_time_data, np.rad2deg(thrust_angle_inertial), 'r--', linewidth=1.5, 
             label='Thrust Direction (γ + α)', alpha=0.7)
     
     ax2.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5, label='Horizontal')
     ax2.grid(True, alpha=0.3)
     
-    # Add phase transition markers
+    # Add phase transition markers (same as subplot 1)
+    if time_kick_start is not None:
+        ax2.axvline(x=time_kick_start, color='green', linestyle='--', linewidth=1.5, alpha=0.5)
+        kick_end = time_kick_start + sim_params.DURATION_INITIAL_KICK
+        ax2.axvline(x=kick_end, color='lime', linestyle='--', linewidth=1.5, alpha=0.5)
+        ax2.axvspan(time_kick_start, kick_end, alpha=0.1, color='green')
+    
     if time_guidance is not None:
         ax2.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=1.5, alpha=0.5)
-    if apollo_freeze_time is not None:
+        if time_seco is not None:
+            ax2.axvspan(time_guidance, time_seco, alpha=0.1, color='cyan')
+    
+    if apollo_freeze_time is not None and sim_params.GUIDANCE_MODE == "apollo":
         ax2.axvline(x=apollo_freeze_time, color='orange', linestyle='--', linewidth=1.5, alpha=0.5)
+    
     if time_seco is not None:
         ax2.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.5)
     
-    ax2.legend(loc='best', fontsize=11)
+    ax2.legend(loc='best', fontsize=10)
     
-    # Add text box with statistics
+    # Add text box with comprehensive statistics
     if len(alpha_data) > 0:
-        alpha_mean = np.mean(np.abs(alpha_data))
-        alpha_max = np.max(np.abs(alpha_data))
-        alpha_std = np.std(alpha_data)
+        stats_lines = ['Steering Angle Statistics:']
+        stats_lines.append(f'Overall - Mean |α|: {np.rad2deg(np.mean(np.abs(alpha_data))):.3f}°, Max |α|: {np.rad2deg(np.max(np.abs(alpha_data))):.3f}°')
         
-        stats_text = (f'Steering Angle Statistics:\n'
-                     f'Mean |α|: {np.rad2deg(alpha_mean):.3f}°\n'
-                     f'Max |α|: {np.rad2deg(alpha_max):.3f}°\n'
-                     f'Std Dev: {np.rad2deg(alpha_std):.3f}°')
+        # Kick phase statistics
+        if time_kick_start is not None:
+            kick_end = time_kick_start + sim_params.DURATION_INITIAL_KICK
+            kick_mask = (alpha_time_data >= time_kick_start) & (alpha_time_data <= kick_end)
+            if np.any(kick_mask):
+                alpha_kick = alpha_data[kick_mask]
+                stats_lines.append(f'Kick Phase - Mean |α|: {np.rad2deg(np.mean(np.abs(alpha_kick))):.3f}°, Max |α|: {np.rad2deg(np.max(np.abs(alpha_kick))):.3f}°')
         
-        ax2.text(0.02, 0.02, stats_text, transform=ax2.transAxes, fontsize=10,
+        # Guidance phase statistics
+        if time_guidance is not None and time_seco is not None:
+            guidance_mask = (alpha_time_data >= time_guidance) & (alpha_time_data <= time_seco)
+            if np.any(guidance_mask):
+                alpha_guidance = alpha_data[guidance_mask]
+                stats_lines.append(f'Guidance Phase - Mean |α|: {np.rad2deg(np.mean(np.abs(alpha_guidance))):.3f}°, Max |α|: {np.rad2deg(np.max(np.abs(alpha_guidance))):.3f}°')
+        
+        stats_text = '\n'.join(stats_lines)
+        
+        ax2.text(0.02, 0.02, stats_text, transform=ax2.transAxes, fontsize=9,
                 verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()

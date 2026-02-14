@@ -117,12 +117,14 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
     Implements equations 2.39 and 2.40 from Apollo guidance literature.
     Uses linear acceleration profiles to satisfy terminal position and velocity constraints.
     
-    Modified version: Only enforces vertical (altitude) constraints, not horizontal constraints.
-    This avoids overconstraining the problem during powered ascent.
+    This version enforces both horizontal and vertical terminal constraints:
+    - Horizontal: Targets orbital velocity and predicted downrange position
+    - Vertical: Targets altitude and horizontal flight (gamma = 0)
     
-    Justification: Classical Apollo guidance formulation. During ascent, we only need
-    to control altitude and ensure horizontal flight at apogee. Downrange position is
-    free to vary, and horizontal velocity will naturally reach orbital velocity.
+    Justification: Classical Apollo guidance formulation. During ascent, we need to
+    control both altitude and horizontal velocity to achieve circular orbit insertion.
+    The downrange target is predicted based on the current trajectory to avoid
+    overconstraining the problem.
     
     Parameters:
     -----------
@@ -158,10 +160,19 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
     # Terminal velocity components (horizontal for circular orbit)
     vy_target = 0.0  # Horizontal flight (gamma = 0)
     
-    # Apply Apollo guidance equations (2.39, 2.40) with no horizontal constraints
-    # Horizontal channel coefficients - set to zero (no horizontal acceleration commands)
-    k1 = 0.0
-    k2 = 0.0
+    # Estimate target horizontal velocity (circular orbital velocity)
+    r_target = c.R_EARTH + target_altitude
+    vx_target = np.sqrt(c.MU_EARTH / r_target)
+    
+    # Estimate target downrange position based on current trajectory
+    x_target = 2*predict_target_downrange(state, target_altitude)
+    
+    # Apply Apollo guidance equations (2.39, 2.40) for both horizontal and vertical channels
+    # Horizontal channel coefficients (enforce downrange position and horizontal velocity)
+    # Equation 2.39: k1 = 6*(vx_f + vx)*t_go - 12*(x_f - x) / t_go^3
+    # Equation 2.40: k2 = -2*(vx_f + 2*vx)*t_go + 6*(x_f - x) / t_go^2
+    k1 = (6 * (vx_target + vx) * t_go - 12 * (x_target - x)) / (t_go ** 3)
+    k2 = (-2 * (vx_target + 2 * vx) * t_go + 6 * (x_target - x)) / (t_go ** 2)
     
     # Vertical channel coefficients (enforce altitude and vertical velocity)
     # Equation 2.39: k3 = 6*(vy_f + vy)*t_go - 12*(y_f - y) / t_go^3
@@ -253,9 +264,25 @@ def apollo_guidance(t, t_epoch, state, coefficients):
     # Normalize to [-pi, pi]
     alpha = np.arctan2(np.sin(alpha), np.cos(alpha))
     
+    # Store the unclamped alpha for debugging
+    alpha_unclamped = alpha
+    
     # Safety limits (prevent excessive maneuvers)
     # Justification: Physical limits of vehicle control authority
     alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
+    
+    # Debug output on first call (only once)
+    if not hasattr(apollo_guidance, '_debug_printed'):
+        if abs(alpha_unclamped) > np.deg2rad(15):
+            print(f"\nWARNING: Apollo guidance DEBUG (first excessive command):")
+            print(f"   Time: {t:.2f}s, dt: {dt:.2f}s")
+            print(f"   Coefficients: k1={coefficients[0]:.4f}, k2={coefficients[1]:.4f}, k3={coefficients[2]:.4f}, k4={coefficients[3]:.4f}")
+            print(f"   ax_total={ax_total:.2f}, ay_total={ay_total:.2f}")
+            print(f"   ax_thrust={ax_thrust:.2f}, ay_thrust={ay_thrust:.2f}")
+            print(f"   Thrust angle: {np.rad2deg(thrust_angle_inertial):.2f} deg, Velocity angle: {np.rad2deg(velocity_angle):.2f} deg")
+            print(f"   Alpha unclamped: {np.rad2deg(alpha_unclamped):.2f} deg, clamped: {np.rad2deg(alpha):.2f} deg")
+            print(f"   Gamma: {np.rad2deg(gamma):.2f} deg, Velocity: {v:.2f} m/s")
+            apollo_guidance._debug_printed = True
     
     # Calculate required thrust magnitude
     # This is the magnitude of the thrust acceleration vector

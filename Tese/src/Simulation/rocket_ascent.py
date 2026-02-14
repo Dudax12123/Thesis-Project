@@ -708,10 +708,10 @@ def rocket_dynamics(t, state):
         # Default: zero angle of attack (gravity turn mode or coasting)
         alpha = 0.
 
-    # Store steering angle during guidance phase (for Apollo plotting)
-    if guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
-        alpha_history.append(alpha)
-        alpha_time_history.append(t)
+    # Store steering angle throughout the entire flight (for plotting)
+    # This captures initial kick, guidance phase, and coasting
+    alpha_history.append(alpha)
+    alpha_time_history.append(t)
 
     # --- Determine current accelerations and forces ---
     a_grav = grav.gravitational_acceleration(r_val)
