@@ -84,7 +84,7 @@ def execute():
     print("="*60 + "\n")
     
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
 
     # Calculate final orbital elements
     r_final = data[1, -1]
@@ -183,6 +183,11 @@ def execute():
         print("\nGenerating detailed guidance phase analysis...")
         # guidance_plots.plot_guidance_phase(time, data, thrust_data, time_thrust)  # Commented out: Detailed analysis and rates/performances
         guidance_plots.plot_trajectory_to_seco(time, data)
+    
+    # Generate Apollo steering angle plot
+    if sim_params.GUIDANCE_MODE == "apollo" and ra.time_atmosphere_exit is not None:
+        print("\nGenerating Apollo guidance steering angle plot...")
+        guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
     
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")

@@ -54,6 +54,10 @@ thrust_history = []  # Store thrust values during integration
 time_history = []    # Store corresponding time values
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 
+# Steering angle history for plotting (guidance phase)
+alpha_history = []  # Store steering angles during guidance phase
+alpha_time_history = []  # Store corresponding time values for steering angles
+
 #===================================================
 # Interrupt functions for simulation
 #===================================================
@@ -554,6 +558,7 @@ def rocket_dynamics(t, state):
     global last_guidance_update_time, guidance_coefficients
     global apollo_coefficients_frozen, apollo_freeze_time
     global thrust_history, time_history
+    global alpha_history, alpha_time_history
 
     # Get state components
     s, r_val, v, gamma, m = state
@@ -702,6 +707,11 @@ def rocket_dynamics(t, state):
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)
         alpha = 0.
+
+    # Store steering angle during guidance phase (for Apollo plotting)
+    if guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
+        alpha_history.append(alpha)
+        alpha_time_history.append(t)
 
     # --- Determine current accelerations and forces ---
     a_grav = grav.gravitational_acceleration(r_val)
@@ -872,6 +882,7 @@ def run(initial_kick_angle):
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
     global last_guidance_update_time, guidance_coefficients
     global thrust_history, time_history
+    global alpha_history, alpha_time_history
     
     #===================================================
     # Reset global variables
@@ -897,6 +908,10 @@ def run(initial_kick_angle):
     # Reset thrust and time history
     thrust_history = []
     time_history = []
+    
+    # Reset steering angle history
+    alpha_history = []
+    alpha_time_history = []
 
     #===================================================
     # Simulation until stage separation
@@ -979,7 +994,9 @@ def run(initial_kick_angle):
         if not SINGLE_BURN_FULL_SIMULATION:
             thrust_data = np.array(thrust_history)
             time_thrust = np.array(time_history)
-            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
         else:
             global TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
             TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = sol_2.t[-1]
@@ -1038,11 +1055,15 @@ def run(initial_kick_angle):
             # Convert thrust history to numpy array for easier handling
             thrust_data = np.array(thrust_history)
             time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
     
-            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust
+            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
     
     else:
         thrust_data = np.array(thrust_history)
         time_thrust = np.array(time_history)
-        return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust
+        alpha_data = np.array(alpha_history)
+        alpha_time_data = np.array(alpha_time_history)
+        return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data
 
