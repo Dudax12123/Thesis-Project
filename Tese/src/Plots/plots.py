@@ -186,70 +186,74 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
 
 
     # -------------- Plotting --------------
-    fig1, axs1 = plt.subplots(2, 2, figsize=(14, 10))
-    fig1.suptitle('Full Mission Trajectory', fontsize=16, fontweight='bold')
+    # COMMENTED OUT: Full Mission Trajectory plot
+    # fig1, axs1 = plt.subplots(2, 2, figsize=(14, 10))
+    # fig1.suptitle('Full Mission Trajectory', fontsize=16, fontweight='bold')
 
-    # Altitude over time
-    axs1[0, 0].plot(time_reduced, h, 'b-', linewidth=2)
-    if idx_guidance is not None:
-        axs1[0, 0].plot(time_reduced[idx_guidance], h[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[0, 0].plot(time_reduced[idx_seco], h[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[0, 0].plot(time_reduced[idx_insertion], h[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
-    axs1[0, 0].set_xlabel('Time [s]', fontsize=11)
-    axs1[0, 0].set_ylabel('Altitude [km]', fontsize=11)
-    axs1[0, 0].set_title('Altitude over Time', fontsize=12, fontweight='bold')
-    axs1[0, 0].legend(fontsize=9)
-    axs1[0, 0].grid(True, alpha=0.3)
+    # # Altitude over time
+    # axs1[0, 0].plot(time_reduced, h, 'b-', linewidth=2)
+    # if idx_guidance is not None:
+    #     axs1[0, 0].plot(time_reduced[idx_guidance], h[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
+    # if idx_seco is not None:
+    #     axs1[0, 0].plot(time_reduced[idx_seco], h[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
+    # if idx_insertion is not None:
+    #     axs1[0, 0].plot(time_reduced[idx_insertion], h[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+    # axs1[0, 0].set_xlabel('Time [s]', fontsize=11)
+    # axs1[0, 0].set_ylabel('Altitude [km]', fontsize=11)
+    # axs1[0, 0].set_title('Altitude over Time', fontsize=12, fontweight='bold')
+    # axs1[0, 0].legend(fontsize=9)
+    # axs1[0, 0].grid(True, alpha=0.3)
 
-    # Thrust over time
-    axs1[0, 1].plot(time_reduced, thrust, 'r-', linewidth=2)
-    if idx_guidance is not None:
-        axs1[0, 1].plot(time_reduced[idx_guidance], thrust[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[0, 1].plot(time_reduced[idx_seco], thrust[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[0, 1].plot(time_reduced[idx_insertion], thrust[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
-    axs1[0, 1].set_xlabel('Time [s]', fontsize=11)
-    axs1[0, 1].set_ylabel('Thrust [kN]', fontsize=11)
-    axs1[0, 1].set_title('Thrust over Time', fontsize=12, fontweight='bold')
-    axs1[0, 1].legend(fontsize=9)
-    axs1[0, 1].grid(True, alpha=0.3)
+    # # Thrust over time
+    # axs1[0, 1].plot(time_reduced, thrust, 'r-', linewidth=2)
+    # if idx_guidance is not None:
+    #     axs1[0, 1].plot(time_reduced[idx_guidance], thrust[idx_guidance], 'b^', markersize=10, label='Guidance', zorder=5)
+    # if idx_seco is not None:
+    #     axs1[0, 1].plot(time_reduced[idx_seco], thrust[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
+    # if idx_insertion is not None:
+    #     axs1[0, 1].plot(time_reduced[idx_insertion], thrust[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+    # axs1[0, 1].set_xlabel('Time [s]', fontsize=11)
+    # axs1[0, 1].set_ylabel('Thrust [kN]', fontsize=11)
+    # axs1[0, 1].set_title('Thrust over Time', fontsize=12, fontweight='bold')
+    # axs1[0, 1].legend(fontsize=9)
+    # axs1[0, 1].grid(True, alpha=0.3)
 
-    # Total mass over time
-    m_total = data_reduced[4]
-    axs1[1, 0].plot(time_reduced, m_total, 'b-', linewidth=2)
-    if idx_guidance is not None:
-        axs1[1, 0].plot(time_reduced[idx_guidance], m_total[idx_guidance], 'c^', markersize=10, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[1, 0].plot(time_reduced[idx_seco], m_total[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[1, 0].plot(time_reduced[idx_insertion], m_total[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
-    axs1[1, 0].set_xlabel('Time [s]', fontsize=11)
-    axs1[1, 0].set_ylabel('Total Mass [kg]', fontsize=11)
-    axs1[1, 0].set_title('Total Mass over Time', fontsize=12, fontweight='bold')
-    axs1[1, 0].legend(fontsize=9)
-    axs1[1, 0].grid(True, alpha=0.3)
+    # # Total mass over time
+    # m_total = data_reduced[4]
+    # axs1[1, 0].plot(time_reduced, m_total, 'b-', linewidth=2)
+    # if idx_guidance is not None:
+    #     axs1[1, 0].plot(time_reduced[idx_guidance], m_total[idx_guidance], 'c^', markersize=10, label='Guidance', zorder=5)
+    # if idx_seco is not None:
+    #     axs1[1, 0].plot(time_reduced[idx_seco], m_total[idx_seco], 'ro', markersize=10, label='SECO', zorder=5)
+    # if idx_insertion is not None:
+    #     axs1[1, 0].plot(time_reduced[idx_insertion], m_total[idx_insertion], 'gs', markersize=10, label='Insertion', zorder=5)
+    # axs1[1, 0].set_xlabel('Time [s]', fontsize=11)
+    # axs1[1, 0].set_ylabel('Total Mass [kg]', fontsize=11)
+    # axs1[1, 0].set_title('Total Mass over Time', fontsize=12, fontweight='bold')
+    # axs1[1, 0].legend(fontsize=9)
+    # axs1[1, 0].grid(True, alpha=0.3)
 
-    # Flight path angle over time
-    axs1[1, 1].plot(time_reduced, np.rad2deg(data_reduced[3]), 'm-', linewidth=2)
-    if idx_guidance is not None:
-        axs1[1, 1].plot(time_reduced[idx_guidance], np.rad2deg(data_reduced[3][idx_guidance]), 'b^', markersize=10, label='Guidance', zorder=5)
-    if idx_seco is not None:
-        axs1[1, 1].plot(time_reduced[idx_seco], np.rad2deg(data_reduced[3][idx_seco]), 'ro', markersize=10, label='SECO', zorder=5)
-    if idx_insertion is not None:
-        axs1[1, 1].plot(time_reduced[idx_insertion], np.rad2deg(data_reduced[3][idx_insertion]), 'gs', markersize=10, label='Insertion', zorder=5)
-    axs1[1, 1].axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
-    axs1[1, 1].set_xlabel('Time [s]', fontsize=11)
-    axs1[1, 1].set_ylabel('Flight Path Angle [deg]', fontsize=11)
-    axs1[1, 1].set_title('Flight Path Angle over Time', fontsize=12, fontweight='bold')
-    axs1[1, 1].legend(fontsize=9)
-    axs1[1, 1].grid(True, alpha=0.3)
+    # # Flight path angle over time
+    # axs1[1, 1].plot(time_reduced, np.rad2deg(data_reduced[3]), 'm-', linewidth=2)
+    # if idx_guidance is not None:
+    #     axs1[1, 1].plot(time_reduced[idx_guidance], np.rad2deg(data_reduced[3][idx_guidance]), 'b^', markersize=10, label='Guidance', zorder=5)
+    # if idx_seco is not None:
+    #     axs1[1, 1].plot(time_reduced[idx_seco], np.rad2deg(data_reduced[3][idx_seco]), 'ro', markersize=10, label='SECO', zorder=5)
+    # if idx_insertion is not None:
+    #     axs1[1, 1].plot(time_reduced[idx_insertion], np.rad2deg(data_reduced[3][idx_insertion]), 'gs', markersize=10, label='Insertion', zorder=5)
+    # axs1[1, 1].axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    # axs1[1, 1].set_xlabel('Time [s]', fontsize=11)
+    # axs1[1, 1].set_ylabel('Flight Path Angle [deg]', fontsize=11)
+    # axs1[1, 1].set_title('Flight Path Angle over Time', fontsize=12, fontweight='bold')
+    # axs1[1, 1].legend(fontsize=9)
+    # axs1[1, 1].grid(True, alpha=0.3)
 
     if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
         # Find SECO point in loss time array
         idx_seco_loss = find_closest_index(np.array(time_loss), time_seco) if time_seco is not None else None
+        
+        # Get event times
+        time_meco = ra.time_main_engine_cutoff
         
         # Plot the gravity loss, the drag loss, steering loss and the total loss in one plot
         fig2, axs2 = plt.subplots(figsize=(12, 6))
@@ -259,16 +263,21 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         axs2.plot(time_loss, np.array(grav_loss) + np.array(drag_loss) + np.array(steering_loss), 
                  label="Total Loss", color="red", linewidth=2.5, linestyle='--')
         
-        # Add SECO marker (losses only calculated during powered ascent)
-        if idx_seco_loss is not None:
-            total_loss_at_seco = grav_loss[idx_seco_loss] + drag_loss[idx_seco_loss] + steering_loss[idx_seco_loss]
-            axs2.plot(time_loss[idx_seco_loss], total_loss_at_seco, 'ro', markersize=10, 
-                     label='SECO (End of Loss Accumulation)', zorder=5)
+        # Add vertical lines for phase transitions
+        if time_guidance is not None:
+            axs2.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+                        label=f'Guidance ({time_guidance:.1f}s)')
+        if time_meco is not None:
+            axs2.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
+                        label=f'MECO ({time_meco:.1f}s)')
+        if time_seco is not None:
+            axs2.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7, 
+                        label=f'SECO ({time_seco:.1f}s)')
         
         axs2.set_xlabel('Time [s]', fontsize=11)
         axs2.set_ylabel('Delta-V Loss [m/s]', fontsize=11)
         axs2.set_title('Trajectory Losses over Time (Powered Ascent)', fontsize=12, fontweight='bold')
-        axs2.legend(fontsize=10)
+        axs2.legend(fontsize=10, loc='best')
         axs2.grid(True, alpha=0.3)
         
         print("\nLosses:")
@@ -278,42 +287,42 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         print("\t* Total loss:\t\t\t\t\t", grav_loss[-1] + drag_loss[-1] + steering_loss[-1], "m/s")
         print("\n\n")
 
-    # Plot angle of attack over time
-    fig3, axs3 = plt.subplots(figsize=(12, 6))
+    # COMMENTED OUT: Angle of Attack (Steering Angle) over Time plot
+    # fig3, axs3 = plt.subplots(figsize=(12, 6))
     
-    # Convert angle of attack to degrees for plotting
-    alpha_deg = np.rad2deg(angle_of_attacks)
+    # # Convert angle of attack to degrees for plotting
+    # alpha_deg = np.rad2deg(angle_of_attacks)
     
-    # Plot alpha
-    axs3.plot(time_reduced, alpha_deg, 'b-', linewidth=2, label='Angle of Attack (α)')
+    # # Plot alpha
+    # axs3.plot(time_reduced, alpha_deg, 'b-', linewidth=2, label='Angle of Attack (α)')
     
-    # Add phase transition markers
-    if time_guidance is not None and idx_guidance is not None:
-        axs3.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
-                    label=f'Atmosphere Exit ({time_guidance:.1f}s)')
-    if time_seco is not None and idx_seco is not None:
-        axs3.axvline(x=time_seco, color='red', linestyle='--', linewidth=2, alpha=0.7,
-                    label=f'SECO ({time_seco:.1f}s)')
+    # # Add phase transition markers
+    # if time_guidance is not None and idx_guidance is not None:
+    #     axs3.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+    #                 label=f'Atmosphere Exit ({time_guidance:.1f}s)')
+    # if time_seco is not None and idx_seco is not None:
+    #     axs3.axvline(x=time_seco, color='red', linestyle='--', linewidth=2, alpha=0.7,
+    #                 label=f'SECO ({time_seco:.1f}s)')
     
-    # Mark the kick maneuver period
-    kick_start = sim_params.TIME_TO_START_KICK
-    kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
-    axs3.axvspan(kick_start, kick_end, alpha=0.2, color='yellow', label='Pitch Kick Maneuver')
+    # # Mark the kick maneuver period
+    # kick_start = sim_params.TIME_TO_START_KICK
+    # kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
+    # axs3.axvspan(kick_start, kick_end, alpha=0.2, color='yellow', label='Pitch Kick Maneuver')
     
-    # Add horizontal line at zero
-    axs3.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    # # Add horizontal line at zero
+    # axs3.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
     
-    axs3.set_xlabel('Time [s]', fontsize=11)
-    axs3.set_ylabel('Angle of Attack [deg]', fontsize=11)
-    axs3.set_title('Angle of Attack (Steering Angle) over Time', fontsize=12, fontweight='bold')
-    axs3.legend(fontsize=10, loc='best')
-    axs3.grid(True, alpha=0.3)
+    # axs3.set_xlabel('Time [s]', fontsize=11)
+    # axs3.set_ylabel('Angle of Attack [deg]', fontsize=11)
+    # axs3.set_title('Angle of Attack (Steering Angle) over Time', fontsize=12, fontweight='bold')
+    # axs3.legend(fontsize=10, loc='best')
+    # axs3.grid(True, alpha=0.3)
     
-    # Add annotation about guidance phases
-    axs3.text(0.02, 0.98, 
-             'Phase 1: Pitch Kick\nPhase 2: Gravity Turn (α=0)\nPhase 3: Active Guidance',
-             transform=axs3.transAxes, fontsize=9, verticalalignment='top',
-             bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+    # # Add annotation about guidance phases
+    # axs3.text(0.02, 0.98, 
+    #          'Phase 1: Pitch Kick\nPhase 2: Gravity Turn (α=0)\nPhase 3: Active Guidance',
+    #          transform=axs3.transAxes, fontsize=9, verticalalignment='top',
+    #          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     plt.tight_layout()
     plt.show(block=False)

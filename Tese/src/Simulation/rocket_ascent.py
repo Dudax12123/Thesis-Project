@@ -19,6 +19,7 @@ from Auxiliary import rocket_specs as r
 import Guidance.gravity_turn as gravity_turn_guidance
 import Guidance.simple_polynomial as simple_poly_guidance
 import Guidance.linear_tangent_steering as lts_guidance
+import Guidance.bilinear_tangent_steering as bts_guidance
 import Guidance.apollo_guidance as apollo_guidance_module
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -618,6 +619,20 @@ def rocket_dynamics(t, state):
                 print(f"  LTS coefficients: a={guidance_coefficients[0]:.6f}, b={guidance_coefficients[1]:.6f}")
                 print(f"  Initial alpha command: {np.rad2deg(alpha):.2f} deg")
                 
+        elif sim_params.GUIDANCE_MODE == "bilinear_tangent":
+            # Bilinear tangent steering: tan(α + γ) = ratio of two linear functions
+            guidance_coefficients = bts_guidance.compute_bilinear_coefficients(state,
+                                                               sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                               t_go)
+            alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
+            
+            if sim_params.EVENTS_PRINT:
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"  Switching to BILINEAR TANGENT STEERING guidance mode")
+                print(f"  Initial t_go = {t_go:.2f} s")
+                print(f"  BTS coefficients: c1={guidance_coefficients[0]:.6f}, c2={guidance_coefficients[1]:.6f}, c1'={guidance_coefficients[2]:.6f}, c2'={guidance_coefficients[3]:.6f}")
+                print(f"  Initial alpha command: {np.rad2deg(alpha):.2f} deg")
+                
         elif sim_params.GUIDANCE_MODE == "apollo":
             # Apollo polynomial: acceleration profiles with terminal constraints
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
@@ -667,6 +682,21 @@ def rocket_dynamics(t, state):
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
+        
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "bilinear_tangent" and F_T > 0:
+        # Phase 2c: Bilinear tangent steering guidance (only while engines burning)
+        
+        # Update guidance coefficients periodically
+        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+            guidance_coefficients = bts_guidance.compute_bilinear_coefficients(state,
+                                                               sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                               t_go)
+            last_guidance_update_time = t
+        
+        # Compute guidance angle
+        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
         # Phase 2b: Apollo polynomial guidance (only while engines burning)

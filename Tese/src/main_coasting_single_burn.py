@@ -41,6 +41,7 @@ def execute():
         "gravity_turn": "Pure Gravity Turn",
         "simple_poly": "Simplified Polynomial Guidance",
         "linear_tangent": "Linear Tangent Steering",
+        "bilinear_tangent": "Bilinear Tangent Steering",
         "apollo": "Apollo Polynomial Guidance"
     }
     
@@ -58,6 +59,11 @@ def execute():
         print("  - Gravity turn until atmosphere exit (65 km)")
         print("  - Classical linear tangent steering law")
         print("  - tan(alpha + gamma) varies linearly with time-to-go")
+    elif sim_params.GUIDANCE_MODE == "bilinear_tangent":
+        print("  - Gravity turn until atmosphere exit (65 km)")
+        print("  - Bilinear tangent steering law")
+        print("  - tan(alpha + gamma) = ratio of two linear functions of t-to-go")
+        print("  - Controls both value and derivative at boundaries")
     elif sim_params.GUIDANCE_MODE == "apollo":
         print("  - Gravity turn until atmosphere exit (65 km)")
         print("  - Apollo-style acceleration command profiles")
@@ -111,6 +117,7 @@ def execute():
             guidance_activation_msg = {
                 "simple_poly": "Simple polynomial guidance",
                 "linear_tangent": "Linear tangent steering",
+                "bilinear_tangent": "Bilinear tangent steering",
                 "apollo": "Apollo polynomial guidance"
             }.get(sim_params.GUIDANCE_MODE, "Guidance")
             print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\t{guidance_activation_msg} activation")

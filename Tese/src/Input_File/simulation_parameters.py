@@ -24,12 +24,16 @@ TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desire
 #                   - Initial kick until atmosphere exit
 #                   - tan(α + γ) varies linearly with time-to-go
 #                   - Classic ascent guidance method
+#   "bilinear_tangent": Bilinear tangent steering law (advanced guidance)
+#                   - Initial kick until atmosphere exit
+#                   - tan(α + γ) = ratio of two linear functions of time-to-go
+#                   - More flexible than linear tangent, controls value and derivative
 #   "apollo":       Apollo polynomial guidance (classical explicit guidance)
 #                   - Initial kick until atmosphere exit
 #                   - Polynomial acceleration profiles in x and y directions
 #                   - Enforces position and velocity terminal constraints
 #                   - Used in Apollo missions, more accurate than simple_poly
-GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "apollo"
+GUIDANCE_MODE = "bilinear_tangent"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")

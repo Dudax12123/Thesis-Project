@@ -126,7 +126,7 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=10, framealpha=0.9)
     
     plt.tight_layout()
-    plt.show()
+    plt.show(block=False)
 
 
 
