@@ -582,7 +582,7 @@ def rocket_dynamics(t, state):
         # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         alpha = pitch_program_linear(t, current_kick_angle)
         
-    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "apollo"] and 
+    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and 
           alt > sim_params.ALT_NO_ATMOSPHERE and (not atmosphere_exited) and F_T > 0):
         # Detect atmosphere exit and initialize guidance (only if engines burning)
         atmosphere_exited = True

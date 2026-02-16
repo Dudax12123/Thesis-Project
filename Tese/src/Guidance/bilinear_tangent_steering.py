@@ -66,15 +66,47 @@ def compute_bilinear_coefficients(current_state, target_altitude, t_go):
     # Boundary conditions
     # Terminal (at t = t_f, τ = 0):
     tan_terminal = 0.0  # Horizontal flight
-    dtan_dt_terminal = 0.0  # Steady approach
     
     # Initial (at t = t_0, τ = t_go):
-    # Assume smooth handover: α ≈ 0, so tan(α + γ) ≈ tan(γ)
-    tan_initial = np.tan(gamma)
+    # CRITICAL: Don't just use current gamma! That causes α=0 throughout.
+    # Instead, compute required (α+γ) based on trajectory targeting.
+    # Use a simple estimate: linear decrease from current to terminal
+    # This ensures non-zero alpha commands for active control.
+    gamma_current = gamma
     
-    # Initial derivative: estimated rate of change
-    # For a typical ascent trajectory, the inclination decreases
-    # Estimate: linear decrease from current to zero over t_go
+    # Estimate what the average flight path angle should be
+    # For a gravity turn from current altitude to target, use empirical relation
+    #tan_initial = np.tan(gamma)  # OLD: This caused α=0 problem!
+    
+    # NEW: Use current gamma but adjust based on targeting needs
+    # The key insight: if we're at gamma_current and want to end at 0°,
+    # and the natural trajectory (without steering) would also decay to ~0°,
+    # then we need to command a DIFFERENT trajectory that requires steering.
+    # Simple approach: bias the initial condition
+    tan_initial = np.tan(gamma_current * 1.2)  # 20% higher → requires negative alpha (pitch down)
+    
+    # Alternative better approach: estimate required thrust vector angle
+    # based on current position relative to target
+    r = current_state[1]
+    target_r = c.R_EARTH + target_altitude
+    altitude_to_gain = target_r - r
+    downrange_estimate = t_go * current_state[2] * np.cos(gamma)  # Rough estimate
+    
+    # Use a targeting-based initial condition
+    if downrange_estimate > 0:
+        # Target flight path angle for efficient trajectory
+        gamma_targeting = np.arctan(altitude_to_gain / downrange_estimate)
+        # Blend with current gamma for stability
+        gamma_blended = 0.7 * gamma_current + 0.3 * gamma_targeting
+        tan_initial = np.tan(gamma_blended)
+    else:
+        # Fallback: use biased current gamma
+        tan_initial = np.tan(gamma_current)
+    
+    # Terminal derivative: non-zero to avoid singularity
+    dtan_dt_terminal = -0.02  # Moderate terminal rate (~ -1.1 deg/s)
+    
+    # Initial derivative: smooth transition
     dtan_dt_initial = (tan_terminal - tan_initial) / t_go
     
     # Special handling for near-zero or very small t_go
@@ -82,7 +114,7 @@ def compute_bilinear_coefficients(current_state, target_altitude, t_go):
         # Near target, use simple form (avoid division issues)
         return [0.0, 0.0, 0.0, 1.0]
     
-    # Now solve for coefficients using boundary conditions
+    # Now solve for bilinear coefficients using boundary conditions
     # Let f(τ) = tan(α + γ) = (c1*τ + c2) / (c1'*τ + c2')
     #
     # At τ = t_go (initial time):
@@ -168,26 +200,14 @@ def compute_bilinear_coefficients(current_state, target_altitude, t_go):
     # c1*t_go = tan_initial*c1'*t_go + tan_initial
     # c1 = tan_initial*c1' + tan_initial/t_go  ... (A)
     
-    # Derivative: f'(τ) = c1/(c1'*τ + 1)²
-    # At terminal: f'(0) = c1/1 = c1 = -dtan_dt_terminal
-    # If we want zero terminal derivative, c1 = 0
-    # But then from (A): 0 = tan_initial*c1' + tan_initial/t_go
-    # c1' = -1/t_go
+    # Derivative: f'(τ) = [c1*c2' - c2*c1'] / (c1'*τ + c2')²
+    # With c2 = 0, c2' = 1: f'(τ) = c1 / (c1'*τ + 1)²
+    # At terminal (τ = 0): f'(0) = c1 / 1² = c1
+    # Note: f'(τ) = df/dτ, and since τ decreases with time: df/dt = -df/dτ
+    # So: dtan_dt_terminal = -f'(0) = -c1
+    # Therefore: c1 = -dtan_dt_terminal
     
-    if abs(dtan_dt_terminal) < 1e-6:
-        # Zero terminal derivative case
-        c1 = 0.0
-        c1_prime = -1.0 / t_go
-        
-        # Verify initial condition
-        # tan = (0*t_go + 0) / (-1/t_go*t_go + 1) = 0 / 0 ... problem!
-        
-        # This approach has singularities. Use a practical approximation:
-        # Set a small non-zero terminal derivative
-        dtan_dt_terminal = -0.01 / t_go  # Small but non-zero
-    
-    # General case with non-zero terminal derivative
-    # From derivative at τ = 0: c1 = -dtan_dt_terminal
+    # From derivative relationship
     c1 = -dtan_dt_terminal
     
     # From equation (A): c1 = tan_initial*c1' + tan_initial/t_go

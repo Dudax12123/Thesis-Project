@@ -103,6 +103,6 @@ def polynomial_guidance(t, t_go, current_state, coefficients):
     alpha = a0 + a1*tau 
     
     # Limit angle of attack to reasonable values
-    alpha = np.clip(alpha, -np.deg2rad(10), np.deg2rad(10))
+    # alpha = np.clip(alpha, -np.deg2rad(10), np.deg2rad(10))
     
     return alpha

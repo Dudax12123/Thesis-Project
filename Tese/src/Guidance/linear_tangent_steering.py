@@ -132,7 +132,7 @@ def linear_tangent_steering(t, t_go, current_state, coefficients):
     
     # Safety limits to prevent excessive maneuvering
     # Typical limits for ascent: ±15 degrees
-    alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
+    # alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
     
     return alpha
 

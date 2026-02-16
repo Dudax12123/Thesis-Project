@@ -68,4 +68,4 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 # FOR DEBUGGING
 # ===================================================
 INTERRUPTS_PRINT = False
-EVENTS_PRINT = True
+EVENTS_PRINT = False
