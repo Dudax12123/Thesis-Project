@@ -31,20 +31,17 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         - thrust_data: array of actual thrust values from simulation; [N]
         - time_thrust: array of time steps corresponding to thrust values; [s]
 
-    Plots the following data over time:
-        - altitude over downtrack
-        - downtrack over time
-        - altitude over time
-        - velocity norm  over time
-        - flight path angle (gamma) over time
-        - mass of the rocket over time
-        - dynamic pressure over time (based on velocity norm)
-        - angle of attack over time
+    Currently plots:
+        - Trajectory losses over time (gravity, drag, steering, and total)
+        - Dynamic pressure over time with max-Q indication
         
     Phase transition markers are added to show:
-        - Guidance activation (atmosphere exit at 65 km)
+        - Guidance activation (atmosphere exit)
+        - Main engine cutoff (MECO)
         - Powered ascent to coasting transition (SECO)
-        - Orbit insertion (circularization burn at apogee)
+        
+    Note: Additional plots (altitude, velocity, mass, angle of attack) are
+    available but currently commented out in the code.
     """
 
     # Reduce data array
@@ -287,41 +284,96 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust):
         print("\t* Total loss:\t\t\t\t\t", grav_loss[-1] + drag_loss[-1] + steering_loss[-1], "m/s")
         print("\n\n")
 
+    # Plot dynamic pressure over time
+    fig3, axs3 = plt.subplots(figsize=(12, 6))
+    
+    # Convert dynamic pressure to kPa for better readability
+    q_kPa = np.array(q) / 1000.0
+    max_q_kPa = max(q_kPa)
+    
+    # Find time and index of max-q
+    idx_max_q = np.argmax(q_kPa)
+    time_max_q = time_reduced[idx_max_q]
+    
+    # Plot dynamic pressure
+    axs3.plot(time_reduced, q_kPa, 'b-', linewidth=2.5, label='Dynamic Pressure')
+    
+    # Mark max-q
+    axs3.plot(time_max_q, max_q_kPa, 'r*', markersize=15, label=f'Max-Q ({max_q_kPa:.2f} kPa at {time_max_q:.1f}s)', zorder=5)
+    
+    # Add vertical lines for phase transitions
+    if time_guidance is not None:
+        axs3.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+                    label=f'Atmosphere Exit ({time_guidance:.1f}s)')
+    time_meco = ra.time_main_engine_cutoff
+    if time_meco is not None:
+        axs3.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
+                    label=f'MECO ({time_meco:.1f}s)')
+    if time_seco is not None:
+        axs3.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7,
+                    label=f'SECO ({time_seco:.1f}s)')
+    
+    # Mark the kick maneuver period
+    kick_start = sim_params.TIME_TO_START_KICK
+    kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
+    axs3.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
+    
+    # Add dynamic pressure threshold line if using dynamic pressure method for atmosphere exit
+    if sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
+        q_threshold_kPa = sim_params.DYNAMIC_PRESSURE_THRESHOLD / 1000.0
+        axs3.axhline(y=q_threshold_kPa, color='orange', linestyle=':', linewidth=2, alpha=0.7,
+                    label=f'Atmosphere Exit Threshold ({q_threshold_kPa:.2f} kPa)')
+    
+    axs3.set_xlabel('Time [s]', fontsize=11)
+    axs3.set_ylabel('Dynamic Pressure [kPa]', fontsize=11)
+    axs3.set_title('Dynamic Pressure over Time', fontsize=12, fontweight='bold')
+    axs3.legend(fontsize=9, loc='best')
+    axs3.grid(True, alpha=0.3)
+    
+    # Add information text box
+    info_text = f'Max-Q: {max_q_kPa:.2f} kPa\nOccurs at: {time_max_q:.1f} s'
+    if time_guidance is not None:
+        q_at_guidance = q_kPa[find_closest_index(time_reduced, time_guidance)]
+        info_text += f'\nQ at atmosphere exit: {q_at_guidance:.2f} kPa'
+    axs3.text(0.98, 0.98, info_text,
+             transform=axs3.transAxes, fontsize=10, verticalalignment='top', horizontalalignment='right',
+             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+
     # COMMENTED OUT: Angle of Attack (Steering Angle) over Time plot
-    # fig3, axs3 = plt.subplots(figsize=(12, 6))
+    # fig4, axs4 = plt.subplots(figsize=(12, 6))
     
     # # Convert angle of attack to degrees for plotting
     # alpha_deg = np.rad2deg(angle_of_attacks)
     
     # # Plot alpha
-    # axs3.plot(time_reduced, alpha_deg, 'b-', linewidth=2, label='Angle of Attack (α)')
+    # axs4.plot(time_reduced, alpha_deg, 'b-', linewidth=2, label='Angle of Attack (α)')
     
     # # Add phase transition markers
     # if time_guidance is not None and idx_guidance is not None:
-    #     axs3.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+    #     axs4.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
     #                 label=f'Atmosphere Exit ({time_guidance:.1f}s)')
     # if time_seco is not None and idx_seco is not None:
-    #     axs3.axvline(x=time_seco, color='red', linestyle='--', linewidth=2, alpha=0.7,
+    #     axs4.axvline(x=time_seco, color='red', linestyle='--', linewidth=2, alpha=0.7,
     #                 label=f'SECO ({time_seco:.1f}s)')
     
     # # Mark the kick maneuver period
     # kick_start = sim_params.TIME_TO_START_KICK
     # kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
-    # axs3.axvspan(kick_start, kick_end, alpha=0.2, color='yellow', label='Pitch Kick Maneuver')
+    # axs4.axvspan(kick_start, kick_end, alpha=0.2, color='yellow', label='Pitch Kick Maneuver')
     
     # # Add horizontal line at zero
-    # axs3.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    # axs4.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
     
-    # axs3.set_xlabel('Time [s]', fontsize=11)
-    # axs3.set_ylabel('Angle of Attack [deg]', fontsize=11)
-    # axs3.set_title('Angle of Attack (Steering Angle) over Time', fontsize=12, fontweight='bold')
-    # axs3.legend(fontsize=10, loc='best')
-    # axs3.grid(True, alpha=0.3)
+    # axs4.set_xlabel('Time [s]', fontsize=11)
+    # axs4.set_ylabel('Angle of Attack [deg]', fontsize=11)
+    # axs4.set_title('Angle of Attack (Steering Angle) over Time', fontsize=12, fontweight='bold')
+    # axs4.legend(fontsize=10, loc='best')
+    # axs4.grid(True, alpha=0.3)
     
     # # Add annotation about guidance phases
-    # axs3.text(0.02, 0.98, 
+    # axs4.text(0.02, 0.98, 
     #          'Phase 1: Pitch Kick\nPhase 2: Gravity Turn (α=0)\nPhase 3: Active Guidance',
-    #          transform=axs3.transAxes, fontsize=9, verticalalignment='top',
+    #          transform=axs4.transAxes, fontsize=9, verticalalignment='top',
     #          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
     plt.tight_layout()

@@ -44,10 +44,20 @@ APOLLO_THRUST_MAGNITUDE_CONTROL = True          # Enable thrust magnitude contro
                                                  # If True: Apollo commands both thrust angle AND magnitude
                                                  # If False: Apollo only commands angle (fixed thrust)
 
+# -------------- Atmosphere Exit / Guidance Start Marker --------------
+# Choose how to detect when the rocket exits the atmosphere and guidance should start:
+#   "altitude": Use altitude threshold (traditional method)
+#   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
+ATMOSPHERE_EXIT_METHOD = "altitude"             # Options: "altitude", "dynamic_pressure"
+ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
+                                                 # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
+DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
+                                                 # (only used if ATMOSPHERE_EXIT_METHOD = "dynamic_pressure")
+                                                 # Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
+
 # -------------- Optimization --------------
 ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]
-ALT_NO_ATMOSPHERE = 65e3                        # altitude where atmosphere can be neglected; [m]
 MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of delta-v; [s]
 
 # ===================================================

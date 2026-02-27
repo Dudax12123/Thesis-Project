@@ -122,7 +122,7 @@ The coefficients are recomputed periodically to account for:
 
 Simply run:
 ```bash
-python src/main_coasting_single_burn.py
+python src/main.py
 ```
 
 The program will automatically:

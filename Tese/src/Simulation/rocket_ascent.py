@@ -575,6 +575,16 @@ def rocket_dynamics(t, state):
     # --- Get current thrust, Isp ---
     F_T, Isp = thrust_Isp()
 
+    # --- Calculate dynamic pressure (needed for atmosphere exit check and drag) ---
+    q = atm.dynamic_pressure(v, alt)
+
+    # --- Check atmosphere exit condition based on selected method ---
+    atmosphere_exit_detected = False
+    if sim_params.ATMOSPHERE_EXIT_METHOD == "altitude":
+        atmosphere_exit_detected = (alt > sim_params.ALT_NO_ATMOSPHERE)
+    elif sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
+        atmosphere_exit_detected = (q < sim_params.DYNAMIC_PRESSURE_THRESHOLD)
+
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
     
@@ -583,7 +593,7 @@ def rocket_dynamics(t, state):
         alpha = pitch_program_linear(t, current_kick_angle)
         
     elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and 
-          alt > sim_params.ALT_NO_ATMOSPHERE and (not atmosphere_exited) and F_T > 0):
+          atmosphere_exit_detected and (not atmosphere_exited) and F_T > 0):
         # Detect atmosphere exit and initialize guidance (only if engines burning)
         atmosphere_exited = True
         time_atmosphere_exit = t
@@ -601,7 +611,8 @@ def rocket_dynamics(t, state):
             alpha = simple_poly_guidance.polynomial_guidance(t, t_go, state, guidance_coefficients)
             
             if sim_params.EVENTS_PRINT:
-                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
+                print(f"  Exit method: {sim_params.ATMOSPHERE_EXIT_METHOD}")
                 print(f"  Switching to SIMPLE POLYNOMIAL guidance mode")
                 print(f"  Initial t_go = {t_go:.2f} s")
         
@@ -613,7 +624,8 @@ def rocket_dynamics(t, state):
             alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
             
             if sim_params.EVENTS_PRINT:
-                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
+                print(f"  Exit method: {sim_params.ATMOSPHERE_EXIT_METHOD}")
                 print(f"  Switching to LINEAR TANGENT STEERING guidance mode")
                 print(f"  Initial t_go = {t_go:.2f} s")
                 print(f"  LTS coefficients: a={guidance_coefficients[0]:.6f}, b={guidance_coefficients[1]:.6f}")
@@ -627,7 +639,8 @@ def rocket_dynamics(t, state):
             alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
             
             if sim_params.EVENTS_PRINT:
-                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
+                print(f"  Exit method: {sim_params.ATMOSPHERE_EXIT_METHOD}")
                 print(f"  Switching to BILINEAR TANGENT STEERING guidance mode")
                 print(f"  Initial t_go = {t_go:.2f} s")
                 print(f"  BTS coefficients: c1={guidance_coefficients[0]:.6f}, c2={guidance_coefficients[1]:.6f}, c1'={guidance_coefficients[2]:.6f}, c2'={guidance_coefficients[3]:.6f}")
@@ -643,7 +656,8 @@ def rocket_dynamics(t, state):
             alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
             
             if sim_params.EVENTS_PRINT:
-                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                print(f"\nAtmosphere exit at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
+                print(f"  Exit method: {sim_params.ATMOSPHERE_EXIT_METHOD}")
                 print(f"  Switching to APOLLO POLYNOMIAL guidance mode")
                 print(f"  Thrust magnitude control: {sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL}")
                 print(f"  Current downrange: {s/1000:.2f} km")
@@ -746,8 +760,7 @@ def rocket_dynamics(t, state):
     # --- Determine current accelerations and forces ---
     a_grav = grav.gravitational_acceleration(r_val)
     
-    # Calculate dynamic pressure and drag
-    q = atm.dynamic_pressure(v, alt)
+    # Calculate drag (dynamic pressure already calculated earlier)
     F_D = atm.drag_force(q)
     
     # Lift force (typically neglected)
