@@ -108,20 +108,20 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     lines = line1 + line2 + line3 + line4
     labels = [l.get_label() for l in lines]
     
-    # Add phase markers to legend
+    # Add phase markers to legend (numbered)
     from matplotlib.lines import Line2D
     legend_elements = lines.copy()
     legend_labels = labels.copy()
     
     if time_guidance is not None:
         legend_elements.append(Line2D([0], [0], color='cyan', linestyle='--', linewidth=2))
-        legend_labels.append('Guidance Activation')
+        legend_labels.append('① Guidance Activation')
     if time_meco is not None:
         legend_elements.append(Line2D([0], [0], color='orange', linestyle='--', linewidth=2))
-        legend_labels.append('MECO (Stage 1 Cutoff)')
+        legend_labels.append('② MECO (Stage 1 Cutoff)')
     if time_seco is not None:
         legend_elements.append(Line2D([0], [0], color='black', linestyle='--', linewidth=2))
-        legend_labels.append('SECO (Coasting Start)')
+        legend_labels.append('③ SECO (Coasting Start)')
     
     ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=10, framealpha=0.9)
     
@@ -206,12 +206,26 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     # Row 1: Position and Trajectory
     # Trajectory plot: altitude vs downtrack
     axs1[0, 0].plot(s, h, 'b-', linewidth=2)
-    axs1[0, 0].plot(s[0], h[0], 'go', markersize=10, label='Guidance Start')
-    axs1[0, 0].plot(s[-1], h[-1], 'ro', markersize=10, label='SECO')
+    # Numbered markers
+    axs1[0, 0].plot(s[0], h[0], 'o', color='green', markersize=8, 
+                   markeredgecolor='black', markeredgewidth=1, zorder=5)
+    axs1[0, 0].text(s[0], h[0], '1', color='white', fontsize=6, 
+                   fontweight='bold', ha='center', va='center', zorder=6)
+    axs1[0, 0].plot(s[-1], h[-1], 'o', color='red', markersize=8, 
+                   markeredgecolor='black', markeredgewidth=1, zorder=5)
+    axs1[0, 0].text(s[-1], h[-1], '2', color='white', fontsize=6, 
+                   fontweight='bold', ha='center', va='center', zorder=6)
     axs1[0, 0].set_xlabel('Downtrack [km]')
     axs1[0, 0].set_ylabel('Altitude [km]')
     axs1[0, 0].set_title('Trajectory During Guidance')
-    axs1[0, 0].legend()
+    # Custom legend
+    from matplotlib.lines import Line2D
+    legend_elements = [Line2D([0], [0], color='b', linewidth=2, label='Trajectory'),
+                      Line2D([0], [0], marker='o', color='w', markerfacecolor='green', 
+                            markersize=6, label='① Guidance Start'),
+                      Line2D([0], [0], marker='o', color='w', markerfacecolor='red', 
+                            markersize=6, label='② SECO')]
+    axs1[0, 0].legend(handles=legend_elements)
     axs1[0, 0].grid(True, alpha=0.3)
     
     # Altitude over time
@@ -413,14 +427,36 @@ def plot_trajectory_to_seco(time_steps, data):
         ax.plot(x[idx_guidance_reduced:], y[idx_guidance_reduced:], 
                color="cyan", linewidth=2.5, label="Active Guidance Phase", zorder=4)
     
-    # Add markers
-    ax.plot(x[0], y[0], 'go', markersize=12, label='Launch', zorder=5)
+    # Add numbered markers
+    ax.plot(x[0], y[0], 'o', color='green', markersize=8, 
+           markeredgecolor='white', markeredgewidth=1, zorder=5)
+    ax.text(x[0], y[0], '1', color='white', fontsize=7, 
+           fontweight='bold', ha='center', va='center', zorder=6)
     
     if time_guidance is not None:
-        ax.plot(x[idx_guidance_reduced], y[idx_guidance_reduced], 'y^', 
-               markersize=14, label='Guidance Activation', zorder=5)
+        ax.plot(x[idx_guidance_reduced], y[idx_guidance_reduced], 'o', color='yellow', 
+               markersize=8, markeredgecolor='white', markeredgewidth=1, zorder=5)
+        ax.text(x[idx_guidance_reduced], y[idx_guidance_reduced], '2', color='black', fontsize=7, 
+               fontweight='bold', ha='center', va='center', zorder=6)
     
-    ax.plot(x[-1], y[-1], 'ro', markersize=14, label='SECO (Coasting Start)', zorder=5)
+    ax.plot(x[-1], y[-1], 'o', color='red', markersize=8, 
+           markeredgecolor='white', markeredgewidth=1, zorder=5)
+    ax.text(x[-1], y[-1], '3', color='white', fontsize=7, 
+           fontweight='bold', ha='center', va='center', zorder=6)
+    
+    # Create custom legend with numbered markers
+    from matplotlib.lines import Line2D
+    legend_elements = [
+        Line2D([0], [0], color='orange', linewidth=2.5, label='Launch to Atmosphere Exit'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='green', 
+              markersize=7, label='① Launch'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='yellow', 
+              markersize=7, label='② Guidance Activation')
+    ]
+    if time_guidance is not None:
+        legend_elements.insert(1, Line2D([0], [0], color='cyan', linewidth=2.5, label='Active Guidance Phase'))
+    legend_elements.append(Line2D([0], [0], marker='o', color='w', markerfacecolor='red', 
+                                 markersize=7, label='③ SECO (Coasting Start)'))
     
     # Create Earth representation (circular disk)
     earth_radius_km = c.R_EARTH / 1000.0
@@ -435,7 +471,7 @@ def plot_trajectory_to_seco(time_steps, data):
     ax.set_title("Powered Ascent Trajectory (Launch to SECO)", color="white", fontsize=14, fontweight='bold')
     ax.tick_params(colors='white')
     ax.grid(color='gray', linestyle='--', linewidth=0.5, alpha=0.3)
-    ax.legend(loc='upper left', fontsize=10)
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=10)
     
     # Set limits to show the trajectory clearly
     margin = 500
@@ -551,15 +587,15 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     lines = line1 + line2 + line3 + line4
     labels = [l.get_label() for l in lines]
     
-    # Add phase transition labels
+    # Add phase transition labels (numbered)
     if time_guidance is not None and time_guidance <= time_limit:
-        labels.append('Guidance')
+        labels.append('① Guidance')
         lines.append(plt.Line2D([0], [0], color='cyan', linestyle='--', linewidth=1.5))
     if time_meco is not None and time_meco <= time_limit:
-        labels.append('MECO')
+        labels.append('② MECO')
         lines.append(plt.Line2D([0], [0], color='magenta', linestyle='--', linewidth=1.5))
     if time_seco is not None and time_seco <= time_limit:
-        labels.append('SECO')
+        labels.append('③ SECO')
         lines.append(plt.Line2D([0], [0], color='red', linestyle='--', linewidth=1.5))
     
     ax1.legend(lines, labels, loc='best', fontsize=10)

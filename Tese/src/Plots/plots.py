@@ -389,16 +389,36 @@ def plot_trajectory_xy(data, time_steps):
     # Plot trajectory
     ax.plot(x, y, color="white", linewidth=1, label="Rocket Trajectory")
     
-    # Add phase transition markers
+    # Add phase transition markers (numbered)
     if idx_guidance is not None:
-        ax.plot(x[idx_guidance], y[idx_guidance], 'c^', markersize=12, 
-               label='Guidance Activation', zorder=5)
+        ax.plot(x[idx_guidance], y[idx_guidance], 'o', color='cyan', markersize=8, 
+               markeredgecolor='white', markeredgewidth=1, zorder=5)
+        ax.text(x[idx_guidance], y[idx_guidance], '1', color='white', fontsize=7, 
+               fontweight='bold', ha='center', va='center', zorder=6)
     if idx_seco is not None:
-        ax.plot(x[idx_seco], y[idx_seco], 'ro', markersize=12, 
-               label='SECO (Coasting Start)', zorder=5)
+        ax.plot(x[idx_seco], y[idx_seco], 'o', color='red', markersize=8, 
+               markeredgecolor='white', markeredgewidth=1, zorder=5)
+        ax.text(x[idx_seco], y[idx_seco], '2', color='white', fontsize=7, 
+               fontweight='bold', ha='center', va='center', zorder=6)
     if idx_insertion is not None:
-        ax.plot(x[idx_insertion], y[idx_insertion], 'gs', markersize=12, 
-               label='Orbit Insertion', zorder=5)
+        ax.plot(x[idx_insertion], y[idx_insertion], 'o', color='green', markersize=8, 
+               markeredgecolor='white', markeredgewidth=1, zorder=5)
+        ax.text(x[idx_insertion], y[idx_insertion], '3', color='white', fontsize=7, 
+               fontweight='bold', ha='center', va='center', zorder=6)
+    
+    # Add custom legend for numbered markers
+    from matplotlib.patches import Circle
+    from matplotlib.lines import Line2D
+    legend_elements = [Line2D([0], [0], color='white', linewidth=1, label='Rocket Trajectory')]
+    if idx_guidance is not None:
+        legend_elements.append(Line2D([0], [0], marker='o', color='w', markerfacecolor='cyan', 
+                                     markersize=7, label='① Guidance Activation'))
+    if idx_seco is not None:
+        legend_elements.append(Line2D([0], [0], marker='o', color='w', markerfacecolor='red', 
+                                     markersize=7, label='② SECO (Coasting Start)'))
+    if idx_insertion is not None:
+        legend_elements.append(Line2D([0], [0], marker='o', color='w', markerfacecolor='green', 
+                                     markersize=7, label='③ Orbit Insertion'))
     
     # Create Earth representation (circular disk)
     earth_radius_km = c.R_EARTH / 1000.0
@@ -413,7 +433,12 @@ def plot_trajectory_xy(data, time_steps):
     ax.set_title("Rocket Trajectory", color="white")
     ax.tick_params(colors='white')
     ax.grid(color='gray', linestyle='--', linewidth=0.5)
-    ax.legend()
+    
+    # Add legend with styling for black background
+    legend = ax.legend(handles=legend_elements, loc='upper left', fontsize=9, 
+                      facecolor='black', edgecolor='white', framealpha=0.8)
+    for text in legend.get_texts():
+        text.set_color('white')
 
     # Set limits to make sure Earth is fully visible
     ax.set_xlim(min(x) - 1200, max(x) + 1200)  # Adjust margins around trajectory
