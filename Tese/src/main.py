@@ -182,7 +182,7 @@ def execute():
     guidance_plots.plot_ascent_phase(time, data, thrust_data, time_thrust)
     
     # Full mission plots
-    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust)
+    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust, alpha_data, alpha_time_data)
     plots.plot_trajectory_xy(data, time)
     
     # Generate detailed guidance phase plots

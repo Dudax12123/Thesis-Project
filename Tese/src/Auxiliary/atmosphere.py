@@ -6,6 +6,8 @@ aerodynamic forces acting on the rocket during flight.
 
 Functions:
 - atmospheric_density: Calculate air density at a given altitude
+- speed_of_sound: Calculate speed of sound at a given altitude
+- dynamic_pressure: Calculate dynamic pressure at given velocity and altitude
 - drag_force: Calculate aerodynamic drag force
 - lift_force: Calculate aerodynamic lift force
 """
@@ -41,6 +43,50 @@ def atmospheric_density(altitude, RHO_0=c.RHO_0, H=c.H):
     """
     rho = RHO_0 * np.exp(-altitude / H)
     return rho
+
+def speed_of_sound(altitude):
+    """
+    Calculate speed of sound at a given altitude using standard atmosphere model.
+    
+    Parameters:
+    -----------
+    altitude : float
+        Altitude above sea level [m]
+    
+    Returns:
+    --------
+    a : float
+        Speed of sound [m/s]
+    
+    Notes:
+    ------
+    Uses simplified standard atmosphere model:
+    - Below 11 km (troposphere): T = T0 - L*h, where L = 6.5 K/km
+    - Above 11 km (lower stratosphere): T = constant = 216.65 K
+    - Speed of sound: a = sqrt(gamma * R * T)
+    - gamma = 1.4 (specific heat ratio for air)
+    - R = 287.05 J/(kg·K) (specific gas constant for air)
+    """
+    # Constants
+    T0 = 288.15  # Sea level temperature [K]
+    L = 0.0065   # Temperature lapse rate [K/m]
+    gamma = 1.4  # Specific heat ratio for air
+    R = 287.05   # Specific gas constant for air [J/(kg·K)]
+    h_tropopause = 11000.0  # Tropopause altitude [m]
+    T_tropopause = 216.65   # Tropopause temperature [K]
+    
+    # Calculate temperature based on altitude
+    if altitude <= h_tropopause:
+        # Troposphere: temperature decreases linearly
+        T = T0 - L * altitude
+    else:
+        # Lower stratosphere: constant temperature
+        T = T_tropopause
+    
+    # Calculate speed of sound
+    a = np.sqrt(gamma * R * T)
+    
+    return a
 
 def dynamic_pressure(velocity, altitude):
     """
