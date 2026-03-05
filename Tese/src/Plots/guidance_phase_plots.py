@@ -72,29 +72,86 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     ax1.tick_params(axis='y', labelcolor=color1)
     ax1.grid(True, alpha=0.3)
     
-    # Second y-axis: Thrust
+    # Second y-axis: Thrust (move to left side)
     ax2 = ax1.twinx()
+    ax2.spines['left'].set_position(('outward', 60))
+    ax2.spines['left'].set_visible(True)
+    ax2.spines['right'].set_visible(False)
+    ax2.yaxis.set_label_position('left')
+    ax2.yaxis.set_ticks_position('left')
     color2 = 'tab:red'
     ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=12, fontweight='bold')
     line2 = ax2.plot(time_reduced, thrust, color=color2, linewidth=2.5, label='Thrust')
     ax2.tick_params(axis='y', labelcolor=color2)
     
-    # Third y-axis: Propellant Mass
+    # Third y-axis: Propellant Mass (move to left side)
     ax3 = ax1.twinx()
-    ax3.spines['right'].set_position(('outward', 60))
+    ax3.spines['left'].set_position(('outward', 120))
+    ax3.spines['left'].set_visible(True)
+    ax3.spines['right'].set_visible(False)
+    ax3.yaxis.set_label_position('left')
+    ax3.yaxis.set_ticks_position('left')
     color3 = 'tab:green'
     ax3.set_ylabel('Propellant Mass [kg]', color=color3, fontsize=12, fontweight='bold')
     line3 = ax3.plot(time_reduced, m_prop, color=color3, linewidth=2.5, label='Propellant Mass')
     ax3.tick_params(axis='y', labelcolor=color3)
     
-    # Fourth y-axis: Flight Path Angle
+    # Fourth y-axis: Flight Path Angle (move to left side)
     ax4 = ax1.twinx()
-    ax4.spines['right'].set_position(('outward', 120))
+    ax4.spines['left'].set_position(('outward', 180))
+    ax4.spines['left'].set_visible(True)
+    ax4.spines['right'].set_visible(False)
+    ax4.yaxis.set_label_position('left')
+    ax4.yaxis.set_ticks_position('left')
     color4 = 'tab:purple'
     ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=12, fontweight='bold')
     line4 = ax4.plot(time_reduced, np.rad2deg(gamma), color=color4, linewidth=2.5, label='Flight Path Angle')
     ax4.tick_params(axis='y', labelcolor=color4)
     ax4.axhline(y=0, color=color4, linestyle=':', linewidth=1, alpha=0.3)
+    
+    # Align zeros of all y-axes while maintaining good visibility
+    h_min, h_max = h.min(), h.max()
+    thrust_min, thrust_max = thrust.min(), thrust.max()
+    m_prop_min, m_prop_max = m_prop.min(), m_prop.max()
+    gamma_deg = np.rad2deg(gamma)
+    gamma_min, gamma_max = gamma_deg.min(), gamma_deg.max()
+    
+    # Calculate target zero position (10% from bottom for nice padding)
+    zero_fraction = 0.1
+    
+    def get_limits_with_zero_aligned(data_min, data_max, zero_frac):
+        """Calculate y-limits so zero appears at zero_frac from bottom"""
+        # Add some padding to data range
+        data_range = data_max - data_min
+        padded_min = data_min - 0.05 * data_range
+        padded_max = data_max + 0.05 * data_range
+        
+        # Calculate required range to place zero at zero_frac position
+        # zero_frac = (0 - ymin) / (ymax - ymin)
+        # Rearranging: ymin = -zero_frac * (ymax - ymin)
+        # We want: ymin <= padded_min and ymax >= padded_max
+        
+        if padded_min >= 0:
+            # Data is all positive, extend downward to include zero
+            ymax = padded_max
+            ymin = -zero_frac / (1 - zero_frac) * ymax
+        elif padded_max <= 0:
+            # Data is all negative, extend upward to include zero  
+            ymin = padded_min
+            ymax = ymin * (1 - zero_frac) / (-zero_frac)
+        else:
+            # Data crosses zero - adjust to align zero at target fraction
+            total_range_needed = max(padded_max / (1 - zero_frac), -padded_min / zero_frac)
+            ymin = -zero_frac * total_range_needed
+            ymax = (1 - zero_frac) * total_range_needed
+        
+        return ymin, ymax
+    
+    # Apply aligned limits to all axes
+    ax1.set_ylim(get_limits_with_zero_aligned(h_min, h_max, zero_fraction))
+    ax2.set_ylim(get_limits_with_zero_aligned(thrust_min, thrust_max, zero_fraction))
+    ax3.set_ylim(get_limits_with_zero_aligned(m_prop_min, m_prop_max, zero_fraction))
+    ax4.set_ylim(get_limits_with_zero_aligned(gamma_min, gamma_max, zero_fraction))
     
     # Add vertical lines for phase transitions
     if time_guidance is not None:
@@ -123,7 +180,7 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
         legend_elements.append(Line2D([0], [0], color='black', linestyle='--', linewidth=2))
         legend_labels.append('③ SECO (Coasting Start)')
     
-    ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=10, framealpha=0.9)
+    legend = ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=10, framealpha=0.9, draggable=True)
     
     plt.tight_layout()
     plt.show(block=False)
@@ -551,29 +608,86 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     ax1.tick_params(axis='y', labelcolor=color1)
     ax1.grid(True, alpha=0.3)
     
-    # Plot 2: Thrust (right y-axis 1)
+    # Plot 2: Thrust (move to left side)
     ax2 = ax1.twinx()
+    ax2.spines['left'].set_position(('outward', 60))
+    ax2.spines['left'].set_visible(True)
+    ax2.spines['right'].set_visible(False)
+    ax2.yaxis.set_label_position('left')
+    ax2.yaxis.set_ticks_position('left')
     color2 = 'tab:red'
     ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=12)
     line2 = ax2.plot(time_reduced, thrust, color=color2, linewidth=2, label='Thrust')
     ax2.tick_params(axis='y', labelcolor=color2)
     
-    # Plot 3: Total Mass (right y-axis 2, offset)
+    # Plot 3: Total Mass (move to left side)
     ax3 = ax1.twinx()
-    ax3.spines['right'].set_position(('outward', 60))
+    ax3.spines['left'].set_position(('outward', 120))
+    ax3.spines['left'].set_visible(True)
+    ax3.spines['right'].set_visible(False)
+    ax3.yaxis.set_label_position('left')
+    ax3.yaxis.set_ticks_position('left')
     color3 = 'tab:green'
     ax3.set_ylabel('Total Mass [kg]', color=color3, fontsize=12)
     line3 = ax3.plot(time_reduced, m_total, color=color3, linewidth=2, label='Total Mass')
     ax3.tick_params(axis='y', labelcolor=color3)
     
-    # Plot 4: Flight Path Angle (right y-axis 3, offset more)
+    # Plot 4: Flight Path Angle (move to left side)
     ax4 = ax1.twinx()
-    ax4.spines['right'].set_position(('outward', 120))
+    ax4.spines['left'].set_position(('outward', 180))
+    ax4.spines['left'].set_visible(True)
+    ax4.spines['right'].set_visible(False)
+    ax4.yaxis.set_label_position('left')
+    ax4.yaxis.set_ticks_position('left')
     color4 = 'tab:purple'
     ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=12)
     line4 = ax4.plot(time_reduced, np.rad2deg(gamma), color=color4, linewidth=2, label='Flight Path Angle')
     ax4.tick_params(axis='y', labelcolor=color4)
     ax4.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.3)
+    
+    # Align zeros of all y-axes while maintaining good visibility
+    h_min, h_max = h.min(), h.max()
+    thrust_min, thrust_max = thrust.min(), thrust.max()
+    m_total_min, m_total_max = m_total.min(), m_total.max()
+    gamma_deg = np.rad2deg(gamma)
+    gamma_min, gamma_max = gamma_deg.min(), gamma_deg.max()
+    
+    # Calculate target zero position (10% from bottom for nice padding)
+    zero_fraction = 0.1
+    
+    def get_limits_with_zero_aligned(data_min, data_max, zero_frac):
+        """Calculate y-limits so zero appears at zero_frac from bottom"""
+        # Add some padding to data range
+        data_range = data_max - data_min
+        padded_min = data_min - 0.05 * data_range
+        padded_max = data_max + 0.05 * data_range
+        
+        # Calculate required range to place zero at zero_frac position
+        # zero_frac = (0 - ymin) / (ymax - ymin)
+        # Rearranging: ymin = -zero_frac * (ymax - ymin)
+        # We want: ymin <= padded_min and ymax >= padded_max
+        
+        if padded_min >= 0:
+            # Data is all positive, extend downward to include zero
+            ymax = padded_max
+            ymin = -zero_frac / (1 - zero_frac) * ymax
+        elif padded_max <= 0:
+            # Data is all negative, extend upward to include zero  
+            ymin = padded_min
+            ymax = ymin * (1 - zero_frac) / (-zero_frac)
+        else:
+            # Data crosses zero - adjust to align zero at target fraction
+            total_range_needed = max(padded_max / (1 - zero_frac), -padded_min / zero_frac)
+            ymin = -zero_frac * total_range_needed
+            ymax = (1 - zero_frac) * total_range_needed
+        
+        return ymin, ymax
+    
+    # Apply aligned limits to all axes
+    ax1.set_ylim(get_limits_with_zero_aligned(h_min, h_max, zero_fraction))
+    ax2.set_ylim(get_limits_with_zero_aligned(thrust_min, thrust_max, zero_fraction))
+    ax3.set_ylim(get_limits_with_zero_aligned(m_total_min, m_total_max, zero_fraction))
+    ax4.set_ylim(get_limits_with_zero_aligned(gamma_min, gamma_max, zero_fraction))
     
     # Add vertical lines for phase transitions
     if time_guidance is not None and time_guidance <= time_limit:
@@ -598,7 +712,7 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
         labels.append('③ SECO')
         lines.append(plt.Line2D([0], [0], color='red', linestyle='--', linewidth=1.5))
     
-    ax1.legend(lines, labels, loc='best', fontsize=10)
+    legend = ax1.legend(lines, labels, loc='best', fontsize=10, draggable=True)
     
     plt.tight_layout()
     plt.show(block=False)

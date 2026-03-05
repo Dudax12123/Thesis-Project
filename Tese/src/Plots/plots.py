@@ -245,7 +245,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         axs2.plot(time_loss, drag_loss, label="Drag Loss", color="orange", linewidth=2)
         axs2.plot(time_loss, steering_loss, label="Steering Loss", color="green", linewidth=2)
         axs2.plot(time_loss, np.array(grav_loss) + np.array(drag_loss) + np.array(steering_loss), 
-                 label="Total Loss", color="red", linewidth=2.5, linestyle='--')
+                 label="Total Loss", color="red", linewidth=2.5)
         
         # Add vertical lines for phase transitions
         if time_guidance is not None:
