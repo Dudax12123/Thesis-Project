@@ -62,14 +62,15 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     
     # Create figure with single plot and multiple y-axes
     fig, ax1 = plt.subplots(figsize=(14, 8))
-    fig.suptitle('Key Trajectory Parameters Over Time', fontsize=16, fontweight='bold')
+    fig.suptitle('Key Trajectory Parameters Over Time', fontsize=18, fontweight='bold')
     
     # First y-axis: Altitude (left side)
     color1 = 'tab:blue'
-    ax1.set_xlabel('Time [s]', fontsize=12, fontweight='bold')
-    ax1.set_ylabel('Altitude [km]', color=color1, fontsize=12, fontweight='bold')
+    ax1.set_xlabel('Time [s]', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('Altitude [km]', color=color1, fontsize=14, fontweight='bold')
     line1 = ax1.plot(time_reduced, h, color=color1, linewidth=2.5, label='Altitude')
-    ax1.tick_params(axis='y', labelcolor=color1)
+    ax1.tick_params(axis='y', labelcolor=color1, labelsize=12)
+    ax1.tick_params(axis='x', labelsize=12)
     ax1.grid(True, alpha=0.3)
     
     # Second y-axis: Thrust (move to left side)
@@ -80,9 +81,9 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     ax2.yaxis.set_label_position('left')
     ax2.yaxis.set_ticks_position('left')
     color2 = 'tab:red'
-    ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=12, fontweight='bold')
+    ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=14, fontweight='bold')
     line2 = ax2.plot(time_reduced, thrust, color=color2, linewidth=2.5, label='Thrust')
-    ax2.tick_params(axis='y', labelcolor=color2)
+    ax2.tick_params(axis='y', labelcolor=color2, labelsize=12)
     
     # Third y-axis: Propellant Mass (move to left side)
     ax3 = ax1.twinx()
@@ -92,9 +93,9 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     ax3.yaxis.set_label_position('left')
     ax3.yaxis.set_ticks_position('left')
     color3 = 'tab:green'
-    ax3.set_ylabel('Propellant Mass [kg]', color=color3, fontsize=12, fontweight='bold')
+    ax3.set_ylabel('Propellant Mass [kg]', color=color3, fontsize=14, fontweight='bold')
     line3 = ax3.plot(time_reduced, m_prop, color=color3, linewidth=2.5, label='Propellant Mass')
-    ax3.tick_params(axis='y', labelcolor=color3)
+    ax3.tick_params(axis='y', labelcolor=color3, labelsize=12)
     
     # Fourth y-axis: Flight Path Angle (move to left side)
     ax4 = ax1.twinx()
@@ -104,9 +105,9 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     ax4.yaxis.set_label_position('left')
     ax4.yaxis.set_ticks_position('left')
     color4 = 'tab:purple'
-    ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=12, fontweight='bold')
+    ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=14, fontweight='bold')
     line4 = ax4.plot(time_reduced, np.rad2deg(gamma), color=color4, linewidth=2.5, label='Flight Path Angle')
-    ax4.tick_params(axis='y', labelcolor=color4)
+    ax4.tick_params(axis='y', labelcolor=color4, labelsize=12)
     ax4.axhline(y=0, color=color4, linestyle=':', linewidth=1, alpha=0.3)
     
     # Align zeros of all y-axes while maintaining good visibility
@@ -180,7 +181,7 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
         legend_elements.append(Line2D([0], [0], color='black', linestyle='--', linewidth=2))
         legend_labels.append('③ SECO (Coasting Start)')
     
-    legend = ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=10, framealpha=0.9, draggable=True)
+    legend = ax1.legend(legend_elements, legend_labels, loc='upper left', fontsize=12, framealpha=0.9, draggable=True)
     
     plt.tight_layout()
     plt.show(block=False)
@@ -258,7 +259,7 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     
     # -------------- Plotting --------------
     fig1, axs1 = plt.subplots(3, 3, figsize=(18, 15))
-    fig1.suptitle('Guidance Phase Detailed Analysis', fontsize=16, fontweight='bold')
+    fig1.suptitle('Guidance Phase Detailed Analysis', fontsize=18, fontweight='bold')
     
     # Row 1: Position and Trajectory
     # Trajectory plot: altitude vs downtrack
@@ -266,11 +267,11 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     # Numbered markers
     axs1[0, 0].plot(s[0], h[0], 'o', color='green', markersize=8, 
                    markeredgecolor='black', markeredgewidth=1, zorder=5)
-    axs1[0, 0].text(s[0], h[0], '1', color='white', fontsize=6, 
+    axs1[0, 0].text(s[0], h[0], '1', color='white', fontsize=9, 
                    fontweight='bold', ha='center', va='center', zorder=6)
     axs1[0, 0].plot(s[-1], h[-1], 'o', color='red', markersize=8, 
                    markeredgecolor='black', markeredgewidth=1, zorder=5)
-    axs1[0, 0].text(s[-1], h[-1], '2', color='white', fontsize=6, 
+    axs1[0, 0].text(s[-1], h[-1], '2', color='white', fontsize=9, 
                    fontweight='bold', ha='center', va='center', zorder=6)
     axs1[0, 0].set_xlabel('Downtrack [km]')
     axs1[0, 0].set_ylabel('Altitude [km]')
@@ -353,7 +354,7 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     
     # -------------- Second Figure: Rates and Performance --------------
     fig2, axs2 = plt.subplots(2, 2, figsize=(14, 10))
-    fig2.suptitle('Guidance Phase Rates and Performance', fontsize=16, fontweight='bold')
+    fig2.suptitle('Guidance Phase Rates and Performance', fontsize=18, fontweight='bold')
     
     # Compute rates (using finite differences)
     dt = np.diff(time_reduced)
@@ -487,18 +488,18 @@ def plot_trajectory_to_seco(time_steps, data):
     # Add numbered markers
     ax.plot(x[0], y[0], 'o', color='green', markersize=8, 
            markeredgecolor='white', markeredgewidth=1, zorder=5)
-    ax.text(x[0], y[0], '1', color='white', fontsize=7, 
+    ax.text(x[0], y[0], '1', color='white', fontsize=9, 
            fontweight='bold', ha='center', va='center', zorder=6)
     
     if time_guidance is not None:
         ax.plot(x[idx_guidance_reduced], y[idx_guidance_reduced], 'o', color='yellow', 
                markersize=8, markeredgecolor='white', markeredgewidth=1, zorder=5)
-        ax.text(x[idx_guidance_reduced], y[idx_guidance_reduced], '2', color='black', fontsize=7, 
+        ax.text(x[idx_guidance_reduced], y[idx_guidance_reduced], '2', color='black', fontsize=9, 
                fontweight='bold', ha='center', va='center', zorder=6)
     
     ax.plot(x[-1], y[-1], 'o', color='red', markersize=8, 
            markeredgecolor='white', markeredgewidth=1, zorder=5)
-    ax.text(x[-1], y[-1], '3', color='white', fontsize=7, 
+    ax.text(x[-1], y[-1], '3', color='white', fontsize=9, 
            fontweight='bold', ha='center', va='center', zorder=6)
     
     # Create custom legend with numbered markers
@@ -523,12 +524,12 @@ def plot_trajectory_to_seco(time_steps, data):
     ax.add_patch(earth)
     
     # Labels and aesthetics
-    ax.set_xlabel("Downtrack Distance (km)", color="white", fontsize=12)
-    ax.set_ylabel("Altitude (km)", color="white", fontsize=12)
-    ax.set_title("Powered Ascent Trajectory (Launch to SECO)", color="white", fontsize=14, fontweight='bold')
-    ax.tick_params(colors='white')
+    ax.set_xlabel("Downtrack Distance (km)", color="white", fontsize=14)
+    ax.set_ylabel("Altitude (km)", color="white", fontsize=14)
+    ax.set_title("Powered Ascent Trajectory (Launch to SECO)", color="white", fontsize=16, fontweight='bold')
+    ax.tick_params(colors='white', labelsize=12)
     ax.grid(color='gray', linestyle='--', linewidth=0.5, alpha=0.3)
-    ax.legend(handles=legend_elements, loc='upper left', fontsize=10)
+    ax.legend(handles=legend_elements, loc='upper left', fontsize=12)
     
     # Set limits to show the trajectory clearly
     margin = 500
@@ -598,14 +599,15 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     
     # Create figure with single plot
     fig, ax1 = plt.subplots(figsize=(12, 7))
-    fig.suptitle(f'Ascent Phase: Key Parameters (Launch to SECO + 100s)', fontsize=14, fontweight='bold')
+    fig.suptitle(f'Ascent Phase: Key Parameters (Launch to SECO + 100s)', fontsize=18, fontweight='bold')
     
     # Plot 1: Altitude (left y-axis)
     color1 = 'tab:blue'
-    ax1.set_xlabel('Time [s]', fontsize=12)
-    ax1.set_ylabel('Altitude [km]', color=color1, fontsize=12)
+    ax1.set_xlabel('Time [s]', fontsize=14)
+    ax1.set_ylabel('Altitude [km]', color=color1, fontsize=14)
     line1 = ax1.plot(time_reduced, h, color=color1, linewidth=2, label='Altitude')
-    ax1.tick_params(axis='y', labelcolor=color1)
+    ax1.tick_params(axis='y', labelcolor=color1, labelsize=12)
+    ax1.tick_params(axis='x', labelsize=12)
     ax1.grid(True, alpha=0.3)
     
     # Plot 2: Thrust (move to left side)
@@ -616,9 +618,9 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     ax2.yaxis.set_label_position('left')
     ax2.yaxis.set_ticks_position('left')
     color2 = 'tab:red'
-    ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=12)
+    ax2.set_ylabel('Thrust [kN]', color=color2, fontsize=14)
     line2 = ax2.plot(time_reduced, thrust, color=color2, linewidth=2, label='Thrust')
-    ax2.tick_params(axis='y', labelcolor=color2)
+    ax2.tick_params(axis='y', labelcolor=color2, labelsize=12)
     
     # Plot 3: Total Mass (move to left side)
     ax3 = ax1.twinx()
@@ -628,9 +630,9 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     ax3.yaxis.set_label_position('left')
     ax3.yaxis.set_ticks_position('left')
     color3 = 'tab:green'
-    ax3.set_ylabel('Total Mass [kg]', color=color3, fontsize=12)
+    ax3.set_ylabel('Total Mass [kg]', color=color3, fontsize=14)
     line3 = ax3.plot(time_reduced, m_total, color=color3, linewidth=2, label='Total Mass')
-    ax3.tick_params(axis='y', labelcolor=color3)
+    ax3.tick_params(axis='y', labelcolor=color3, labelsize=12)
     
     # Plot 4: Flight Path Angle (move to left side)
     ax4 = ax1.twinx()
@@ -640,9 +642,9 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     ax4.yaxis.set_label_position('left')
     ax4.yaxis.set_ticks_position('left')
     color4 = 'tab:purple'
-    ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=12)
+    ax4.set_ylabel('Flight Path Angle [deg]', color=color4, fontsize=14)
     line4 = ax4.plot(time_reduced, np.rad2deg(gamma), color=color4, linewidth=2, label='Flight Path Angle')
-    ax4.tick_params(axis='y', labelcolor=color4)
+    ax4.tick_params(axis='y', labelcolor=color4, labelsize=12)
     ax4.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.3)
     
     # Align zeros of all y-axes while maintaining good visibility
@@ -712,7 +714,7 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
         labels.append('③ SECO')
         lines.append(plt.Line2D([0], [0], color='red', linestyle='--', linewidth=1.5))
     
-    legend = ax1.legend(lines, labels, loc='best', fontsize=10, draggable=True)
+    legend = ax1.legend(lines, labels, loc='best', fontsize=12, draggable=True)
     
     plt.tight_layout()
     plt.show(block=False)
@@ -783,18 +785,19 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
     
     if sim_params.GUIDANCE_MODE == "apollo":
-        fig.suptitle('Apollo Guidance: Steering Angles Throughout Flight', fontsize=16, fontweight='bold')
+        fig.suptitle('Apollo Guidance: Steering Angles Throughout Flight', fontsize=18, fontweight='bold')
     else:
-        fig.suptitle('Steering Angles Throughout Flight', fontsize=16, fontweight='bold')
+        fig.suptitle('Steering Angles Throughout Flight', fontsize=18, fontweight='bold')
     
     # ============= SUBPLOT 1: Steering Angle (Alpha) =============
-    ax1.set_xlabel('Time [s]', fontsize=12)
-    ax1.set_ylabel('Angle [deg]', fontsize=12, fontweight='bold')
-    ax1.set_title('Steering Angle (Angle of Attack) vs Time', fontsize=13, fontweight='bold')
+    ax1.set_xlabel('Time [s]', fontsize=14)
+    ax1.set_ylabel('Angle [deg]', fontsize=14, fontweight='bold')
+    ax1.set_title('Steering Angle (Angle of Attack) vs Time', fontsize=16, fontweight='bold')
     
     # Plot steering angle throughout the flight
     ax1.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2, label='Steering Angle (α)', alpha=0.8)
     ax1.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    ax1.tick_params(axis='both', which='major', labelsize=12)
     ax1.grid(True, alpha=0.3)
     
     # Add phase transition markers
@@ -817,12 +820,12 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     if time_seco is not None:
         ax1.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='SECO')
     
-    ax1.legend(loc='best', fontsize=10, ncol=2)
+    ax1.legend(loc='best', fontsize=12, ncol=2)
     
     # ============= SUBPLOT 2: Flight Path Angle and Steering Angle =============
-    ax2.set_xlabel('Time [s]', fontsize=12)
-    ax2.set_ylabel('Angle [deg]', fontsize=12, fontweight='bold')
-    ax2.set_title('Flight Path Angle vs Steering Angle', fontsize=13, fontweight='bold')
+    ax2.set_xlabel('Time [s]', fontsize=14)
+    ax2.set_ylabel('Angle [deg]', fontsize=14, fontweight='bold')
+    ax2.set_title('Flight Path Angle vs Steering Angle', fontsize=16, fontweight='bold')
     
     # Interpolate flight path angle to match steering angle time points
     gamma_full = data[3]  # Full flight path angle array [rad]
@@ -838,6 +841,7 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
             label='Thrust Direction (γ + α)', alpha=0.7)
     
     ax2.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5, label='Horizontal')
+    ax2.tick_params(axis='both', which='major', labelsize=12)
     ax2.grid(True, alpha=0.3)
     
     # Add phase transition markers (same as subplot 1)
@@ -858,7 +862,7 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     if time_seco is not None:
         ax2.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.5)
     
-    ax2.legend(loc='best', fontsize=10)
+    ax2.legend(loc='best', fontsize=12)
     
     # Add text box with comprehensive statistics
     if len(alpha_data) > 0:
@@ -882,7 +886,7 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
         
         stats_text = '\n'.join(stats_lines)
         
-        ax2.text(0.02, 0.02, stats_text, transform=ax2.transAxes, fontsize=9,
+        ax2.text(0.02, 0.02, stats_text, transform=ax2.transAxes, fontsize=11,
                 verticalalignment='bottom', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     
     plt.tight_layout()

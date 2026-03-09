@@ -115,17 +115,18 @@ def create_comparison_plots(results_dict, save_path):
     
     # Plot 1: Propellant Consumption
     bars1 = ax1.bar(methods, propellants, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax1.set_ylabel('Total Propellant Consumed [kg]', fontsize=12, fontweight='bold')
-    ax1.set_title('Propellant Consumption', fontsize=14, fontweight='bold')
+    ax1.set_ylabel('Total Propellant Consumed [kg]', fontsize=14, fontweight='bold')
+    ax1.set_title('Propellant Consumption', fontsize=16, fontweight='bold')
     ax1.grid(axis='y', alpha=0.3, linestyle='--')
-    ax1.tick_params(axis='x', rotation=15)
+    ax1.tick_params(axis='x', rotation=15, labelsize=12)
+    ax1.tick_params(axis='y', labelsize=12)
     
     # Add value labels on bars
     for i, (bar, val) in enumerate(zip(bars1, propellants)):
         height = bar.get_height()
         ax1.text(bar.get_x() + bar.get_width()/2., height,
                 f'{val:.1f} kg',
-                ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
     
     # Find best (minimum) propellant
     min_prop_idx = propellants.index(min(propellants))
@@ -134,17 +135,18 @@ def create_comparison_plots(results_dict, save_path):
     
     # Plot 2: Time to Insertion
     bars2 = ax2.bar(methods, times, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax2.set_ylabel('Time to Orbit Insertion [s]', fontsize=12, fontweight='bold')
-    ax2.set_title('Time to Orbit Insertion', fontsize=14, fontweight='bold')
+    ax2.set_ylabel('Time to Orbit Insertion [s]', fontsize=14, fontweight='bold')
+    ax2.set_title('Time to Orbit Insertion', fontsize=16, fontweight='bold')
     ax2.grid(axis='y', alpha=0.3, linestyle='--')
-    ax2.tick_params(axis='x', rotation=15)
+    ax2.tick_params(axis='x', rotation=15, labelsize=12)
+    ax2.tick_params(axis='y', labelsize=12)
     
     # Add value labels on bars
     for i, (bar, val) in enumerate(zip(bars2, times)):
         height = bar.get_height()
         ax2.text(bar.get_x() + bar.get_width()/2., height,
                 f'{val:.1f} s',
-                ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
     
     # Find best (minimum) time
     min_time_idx = times.index(min(times))
@@ -153,10 +155,11 @@ def create_comparison_plots(results_dict, save_path):
     
     # Plot 3: Optimal Kick Angle
     bars3 = ax3.bar(methods, kick_angles, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax3.set_ylabel('Optimal Kick Angle [degrees]', fontsize=12, fontweight='bold')
-    ax3.set_title('Optimal Kick Angle', fontsize=14, fontweight='bold')
+    ax3.set_ylabel('Optimal Kick Angle [degrees]', fontsize=14, fontweight='bold')
+    ax3.set_title('Optimal Kick Angle', fontsize=16, fontweight='bold')
     ax3.grid(axis='y', alpha=0.3, linestyle='--')
-    ax3.tick_params(axis='x', rotation=15)
+    ax3.tick_params(axis='x', rotation=15, labelsize=12)
+    ax3.tick_params(axis='y', labelsize=12)
     ax3.axhline(y=0, color='black', linestyle='-', linewidth=0.5, alpha=0.5)
     
     # Add value labels on bars
@@ -166,7 +169,7 @@ def create_comparison_plots(results_dict, save_path):
         va = 'bottom' if height > 0 else 'top'
         ax3.text(bar.get_x() + bar.get_width()/2., y_pos,
                 f'{val:.3f}°',
-                ha='center', va=va, fontsize=10, fontweight='bold')
+                ha='center', va=va, fontsize=12, fontweight='bold')
     
     # Plot 4: Delta-V
     bars4 = ax4.bar(methods, delta_vs, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
@@ -180,7 +183,7 @@ def create_comparison_plots(results_dict, save_path):
         height = bar.get_height()
         ax4.text(bar.get_x() + bar.get_width()/2., height,
                 f'{val:.2f} m/s',
-                ha='center', va='bottom', fontsize=10, fontweight='bold')
+                ha='center', va='bottom', fontsize=12, fontweight='bold')
     
     # Find best (minimum) delta-v
     min_dv_idx = delta_vs.index(min(delta_vs))
@@ -195,15 +198,16 @@ def create_comparison_plots(results_dict, save_path):
     
     # Also create a simple 2-plot version (propellant and time only)
     fig2, (ax_prop, ax_time) = plt.subplots(1, 2, figsize=(14, 6))
-    fig2.suptitle('Guidance Methods Comparison: Key Metrics', fontsize=16, fontweight='bold')
+    fig2.suptitle('Guidance Methods Comparison: Key Metrics', fontsize=18, fontweight='bold')
     
     # Propellant
     bars_p = ax_prop.bar(methods, propellants, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax_prop.set_ylabel('Total Propellant Consumed [kg]', fontsize=12, fontweight='bold')
-    ax_prop.set_xlabel('Guidance Method', fontsize=11, fontweight='bold')
-    ax_prop.set_title('Propellant Consumption', fontsize=13, fontweight='bold')
+    ax_prop.set_ylabel('Total Propellant Consumed [kg]', fontsize=14, fontweight='bold')
+    ax_prop.set_xlabel('Guidance Method', fontsize=14, fontweight='bold')
+    ax_prop.set_title('Propellant Consumption', fontsize=16, fontweight='bold')
     ax_prop.grid(axis='y', alpha=0.3, linestyle='--')
-    ax_prop.tick_params(axis='x', rotation=15)
+    ax_prop.tick_params(axis='x', rotation=15, labelsize=12)
+    ax_prop.tick_params(axis='y', labelsize=12)
     bars_p[min_prop_idx].set_edgecolor('green')
     bars_p[min_prop_idx].set_linewidth(3)
     
@@ -211,15 +215,16 @@ def create_comparison_plots(results_dict, save_path):
         height = bar.get_height()
         ax_prop.text(bar.get_x() + bar.get_width()/2., height,
                     f'{val:.1f}\nkg',
-                    ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    ha='center', va='bottom', fontsize=12, fontweight='bold')
     
     # Time
     bars_t = ax_time.bar(methods, times, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
-    ax_time.set_ylabel('Time to Orbit Insertion [s]', fontsize=12, fontweight='bold')
-    ax_time.set_xlabel('Guidance Method', fontsize=11, fontweight='bold')
-    ax_time.set_title('Time to Orbit Insertion', fontsize=13, fontweight='bold')
+    ax_time.set_ylabel('Time to Orbit Insertion [s]', fontsize=14, fontweight='bold')
+    ax_time.set_xlabel('Guidance Method', fontsize=14, fontweight='bold')
+    ax_time.set_title('Time to Orbit Insertion', fontsize=16, fontweight='bold')
     ax_time.grid(axis='y', alpha=0.3, linestyle='--')
-    ax_time.tick_params(axis='x', rotation=15)
+    ax_time.tick_params(axis='x', rotation=15, labelsize=12)
+    ax_time.tick_params(axis='y', labelsize=12)
     bars_t[min_time_idx].set_edgecolor('green')
     bars_t[min_time_idx].set_linewidth(3)
     
@@ -227,7 +232,7 @@ def create_comparison_plots(results_dict, save_path):
         height = bar.get_height()
         ax_time.text(bar.get_x() + bar.get_width()/2., height,
                     f'{val:.1f}\ns',
-                    ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    ha='center', va='bottom', fontsize=12, fontweight='bold')
     
     plt.tight_layout()
     

@@ -234,7 +234,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
 
     if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
         # Find SECO point in loss time array
-        idx_seco_loss = find_closest_index(np.array(time_loss), time_seco) if time_seco is not None else None
+        #idx_seco_loss = find_closest_index(np.array(time_loss), time_seco) if time_seco is not None else None
         
         # Get event times
         time_meco = ra.time_main_engine_cutoff
@@ -248,20 +248,21 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
                  label="Total Loss", color="red", linewidth=2.5)
         
         # Add vertical lines for phase transitions
-        if time_guidance is not None:
-            axs2.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
-                        label=f'Guidance ({time_guidance:.1f}s)')
-        if time_meco is not None:
-            axs2.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
-                        label=f'MECO ({time_meco:.1f}s)')
-        if time_seco is not None:
-            axs2.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7, 
-                        label=f'SECO ({time_seco:.1f}s)')
+        #if time_guidance is not None:
+        #    axs2.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+        #                label=f'Guidance ({time_guidance:.1f}s)')
+        #if time_meco is not None:
+        #    axs2.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
+        #                label=f'MECO ({time_meco:.1f}s)')
+        #if time_seco is not None:
+        #    axs2.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7, 
+        #               label=f'SECO ({time_seco:.1f}s)')
         
-        axs2.set_xlabel('Time [s]', fontsize=11)
-        axs2.set_ylabel('Delta-V Loss [m/s]', fontsize=11)
-        axs2.set_title('Trajectory Losses over Time (Powered Ascent)', fontsize=12, fontweight='bold')
-        axs2.legend(fontsize=10, loc='best')
+        axs2.set_xlabel('Time [s]', fontsize=14)
+        axs2.set_ylabel('Delta-V Loss [m/s]', fontsize=14)
+        axs2.set_title('Trajectory Losses over Time (Powered Ascent)', fontsize=16, fontweight='bold')
+        axs2.tick_params(axis='both', which='major', labelsize=12)
+        axs2.legend(fontsize=12, loc='best')
         axs2.grid(True, alpha=0.3)
         
         print("\nLosses:")
@@ -286,7 +287,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     axs3.plot(time_reduced, q_kPa, 'b-', linewidth=2.5, label='Dynamic Pressure')
     
     # Mark max-q
-    axs3.plot(time_max_q, max_q_kPa, 'r*', markersize=15, label=f'Max-Q ({max_q_kPa:.2f} kPa at {time_max_q:.1f}s)', zorder=5)
+    #axs3.plot(time_max_q, max_q_kPa, 'r*', markersize=15, label=f'Max-Q ({max_q_kPa:.2f} kPa at {time_max_q:.1f}s)', zorder=5)
     
     # Add vertical lines for phase transitions
     if time_guidance is not None:
@@ -301,9 +302,9 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
                     label=f'SECO ({time_seco:.1f}s)')
     
     # Mark the kick maneuver period
-    kick_start = sim_params.TIME_TO_START_KICK
-    kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
-    axs3.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
+    #kick_start = sim_params.TIME_TO_START_KICK
+    #kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
+    #axs3.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
     
     # Add dynamic pressure threshold line if using dynamic pressure method for atmosphere exit
     if sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
@@ -311,20 +312,21 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         axs3.axhline(y=q_threshold_kPa, color='orange', linestyle=':', linewidth=2, alpha=0.7,
                     label=f'Atmosphere Exit Threshold ({q_threshold_kPa:.2f} kPa)')
     
-    axs3.set_xlabel('Time [s]', fontsize=11)
-    axs3.set_ylabel('Dynamic Pressure [kPa]', fontsize=11)
-    axs3.set_title('Dynamic Pressure over Time', fontsize=12, fontweight='bold')
-    axs3.legend(fontsize=9, loc='best')
+    axs3.set_xlabel('Time [s]', fontsize=14)
+    axs3.set_ylabel('Dynamic Pressure [kPa]', fontsize=14)
+    axs3.set_title('Dynamic Pressure over Time', fontsize=16, fontweight='bold')
+    axs3.tick_params(axis='both', which='major', labelsize=12)
+    axs3.legend(fontsize=12, loc='best')
     axs3.grid(True, alpha=0.3)
     
     # Add information text box
-    info_text = f'Max-Q: {max_q_kPa:.2f} kPa\nOccurs at: {time_max_q:.1f} s'
-    if time_guidance is not None:
-        q_at_guidance = q_kPa[find_closest_index(time_reduced, time_guidance)]
-        info_text += f'\nQ at atmosphere exit: {q_at_guidance:.2f} kPa'
-    axs3.text(0.98, 0.98, info_text,
-             transform=axs3.transAxes, fontsize=10, verticalalignment='top', horizontalalignment='right',
-             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+    #info_text = f'Max-Q: {max_q_kPa:.2f} kPa\nOccurs at: {time_max_q:.1f} s'
+    #if time_guidance is not None:
+    #    q_at_guidance = q_kPa[find_closest_index(time_reduced, time_guidance)]
+    #    info_text += f'\nQ at atmosphere exit: {q_at_guidance:.2f} kPa'
+    #axs3.text(0.98, 0.98, info_text,
+    #         transform=axs3.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='right',
+    #         bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
 
     # Plot acceleration over time
     fig4, axs4 = plt.subplots(figsize=(12, 6))
@@ -394,34 +396,34 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         time_cutoff = time_reduced[-1]
     
     # Find maximum acceleration (within plot range)
-    idx_max_accel = np.argmax(total_accel_g_plot)
-    time_max_accel = time_plot[idx_max_accel]
-    max_accel_g = total_accel_g_plot[idx_max_accel]
+    #idx_max_accel = np.argmax(total_accel_g_plot)
+    #time_max_accel = time_plot[idx_max_accel]
+    #max_accel_g = total_accel_g_plot[idx_max_accel]
     
     # Plot total acceleration and thrust acceleration
     axs4.plot(time_plot, total_accel_g_plot, 'r-', linewidth=2.5, label='Total Accel: $(F_T/m)·cos(α) - F_D/m - g·sin(γ)$')
     axs4.plot(time_plot, thrust_accel_g_plot, 'b--', linewidth=2, label='Thrust Acceleration (F_T/m)', alpha=0.7)
     
     # Mark max acceleration
-    axs4.plot(time_max_accel, max_accel_g, 'r*', markersize=15, 
-             label=f'Max Accel ({max_accel_g:.2f} g at {time_max_accel:.1f}s)', zorder=5)
+    #axs4.plot(time_max_accel, max_accel_g, 'r*', markersize=15, 
+    #         label=f'Max Accel ({max_accel_g:.2f} g at {time_max_accel:.1f}s)', zorder=5)
     
     # Add vertical lines for phase transitions
-    if time_guidance is not None:
-        axs4.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
-                    label=f'Atmosphere Exit ({time_guidance:.1f}s)')
-    time_meco = ra.time_main_engine_cutoff
-    if time_meco is not None:
-        axs4.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
-                    label=f'MECO ({time_meco:.1f}s)')
-    if time_seco is not None:
-        axs4.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7,
-                    label=f'SECO ({time_seco:.1f}s)')
+    #if time_guidance is not None:
+    #    axs4.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+    #                label=f'Atmosphere Exit ({time_guidance:.1f}s)')
+    #time_meco = ra.time_main_engine_cutoff
+    #if time_meco is not None:
+    #    axs4.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
+    #                label=f'MECO ({time_meco:.1f}s)')
+    #if time_seco is not None:
+    #    axs4.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7,
+    #                label=f'SECO ({time_seco:.1f}s)')
     
     # Mark the kick maneuver period
-    kick_start = sim_params.TIME_TO_START_KICK
-    kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
-    axs4.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
+    #kick_start = sim_params.TIME_TO_START_KICK
+    #kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
+    #axs4.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
     
     # Add horizontal line at 1g for reference
     axs4.axhline(y=1.0, color='gray', linestyle=':', linewidth=1.5, alpha=0.5, label='1g Reference')
@@ -429,25 +431,26 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     # Set x-axis limit to cutoff time
     axs4.set_xlim(0, time_cutoff)
     
-    axs4.set_xlabel('Time [s]', fontsize=11)
-    axs4.set_ylabel('Acceleration [g]', fontsize=11)
-    axs4.set_title('Rocket Acceleration over Time (Powered Ascent)', fontsize=12, fontweight='bold')
-    axs4.legend(fontsize=9, loc='best')
+    axs4.set_xlabel('Time [s]', fontsize=14)
+    axs4.set_ylabel('Acceleration [g]', fontsize=14)
+    axs4.set_title('Rocket Acceleration over Time (Powered Ascent)', fontsize=16, fontweight='bold')
+    axs4.tick_params(axis='both', which='major', labelsize=12)
+    axs4.legend(fontsize=12, loc='best')
     axs4.grid(True, alpha=0.3)
     
     # Add information text box
-    accel_info = f'Max Acceleration: {max_accel_g:.2f} g\nOccurs at: {time_max_accel:.1f} s'
-    if time_guidance is not None:
-        accel_at_guidance = total_accel_g[find_closest_index(time_reduced, time_guidance)]
-        accel_info += f'\nAccel at atmosphere exit: {accel_at_guidance:.2f} g'
-    if time_seco is not None:
-        idx_seco_accel = find_closest_index(time_reduced, time_seco)
-        if idx_seco_accel is not None and idx_seco_accel < len(total_accel_g):
-            accel_at_seco = total_accel_g[idx_seco_accel]
-            accel_info += f'\nAccel at SECO: {accel_at_seco:.2f} g'
-    axs4.text(0.98, 0.98, accel_info,
-             transform=axs4.transAxes, fontsize=10, verticalalignment='top', horizontalalignment='right',
-             bbox=dict(boxstyle='round', facecolor='lightcyan', alpha=0.8))
+    #accel_info = f'Max Acceleration: {max_accel_g:.2f} g\nOccurs at: {time_max_accel:.1f} s'
+    #if time_guidance is not None:
+    #    accel_at_guidance = total_accel_g[find_closest_index(time_reduced, time_guidance)]
+    #    accel_info += f'\nAccel at atmosphere exit: {accel_at_guidance:.2f} g'
+    #if time_seco is not None:
+    #    idx_seco_accel = find_closest_index(time_reduced, time_seco)
+    #    if idx_seco_accel is not None and idx_seco_accel < len(total_accel_g):
+    #        accel_at_seco = total_accel_g[idx_seco_accel]
+    #        accel_info += f'\nAccel at SECO: {accel_at_seco:.2f} g'
+    #axs4.text(0.98, 0.98, accel_info,
+    #         transform=axs4.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='right',
+    #         bbox=dict(boxstyle='round', facecolor='lightcyan', alpha=0.8))
 
     # Plot Mach number over time (atmospheric phase only)
     fig5, axs5 = plt.subplots(figsize=(12, 6))
@@ -488,34 +491,34 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         time_atm_cutoff = time_atm_plot[-1]
     
     # Find maximum Mach number in atmospheric phase
-    idx_max_mach = np.argmax(mach_atm_plot)
-    time_max_mach = time_atm_plot[idx_max_mach]
-    max_mach = mach_atm_plot[idx_max_mach]
+    #idx_max_mach = np.argmax(mach_atm_plot)
+    #time_max_mach = time_atm_plot[idx_max_mach]
+    #max_mach = mach_atm_plot[idx_max_mach]
     
     # Plot Mach number
     axs5.plot(time_atm_plot, mach_atm_plot, 'b-', linewidth=2.5, label='Mach Number')
     
     # Mark max Mach
-    axs5.plot(time_max_mach, max_mach, 'r*', markersize=15, 
-             label=f'Max Mach ({max_mach:.2f} at {time_max_mach:.1f}s)', zorder=5)
+    #axs5.plot(time_max_mach, max_mach, 'r*', markersize=15, 
+    #         label=f'Max Mach ({max_mach:.2f} at {time_max_mach:.1f}s)', zorder=5)
     
     # Add horizontal line at Mach 1 (transonic)
     axs5.axhline(y=1.0, color='orange', linestyle=':', linewidth=2, alpha=0.7, label='Mach 1 (Transonic)')
     
     # Add vertical lines for phase transitions (within atmospheric phase)
-    if time_guidance is not None and time_guidance <= time_atm_cutoff:
-        axs5.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
-                    label=f'Atmosphere Exit ({time_guidance:.1f}s)')
-    time_meco = ra.time_main_engine_cutoff
-    if time_meco is not None and time_meco <= time_atm_cutoff:
-        axs5.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
-                    label=f'MECO ({time_meco:.1f}s)')
+    #if time_guidance is not None and time_guidance <= time_atm_cutoff:
+    #    axs5.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+    #                label=f'Atmosphere Exit ({time_guidance:.1f}s)')
+    #time_meco = ra.time_main_engine_cutoff
+    #if time_meco is not None and time_meco <= time_atm_cutoff:
+    #    axs5.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
+    #                label=f'MECO ({time_meco:.1f}s)')
     
     # Mark the kick maneuver period
-    kick_start = sim_params.TIME_TO_START_KICK
-    kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
-    if kick_end <= time_atm_cutoff:
-        axs5.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
+    #kick_start = sim_params.TIME_TO_START_KICK
+    #kick_end = kick_start + sim_params.DURATION_INITIAL_KICK
+    #if kick_end <= time_atm_cutoff:
+    #    axs5.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
     
     # Add dynamic pressure threshold line if using it for atmosphere exit
     if sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
@@ -525,27 +528,28 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     # Set x-axis limit to atmospheric cutoff time
     axs5.set_xlim(0, time_atm_cutoff)
     
-    axs5.set_xlabel('Time [s]', fontsize=11)
-    axs5.set_ylabel('Mach Number', fontsize=11)
-    axs5.set_title('Mach Number during Atmospheric Phase', fontsize=12, fontweight='bold')
-    axs5.legend(fontsize=9, loc='best')
+    axs5.set_xlabel('Time [s]', fontsize=14)
+    axs5.set_ylabel('Mach Number', fontsize=14)
+    axs5.set_title('Mach Number during Atmospheric Phase', fontsize=16, fontweight='bold')
+    axs5.tick_params(axis='both', which='major', labelsize=12)
+    axs5.legend(fontsize=12, loc='best')
     axs5.grid(True, alpha=0.3)
     
     # Add information text box
-    mach_info = f'Max Mach: {max_mach:.2f}\nOccurs at: {time_max_mach:.1f} s'
+    #mach_info = f'Max Mach: {max_mach:.2f}\nOccurs at: {time_max_mach:.1f} s'
     # Find when vehicle goes supersonic (Mach > 1)
-    supersonic_idx = np.where(mach_atm_plot > 1.0)[0]
-    if len(supersonic_idx) > 0:
-        time_supersonic = time_atm_plot[supersonic_idx[0]]
-        mach_info += f'\nGoes supersonic at: {time_supersonic:.1f} s'
-    if time_guidance is not None and time_guidance <= time_atm_cutoff:
-        idx_guidance_mach = find_closest_index(time_atm_plot, time_guidance)
-        if idx_guidance_mach is not None:
-            mach_at_exit = mach_atm_plot[idx_guidance_mach]
-            mach_info += f'\nMach at atm exit: {mach_at_exit:.2f}'
-    axs5.text(0.98, 0.98, mach_info,
-             transform=axs5.transAxes, fontsize=10, verticalalignment='top', horizontalalignment='right',
-             bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
+    #supersonic_idx = np.where(mach_atm_plot > 1.0)[0]
+    #if len(supersonic_idx) > 0:
+    #    time_supersonic = time_atm_plot[supersonic_idx[0]]
+    #    mach_info += f'\nGoes supersonic at: {time_supersonic:.1f} s'
+    #if time_guidance is not None and time_guidance <= time_atm_cutoff:
+    #    idx_guidance_mach = find_closest_index(time_atm_plot, time_guidance)
+    #    if idx_guidance_mach is not None:
+    #        mach_at_exit = mach_atm_plot[idx_guidance_mach]
+    #        mach_info += f'\nMach at atm exit: {mach_at_exit:.2f}'
+    #axs5.text(0.98, 0.98, mach_info,
+    #         transform=axs5.transAxes, fontsize=12, verticalalignment='top', horizontalalignment='right',
+    #         bbox=dict(boxstyle='round', facecolor='lightyellow', alpha=0.8))
 
     # COMMENTED OUT: Angle of Attack (Steering Angle) over Time plot
     # fig6, axs6 = plt.subplots(figsize=(12, 6))
@@ -688,14 +692,14 @@ def plot_trajectory_xy(data, time_steps):
     ax.add_patch(earth)
 
     # Labels and aesthetics
-    ax.set_xlabel("Downtrack Distance (km)", color="white")
-    ax.set_ylabel("Altitude (km)", color="white")
-    ax.set_title("Rocket Trajectory", color="white")
-    ax.tick_params(colors='white')
+    ax.set_xlabel("Downtrack Distance (km)", color="white", fontsize=14)
+    ax.set_ylabel("Altitude (km)", color="white", fontsize=14)
+    ax.set_title("Rocket Trajectory", color="white", fontsize=16, fontweight='bold')
+    ax.tick_params(colors='white', labelsize=12)
     ax.grid(color='gray', linestyle='--', linewidth=0.5)
     
     # Add legend with styling for black background
-    legend = ax.legend(handles=legend_elements, loc='upper left', fontsize=9, 
+    legend = ax.legend(handles=legend_elements, loc='upper left', fontsize=12, 
                       facecolor='black', edgecolor='white', framealpha=0.8)
     for text in legend.get_texts():
         text.set_color('white')
