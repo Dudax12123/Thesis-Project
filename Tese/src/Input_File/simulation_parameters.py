@@ -60,6 +60,20 @@ ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to 
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]
 MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of delta-v; [s]
 
+# -------------- Fast Run Mode --------------
+# If True, skips optimization and uses pre-determined optimal kick angles
+RUN_FAST = True
+
+# Optimal kick angles for each guidance mode (in radians)
+# These values should be updated after running optimization for each mode
+OPTIMAL_KICK_ANGLES = {
+    "gravity_turn": -np.deg2rad(3.0),           # Update after optimization
+    "simple_poly": -np.deg2rad(3.0),            # Update after optimization
+    "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
+    "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
+    "apollo": -np.deg2rad(3.8273)                   # Update after optimization
+}
+
 # ===================================================
 # Single Run specific parameters
 # ===================================================

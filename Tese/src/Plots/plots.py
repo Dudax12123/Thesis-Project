@@ -258,9 +258,9 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         #    axs2.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7, 
         #               label=f'SECO ({time_seco:.1f}s)')
         
-        axs2.set_xlabel('Time [s]', fontsize=14)
-        axs2.set_ylabel('Delta-V Loss [m/s]', fontsize=14)
-        axs2.set_title('Trajectory Losses over Time (Powered Ascent)', fontsize=16, fontweight='bold')
+        axs2.set_xlabel('Time [s]', fontsize=18)
+        axs2.set_ylabel('Delta-V Loss [m/s]', fontsize=18)
+        axs2.set_title('Trajectory Losses over Time (Powered Ascent)', fontsize=20, fontweight='bold')
         axs2.tick_params(axis='both', which='major', labelsize=12)
         axs2.legend(fontsize=12, loc='best')
         axs2.grid(True, alpha=0.3)
@@ -287,18 +287,18 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     axs3.plot(time_reduced, q_kPa, 'b-', linewidth=2.5, label='Dynamic Pressure')
     
     # Mark max-q
-    #axs3.plot(time_max_q, max_q_kPa, 'r*', markersize=15, label=f'Max-Q ({max_q_kPa:.2f} kPa at {time_max_q:.1f}s)', zorder=5)
+    axs3.plot(time_max_q, max_q_kPa, 'ro', markersize=5, label=f'Max-Q ({max_q_kPa:.2f} kPa at {time_max_q:.1f}s)', zorder=5)
     
     # Add vertical lines for phase transitions
     if time_guidance is not None:
-        axs3.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=2, alpha=0.7, 
+        axs3.axvline(x=time_guidance, color='green', linestyle='--', linewidth=2, alpha=1, 
                     label=f'Atmosphere Exit ({time_guidance:.1f}s)')
     time_meco = ra.time_main_engine_cutoff
     if time_meco is not None:
-        axs3.axvline(x=time_meco, color='magenta', linestyle='--', linewidth=2, alpha=0.7, 
+        axs3.axvline(x=time_meco, color='red', linestyle='--', linewidth=2, alpha=1, 
                     label=f'MECO ({time_meco:.1f}s)')
     if time_seco is not None:
-        axs3.axvline(x=time_seco, color='darkred', linestyle='--', linewidth=2, alpha=0.7,
+        axs3.axvline(x=time_seco, color='brown', linestyle='--', linewidth=2, alpha=1,
                     label=f'SECO ({time_seco:.1f}s)')
     
     # Mark the kick maneuver period
@@ -312,9 +312,9 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         axs3.axhline(y=q_threshold_kPa, color='orange', linestyle=':', linewidth=2, alpha=0.7,
                     label=f'Atmosphere Exit Threshold ({q_threshold_kPa:.2f} kPa)')
     
-    axs3.set_xlabel('Time [s]', fontsize=14)
-    axs3.set_ylabel('Dynamic Pressure [kPa]', fontsize=14)
-    axs3.set_title('Dynamic Pressure over Time', fontsize=16, fontweight='bold')
+    axs3.set_xlabel('Time [s]', fontsize=18)
+    axs3.set_ylabel('Dynamic Pressure [kPa]', fontsize=18)
+    axs3.set_title('Dynamic Pressure over Time', fontsize=20, fontweight='bold')
     axs3.tick_params(axis='both', which='major', labelsize=12)
     axs3.legend(fontsize=12, loc='best')
     axs3.grid(True, alpha=0.3)
@@ -402,7 +402,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     
     # Plot total acceleration and thrust acceleration
     axs4.plot(time_plot, total_accel_g_plot, 'r-', linewidth=2.5, label='Total Accel: $(F_T/m)·cos(α) - F_D/m - g·sin(γ)$')
-    axs4.plot(time_plot, thrust_accel_g_plot, 'b--', linewidth=2, label='Thrust Acceleration (F_T/m)', alpha=0.7)
+    axs4.plot(time_plot, thrust_accel_g_plot, 'b-', linewidth=2, label='Thrust Acceleration (F_T/m)', alpha=0.7)
     
     # Mark max acceleration
     #axs4.plot(time_max_accel, max_accel_g, 'r*', markersize=15, 
@@ -426,16 +426,16 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     #axs4.axvspan(kick_start, kick_end, alpha=0.15, color='yellow', label='Pitch Kick Maneuver')
     
     # Add horizontal line at 1g for reference
-    axs4.axhline(y=1.0, color='gray', linestyle=':', linewidth=1.5, alpha=0.5, label='1g Reference')
+    axs4.axhline(y=1.0, color='black', linestyle='--', linewidth=1.5, alpha=0.7, label='1g Reference')
     
     # Set x-axis limit to cutoff time
     axs4.set_xlim(0, time_cutoff)
     
-    axs4.set_xlabel('Time [s]', fontsize=14)
-    axs4.set_ylabel('Acceleration [g]', fontsize=14)
-    axs4.set_title('Rocket Acceleration over Time (Powered Ascent)', fontsize=16, fontweight='bold')
-    axs4.tick_params(axis='both', which='major', labelsize=12)
-    axs4.legend(fontsize=12, loc='best')
+    axs4.set_xlabel('Time [s]', fontsize=18)
+    axs4.set_ylabel('Acceleration [g]', fontsize=18)
+    axs4.set_title('Rocket Acceleration over Time (Powered Ascent)', fontsize=20, fontweight='bold')
+    axs4.tick_params(axis='both', which='major', labelsize=14)
+    axs4.legend(fontsize=14, loc='best')
     axs4.grid(True, alpha=0.3)
     
     # Add information text box
@@ -467,7 +467,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     mach_numbers = np.array(mach_numbers)
     
     # Determine atmospheric phase cutoff (atmosphere exit + 5 seconds buffer)
-    atm_cutoff_buffer = 5.0  # seconds
+    atm_cutoff_buffer = 1  # seconds
     if time_guidance is not None:
         time_atm_cutoff = time_guidance + atm_cutoff_buffer
         idx_atm_cutoff = np.searchsorted(time_reduced, time_atm_cutoff)
@@ -498,12 +498,18 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     # Plot Mach number
     axs5.plot(time_atm_plot, mach_atm_plot, 'b-', linewidth=2.5, label='Mach Number')
     
+    # Add vertical lines for phase transitions
+    time_meco = ra.time_main_engine_cutoff
+    if time_meco is not None:
+        axs5.axvline(x=time_meco, color='red', linestyle='--', linewidth=2, alpha=1, 
+                    label=f'MECO ({time_meco:.1f}s)')
+    
     # Mark max Mach
     #axs5.plot(time_max_mach, max_mach, 'r*', markersize=15, 
     #         label=f'Max Mach ({max_mach:.2f} at {time_max_mach:.1f}s)', zorder=5)
     
     # Add horizontal line at Mach 1 (transonic)
-    axs5.axhline(y=1.0, color='orange', linestyle=':', linewidth=2, alpha=0.7, label='Mach 1 (Transonic)')
+    axs5.axhline(y=1.0, color='black', linestyle='--', linewidth=2, alpha=0.7, label='Mach 1 (Transonic)')
     
     # Add vertical lines for phase transitions (within atmospheric phase)
     #if time_guidance is not None and time_guidance <= time_atm_cutoff:
@@ -528,11 +534,11 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     # Set x-axis limit to atmospheric cutoff time
     axs5.set_xlim(0, time_atm_cutoff)
     
-    axs5.set_xlabel('Time [s]', fontsize=14)
-    axs5.set_ylabel('Mach Number', fontsize=14)
-    axs5.set_title('Mach Number during Atmospheric Phase', fontsize=16, fontweight='bold')
-    axs5.tick_params(axis='both', which='major', labelsize=12)
-    axs5.legend(fontsize=12, loc='best')
+    axs5.set_xlabel('Time [s]', fontsize=18)
+    axs5.set_ylabel('Mach Number', fontsize=18)
+    axs5.set_title('Mach Number during Atmospheric Phase', fontsize=20, fontweight='bold')
+    axs5.tick_params(axis='both', which='major', labelsize=14)
+    axs5.legend(fontsize=14, loc='best')
     axs5.grid(True, alpha=0.3)
     
     # Add information text box
@@ -648,26 +654,27 @@ def plot_trajectory_xy(data, time_steps):
 
     # Plot setup
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.set_facecolor("black")
+    ax.set_facecolor("white")  # Set background to white for better contrast with Earth and trajectory
+    ax.set_aspect('equal', adjustable='datalim')  # Keep aspect ratio
 
     # Plot trajectory
-    ax.plot(x, y, color="white", linewidth=1, label="Rocket Trajectory")
+    ax.plot(x, y, color="black", linewidth=1, label="Rocket Trajectory")
     
     # Add phase transition markers (numbered)
     if idx_guidance is not None:
-        ax.plot(x[idx_guidance], y[idx_guidance], 'o', color='cyan', markersize=8, 
+        ax.plot(x[idx_guidance], y[idx_guidance], 'o', color='cyan', markersize=12, 
                markeredgecolor='white', markeredgewidth=1, zorder=5)
-        ax.text(x[idx_guidance], y[idx_guidance], '1', color='white', fontsize=7, 
+        ax.text(x[idx_guidance], y[idx_guidance], '1', color='white', fontsize=10, 
                fontweight='bold', ha='center', va='center', zorder=6)
     if idx_seco is not None:
-        ax.plot(x[idx_seco], y[idx_seco], 'o', color='red', markersize=8, 
+        ax.plot(x[idx_seco], y[idx_seco], 'o', color='red', markersize=12, 
                markeredgecolor='white', markeredgewidth=1, zorder=5)
-        ax.text(x[idx_seco], y[idx_seco], '2', color='white', fontsize=7, 
+        ax.text(x[idx_seco], y[idx_seco], '2', color='white', fontsize=10, 
                fontweight='bold', ha='center', va='center', zorder=6)
     if idx_insertion is not None:
-        ax.plot(x[idx_insertion], y[idx_insertion], 'o', color='green', markersize=8, 
+        ax.plot(x[idx_insertion], y[idx_insertion], 'o', color='green', markersize=12, 
                markeredgecolor='white', markeredgewidth=1, zorder=5)
-        ax.text(x[idx_insertion], y[idx_insertion], '3', color='white', fontsize=7, 
+        ax.text(x[idx_insertion], y[idx_insertion], '3', color='white', fontsize=10, 
                fontweight='bold', ha='center', va='center', zorder=6)
     
     # Add custom legend for numbered markers
@@ -686,20 +693,20 @@ def plot_trajectory_xy(data, time_steps):
     
     # Create Earth representation (circular disk)
     earth_radius_km = c.R_EARTH / 1000.0
-    earth = plt.Circle((0, 0), earth_radius_km, color='blue', zorder=1)
+    earth = plt.Circle((0, 0), earth_radius_km, color='blue', alpha=0.5, zorder=1)
     
     # Show Earth
     ax.add_patch(earth)
 
     # Labels and aesthetics
-    ax.set_xlabel("Downtrack Distance (km)", color="white", fontsize=14)
-    ax.set_ylabel("Altitude (km)", color="white", fontsize=14)
-    ax.set_title("Rocket Trajectory", color="white", fontsize=16, fontweight='bold')
+    ax.set_xlabel("Downrange Distance [km]", color="white", fontsize=12)
+    ax.set_ylabel("Altitude [km]", color="white", fontsize=12)
+    ax.set_title("Rocket Trajectory", color="black", fontsize=16, fontweight='bold')
     ax.tick_params(colors='white', labelsize=12)
-    ax.grid(color='gray', linestyle='--', linewidth=0.5)
+    #ax.grid(color='gray', linestyle='--', linewidth=0.5)
     
     # Add legend with styling for black background
-    legend = ax.legend(handles=legend_elements, loc='upper left', fontsize=12, 
+    legend = ax.legend(handles=legend_elements, loc='upper right', fontsize=12, 
                       facecolor='black', edgecolor='white', framealpha=0.8)
     for text in legend.get_texts():
         text.set_color('white')

@@ -76,13 +76,22 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = False
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
-    # Find optimal kick angle
-    kick_angle_optimal = solver.find_initial_kick_angle_coast_single_burn()
-    
-    print("\n" + "="*60)
-    print("OPTIMIZATION RESULTS")
-    print("="*60)
-    print(f"\nOptimal kick angle: {np.rad2deg(kick_angle_optimal):.4f} degrees")
+    # Determine kick angle (either from optimization or pre-set optimal value)
+    if sim_params.RUN_FAST:
+        print("\n" + "="*60)
+        print("FAST RUN MODE")
+        print("="*60)
+        kick_angle_optimal = sim_params.OPTIMAL_KICK_ANGLES.get(sim_params.GUIDANCE_MODE, sim_params.INITIAL_KICK_ANGLE)
+        print(f"\nUsing pre-determined optimal kick angle: {np.rad2deg(kick_angle_optimal):.4f} degrees")
+        print("(Skipping optimization)")
+    else:
+        # Find optimal kick angle through optimization
+        kick_angle_optimal = solver.find_initial_kick_angle_coast_single_burn()
+        
+        print("\n" + "="*60)
+        print("OPTIMIZATION RESULTS")
+        print("="*60)
+        print(f"\nOptimal kick angle: {np.rad2deg(kick_angle_optimal):.4f} degrees")
     
     # Run full simulation with optimal parameters
     print("\n" + "="*60)
