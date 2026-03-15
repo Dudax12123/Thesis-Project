@@ -18,6 +18,7 @@ from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
+from Auxiliary import earth_rotation as earth_rot
 import Plots.plots as plots
 import Plots.guidance_phase_plots as guidance_plots
 
@@ -69,6 +70,31 @@ def execute():
         print("  - Apollo-style acceleration command profiles")
         print("  - Enforces position & velocity terminal constraints")
         print("  - Coefficient freezing at t_go < 10s for stability")
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        beta_corrected, beta_inertial, v_rot_surface = earth_rot.corrected_azimuth(
+            sim_params.TARGET_ORBIT_INCLINATION,
+            sim_params.LAUNCH_LATITUDE,
+            sim_params.TARGET_ORBITAL_ALTITUDE,
+        )
+        achieved_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_inertial)
+        expected_gain = earth_rot.delta_v_gain(
+            sim_params.LAUNCH_LATITUDE,
+            beta_corrected,
+            c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
+        )
+
+        print("\n" + "="*60)
+        print("EARTH ROTATION CONFIGURATION")
+        print("="*60)
+        print(f"Launch site latitude: {sim_params.LAUNCH_LATITUDE:.4f} deg")
+        print(f"Launch site longitude: {sim_params.LAUNCH_LONGITUDE:.4f} deg")
+        print(f"Target inclination: {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
+        print(f"Geometric inertial azimuth: {np.rad2deg(beta_inertial):.4f} deg")
+        print(f"Corrected rotating-frame azimuth: {np.rad2deg(beta_corrected):.4f} deg")
+        print(f"Surface rotation speed at launch site: {v_rot_surface:.2f} m/s")
+        print(f"Estimated inertial delta-v gain: {expected_gain:.2f} m/s")
+        print(f"Inclination implied by azimuth/latitude: {achieved_inclination:.4f} deg")
     
     print("="*60)
     
@@ -105,6 +131,9 @@ def execute():
     r_final = data[1, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
+    lat_final = data[5, -1] if (sim_params.ENABLE_EARTH_ROTATION and data.shape[0] > 5) else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+
+    v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final)
     
     a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
@@ -170,6 +199,12 @@ def execute():
     print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
+    if sim_params.ENABLE_EARTH_ROTATION:
+        achieved_inclination = earth_rot.orbit_inclination(
+            np.rad2deg(lat_final),
+            ra.LAUNCH_AZIMUTH_INERTIAL,
+        )
+        print(f"\t* Inclination:\t\t\t\t{achieved_inclination:.4f} deg")
     
     print("\n" + "="*60)
     print("PROPELLANT USAGE")

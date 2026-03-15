@@ -49,7 +49,7 @@ def predict_target_downrange(state, target_altitude):
     downrange_target : float
         Predicted downrange distance to target [m]
     """
-    s, r_val, v, gamma, m = state
+    s, r_val, v, gamma, m = state[:5]
     
     # Current orbital elements
     # Specific orbital energy
@@ -146,7 +146,7 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
         Apollo coefficients [k1, k2, k3, k4]
         where: ax = k1*(t-tepoch) + k2, ay = k3*(t-tepoch) + k4
     """
-    s, r_val, v, gamma, m = state
+    s, r_val, v, gamma, m = state[:5]
     
     # Convert to Cartesian coordinates (x=downrange, y=altitude)
     x = s
@@ -222,7 +222,7 @@ def apollo_guidance(t, t_epoch, state, coefficients):
     a_thrust_magnitude : float
         Required thrust acceleration magnitude [m/s²]
     """
-    s, r_val, v, gamma, m = state
+    s, r_val, v, gamma, m = state[:5]
     k1, k2, k3, k4 = coefficients
     
     # Time since epoch (for frozen coefficients)

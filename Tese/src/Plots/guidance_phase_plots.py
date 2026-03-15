@@ -19,6 +19,27 @@ from Simulation import rocket_ascent as ra
 from Auxiliary import rocket_specs as r
 
 
+def _prepare_monotonic_series(time_array, value_array):
+    """
+    Sort by time and keep the last sample for duplicate timestamps.
+    """
+    t = np.asarray(time_array)
+    v = np.asarray(value_array)
+
+    if len(t) == 0:
+        return t, v
+
+    order = np.argsort(t, kind='stable')
+    t_sorted = t[order]
+    v_sorted = v[order]
+
+    unique_t, first_idx = np.unique(t_sorted, return_index=True)
+    next_idx = np.r_[first_idx[1:], len(t_sorted)]
+    last_idx = next_idx - 1
+
+    return unique_t, v_sorted[last_idx]
+
+
 def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     """
     Creates a 4-panel plot showing key trajectory parameters over time.
@@ -38,6 +59,9 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
             * data[3]: flight path angle; [rad]
             * data[4]: mass of the rocket; [kg]
     """
+
+    # Enforce monotonic samples before interpolation.
+    time_thrust, thrust_data = _prepare_monotonic_series(time_thrust, thrust_data)
     
     # Get phase transition times
     time_guidance = ra.time_atmosphere_exit
@@ -203,6 +227,9 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
             * data[3]: flight path angle; [rad]
             * data[4]: mass of the rocket; [kg]
     """
+
+    # Enforce monotonic samples before interpolation.
+    time_thrust, thrust_data = _prepare_monotonic_series(time_thrust, thrust_data)
     
     # Get phase transition times
     time_guidance = ra.time_atmosphere_exit
@@ -252,9 +279,8 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
         rho = c.RHO_0 * np.exp(-alt / c.H)
         q[i] = 0.5 * rho * v[i]**2
     
-    # Compute thrust and acceleration (approximate)
-    F_T = ra.r.F_THRUST_2  # Second stage thrust
-    Isp = ra.r.ISP_2
+    # Compute thrust acceleration from actual simulated thrust history.
+    F_T = np.interp(time_reduced, time_thrust, thrust_data)
     thrust_accel = F_T / m
     
     # -------------- Plotting --------------
@@ -750,6 +776,9 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
             * data[3]: flight path angle; [rad]
             * data[4]: mass of the rocket; [kg]
     """
+
+    # Enforce monotonic samples before plotting.
+    alpha_time_data, alpha_data = _prepare_monotonic_series(alpha_time_data, alpha_data)
     
     # Check if we have steering angle data
     if len(alpha_data) == 0 or len(alpha_time_data) == 0:

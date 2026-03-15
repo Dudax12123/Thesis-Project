@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from Auxiliary import atmosphere as atm
 from Auxiliary import gravity as grav
 from Auxiliary import constants as c
+from Auxiliary import earth_rotation as earth_rot
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import rocket_specs as r
 import Guidance.gravity_turn as gravity_turn_guidance
@@ -58,6 +59,12 @@ apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 # Steering angle history for plotting (guidance phase)
 alpha_history = []  # Store steering angles during guidance phase
 alpha_time_history = []  # Store corresponding time values for steering angles
+
+# Earth rotation launch geometry (set in run())
+LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Corrected azimuth in rotating frame [rad]
+LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
+LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
+LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
 
 #===================================================
 # Interrupt functions for simulation
@@ -173,9 +180,17 @@ def interrupt_velocity_exceeded(t, y):
     --------
     float : Difference between current and desired velocity
     """
+    r_val = y[1]
     v = y[2]
+    gamma = y[3]
     r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        lat = y[5] if len(y) > 5 else LAUNCH_LATITUDE_RAD
+        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
+        return v_inertial - v_desired
+
     return v - v_desired
 
 
@@ -199,11 +214,15 @@ def interrupt_single_burn_traj(t, y):
     r_val = y[1]
     v = y[2]
     gamma = y[3]
+    lat = y[5] if len(y) > 5 else LAUNCH_LATITUDE_RAD
     alt = r_val - c.R_EARTH
 
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
+        if sim_params.ENABLE_EARTH_ROTATION:
+            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
+
         # Compute current orbital elements
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
 
@@ -357,6 +376,33 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     return a, e, r_apo, r_peri, orbit_period
 
 
+def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
+    """
+    Return velocity and flight-path angle in ECI frame.
+
+    Parameters:
+    -----------
+    r_val : float
+        Radial distance to Earth's center [m]
+    v_ecef : float
+        Velocity in rotating frame [m/s]
+    gamma_ecef : float
+        Flight-path angle in rotating frame [rad]
+    lat_rad : float
+        Current latitude [rad]
+
+    Returns:
+    --------
+    v_eci : float
+        Inertial velocity [m/s]
+    gamma_eci : float
+        Inertial flight-path angle [rad]
+    """
+    if sim_params.ENABLE_EARTH_ROTATION:
+        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, LAUNCH_AZIMUTH, lat_rad, r_val)
+    return v_ecef, gamma_ecef
+
+
 def thrust_Isp():
     """
     Returns the current thrust and specific impulse based on engine status.
@@ -449,7 +495,7 @@ def estimate_time_to_target(state, target_altitude):
     t_go : float
         Estimated time-to-go [s]
     """
-    s, r_val, v, gamma, m = state
+    s, r_val, v, gamma, m = state[:5]
     
     current_alt = r_val - c.R_EARTH
     altitude_remaining = target_altitude - current_alt
@@ -542,12 +588,13 @@ def rocket_dynamics(t, state):
         Time variable (necessary for solve_ivp function)
     state : array
         Current state vector of the rocket
-        [s, r, v, gamma, m]
+        [s, r, v, gamma, m] or [s, r, v, gamma, m, lat]
         - s: downtrack [m]
         - r: radius from Earth's center [m]
         - v: velocity norm [m/s]
         - gamma: flight path angle [rad]
         - m: current mass [kg]
+        - lat: current latitude [rad] (only when Earth rotation is enabled)
 
     Returns:
     --------
@@ -560,9 +607,14 @@ def rocket_dynamics(t, state):
     global apollo_coefficients_frozen, apollo_freeze_time
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
-    s, r_val, v, gamma, m = state
+    if sim_params.ENABLE_EARTH_ROTATION and len(state) > 5:
+        s, r_val, v, gamma, m, lat = state
+    else:
+        s, r_val, v, gamma, m = state[:5]
+        lat = LAUNCH_LATITUDE_RAD
 
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
@@ -769,6 +821,11 @@ def rocket_dynamics(t, state):
     state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
                                          a_grav, alpha, Isp)
 
+    if sim_params.ENABLE_EARTH_ROTATION:
+        # Approximate latitude propagation in the 2D plane with constant azimuth.
+        dlatdt = (v * np.cos(gamma) * np.cos(LAUNCH_AZIMUTH)) / r_val
+        state_differentiated.append(dlatdt)
+
     if time_kick_start == None:
         state_differentiated[3] = 0.0
 
@@ -926,6 +983,7 @@ def run(initial_kick_angle):
     global last_guidance_update_time, guidance_coefficients
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     
     #===================================================
     # Reset global variables
@@ -940,6 +998,20 @@ def run(initial_kick_angle):
     second_stage_cutoff = False
     flag_falling_single_burn = False
     current_kick_angle = initial_kick_angle  # Store for use in dynamics
+
+    LAUNCH_AZIMUTH = np.deg2rad(90.0)
+    LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
+    LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    LAUNCH_ROTATION_SPEED = 0.0
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        (LAUNCH_AZIMUTH,
+         LAUNCH_AZIMUTH_INERTIAL,
+         LAUNCH_ROTATION_SPEED) = earth_rot.corrected_azimuth(
+            sim_params.TARGET_ORBIT_INCLINATION,
+            sim_params.LAUNCH_LATITUDE,
+            sim_params.TARGET_ORBITAL_ALTITUDE,
+        )
     
     # Reset guidance phase variables
     atmosphere_exited = False
@@ -964,6 +1036,8 @@ def run(initial_kick_angle):
     initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 + 
                    r.M_PROP_2 + r.M_PAYLOAD)
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
+    if sim_params.ENABLE_EARTH_ROTATION:
+        initial_state_1.append(LAUNCH_LATITUDE_RAD)
 
     # Define time of simulation 1
     time_1 = 500.
@@ -996,9 +1070,13 @@ def run(initial_kick_angle):
     r_stop = sol_2.y[1, -1]
     v_stop = sol_2.y[2, -1]
     gamma_stop = sol_2.y[3, -1]
+    lat_stop = sol_2.y[5, -1] if (sim_params.ENABLE_EARTH_ROTATION and sol_2.y.shape[0] > 5) else LAUNCH_LATITUDE_RAD
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
+
+    # Convert from rotating frame to inertial frame for orbital mechanics.
+    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, lat_stop)
     
     # Calculate orbital elements at stop
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(

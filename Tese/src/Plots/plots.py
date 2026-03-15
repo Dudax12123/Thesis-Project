@@ -18,6 +18,30 @@ from Auxiliary import atmosphere as atm
 from Simulation import rocket_ascent as ra
 
 
+def _prepare_monotonic_series(time_array, value_array):
+    """
+    Sort by time and keep the last sample for duplicate timestamps.
+
+    This makes interpolation deterministic even when integrator callback times
+    are not strictly monotonic.
+    """
+    t = np.asarray(time_array)
+    v = np.asarray(value_array)
+
+    if len(t) == 0:
+        return t, v
+
+    order = np.argsort(t, kind='stable')
+    t_sorted = t[order]
+    v_sorted = v[order]
+
+    unique_t, first_idx = np.unique(t_sorted, return_index=True)
+    next_idx = np.r_[first_idx[1:], len(t_sorted)]
+    last_idx = next_idx - 1
+
+    return unique_t, v_sorted[last_idx]
+
+
 def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, alpha_data, alpha_time_data):
     """
     Inputs:
@@ -47,6 +71,10 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     Note: Additional plots (altitude, velocity, mass, angle of attack) are
     available but currently commented out in the code.
     """
+
+    # Enforce monotonic samples before interpolation.
+    time_thrust, thrust_data = _prepare_monotonic_series(time_thrust, thrust_data)
+    alpha_time_data, alpha_data = _prepare_monotonic_series(alpha_time_data, alpha_data)
 
     # Reduce data array
     data_reduced = data[:, ::10]
@@ -113,6 +141,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
 
     # ----- COMPUTE LOSSES -----
     # Only compute losses if we have a time to stop burning
+    C_D_ascent = 0.3  # During powered ascent the simulation uses C_D = 0.3
+
     if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
         time_to_stop_burning = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
 
@@ -124,7 +154,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         
         # Use the actual drag coefficient used during ascent (0.3)
         # Note: r.C_D gets set to 0 after burn stops in the simulation
-        C_D_actual = 0.3
+        C_D_actual = C_D_ascent
         A_actual = r.A
         
         print(f"\nUsing C_D = {C_D_actual} for loss calculations (actual during ascent)")
@@ -351,7 +381,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         # Calculate acceleration components
         a_thrust = thrust_N / m if m > 0 else 0.0
         a_grav = grav.gravitational_acceleration(r_val)
-        a_drag = (q[i] * r.C_D * r.A) / m if m > 0 else 0.0
+        a_drag = (q[i] * C_D_ascent * r.A) / m if m > 0 else 0.0
         
         # Get angle of attack for thrust direction
         alpha = angle_of_attacks[i]
