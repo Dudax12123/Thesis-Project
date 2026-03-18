@@ -924,3 +924,52 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     
     plt.tight_layout()
     plt.show(block=False)
+
+
+def plot_latitude_over_time(time_steps, data):
+    """
+    Plot propagated latitude over time.
+
+    Inputs:
+        - time_steps: array of simulation time steps [s]
+        - data: array of state history
+            * data[0]: downtrack s [m]
+            * data[5]: propagated latitude [rad] (when Earth rotation is enabled)
+    """
+    if data.shape[0] <= 5:
+        print("Latitude history not available (Earth rotation disabled or latitude state not present).")
+        return
+
+    # Reduce data for plotting clarity.
+    reduction_factor = 10
+    time_reduced = time_steps[::reduction_factor]
+    lat_reduced_deg = np.rad2deg(data[5, ::reduction_factor])
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(time_reduced, lat_reduced_deg, color='tab:blue', linewidth=2.5, label='Propagated Latitude')
+
+    # Reference lines for launch latitude and physical bounds.
+    ax.axhline(sim_params.LAUNCH_LATITUDE, color='tab:orange', linestyle='--', linewidth=1.5,
+               label=f'Launch Latitude ({sim_params.LAUNCH_LATITUDE:.2f} deg)')
+    ax.axhline(90.0, color='tab:red', linestyle=':', linewidth=1.2, alpha=0.8)
+    ax.axhline(-90.0, color='tab:red', linestyle=':', linewidth=1.2, alpha=0.8, label='Physical Latitude Limits')
+
+    # Mark key timeline events.
+    if ra.time_atmosphere_exit is not None:
+        ax.axvline(ra.time_atmosphere_exit, color='cyan', linestyle='--', linewidth=1.5, alpha=0.8,
+                   label='Guidance Activation')
+    if ra.time_main_engine_cutoff is not None:
+        ax.axvline(ra.time_main_engine_cutoff, color='magenta', linestyle='--', linewidth=1.5, alpha=0.8,
+                   label='MECO')
+    if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+        ax.axvline(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL, color='red', linestyle='--', linewidth=1.5, alpha=0.8,
+                   label='SECO')
+
+    ax.set_xlabel('Time [s]', fontsize=14)
+    ax.set_ylabel('Latitude [deg]', fontsize=14)
+    ax.set_title('Propagated Latitude Over Time', fontsize=18, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=11)
+
+    plt.tight_layout()
+    plt.show(block=False)

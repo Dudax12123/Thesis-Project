@@ -129,11 +129,21 @@ def execute():
 
     # Calculate final orbital elements
     r_final = data[1, -1]
+    s_final = data[0, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
-    lat_final = data[5, -1] if (sim_params.ENABLE_EARTH_ROTATION and data.shape[0] > 5) else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
 
-    v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final)
+    # In full simulation mode, post-SECO coast/circularization phases are already
+    # propagated in inertial speed/FPA when Earth rotation is enabled.
+    state_already_inertial = (
+        sim_params.ENABLE_EARTH_ROTATION
+        and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None
+        and time[-1] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    )
+
+    if not state_already_inertial:
+        v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final)
     
     a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
@@ -200,8 +210,11 @@ def execute():
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     if sim_params.ENABLE_EARTH_ROTATION:
+        # In this 2D model, latitude propagation is an approximation used for
+        # ECI velocity conversion. Inclination from launch geometry should use
+        # launch-site latitude and inertial launch azimuth.
         achieved_inclination = earth_rot.orbit_inclination(
-            np.rad2deg(lat_final),
+            sim_params.LAUNCH_LATITUDE,
             ra.LAUNCH_AZIMUTH_INERTIAL,
         )
         print(f"\t* Inclination:\t\t\t\t{achieved_inclination:.4f} deg")
@@ -238,6 +251,11 @@ def execute():
     # Generate steering angle plot (shows entire flight profile)
     print("\nGenerating steering angle plot...")
     guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
+
+    # Latitude history plot (only meaningful when Earth rotation is enabled)
+    if sim_params.ENABLE_EARTH_ROTATION:
+        print("\nGenerating propagated latitude plot...")
+        guidance_plots.plot_latitude_over_time(time, data)
     
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")

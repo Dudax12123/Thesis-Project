@@ -187,7 +187,7 @@ def interrupt_velocity_exceeded(t, y):
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
 
     if sim_params.ENABLE_EARTH_ROTATION:
-        lat = y[5] if len(y) > 5 else LAUNCH_LATITUDE_RAD
+        lat = get_latitude_from_downrange(y[0])
         v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
         return v_inertial - v_desired
 
@@ -214,7 +214,7 @@ def interrupt_single_burn_traj(t, y):
     r_val = y[1]
     v = y[2]
     gamma = y[3]
-    lat = y[5] if len(y) > 5 else LAUNCH_LATITUDE_RAD
+    lat = get_latitude_from_downrange(y[0]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
     alt = r_val - c.R_EARTH
 
     if alt < sim_params.ALT_NO_ATMOSPHERE:
@@ -334,6 +334,51 @@ def cartesian_coordinates(h, s):
     x = (h + c.R_EARTH) * np.sin(theta)
     
     return x, y
+
+
+def get_latitude_from_downrange(s):
+    """
+    Compute geocentric latitude from downrange along the launch great-circle.
+
+    This keeps latitude physically bounded in [-pi/2, pi/2] and avoids drift
+    that can appear when integrating latitude with a fixed-heading assumption.
+    """
+    if not sim_params.ENABLE_EARTH_ROTATION:
+        return LAUNCH_LATITUDE_RAD
+
+    sigma = s / c.R_EARTH
+    sin_phi0 = np.sin(LAUNCH_LATITUDE_RAD)
+    cos_phi0 = np.cos(LAUNCH_LATITUDE_RAD)
+
+    # Great-circle relation from launch site with initial inertial azimuth.
+    sin_lat = (sin_phi0 * np.cos(sigma) +
+               cos_phi0 * np.sin(sigma) * np.cos(LAUNCH_AZIMUTH_INERTIAL))
+    sin_lat = np.clip(sin_lat, -1.0, 1.0)
+    return np.arcsin(sin_lat)
+
+
+def get_latitude_rate_from_downrange(s, dsdt):
+    """
+    Compute d(latitude)/dt from great-circle geometry and ds/dt.
+    """
+    if not sim_params.ENABLE_EARTH_ROTATION:
+        return 0.0
+
+    sigma = s / c.R_EARTH
+    sin_phi0 = np.sin(LAUNCH_LATITUDE_RAD)
+    cos_phi0 = np.cos(LAUNCH_LATITUDE_RAD)
+    cos_beta0 = np.cos(LAUNCH_AZIMUTH_INERTIAL)
+
+    u = sin_phi0 * np.cos(sigma) + cos_phi0 * np.sin(sigma) * cos_beta0
+    u = np.clip(u, -1.0, 1.0)
+    du_dsigma = -sin_phi0 * np.sin(sigma) + cos_phi0 * np.cos(sigma) * cos_beta0
+
+    cos_lat = np.sqrt(max(1.0 - u**2, 0.0))
+    cos_lat = max(cos_lat, 1e-10)
+    dlat_dsigma = du_dsigma / cos_lat
+    dsigma_dt = dsdt / c.R_EARTH
+
+    return dlat_dsigma * dsigma_dt
 
 
 def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
@@ -611,7 +656,8 @@ def rocket_dynamics(t, state):
 
     # Get state components
     if sim_params.ENABLE_EARTH_ROTATION and len(state) > 5:
-        s, r_val, v, gamma, m, lat = state
+        s, r_val, v, gamma, m, _lat_state = state
+        lat = get_latitude_from_downrange(s)
     else:
         s, r_val, v, gamma, m = state[:5]
         lat = LAUNCH_LATITUDE_RAD
@@ -822,8 +868,8 @@ def rocket_dynamics(t, state):
                                          a_grav, alpha, Isp)
 
     if sim_params.ENABLE_EARTH_ROTATION:
-        # Approximate latitude propagation in the 2D plane with constant azimuth.
-        dlatdt = (v * np.cos(gamma) * np.cos(LAUNCH_AZIMUTH)) / r_val
+        dsdt = state_differentiated[0]
+        dlatdt = get_latitude_rate_from_downrange(s, dsdt)
         state_differentiated.append(dlatdt)
 
     if time_kick_start == None:
@@ -1070,7 +1116,7 @@ def run(initial_kick_angle):
     r_stop = sol_2.y[1, -1]
     v_stop = sol_2.y[2, -1]
     gamma_stop = sol_2.y[3, -1]
-    lat_stop = sol_2.y[5, -1] if (sim_params.ENABLE_EARTH_ROTATION and sol_2.y.shape[0] > 5) else LAUNCH_LATITUDE_RAD
+    lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
@@ -1142,6 +1188,21 @@ def run(initial_kick_angle):
             # 1. Coasting
             second_stage_cutoff = True
             initial_state_3 = sol_2.y[:, -1]
+
+            # If Earth rotation is enabled, the ascent state is in rotating-frame
+            # speed/flight-path-angle. Convert to inertial components before coast
+            # propagation and circularization so post-SECO dynamics are consistent
+            # with the orbital-element and delta-v calculations above.
+            if sim_params.ENABLE_EARTH_ROTATION:
+                lat_state_3 = get_latitude_from_downrange(initial_state_3[0])
+                v_eci_3, gamma_eci_3 = get_inertial_state_components(
+                    initial_state_3[1],
+                    initial_state_3[2],
+                    initial_state_3[3],
+                    lat_state_3,
+                )
+                initial_state_3[2] = v_eci_3
+                initial_state_3[3] = gamma_eci_3
             
             init_time_3 = sol_2.t[-1]
             time_3 = get_time_until_apogee(e_stop, initial_state_3[3], 
