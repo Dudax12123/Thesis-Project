@@ -951,25 +951,12 @@ def plot_latitude_over_time(time_steps, data):
     # Reference lines for launch latitude and physical bounds.
     ax.axhline(sim_params.LAUNCH_LATITUDE, color='tab:orange', linestyle='--', linewidth=1.5,
                label=f'Launch Latitude ({sim_params.LAUNCH_LATITUDE:.2f} deg)')
-    ax.axhline(90.0, color='tab:red', linestyle=':', linewidth=1.2, alpha=0.8)
-    ax.axhline(-90.0, color='tab:red', linestyle=':', linewidth=1.2, alpha=0.8, label='Physical Latitude Limits')
 
-    # Mark key timeline events.
-    if ra.time_atmosphere_exit is not None:
-        ax.axvline(ra.time_atmosphere_exit, color='cyan', linestyle='--', linewidth=1.5, alpha=0.8,
-                   label='Guidance Activation')
-    if ra.time_main_engine_cutoff is not None:
-        ax.axvline(ra.time_main_engine_cutoff, color='magenta', linestyle='--', linewidth=1.5, alpha=0.8,
-                   label='MECO')
-    if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
-        ax.axvline(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL, color='red', linestyle='--', linewidth=1.5, alpha=0.8,
-                   label='SECO')
-
-    ax.set_xlabel('Time [s]', fontsize=14)
-    ax.set_ylabel('Latitude [deg]', fontsize=14)
-    ax.set_title('Propagated Latitude Over Time', fontsize=18, fontweight='bold')
+    ax.set_xlabel('Time [s]', fontsize=18)
+    ax.set_ylabel('Latitude [deg]', fontsize=18)
+    ax.set_title('Propagated Latitude Over Time', fontsize=20, fontweight='bold')
     ax.grid(True, alpha=0.3)
-    ax.legend(loc='best', fontsize=11)
+    ax.legend(loc='best', fontsize=14)
 
     plt.tight_layout()
     plt.show(block=False)

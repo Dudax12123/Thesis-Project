@@ -319,17 +319,14 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     # Mark max-q
     axs3.plot(time_max_q, max_q_kPa, 'ro', markersize=5, label=f'Max-Q ({max_q_kPa:.2f} kPa at {time_max_q:.1f}s)', zorder=5)
     
+    # Limit x-axis to a few seconds after atmosphere exit for better visibility of max-q region
+    if time_guidance is not None:
+        axs3.set_xlim(0, time_guidance + 100)
+
     # Add vertical lines for phase transitions
     if time_guidance is not None:
         axs3.axvline(x=time_guidance, color='green', linestyle='--', linewidth=2, alpha=1, 
                     label=f'Atmosphere Exit ({time_guidance:.1f}s)')
-    time_meco = ra.time_main_engine_cutoff
-    if time_meco is not None:
-        axs3.axvline(x=time_meco, color='red', linestyle='--', linewidth=2, alpha=1, 
-                    label=f'MECO ({time_meco:.1f}s)')
-    if time_seco is not None:
-        axs3.axvline(x=time_seco, color='brown', linestyle='--', linewidth=2, alpha=1,
-                    label=f'SECO ({time_seco:.1f}s)')
     
     # Mark the kick maneuver period
     #kick_start = sim_params.TIME_TO_START_KICK
