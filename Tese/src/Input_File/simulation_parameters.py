@@ -13,6 +13,7 @@ TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desire
 
 # -------------- Earth Rotation (Optional) --------------
 ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
+USE_ECI_PROPAGATION = True                   # if True, use conventional 3-DOF ECI point-mass propagation
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
@@ -60,6 +61,7 @@ ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosph
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
                                                  # (only used if ATMOSPHERE_EXIT_METHOD = "dynamic_pressure")
                                                  # Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
+SINGLE_BURN_EVENT_ALTITUDE_MARGIN = 10e3        # extra altitude margin before enabling single-burn stop event [m]
 
 # -------------- Optimization --------------
 ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to be tested; [rad]

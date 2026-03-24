@@ -15,6 +15,9 @@ from Auxiliary import atmosphere as atm
 from Auxiliary import gravity as grav
 from Auxiliary import constants as c
 from Auxiliary import earth_rotation as earth_rot
+from Auxiliary import frames
+from Auxiliary import derived_quantities as derived
+from Auxiliary import launch_azimuth
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import rocket_specs as r
 import Guidance.gravity_turn as gravity_turn_guidance
@@ -22,6 +25,7 @@ import Guidance.simple_polynomial as simple_poly_guidance
 import Guidance.linear_tangent_steering as lts_guidance
 import Guidance.bilinear_tangent_steering as bts_guidance
 import Guidance.apollo_guidance as apollo_guidance_module
+from Simulation.eci_point_mass import ECIPropagationConfig, point_mass_3dof_eci
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -66,6 +70,7 @@ LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial fram
 LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
 LAUNCH_LONGITUDE_RAD = 0.0          # Current launch-site longitude [rad]
 LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
+LAUNCH_SITE_ECEF = np.array([c.R_EARTH, 0.0, 0.0], dtype=float)  # Launch-site ECEF position [m]
 
 #===================================================
 # Interrupt functions for simulation
@@ -87,8 +92,12 @@ def interrupt_radius_check(t, y):
     int : 0 if interrupt triggered, 1 otherwise
     """
     margin = 50e3
-    r = y[1]
-    if r > (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH + margin):
+    if len(y) >= 7:
+        r_val = np.linalg.norm(y[0:3])
+    else:
+        r_val = y[1]
+
+    if r_val > (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH + margin):
         if sim_params.INTERRUPTS_PRINT: 
             print("Interrupt Radius Check happened at time ", t)
         return 0
@@ -135,7 +144,7 @@ def interrupt_stage_2_burnt(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
-    m = y[4]
+    m = y[6] if len(y) >= 7 else y[4]
     if m <= (r.M_PAYLOAD + r.M_STRUCTURE_2):
         if sim_params.INTERRUPTS_PRINT:
             print("Interrupt Stage 2 Burnt happened at time ", t)
@@ -158,7 +167,11 @@ def interrupt_ground_collision(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
-    r_val = y[1]
+    if len(y) >= 7:
+        r_val = np.linalg.norm(y[0:3])
+    else:
+        r_val = y[1]
+
     if r_val < c.R_EARTH - 1e3:
         if sim_params.INTERRUPTS_PRINT:
             print("Interrupt Earth Collision happened at time ", t)
@@ -181,11 +194,23 @@ def interrupt_velocity_exceeded(t, y):
     --------
     float : Difference between current and desired velocity
     """
-    r_val = y[1]
-    v = y[2]
-    gamma = y[3]
+    if len(y) >= 7:
+        r_vec = np.array(y[0:3], dtype=float)
+        v_vec = np.array(y[3:6], dtype=float)
+        r_val = np.linalg.norm(r_vec)
+        v_inertial = np.linalg.norm(v_vec)
+        v = v_inertial
+        gamma = frames.flight_path_angle(r_vec, v_vec, t)
+    else:
+        r_val = y[1]
+        v = y[2]
+        gamma = y[3]
+
     r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
+
+    if len(y) >= 7:
+        return v - v_desired
 
     if sim_params.ENABLE_EARTH_ROTATION:
         lat = y[5] if len(y) > 5 else get_latitude_from_downrange(y[0])
@@ -212,15 +237,33 @@ def interrupt_single_burn_traj(t, y):
     --------
     float : Difference between apogee and target altitude
     """
-    r_val = y[1]
-    v = y[2]
-    gamma = y[3]
-    lat = y[5] if sim_params.ENABLE_EARTH_ROTATION and len(y) > 5 else LAUNCH_LATITUDE_RAD
-    alt = r_val - c.R_EARTH
+    if len(y) >= 7:
+        r_vec = np.array(y[0:3], dtype=float)
+        v_vec = np.array(y[3:6], dtype=float)
+        r_val = np.linalg.norm(r_vec)
+        v = np.linalg.norm(v_vec)
+        gamma = frames.flight_path_angle(r_vec, v_vec, t)
+        alt = r_val - c.R_EARTH
+    else:
+        r_val = y[1]
+        v = y[2]
+        gamma = y[3]
+        lat = y[5] if sim_params.ENABLE_EARTH_ROTATION and len(y) > 5 else LAUNCH_LATITUDE_RAD
+        alt = r_val - c.R_EARTH
 
-    if alt < sim_params.ALT_NO_ATMOSPHERE:
+    # Guard event activation to avoid discontinuity-triggered roots near the
+    # atmosphere boundary. Start evaluating only after clearing a margin above
+    # the selected atmosphere-exit altitude.
+    activation_altitude = sim_params.ALT_NO_ATMOSPHERE + sim_params.SINGLE_BURN_EVENT_ALTITUDE_MARGIN
+
+    if alt < activation_altitude:
         return 1
     else:
+        if len(y) >= 7:
+            a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
+            diff = r_apo - (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH)
+            return diff
+
         if sim_params.ENABLE_EARTH_ROTATION:
             v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
 
@@ -247,7 +290,10 @@ def interrupt_horizontal_check(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
-    gamma = y[3]
+    if len(y) >= 7:
+        gamma = frames.flight_path_angle(np.array(y[0:3], dtype=float), np.array(y[3:6], dtype=float), t)
+    else:
+        gamma = y[3]
     epsilon = np.deg2rad(0.01)
     
     if gamma < epsilon:
@@ -278,7 +324,8 @@ def event_main_engine_cutoff(t, y):
     if main_engine_cutoff == True:
         return
     
-    first_stage_leftover_propellant = y[4] - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + 
+    mass = y[6] if len(y) >= 7 else y[4]
+    first_stage_leftover_propellant = mass - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + 
                                                 r.M_PROP_2 + r.M_PAYLOAD)
     
     if first_stage_leftover_propellant <= 0 and main_engine_cutoff == False:
@@ -309,6 +356,257 @@ def event_second_engine_ignition(t):
             print("Second engine ignited at t = ", t)
         
     return
+
+
+def _downrange_from_eci(r_i, time_s):
+    """Compute great-circle downrange from launch site in meters."""
+    r_e = earth_rot.eci_to_ecef(np.asarray(r_i, dtype=float), time_s)
+    u0, _ = frames.safe_normalize(LAUNCH_SITE_ECEF)
+    u, _ = frames.safe_normalize(r_e)
+    cos_sigma = np.clip(np.dot(u0, u), -1.0, 1.0)
+    sigma = np.arccos(cos_sigma)
+    return c.R_EARTH * sigma
+
+
+def _legacy_guidance_state_from_eci(t, state_eci):
+    """Build compatibility state [s, r, v, gamma, m] from ECI state."""
+    r_i = np.asarray(state_eci[0:3], dtype=float)
+    v_i = np.asarray(state_eci[3:6], dtype=float)
+    m = float(state_eci[6])
+
+    s = _downrange_from_eci(r_i, t)
+    r_val = float(np.linalg.norm(r_i))
+    v = float(np.linalg.norm(v_i))
+    gamma = frames.flight_path_angle(r_i, v_i, t)
+    return np.array([s, r_val, v, gamma, m], dtype=float)
+
+
+def _estimate_tgo_from_eci_state(state_eci, target_altitude):
+    """Estimate time-to-go from ECI state using radial climb rate."""
+    r_i = np.asarray(state_eci[0:3], dtype=float)
+    v_i = np.asarray(state_eci[3:6], dtype=float)
+    r_val = float(np.linalg.norm(r_i))
+    current_alt = r_val - c.R_EARTH
+    altitude_remaining = target_altitude - current_alt
+
+    up_i, _ = frames.safe_normalize(r_i)
+    v_radial = float(np.dot(v_i, up_i))
+
+    if v_radial > 1e-3:
+        t_go = altitude_remaining / v_radial
+    else:
+        t_go = 1000.0
+
+    return max(t_go, 0.1)
+
+
+def _compute_alpha_guidance_from_eci(t, state_eci, q, alt, f_t):
+    """Compute pitch-only guidance angle using compatibility bridge to legacy laws."""
+    global kick_performed, atmosphere_exited, guidance_phase_active
+    global time_atmosphere_exit, last_guidance_update_time, guidance_coefficients
+    global apollo_coefficients_frozen, apollo_freeze_time
+
+    alpha = 0.0
+    legacy_state = _legacy_guidance_state_from_eci(t, state_eci)
+
+    atmosphere_exit_detected = False
+    if sim_params.ATMOSPHERE_EXIT_METHOD == "altitude":
+        atmosphere_exit_detected = (alt > sim_params.ALT_NO_ATMOSPHERE)
+    elif sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
+        atmosphere_exit_detected = (q < sim_params.DYNAMIC_PRESSURE_THRESHOLD)
+
+    if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
+        alpha = pitch_program_linear(t, current_kick_angle)
+
+    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and
+          atmosphere_exit_detected and (not atmosphere_exited) and f_t > 0):
+        atmosphere_exited = True
+        time_atmosphere_exit = t
+        guidance_phase_active = True
+        last_guidance_update_time = t
+
+        t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+
+        if sim_params.GUIDANCE_MODE == "simple_poly":
+            guidance_coefficients = simple_poly_guidance.compute_polynomial_coefficients(legacy_state,
+                                                                                          sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                                          t_go)
+            alpha = simple_poly_guidance.polynomial_guidance(t, t_go, legacy_state, guidance_coefficients)
+
+        elif sim_params.GUIDANCE_MODE == "linear_tangent":
+            guidance_coefficients = lts_guidance.compute_lts_coefficients(legacy_state,
+                                                                           sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                           t_go)
+            alpha = lts_guidance.linear_tangent_steering(t, t_go, legacy_state, guidance_coefficients)
+
+        elif sim_params.GUIDANCE_MODE == "bilinear_tangent":
+            guidance_coefficients = bts_guidance.compute_bilinear_coefficients(legacy_state,
+                                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                                t_go)
+            alpha = bts_guidance.bilinear_tangent_steering(t, t_go, legacy_state, guidance_coefficients)
+
+        elif sim_params.GUIDANCE_MODE == "apollo":
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(legacy_state,
+                                                                                        sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                                        t_go)
+            apollo_freeze_time = t
+            apollo_coefficients_frozen = False
+            alpha, _ = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, legacy_state, guidance_coefficients)
+
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "simple_poly" and f_t > 0:
+        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+            guidance_coefficients = simple_poly_guidance.compute_polynomial_coefficients(legacy_state,
+                                                                                          sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                                          t_go)
+            last_guidance_update_time = t
+        t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+        alpha = simple_poly_guidance.polynomial_guidance(t, t_go, legacy_state, guidance_coefficients)
+
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "linear_tangent" and f_t > 0:
+        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+            guidance_coefficients = lts_guidance.compute_lts_coefficients(legacy_state,
+                                                                           sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                           t_go)
+            last_guidance_update_time = t
+        t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+        alpha = lts_guidance.linear_tangent_steering(t, t_go, legacy_state, guidance_coefficients)
+
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "bilinear_tangent" and f_t > 0:
+        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+            guidance_coefficients = bts_guidance.compute_bilinear_coefficients(legacy_state,
+                                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                                t_go)
+            last_guidance_update_time = t
+        t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+        alpha = bts_guidance.bilinear_tangent_steering(t, t_go, legacy_state, guidance_coefficients)
+
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and f_t > 0:
+        t_go = _estimate_tgo_from_eci_state(state_eci, sim_params.TARGET_ORBITAL_ALTITUDE)
+
+        if t_go < sim_params.APOLLO_FREEZE_THRESHOLD and not apollo_coefficients_frozen:
+            apollo_coefficients_frozen = True
+            apollo_freeze_time = t
+
+        if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(legacy_state,
+                                                                                        sim_params.TARGET_ORBITAL_ALTITUDE,
+                                                                                        t_go)
+            apollo_freeze_time = t
+            last_guidance_update_time = t
+
+        alpha, _ = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, legacy_state, guidance_coefficients)
+
+    return alpha
+
+
+def _eci_to_legacy_data_matrix(time_steps, data_eci):
+    """Convert ECI state history to legacy output channels for compatibility."""
+    n = data_eci.shape[1]
+    s_arr = np.zeros(n)
+    r_arr = np.zeros(n)
+    v_arr = np.zeros(n)
+    gamma_arr = np.zeros(n)
+    m_arr = np.zeros(n)
+    lat_arr = np.zeros(n)
+    lon_arr = np.zeros(n)
+
+    for i in range(n):
+        t_i = float(time_steps[i])
+        r_i = data_eci[0:3, i]
+        v_i = data_eci[3:6, i]
+        m_i = float(data_eci[6, i])
+
+        d = derived.compute_derived_flight_state(t_i, r_i, v_i)
+        s_arr[i] = _downrange_from_eci(r_i, t_i)
+        r_arr[i] = d.radius_m
+        v_arr[i] = d.speed_inertial_mps
+        gamma_arr[i] = d.gamma_rad
+        m_arr[i] = m_i
+        lat_arr[i] = d.latitude_rad
+        lon_arr[i] = d.longitude_rad
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        return np.vstack((s_arr, r_arr, v_arr, gamma_arr, m_arr, lat_arr, lon_arr))
+    return np.vstack((s_arr, r_arr, v_arr, gamma_arr, m_arr))
+
+
+def rocket_dynamics_eci(t, state):
+    """3-DOF ECI dynamics with rotating atmosphere and pitch-only control."""
+    global flag_falling_single_burn
+    global thrust_history, time_history
+    global alpha_history, alpha_time_history
+
+    event_main_engine_cutoff(t, state)
+    if main_engine_cutoff:
+        event_second_engine_ignition(t)
+
+    f_t, isp = thrust_Isp()
+
+    r_i = np.asarray(state[0:3], dtype=float)
+    v_i = np.asarray(state[3:6], dtype=float)
+    derived_state = derived.compute_derived_flight_state(t, r_i, v_i)
+    q = atm.dynamic_pressure(derived_state.speed_air_relative_mps, derived_state.altitude_m)
+
+    alpha = _compute_alpha_guidance_from_eci(t, state, q, derived_state.altitude_m, f_t)
+
+    # Legacy guidance laws return angle-of-attack relative to velocity direction.
+    # In the ECI point-mass model we command pitch from local horizontal, so map:
+    #   theta_pitch = gamma_ref + alpha
+    # using air-relative velocity for better physical behavior at liftoff.
+    v_rel_i = derived.air_relative_velocity_eci(r_i, v_i)
+    if np.linalg.norm(v_rel_i) > 1e-6:
+        gamma_ref = frames.flight_path_angle(r_i, v_rel_i, t)
+    else:
+        # On-pad/near-zero airspeed case: keep thrust vertical until motion builds.
+        gamma_ref = np.deg2rad(90.0)
+
+    theta_pitch = gamma_ref + alpha
+
+    # Pre-kick hold: keep thrust vertical during initial ascent phase.
+    # This avoids aligning thrust with tiny early air-relative velocity perturbations.
+    if (not kick_performed) and (t < sim_params.TIME_TO_START_KICK):
+        theta_pitch = np.deg2rad(90.0)
+
+    if sim_params.GUIDANCE_MODE == "apollo" and guidance_phase_active and f_t > 0 and sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL:
+        legacy_state = _legacy_guidance_state_from_eci(t, state)
+        _, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, legacy_state, guidance_coefficients)
+        f_t = min(float(state[6]) * a_thrust_cmd, f_t)
+
+    cfg = ECIPropagationConfig(
+        drag_coefficient=r.C_D,
+        reference_area_m2=r.A,
+    )
+
+    def _thrust_model(_t, _state):
+        return f_t, isp
+
+    def _pitch_model(_t, _state):
+        return theta_pitch
+
+    state_dot = point_mass_3dof_eci(
+        t_s=t,
+        state=np.asarray(state, dtype=float),
+        thrust_model=_thrust_model,
+        pitch_model=_pitch_model,
+        fallback_azimuth_rad=LAUNCH_AZIMUTH,
+        cfg=cfg,
+        use_air_relative_for_pitch=True,
+    )
+
+    up_i, _ = frames.safe_normalize(r_i)
+    v_radial = float(np.dot(v_i, up_i))
+    if v_radial < 0:
+        flag_falling_single_burn = True
+
+    thrust_history.append(f_t)
+    time_history.append(t)
+    alpha_history.append(alpha)
+    alpha_time_history.append(t)
+
+    return state_dot.tolist()
 
 #===================================================
 # Utility Functions
@@ -701,6 +999,9 @@ def rocket_dynamics(t, state):
     global alpha_history, alpha_time_history
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
+    if sim_params.USE_ECI_PROPAGATION and len(state) >= 7:
+        return rocket_dynamics_eci(t, state)
+
     # Get state components
     if sim_params.ENABLE_EARTH_ROTATION and len(state) > 6:
         s, r_val, v, gamma, m, lat, _lon_state = state
@@ -1048,6 +1349,181 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
                     max_step=1, events=interrupt_list, atol=1e-8)
 
 
+def run_eci(initial_kick_angle):
+    """Run ascent using conventional 3-DOF ECI propagation with legacy output compatibility."""
+    global time_kick_start, kick_performed, time_raise, main_engine_cutoff
+    global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
+    global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
+    global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
+    global last_guidance_update_time, guidance_coefficients
+    global thrust_history, time_history
+    global alpha_history, alpha_time_history
+    global apollo_coefficients_frozen, apollo_freeze_time
+    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_LONGITUDE_RAD, LAUNCH_ROTATION_SPEED, LAUNCH_SITE_ECEF
+
+    time_kick_start = None
+    kick_performed = False
+    time_raise = sim_params.DURATION_INITIAL_KICK / 2.
+    main_engine_cutoff = False
+    second_engine_ignition = False
+    stage_2_burnt = False
+    time_main_engine_cutoff = None
+    second_stage_cutoff = False
+    flag_falling_single_burn = False
+    current_kick_angle = initial_kick_angle
+
+    LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    LAUNCH_LONGITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LONGITUDE)
+
+    LAUNCH_SITE_ECEF = launch_azimuth.launch_site_position_ecef(
+        sim_params.LAUNCH_LATITUDE,
+        sim_params.LAUNCH_LONGITUDE,
+    )
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        (LAUNCH_AZIMUTH,
+         LAUNCH_AZIMUTH_INERTIAL,
+         LAUNCH_ROTATION_SPEED) = earth_rot.corrected_launch_azimuth_with_rotation(
+            sim_params.TARGET_ORBIT_INCLINATION,
+            sim_params.LAUNCH_LATITUDE,
+            sim_params.LAUNCH_LONGITUDE,
+            sim_params.TARGET_ORBITAL_ALTITUDE,
+            time_s=0.0,
+        )
+    else:
+        LAUNCH_AZIMUTH_INERTIAL = earth_rot.inertial_azimuth_for_inclination(
+            sim_params.TARGET_ORBIT_INCLINATION,
+            sim_params.LAUNCH_LATITUDE,
+        )
+        LAUNCH_AZIMUTH = LAUNCH_AZIMUTH_INERTIAL
+        LAUNCH_ROTATION_SPEED = 0.0
+
+    atmosphere_exited = False
+    guidance_phase_active = False
+    time_atmosphere_exit = None
+    last_guidance_update_time = 0.0
+    guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
+    apollo_coefficients_frozen = False
+    apollo_freeze_time = None
+
+    thrust_history = []
+    time_history = []
+    alpha_history = []
+    alpha_time_history = []
+
+    initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 + r.M_PROP_2 + r.M_PAYLOAD)
+    r0_i = earth_rot.ecef_to_eci(LAUNCH_SITE_ECEF, 0.0)
+    if sim_params.ENABLE_EARTH_ROTATION:
+        v0_i = np.cross(frames.earth_rotation_vector(), r0_i)
+    else:
+        v0_i = np.zeros(3, dtype=float)
+
+    initial_state_1 = np.array([r0_i[0], r0_i[1], r0_i[2], v0_i[0], v0_i[1], v0_i[2], initial_mass], dtype=float)
+
+    time_1 = 500.
+    sol_1 = simulate_trajectory(0, time_1, initial_state_1, True, False)
+
+    initial_state_2 = sol_1.y[:, -1].copy()
+    initial_state_2[6] = initial_state_2[6] - r.M_STRUCTURE_1
+
+    init_time_2 = sol_1.t[-1]
+    time_2 = 4000.
+    sol_2 = simulate_trajectory(init_time_2, time_2, initial_state_2, False, True)
+
+    data_eci = np.concatenate((sol_1.y, sol_2.y), axis=1)
+    time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
+
+    if len(sol_2.y_events) > 3 and len(sol_2.y_events[3]) > 0:
+        # Use exact event root state for single-burn stop condition.
+        stop_state = sol_2.y_events[3][0]
+        stop_time = float(sol_2.t_events[3][0])
+    else:
+        stop_state = sol_2.y[:, -1]
+        stop_time = float(sol_2.t[-1])
+
+    r_stop_vec = stop_state[0:3]
+    v_stop_vec = stop_state[3:6]
+    r_stop = np.linalg.norm(r_stop_vec)
+    v_stop = np.linalg.norm(v_stop_vec)
+    gamma_stop = frames.flight_path_angle(r_stop_vec, v_stop_vec, stop_time)
+
+    alt_stop = r_stop - c.R_EARTH
+
+    a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(r_stop, v_stop, gamma_stop)
+
+    epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * 0.002
+    diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
+
+    if diff < epsilon:
+        r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+        v_desired = np.sqrt(c.MU_EARTH / r_desired)
+        v_apo = np.sqrt(c.MU_EARTH * a_stop * (1 - e_stop**2)) / r_apo_stop
+        delta_v = np.abs(v_apo - v_desired)
+
+        m_propellant_left = sol_2.y[6, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD)
+        m_propellant_used = r.M_PROP_2 - m_propellant_left
+        m_propellant_required = sol_2.y[6, -1] * (1 - np.exp(-delta_v / (c.G_0 * r.ISP_2)))
+
+        if m_propellant_required < m_propellant_left:
+            m_propellant_total_used_2nd_stage = m_propellant_used + m_propellant_required
+        else:
+            m_propellant_total_used_2nd_stage = 999999999.
+
+        burn_time_delta_v = calculate_burn_time(sol_2.y[6, -1], delta_v)
+        if burn_time_delta_v > sim_params.MAX_ACCEPTED_BURN_TIME:
+            m_propellant_total_used_2nd_stage = 999999999.
+
+        if not SINGLE_BURN_FULL_SIMULATION:
+            data_legacy = _eci_to_legacy_data_matrix(time_steps_simulation, data_eci)
+            thrust_data = np.array(thrust_history)
+            time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+            return time_steps_simulation, data_legacy, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
+        else:
+            global TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+            TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = stop_time
+            r.C_D = 0.
+
+            second_stage_cutoff = True
+            initial_state_3 = sol_2.y[:, -1].copy()
+
+            init_time_3 = sol_2.t[-1]
+            time_3 = get_time_until_apogee(e_stop, frames.flight_path_angle(initial_state_3[0:3], initial_state_3[3:6], init_time_3),
+                                           np.linalg.norm(initial_state_3[3:6]), orbit_period_stop, a_stop, np.linalg.norm(initial_state_3[0:3]))
+
+            sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3, False, False)
+
+            initial_state_4 = sol_3.y[:, -1].copy()
+            v_hat, v_norm = frames.safe_normalize(initial_state_4[3:6])
+            if v_norm > 0:
+                initial_state_4[3:6] = initial_state_4[3:6] + delta_v * v_hat
+
+            initial_state_4[6] -= m_propellant_required
+
+            init_time_4 = sol_3.t[-1]
+            time_4 = sim_params.DURATION_AFTER_SIMULATION
+            sol_4 = simulate_trajectory(init_time_4, time_4, initial_state_4, False, False)
+
+            data_eci = np.concatenate((sol_1.y, sol_2.y, sol_3.y, sol_4.y), axis=1)
+            time_steps_simulation = np.concatenate((sol_1.t, sol_2.t, sol_3.t, sol_4.t))
+            data_legacy = _eci_to_legacy_data_matrix(time_steps_simulation, data_eci)
+
+            thrust_data = np.array(thrust_history)
+            time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+
+            return time_steps_simulation, data_legacy, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
+
+    thrust_data = np.array(thrust_history)
+    time_thrust = np.array(time_history)
+    alpha_data = np.array(alpha_history)
+    alpha_time_data = np.array(alpha_time_history)
+    data_legacy = _eci_to_legacy_data_matrix(time_steps_simulation, data_eci)
+    return time_steps_simulation, data_legacy, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data
+
+
 def run(initial_kick_angle):
     """
     Main function to run the rocket trajectory simulation with coasting single burn.
@@ -1070,6 +1546,9 @@ def run(initial_kick_angle):
     m_propellant_total_used_2nd_stage : float
         Total propellant used in 2nd stage [kg]
     """
+    if sim_params.USE_ECI_PROPAGATION:
+        return run_eci(initial_kick_angle)
+
     global time_kick_start, kick_performed, time_raise, main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
