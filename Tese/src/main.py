@@ -132,7 +132,14 @@ def execute():
     s_final = data[0, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
-    lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    if sim_params.ENABLE_EARTH_ROTATION and data.shape[0] > 5:
+        lat_final = data[5, -1]
+    else:
+        lat_final = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    if sim_params.ENABLE_EARTH_ROTATION and data.shape[0] > 6:
+        lon_final = data[6, -1]
+    else:
+        lon_final = np.deg2rad(sim_params.LAUNCH_LONGITUDE)
 
     # In full simulation mode, post-SECO coast/circularization phases are already
     # propagated in inertial speed/FPA when Earth rotation is enabled.
@@ -218,6 +225,8 @@ def execute():
             ra.LAUNCH_AZIMUTH_INERTIAL,
         )
         print(f"\t* Inclination:\t\t\t\t{achieved_inclination:.4f} deg")
+        print(f"\t* Final latitude:\t\t\t{np.rad2deg(lat_final):.4f} deg")
+        print(f"\t* Final longitude:\t\t\t{np.rad2deg(lon_final):.4f} deg")
     
     print("\n" + "="*60)
     print("PROPELLANT USAGE")
@@ -256,6 +265,8 @@ def execute():
     if sim_params.ENABLE_EARTH_ROTATION:
         print("\nGenerating propagated latitude plot...")
         guidance_plots.plot_latitude_over_time(time, data)
+        print("Generating propagated longitude plot...")
+        guidance_plots.plot_longitude_over_time(time, data)
     
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")

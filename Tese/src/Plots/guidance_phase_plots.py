@@ -960,3 +960,37 @@ def plot_latitude_over_time(time_steps, data):
 
     plt.tight_layout()
     plt.show(block=False)
+
+
+def plot_longitude_over_time(time_steps, data):
+    """
+    Plot propagated longitude over time.
+
+    Inputs:
+        - time_steps: array of simulation time steps [s]
+        - data: array of state history
+            * data[6]: propagated longitude [rad] (when Earth rotation is enabled)
+    """
+    if data.shape[0] <= 6:
+        print("Longitude history not available (Earth rotation disabled or longitude state not present).")
+        return
+
+    # Reduce data for plotting clarity.
+    reduction_factor = 10
+    time_reduced = time_steps[::reduction_factor]
+    lon_reduced_deg = np.rad2deg(data[6, ::reduction_factor])
+
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(time_reduced, lon_reduced_deg, color='tab:green', linewidth=2.5, label='Propagated Longitude')
+
+    ax.axhline(sim_params.LAUNCH_LONGITUDE, color='tab:orange', linestyle='--', linewidth=1.5,
+               label=f'Launch Longitude ({sim_params.LAUNCH_LONGITUDE:.2f} deg)')
+
+    ax.set_xlabel('Time [s]', fontsize=18)
+    ax.set_ylabel('Longitude [deg]', fontsize=18)
+    ax.set_title('Propagated Longitude Over Time', fontsize=20, fontweight='bold')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=14)
+
+    plt.tight_layout()
+    plt.show(block=False)
