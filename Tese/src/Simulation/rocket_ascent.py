@@ -66,6 +66,40 @@ LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial fram
 LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
 LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
 
+ROTATION_MODE_NONE = "none"
+ROTATION_MODE_LEGACY = "rotation_on"
+ROTATION_MODE_PSEUDO = "coriolis_centrifugal"
+
+
+def get_earth_rotation_mode():
+    """
+    Return configured Earth-rotation mode with legacy fallback support.
+    """
+    mode = getattr(sim_params, "EARTH_ROTATION_MODE", None)
+
+    if mode is None:
+        legacy_enabled = getattr(sim_params, "ENABLE_EARTH_ROTATION", False)
+        return ROTATION_MODE_LEGACY if legacy_enabled else ROTATION_MODE_NONE
+
+    mode = str(mode).strip().lower()
+    allowed_modes = {ROTATION_MODE_NONE, ROTATION_MODE_LEGACY, ROTATION_MODE_PSEUDO}
+
+    if mode not in allowed_modes:
+        raise ValueError(
+            f"Unsupported EARTH_ROTATION_MODE='{mode}'. "
+            f"Use one of: {sorted(allowed_modes)}"
+        )
+
+    return mode
+
+
+def rotation_enabled():
+    return get_earth_rotation_mode() != ROTATION_MODE_NONE
+
+
+def use_coriolis_centrifugal_forces():
+    return get_earth_rotation_mode() == ROTATION_MODE_PSEUDO
+
 #===================================================
 # Interrupt functions for simulation
 #===================================================
@@ -186,7 +220,7 @@ def interrupt_velocity_exceeded(t, y):
     r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
 
-    if sim_params.ENABLE_EARTH_ROTATION:
+    if rotation_enabled():
         lat = get_latitude_from_downrange(y[0])
         v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
         return v_inertial - v_desired
@@ -214,13 +248,13 @@ def interrupt_single_burn_traj(t, y):
     r_val = y[1]
     v = y[2]
     gamma = y[3]
-    lat = get_latitude_from_downrange(y[0]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
+    lat = get_latitude_from_downrange(y[0]) if rotation_enabled() else LAUNCH_LATITUDE_RAD
     alt = r_val - c.R_EARTH
 
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
-        if sim_params.ENABLE_EARTH_ROTATION:
+        if rotation_enabled():
             v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
 
         # Compute current orbital elements
@@ -343,7 +377,7 @@ def get_latitude_from_downrange(s):
     This keeps latitude physically bounded in [-pi/2, pi/2] and avoids drift
     that can appear when integrating latitude with a fixed-heading assumption.
     """
-    if not sim_params.ENABLE_EARTH_ROTATION:
+    if not rotation_enabled():
         return LAUNCH_LATITUDE_RAD
 
     sigma = s / c.R_EARTH
@@ -361,7 +395,7 @@ def get_latitude_rate_from_downrange(s, dsdt):
     """
     Compute d(latitude)/dt from great-circle geometry and ds/dt.
     """
-    if not sim_params.ENABLE_EARTH_ROTATION:
+    if not rotation_enabled():
         return 0.0
 
     sigma = s / c.R_EARTH
@@ -443,7 +477,7 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
     gamma_eci : float
         Inertial flight-path angle [rad]
     """
-    if sim_params.ENABLE_EARTH_ROTATION:
+    if rotation_enabled():
         return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, LAUNCH_AZIMUTH, lat_rad, r_val)
     return v_ecef, gamma_ecef
 
@@ -655,7 +689,7 @@ def rocket_dynamics(t, state):
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
-    if sim_params.ENABLE_EARTH_ROTATION and len(state) > 5:
+    if rotation_enabled() and len(state) > 5:
         s, r_val, v, gamma, m, _lat_state = state
         lat = get_latitude_from_downrange(s)
     else:
@@ -864,10 +898,15 @@ def rocket_dynamics(t, state):
     # Lift force (typically neglected)
     F_L = 0.0
 
-    state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
-                                         a_grav, alpha, Isp)
+    state_differentiated = diff_eom_base(
+        s, r_val, v, gamma, m, F_L, F_D, F_T,
+        a_grav, alpha, Isp,
+        lat_rad=lat,
+        azimuth=LAUNCH_AZIMUTH,
+        include_rotation_pseudo_forces=use_coriolis_centrifugal_forces(),
+    )
 
-    if sim_params.ENABLE_EARTH_ROTATION:
+    if rotation_enabled():
         dsdt = state_differentiated[0]
         dlatdt = get_latitude_rate_from_downrange(s, dsdt)
         state_differentiated.append(dlatdt)
@@ -885,7 +924,9 @@ def rocket_dynamics(t, state):
     return state_differentiated
 
 
-def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
+def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp,
+                  lat_rad=0.0, azimuth=np.deg2rad(90.0),
+                  include_rotation_pseudo_forces=False):
     """
     Differential equations of motion for the rocket WITHOUT Earth rotation.
     
@@ -913,6 +954,13 @@ def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
         Angle of attack [rad]
     Isp : float
         Specific impulse [s]
+    lat_rad : float, optional
+        Current geocentric latitude [rad]
+    azimuth : float, optional
+        Current heading measured from north to east [rad]
+    include_rotation_pseudo_forces : bool, optional
+        If True, include Coriolis and centrifugal pseudo-forces in the
+        rotating-frame equations of motion.
 
     Returns:
     --------
@@ -933,6 +981,14 @@ def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
     # Velocity magnitude change
     dvdt = (F_T / m) * c_alpha - (F_D / m) - a_grav * s_gamma
 
+    a_rot_t = 0.0
+    a_rot_n = 0.0
+    if include_rotation_pseudo_forces:
+        a_rot_t, a_rot_n = earth_rot.rotation_pseudo_accel_along_track(
+            v, gamma, azimuth, lat_rad, r_val, omega_earth=c.OMEGA_EARTH
+        )
+        dvdt += a_rot_t
+
     # Catch the case of zero velocity to avoid division by zero
     epsilon = 1e-6
     if v < epsilon:
@@ -941,6 +997,7 @@ def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
         # Flight path angle change
         dgammadt = (1. / v) * ((F_T / m) * s_alpha + F_L / m - 
                                (a_grav - (v**2 / r_val)) * c_gamma)
+        dgammadt += a_rot_n / v
     
     # Derivative of mass
     dmdt = -F_T / (Isp * c.G_0)
@@ -1050,7 +1107,7 @@ def run(initial_kick_angle):
     LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
     LAUNCH_ROTATION_SPEED = 0.0
 
-    if sim_params.ENABLE_EARTH_ROTATION:
+    if rotation_enabled():
         (LAUNCH_AZIMUTH,
          LAUNCH_AZIMUTH_INERTIAL,
          LAUNCH_ROTATION_SPEED) = earth_rot.corrected_azimuth(
@@ -1082,7 +1139,7 @@ def run(initial_kick_angle):
     initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 + 
                    r.M_PROP_2 + r.M_PAYLOAD)
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
-    if sim_params.ENABLE_EARTH_ROTATION:
+    if rotation_enabled():
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
 
     # Define time of simulation 1
@@ -1116,7 +1173,7 @@ def run(initial_kick_angle):
     r_stop = sol_2.y[1, -1]
     v_stop = sol_2.y[2, -1]
     gamma_stop = sol_2.y[3, -1]
-    lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
+    lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if rotation_enabled() else LAUNCH_LATITUDE_RAD
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
@@ -1193,7 +1250,7 @@ def run(initial_kick_angle):
             # speed/flight-path-angle. Convert to inertial components before coast
             # propagation and circularization so post-SECO dynamics are consistent
             # with the orbital-element and delta-v calculations above.
-            if sim_params.ENABLE_EARTH_ROTATION:
+            if get_earth_rotation_mode() == ROTATION_MODE_LEGACY:
                 lat_state_3 = get_latitude_from_downrange(initial_state_3[0])
                 v_eci_3, gamma_eci_3 = get_inertial_state_components(
                     initial_state_3[1],

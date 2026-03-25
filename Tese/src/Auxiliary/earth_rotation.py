@@ -138,6 +138,80 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):
     return v_eci, gamma_eci
 
 
+def rotation_pseudo_accel_along_track(v, gamma, azimuth, lat_rad, r_val,
+                                      omega_earth=c.OMEGA_EARTH):
+    """
+    Compute Coriolis + centrifugal pseudo-accelerations projected in the
+    local flight plane.
+
+    Parameters:
+    -----------
+    v : float
+        Velocity magnitude in rotating frame [m/s]
+    gamma : float
+        Flight-path angle relative to local horizontal [rad]
+    azimuth : float
+        Heading/launch azimuth measured from north to east [rad]
+    lat_rad : float
+        Geocentric latitude [rad]
+    r_val : float
+        Geocentric radius [m]
+    omega_earth : float
+        Earth rotation rate [rad/s]
+
+    Returns:
+    --------
+    a_t : float
+        Pseudo-acceleration component along velocity direction [m/s^2]
+    a_n : float
+        Pseudo-acceleration component normal to velocity in flight plane,
+        positive for increasing flight-path angle [m/s^2]
+    """
+    c_lat = np.cos(lat_rad)
+    s_lat = np.sin(lat_rad)
+    c_gamma = np.cos(gamma)
+    s_gamma = np.sin(gamma)
+    s_az = np.sin(azimuth)
+    c_az = np.cos(azimuth)
+
+    # Velocity resolved in local ENU basis.
+    v_east = v * c_gamma * s_az
+    v_north = v * c_gamma * c_az
+    v_up = v * s_gamma
+
+    # Coriolis pseudo-acceleration in rotating frame: a_cor = -2 * Omega x v.
+    a_cor_east = -2.0 * omega_earth * (c_lat * v_up - s_lat * v_north)
+    a_cor_north = -2.0 * omega_earth * s_lat * v_east
+    a_cor_up = 2.0 * omega_earth * c_lat * v_east
+
+    # Centrifugal pseudo-acceleration in local ENU basis:
+    # a_cen = -Omega x (Omega x r).
+    a_cen_east = 0.0
+    a_cen_north = -omega_earth**2 * r_val * s_lat * c_lat
+    a_cen_up = omega_earth**2 * r_val * c_lat**2
+
+    a_east = a_cor_east + a_cen_east
+    a_north = a_cor_north + a_cen_north
+    a_up = a_cor_up + a_cen_up
+
+    # Local horizontal heading unit vector and in-plane basis vectors.
+    h_east = s_az
+    h_north = c_az
+
+    t_east = c_gamma * h_east
+    t_north = c_gamma * h_north
+    t_up = s_gamma
+
+    n_east = -s_gamma * h_east
+    n_north = -s_gamma * h_north
+    n_up = c_gamma
+
+    a_t = a_east * t_east + a_north * t_north + a_up * t_up
+    a_n = a_east * n_east + a_north * n_north + a_up * n_up
+
+    return a_t, a_n
+
+
 def delta_v_gain(lat_deg, azimuth, radius):
     """
     Estimate inertial speed gain from Earth rotation projected onto launch azimuth.
