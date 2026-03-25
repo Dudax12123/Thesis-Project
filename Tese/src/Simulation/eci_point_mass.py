@@ -8,9 +8,9 @@ Dynamics:
     dv_I/dt = (T/m) u_T - (D/m) u_D - mu * r_I / |r_I|^3
     dm/dt   = -T / (Isp * g0)
 
-Earth rotation enters through atmosphere co-rotation:
-    v_atm_I = Omega_E x r_I
-    v_rel_I = v_I - v_atm_I
+Atmosphere model used here is non-rotating in inertial space:
+    v_atm_I = 0
+    v_rel_I = v_I
 """
 
 from __future__ import annotations
@@ -50,9 +50,11 @@ def exponential_density_model(altitude_m: float) -> float:
 
 
 def atmosphere_velocity_eci(r_I: np.ndarray, cfg: ECIPropagationConfig) -> np.ndarray:
-    """Atmospheric velocity in ECI for a co-rotating spherical Earth."""
-    omega_vec = np.array([0.0, 0.0, cfg.omega_earth_rad_s], dtype=float)
-    return np.cross(omega_vec, r_I)
+    """Atmospheric velocity in ECI.
+
+    This project currently uses a non-rotating atmosphere for drag calculations.
+    """
+    return np.zeros(3, dtype=float)
 
 
 def air_relative_velocity_eci(r_I: np.ndarray, v_I: np.ndarray, cfg: ECIPropagationConfig) -> np.ndarray:

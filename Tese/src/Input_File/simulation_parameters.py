@@ -47,7 +47,7 @@ GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tang
 GUIDANCE_UPDATE_RATE = 0.5                      # How often to recompute guidance coefficients [s]
 APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
                                                  # (prevents numerical instability as tgo->0)
-APOLLO_THRUST_MAGNITUDE_CONTROL = True          # Enable thrust magnitude control for Apollo guidance
+APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
                                                  # If True: Apollo commands both thrust angle AND magnitude
                                                  # If False: Apollo only commands angle (fixed thrust)
 
@@ -79,7 +79,7 @@ OPTIMAL_KICK_ANGLES = {
     "simple_poly": -np.deg2rad(3.0),            # Update after optimization
     "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
-    "apollo": -np.deg2rad(3.8273)                   # Update after optimization
+    "apollo": -np.deg2rad(3.3)                   # Update after optimization
 }
 
 # ===================================================

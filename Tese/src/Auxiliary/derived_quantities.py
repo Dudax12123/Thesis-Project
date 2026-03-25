@@ -25,8 +25,11 @@ class DerivedFlightState:
 
 
 def atmosphere_velocity_eci(r_I: np.ndarray) -> np.ndarray:
-    """Atmosphere velocity in ECI under rigid co-rotation model."""
-    return np.cross(frames.earth_rotation_vector(), r_I)
+    """Atmosphere velocity in ECI.
+
+    The current model assumes a non-rotating atmosphere for aerodynamic drag.
+    """
+    return np.zeros(3, dtype=float)
 
 
 def air_relative_velocity_eci(r_I: np.ndarray, v_I: np.ndarray) -> np.ndarray:
