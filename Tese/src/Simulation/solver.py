@@ -83,64 +83,6 @@ def find_initial_kick_angle_coast_single_burn():
     return alpha_optimal
 
 
-def find_initial_azimuth_for_inclination(initial_kick_angle):
-    """
-    Find an initial azimuth that reduces terminal inclination error.
-
-    This is used for pseudo-3DOF (`coriolis_centrifugal`) mode and performs a
-    bracketed bisection around corrected launch azimuth.
-    """
-    if not sim_params.ENABLE_AZIMUTH_ITERATION:
-        beta_corrected, _, _ = ra.earth_rot.corrected_azimuth(
-            sim_params.TARGET_ORBIT_INCLINATION,
-            sim_params.LAUNCH_LATITUDE,
-            sim_params.TARGET_ORBITAL_ALTITUDE,
-        )
-        return beta_corrected
-
-    beta_corrected, _, _ = ra.earth_rot.corrected_azimuth(
-        sim_params.TARGET_ORBIT_INCLINATION,
-        sim_params.LAUNCH_LATITUDE,
-        sim_params.TARGET_ORBITAL_ALTITUDE,
-    )
-
-    bracket = np.deg2rad(sim_params.AZIMUTH_BRACKET_DEG)
-    low = beta_corrected - bracket
-    high = beta_corrected + bracket
-    tol = sim_params.AZIMUTH_ITERATION_TOL_DEG
-
-    def inc_error(azimuth):
-        _, data, *_ = ra.run(initial_kick_angle, initial_azimuth_override=azimuth)
-        achieved = ra.achieved_inclination_deg(data)
-        return achieved - sim_params.TARGET_ORBIT_INCLINATION, achieved
-
-    err_low, inc_low = inc_error(low)
-    err_high, inc_high = inc_error(high)
-
-    if err_low * err_high > 0:
-        # Fallback when bracket does not straddle the root.
-        _, inc_mid = inc_error(beta_corrected)
-        cands = [(abs(inc_low - sim_params.TARGET_ORBIT_INCLINATION), low),
-                 (abs(inc_mid - sim_params.TARGET_ORBIT_INCLINATION), beta_corrected),
-                 (abs(inc_high - sim_params.TARGET_ORBIT_INCLINATION), high)]
-        return min(cands, key=lambda x: x[0])[1]
-
-    for _ in range(sim_params.AZIMUTH_ITERATION_MAX_ITERS):
-        mid = 0.5 * (low + high)
-        err_mid, inc_mid = inc_error(mid)
-        if abs(err_mid) <= tol:
-            return mid
-
-        if err_low * err_mid <= 0:
-            high = mid
-            err_high = err_mid
-        else:
-            low = mid
-            err_low = err_mid
-
-    return 0.5 * (low + high)
-
-
 #===================================================
 # Utility Functions for Orbital Mechanics
 #===================================================

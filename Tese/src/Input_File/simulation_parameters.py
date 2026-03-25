@@ -25,7 +25,7 @@ TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desire
 #       - Includes all "rotation_on" effects.
 #       - Additionally injects Coriolis and centrifugal pseudo-forces into
 #         ascent equations of motion in the rotating frame.
-EARTH_ROTATION_MODE = "none"  # Options: "none", "rotation_on", "coriolis_centrifugal"
+EARTH_ROTATION_MODE = "coriolis_centrifugal"  # Options: "none", "rotation_on", "coriolis_centrifugal"
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
@@ -90,7 +90,7 @@ OPTIMAL_KICK_ANGLES = {
     "simple_poly": -np.deg2rad(3.0),            # Update after optimization
     "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
-    "apollo": -np.deg2rad(3.3)                   # Update after optimization
+    "apollo": -np.deg2rad(3.8273)                   # Update after optimization
 }
 
 # ===================================================
