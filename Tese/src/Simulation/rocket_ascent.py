@@ -15,6 +15,7 @@ from Auxiliary import atmosphere as atm
 from Auxiliary import gravity as grav
 from Auxiliary import constants as c
 from Auxiliary import earth_rotation as earth_rot
+from Auxiliary import state_index as si
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import rocket_specs as r
 import Guidance.gravity_turn as gravity_turn_guidance
@@ -64,6 +65,7 @@ alpha_time_history = []  # Store corresponding time values for steering angles
 LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Corrected azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
 LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
+LAUNCH_LONGITUDE_RAD = 0.0          # Current launch-site longitude [rad]
 LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
 
 ROTATION_MODE_NONE = "none"
@@ -99,6 +101,28 @@ def rotation_enabled():
 
 def use_coriolis_centrifugal_forces():
     return get_earth_rotation_mode() == ROTATION_MODE_PSEUDO
+
+
+def use_pseudo_3dof_state():
+    """Enable lon/heading propagation in coriolis_centrifugal mode."""
+    return get_earth_rotation_mode() == ROTATION_MODE_PSEUDO
+
+
+def get_terminal_lat_chi(data):
+    """Return terminal latitude/heading from simulation history."""
+    if use_pseudo_3dof_state() and data.shape[0] > si.CHI:
+        return data[si.LAT, -1], data[si.CHI, -1]
+
+    s_final = data[si.S, -1]
+    lat_final = get_latitude_from_downrange(s_final) if rotation_enabled() else LAUNCH_LATITUDE_RAD
+    chi_final = LAUNCH_AZIMUTH_INERTIAL
+    return lat_final, chi_final
+
+
+def achieved_inclination_deg(data):
+    """Approximate achieved inclination from terminal latitude and heading."""
+    lat_final, chi_final = get_terminal_lat_chi(data)
+    return earth_rot.orbit_inclination(np.rad2deg(lat_final), chi_final)
 
 #===================================================
 # Interrupt functions for simulation
@@ -214,15 +238,16 @@ def interrupt_velocity_exceeded(t, y):
     --------
     float : Difference between current and desired velocity
     """
-    r_val = y[1]
-    v = y[2]
-    gamma = y[3]
+    r_val = y[si.R]
+    v = y[si.V]
+    gamma = y[si.GAMMA]
     r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
 
     if rotation_enabled():
-        lat = get_latitude_from_downrange(y[0])
-        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
+        lat = y[si.LAT] if si.is_pseudo_3dof_state(y) else get_latitude_from_downrange(y[si.S])
+        azimuth = y[si.CHI] if si.is_pseudo_3dof_state(y) else LAUNCH_AZIMUTH
+        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, azimuth, lat, r_val)
         return v_inertial - v_desired
 
     return v - v_desired
@@ -245,17 +270,21 @@ def interrupt_single_burn_traj(t, y):
     --------
     float : Difference between apogee and target altitude
     """
-    r_val = y[1]
-    v = y[2]
-    gamma = y[3]
-    lat = get_latitude_from_downrange(y[0]) if rotation_enabled() else LAUNCH_LATITUDE_RAD
+    r_val = y[si.R]
+    v = y[si.V]
+    gamma = y[si.GAMMA]
+    if rotation_enabled():
+        lat = y[si.LAT] if si.is_pseudo_3dof_state(y) else get_latitude_from_downrange(y[si.S])
+    else:
+        lat = LAUNCH_LATITUDE_RAD
     alt = r_val - c.R_EARTH
 
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
         if rotation_enabled():
-            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
+            azimuth = y[si.CHI] if si.is_pseudo_3dof_state(y) else LAUNCH_AZIMUTH
+            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, azimuth, lat, r_val)
 
         # Compute current orbital elements
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
@@ -280,7 +309,7 @@ def interrupt_horizontal_check(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
-    gamma = y[3]
+    gamma = y[si.GAMMA]
     epsilon = np.deg2rad(0.01)
     
     if gamma < epsilon:
@@ -455,7 +484,7 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     return a, e, r_apo, r_peri, orbit_period
 
 
-def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
+def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad, azimuth=None):
     """
     Return velocity and flight-path angle in ECI frame.
 
@@ -478,7 +507,8 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
         Inertial flight-path angle [rad]
     """
     if rotation_enabled():
-        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, LAUNCH_AZIMUTH, lat_rad, r_val)
+        az = LAUNCH_AZIMUTH if azimuth is None else azimuth
+        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, az, lat_rad, r_val)
     return v_ecef, gamma_ecef
 
 
@@ -689,12 +719,29 @@ def rocket_dynamics(t, state):
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
-    if rotation_enabled() and len(state) > 5:
-        s, r_val, v, gamma, m, _lat_state = state
+    if use_pseudo_3dof_state() and len(state) >= 8:
+        s = state[si.S]
+        r_val = state[si.R]
+        v = state[si.V]
+        gamma = state[si.GAMMA]
+        m = state[si.M]
+        lat = state[si.LAT]
+        lon = state[si.LON]
+        chi = state[si.CHI]
+    elif rotation_enabled() and len(state) > 5:
+        s = state[si.S]
+        r_val = state[si.R]
+        v = state[si.V]
+        gamma = state[si.GAMMA]
+        m = state[si.M]
         lat = get_latitude_from_downrange(s)
+        lon = LAUNCH_LONGITUDE_RAD
+        chi = LAUNCH_AZIMUTH
     else:
         s, r_val, v, gamma, m = state[:5]
         lat = LAUNCH_LATITUDE_RAD
+        lon = LAUNCH_LONGITUDE_RAD
+        chi = LAUNCH_AZIMUTH
 
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
@@ -898,18 +945,25 @@ def rocket_dynamics(t, state):
     # Lift force (typically neglected)
     F_L = 0.0
 
-    state_differentiated = diff_eom_base(
-        s, r_val, v, gamma, m, F_L, F_D, F_T,
-        a_grav, alpha, Isp,
-        lat_rad=lat,
-        azimuth=LAUNCH_AZIMUTH,
-        include_rotation_pseudo_forces=use_coriolis_centrifugal_forces(),
-    )
+    if use_pseudo_3dof_state() and len(state) >= 8:
+        state_differentiated = diff_eom_pseudo_3dof(
+            s, r_val, v, gamma, m, lat, lon, chi,
+            F_L, F_D, F_T, a_grav, alpha, Isp,
+            include_rotation_pseudo_forces=True,
+        )
+    else:
+        state_differentiated = diff_eom_base(
+            s, r_val, v, gamma, m, F_L, F_D, F_T,
+            a_grav, alpha, Isp,
+            lat_rad=lat,
+            azimuth=LAUNCH_AZIMUTH,
+            include_rotation_pseudo_forces=use_coriolis_centrifugal_forces(),
+        )
 
-    if rotation_enabled():
-        dsdt = state_differentiated[0]
-        dlatdt = get_latitude_rate_from_downrange(s, dsdt)
-        state_differentiated.append(dlatdt)
+        if rotation_enabled():
+            dsdt = state_differentiated[0]
+            dlatdt = get_latitude_rate_from_downrange(s, dsdt)
+            state_differentiated.append(dlatdt)
 
     if time_kick_start == None:
         state_differentiated[3] = 0.0
@@ -1005,6 +1059,60 @@ def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp,
     return [dsdt, drdt, dvdt, dgammadt, dmdt]
 
 
+def diff_eom_pseudo_3dof(s, r_val, v, gamma, m, lat_rad, lon_rad, chi,
+                         F_L, F_D, F_T, a_grav, alpha, Isp,
+                         include_rotation_pseudo_forces=True):
+    """
+    Transitional 3DOF extension for coriolis_centrifugal mode.
+
+    State layout is kept backward-compatible with legacy outputs:
+    [s, r, v, gamma, m, lat, lon, chi].
+    """
+    c_gamma = np.cos(gamma)
+    s_gamma = np.sin(gamma)
+    c_alpha = np.cos(alpha)
+    s_alpha = np.sin(alpha)
+    c_chi = np.cos(chi)
+    s_chi = np.sin(chi)
+
+    dsdt = (c.R_EARTH / r_val) * v * c_gamma
+    drdt = v * s_gamma
+
+    dvdt = (F_T / m) * c_alpha - (F_D / m) - a_grav * s_gamma
+
+    a_rot_t = 0.0
+    a_rot_n = 0.0
+    a_rot_h = 0.0
+    if include_rotation_pseudo_forces:
+        a_rot_t, a_rot_n, a_rot_h = earth_rot.rotation_pseudo_accel_components(
+            v, gamma, chi, lat_rad, r_val, omega_earth=c.OMEGA_EARTH
+        )
+        dvdt += a_rot_t
+
+    epsilon = 1e-6
+    if v < epsilon:
+        dgammadt = 0.0
+    else:
+        dgammadt = (1.0 / v) * (
+            (F_T / m) * s_alpha + F_L / m -
+            (a_grav - (v**2 / r_val)) * c_gamma
+        )
+        dgammadt += a_rot_n / v
+
+    v_horizontal = max(v * c_gamma, epsilon)
+    dlatdt = (v_horizontal * c_chi) / r_val
+    cos_lat = np.cos(lat_rad)
+    cos_lat = max(abs(cos_lat), 1e-8) * np.sign(cos_lat if cos_lat != 0 else 1.0)
+    dlondt = (v_horizontal * s_chi) / (r_val * cos_lat)
+
+    # Passive heading drift from out-of-plane pseudo-acceleration.
+    dchidt = a_rot_h / v_horizontal
+
+    dmdt = -F_T / (Isp * c.G_0)
+
+    return [dsdt, drdt, dvdt, dgammadt, dmdt, dlatdt, dlondt, dchidt]
+
+
 #===================================================
 # Simulation Functions
 #===================================================
@@ -1057,7 +1165,7 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
                     max_step=1, events=interrupt_list, atol=1e-8)
 
 
-def run(initial_kick_angle):
+def run(initial_kick_angle, initial_azimuth_override=None):
     """
     Main function to run the rocket trajectory simulation with coasting single burn.
     
@@ -1065,6 +1173,8 @@ def run(initial_kick_angle):
     -----------
     initial_kick_angle : float
         Initial kick angle for gravity turn [rad]
+    initial_azimuth_override : float or None
+        Optional azimuth override [rad] for initial heading.
         
     Returns:
     --------
@@ -1086,7 +1196,7 @@ def run(initial_kick_angle):
     global last_guidance_update_time, guidance_coefficients
     global thrust_history, time_history
     global alpha_history, alpha_time_history
-    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
+    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_LONGITUDE_RAD, LAUNCH_ROTATION_SPEED
     
     #===================================================
     # Reset global variables
@@ -1105,16 +1215,35 @@ def run(initial_kick_angle):
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
     LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    LAUNCH_LONGITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LONGITUDE)
     LAUNCH_ROTATION_SPEED = 0.0
 
     if rotation_enabled():
-        (LAUNCH_AZIMUTH,
-         LAUNCH_AZIMUTH_INERTIAL,
-         LAUNCH_ROTATION_SPEED) = earth_rot.corrected_azimuth(
-            sim_params.TARGET_ORBIT_INCLINATION,
-            sim_params.LAUNCH_LATITUDE,
-            sim_params.TARGET_ORBITAL_ALTITUDE,
-        )
+        mode = get_earth_rotation_mode()
+
+        if mode == ROTATION_MODE_LEGACY:
+            (LAUNCH_AZIMUTH,
+             LAUNCH_AZIMUTH_INERTIAL,
+             LAUNCH_ROTATION_SPEED) = earth_rot.corrected_azimuth(
+                sim_params.TARGET_ORBIT_INCLINATION,
+                sim_params.LAUNCH_LATITUDE,
+                sim_params.TARGET_ORBITAL_ALTITUDE,
+            )
+        else:
+            # In coriolis_centrifugal mode, do not apply legacy azimuth correction.
+            LAUNCH_AZIMUTH_INERTIAL = earth_rot.geometric_azimuth(
+                sim_params.TARGET_ORBIT_INCLINATION,
+                sim_params.LAUNCH_LATITUDE,
+            )
+            LAUNCH_AZIMUTH = LAUNCH_AZIMUTH_INERTIAL
+            LAUNCH_ROTATION_SPEED = earth_rot.surface_rotation_velocity(
+                sim_params.LAUNCH_LATITUDE,
+                radius=c.R_EARTH,
+            )
+
+        if initial_azimuth_override is not None:
+            LAUNCH_AZIMUTH = float(initial_azimuth_override)
+            LAUNCH_AZIMUTH_INERTIAL = float(initial_azimuth_override)
     
     # Reset guidance phase variables
     atmosphere_exited = False
@@ -1141,6 +1270,9 @@ def run(initial_kick_angle):
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
     if rotation_enabled():
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
+        if use_pseudo_3dof_state():
+            initial_state_1.append(LAUNCH_LONGITUDE_RAD)
+            initial_state_1.append(LAUNCH_AZIMUTH)
 
     # Define time of simulation 1
     time_1 = 500.
@@ -1170,16 +1302,21 @@ def run(initial_kick_angle):
     time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
 
     # --- Process results for coasting single burn ---
-    r_stop = sol_2.y[1, -1]
-    v_stop = sol_2.y[2, -1]
-    gamma_stop = sol_2.y[3, -1]
-    lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if rotation_enabled() else LAUNCH_LATITUDE_RAD
+    r_stop = sol_2.y[si.R, -1]
+    v_stop = sol_2.y[si.V, -1]
+    gamma_stop = sol_2.y[si.GAMMA, -1]
+    chi_stop = LAUNCH_AZIMUTH
+    if use_pseudo_3dof_state() and sol_2.y.shape[0] > si.LAT:
+        lat_stop = sol_2.y[si.LAT, -1]
+        chi_stop = sol_2.y[si.CHI, -1]
+    else:
+        lat_stop = get_latitude_from_downrange(sol_2.y[si.S, -1]) if rotation_enabled() else LAUNCH_LATITUDE_RAD
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
 
     # Convert from rotating frame to inertial frame for orbital mechanics.
-    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, lat_stop)
+    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, lat_stop, azimuth=chi_stop)
     
     # Calculate orbital elements at stop
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
@@ -1199,9 +1336,9 @@ def run(initial_kick_angle):
         delta_v = np.abs(v_apo - v_desired)
 
         # ----- Calculate total propellant required -----
-        m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD)
+        m_propellant_left = sol_2.y[si.M, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD)
         m_propellant_used = r.M_PROP_2 - m_propellant_left
-        m_propellant_required = sol_2.y[4, -1] * (1 - np.exp(-delta_v / 
+        m_propellant_required = sol_2.y[si.M, -1] * (1 - np.exp(-delta_v / 
                                                     (c.G_0 * r.ISP_2)))
 
         # Check if the propellant required is less than the propellant left
@@ -1211,7 +1348,7 @@ def run(initial_kick_angle):
             m_propellant_total_used_2nd_stage = 999999999.
 
         # Calculate burn time for that delta_v
-        burn_time_delta_v = calculate_burn_time(sol_2.y[4, -1], delta_v)
+        burn_time_delta_v = calculate_burn_time(sol_2.y[si.M, -1], delta_v)
         if burn_time_delta_v > sim_params.MAX_ACCEPTED_BURN_TIME:
             m_propellant_total_used_2nd_stage = 999999999.
 
@@ -1251,33 +1388,33 @@ def run(initial_kick_angle):
             # propagation and circularization so post-SECO dynamics are consistent
             # with the orbital-element and delta-v calculations above.
             if get_earth_rotation_mode() == ROTATION_MODE_LEGACY:
-                lat_state_3 = get_latitude_from_downrange(initial_state_3[0])
+                lat_state_3 = get_latitude_from_downrange(initial_state_3[si.S])
                 v_eci_3, gamma_eci_3 = get_inertial_state_components(
-                    initial_state_3[1],
-                    initial_state_3[2],
-                    initial_state_3[3],
+                    initial_state_3[si.R],
+                    initial_state_3[si.V],
+                    initial_state_3[si.GAMMA],
                     lat_state_3,
                 )
-                initial_state_3[2] = v_eci_3
-                initial_state_3[3] = gamma_eci_3
+                initial_state_3[si.V] = v_eci_3
+                initial_state_3[si.GAMMA] = gamma_eci_3
             
             init_time_3 = sol_2.t[-1]
-            time_3 = get_time_until_apogee(e_stop, initial_state_3[3], 
-                                           initial_state_3[2], orbit_period_stop, 
-                                           a_stop, initial_state_3[1])
+            time_3 = get_time_until_apogee(e_stop, initial_state_3[si.GAMMA], 
+                                           initial_state_3[si.V], orbit_period_stop, 
+                                           a_stop, initial_state_3[si.R])
             
             sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3, 
                                        False, False)
 
             # 2. Circularization burn (instantaneous delta-v)
             initial_state_4 = sol_3.y[:, -1]
-            initial_state_4[2] += delta_v
+            initial_state_4[si.V] += delta_v
 
-            burn_time_delta_v = calculate_burn_time(initial_state_4[4], delta_v)
+            burn_time_delta_v = calculate_burn_time(initial_state_4[si.M], delta_v)
             print("\nBurn times:")
             print("\t* Time for delta-v:\t\t\t\t", burn_time_delta_v, "s\n")
 
-            initial_state_4[4] -= m_propellant_required
+            initial_state_4[si.M] -= m_propellant_required
 
             # 3. Simulation after circularization burn
             init_time_4 = sol_3.t[-1]

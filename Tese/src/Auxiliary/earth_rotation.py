@@ -138,8 +138,8 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):
     return v_eci, gamma_eci
 
 
-def rotation_pseudo_accel_along_track(v, gamma, azimuth, lat_rad, r_val,
-                                      omega_earth=c.OMEGA_EARTH):
+def rotation_pseudo_accel_components(v, gamma, azimuth, lat_rad, r_val,
+                                     omega_earth=c.OMEGA_EARTH):
     """
     Compute Coriolis + centrifugal pseudo-accelerations projected in the
     local flight plane.
@@ -166,6 +166,9 @@ def rotation_pseudo_accel_along_track(v, gamma, azimuth, lat_rad, r_val,
     a_n : float
         Pseudo-acceleration component normal to velocity in flight plane,
         positive for increasing flight-path angle [m/s^2]
+    a_h : float
+        Pseudo-acceleration component perpendicular to heading in local
+        horizontal plane (positive right-of-track) [m/s^2]
     """
     c_lat = np.cos(lat_rad)
     s_lat = np.sin(lat_rad)
@@ -206,8 +209,23 @@ def rotation_pseudo_accel_along_track(v, gamma, azimuth, lat_rad, r_val,
     n_north = -s_gamma * h_north
     n_up = c_gamma
 
+    # Right-of-track unit vector in local horizontal plane.
+    h_perp_east = c_az
+    h_perp_north = -s_az
+
     a_t = a_east * t_east + a_north * t_north + a_up * t_up
     a_n = a_east * n_east + a_north * n_north + a_up * n_up
+    a_h = a_east * h_perp_east + a_north * h_perp_north
+
+    return a_t, a_n, a_h
+
+
+def rotation_pseudo_accel_along_track(v, gamma, azimuth, lat_rad, r_val,
+                                      omega_earth=c.OMEGA_EARTH):
+    """Backward-compatible helper returning only along-track and normal terms."""
+    a_t, a_n, _ = rotation_pseudo_accel_components(
+        v, gamma, azimuth, lat_rad, r_val, omega_earth=omega_earth
+    )
 
     return a_t, a_n
 

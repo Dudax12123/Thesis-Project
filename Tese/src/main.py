@@ -19,6 +19,7 @@ from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
 from Auxiliary import earth_rotation as earth_rot
+from Auxiliary import state_index as si
 import Plots.plots as plots
 import Plots.guidance_phase_plots as guidance_plots
 
@@ -81,10 +82,17 @@ def execute():
             sim_params.LAUNCH_LATITUDE,
             sim_params.TARGET_ORBITAL_ALTITUDE,
         )
+        if rotation_mode == ra.ROTATION_MODE_PSEUDO:
+            beta_used = beta_inertial
+            azimuth_label = "Geometric (no legacy correction)"
+        else:
+            beta_used = beta_corrected
+            azimuth_label = "Corrected rotating-frame"
+
         achieved_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_inertial)
         expected_gain = earth_rot.delta_v_gain(
             sim_params.LAUNCH_LATITUDE,
-            beta_corrected,
+            beta_used,
             c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
         )
 
@@ -97,6 +105,7 @@ def execute():
         print(f"Target inclination: {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
         print(f"Geometric inertial azimuth: {np.rad2deg(beta_inertial):.4f} deg")
         print(f"Corrected rotating-frame azimuth: {np.rad2deg(beta_corrected):.4f} deg")
+        print(f"Applied initial azimuth ({azimuth_label}): {np.rad2deg(beta_used):.4f} deg")
         print(f"Surface rotation speed at launch site: {v_rot_surface:.2f} m/s")
         print(f"Estimated inertial delta-v gain: {expected_gain:.2f} m/s")
         print(f"Inclination implied by azimuth/latitude: {achieved_inclination:.4f} deg")
@@ -128,7 +137,7 @@ def execute():
     print("\n" + "="*60)
     print("RUNNING FULL TRAJECTORY SIMULATION")
     print("="*60 + "\n")
-    
+
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
 
@@ -137,7 +146,12 @@ def execute():
     s_final = data[0, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
-    lat_final = ra.get_latitude_from_downrange(s_final) if rotation_enabled else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    if ra.use_pseudo_3dof_state() and data.shape[0] > si.LAT:
+        lat_final = data[si.LAT, -1]
+        chi_final = data[si.CHI, -1]
+    else:
+        lat_final = ra.get_latitude_from_downrange(s_final) if rotation_enabled else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+        chi_final = ra.LAUNCH_AZIMUTH
 
     # In legacy rotation_on mode, post-SECO coast/circularization phases are
     # already propagated in inertial speed/FPA.
@@ -148,7 +162,9 @@ def execute():
     )
 
     if not state_already_inertial:
-        v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final)
+        v_final, gamma_final = ra.get_inertial_state_components(
+            r_final, v_final, gamma_final, lat_final, azimuth=chi_final
+        )
     
     a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
@@ -216,12 +232,17 @@ def execute():
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     if rotation_enabled:
         # In this 2D model, latitude propagation is an approximation used for
-        # ECI velocity conversion. Inclination from launch geometry should use
-        # launch-site latitude and inertial launch azimuth.
-        achieved_inclination = earth_rot.orbit_inclination(
-            sim_params.LAUNCH_LATITUDE,
-            ra.LAUNCH_AZIMUTH_INERTIAL,
-        )
+        # ECI velocity conversion.
+        if ra.use_pseudo_3dof_state() and data.shape[0] > si.CHI:
+            achieved_inclination = earth_rot.orbit_inclination(
+                np.rad2deg(lat_final),
+                chi_final,
+            )
+        else:
+            achieved_inclination = earth_rot.orbit_inclination(
+                sim_params.LAUNCH_LATITUDE,
+                ra.LAUNCH_AZIMUTH_INERTIAL,
+            )
         print(f"\t* Inclination:\t\t\t\t{achieved_inclination:.4f} deg")
     
     print("\n" + "="*60)
