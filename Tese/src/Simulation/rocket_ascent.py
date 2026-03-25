@@ -64,7 +64,6 @@ alpha_time_history = []  # Store corresponding time values for steering angles
 LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Corrected azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
 LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
-LAUNCH_LONGITUDE_RAD = 0.0          # Current launch-site longitude [rad]
 LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
 
 #===================================================
@@ -188,7 +187,7 @@ def interrupt_velocity_exceeded(t, y):
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
 
     if sim_params.ENABLE_EARTH_ROTATION:
-        lat = y[5] if len(y) > 5 else get_latitude_from_downrange(y[0])
+        lat = get_latitude_from_downrange(y[0])
         v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
         return v_inertial - v_desired
 
@@ -215,7 +214,7 @@ def interrupt_single_burn_traj(t, y):
     r_val = y[1]
     v = y[2]
     gamma = y[3]
-    lat = y[5] if sim_params.ENABLE_EARTH_ROTATION and len(y) > 5 else LAUNCH_LATITUDE_RAD
+    lat = get_latitude_from_downrange(y[0]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
     alt = r_val - c.R_EARTH
 
     if alt < sim_params.ALT_NO_ATMOSPHERE:
@@ -358,28 +357,6 @@ def get_latitude_from_downrange(s):
     return np.arcsin(sin_lat)
 
 
-def get_longitude_from_downrange(s):
-    """
-    Compute geocentric longitude from downrange along the launch great-circle.
-    """
-    if not sim_params.ENABLE_EARTH_ROTATION:
-        return LAUNCH_LONGITUDE_RAD
-
-    sigma = s / c.R_EARTH
-    sin_phi0 = np.sin(LAUNCH_LATITUDE_RAD)
-    cos_phi0 = np.cos(LAUNCH_LATITUDE_RAD)
-    sin_beta0 = np.sin(LAUNCH_AZIMUTH_INERTIAL)
-
-    lat = get_latitude_from_downrange(s)
-
-    y_term = sin_beta0 * np.sin(sigma) * cos_phi0
-    x_term = np.cos(sigma) - sin_phi0 * np.sin(lat)
-    lon = LAUNCH_LONGITUDE_RAD + np.arctan2(y_term, x_term)
-
-    # Wrap to [-pi, pi] for stable plotting/printing.
-    return (lon + np.pi) % (2.0 * np.pi) - np.pi
-
-
 def get_latitude_rate_from_downrange(s, dsdt):
     """
     Compute d(latitude)/dt from great-circle geometry and ds/dt.
@@ -402,29 +379,6 @@ def get_latitude_rate_from_downrange(s, dsdt):
     dsigma_dt = dsdt / c.R_EARTH
 
     return dlat_dsigma * dsigma_dt
-
-
-def get_longitude_rate_from_downrange(s, dsdt):
-    """
-    Compute d(longitude)/dt by differentiating the great-circle longitude map.
-    """
-    if not sim_params.ENABLE_EARTH_ROTATION:
-        return 0.0
-
-    # Finite-difference derivative in downrange space keeps the longitude
-    # propagation consistent with the geometric great-circle formulation.
-    ds = 1.0
-    lon_plus = get_longitude_from_downrange(s + ds)
-    lon_minus = get_longitude_from_downrange(s - ds)
-
-    dlon = lon_plus - lon_minus
-    if dlon > np.pi:
-        dlon -= 2.0 * np.pi
-    elif dlon < -np.pi:
-        dlon += 2.0 * np.pi
-
-    dlon_ds = dlon / (2.0 * ds)
-    return dlon_ds * dsdt
 
 
 def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
@@ -679,14 +633,13 @@ def rocket_dynamics(t, state):
         Time variable (necessary for solve_ivp function)
     state : array
         Current state vector of the rocket
-        [s, r, v, gamma, m] or [s, r, v, gamma, m, lat, lon]
+        [s, r, v, gamma, m] or [s, r, v, gamma, m, lat]
         - s: downtrack [m]
         - r: radius from Earth's center [m]
         - v: velocity norm [m/s]
         - gamma: flight path angle [rad]
         - m: current mass [kg]
         - lat: current latitude [rad] (only when Earth rotation is enabled)
-        - lon: current longitude [rad] (only when Earth rotation is enabled)
 
     Returns:
     --------
@@ -702,8 +655,9 @@ def rocket_dynamics(t, state):
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
-    if sim_params.ENABLE_EARTH_ROTATION and len(state) > 6:
-        s, r_val, v, gamma, m, lat, _lon_state = state
+    if sim_params.ENABLE_EARTH_ROTATION and len(state) > 5:
+        s, r_val, v, gamma, m, _lat_state = state
+        lat = get_latitude_from_downrange(s)
     else:
         s, r_val, v, gamma, m = state[:5]
         lat = LAUNCH_LATITUDE_RAD
@@ -916,9 +870,7 @@ def rocket_dynamics(t, state):
     if sim_params.ENABLE_EARTH_ROTATION:
         dsdt = state_differentiated[0]
         dlatdt = get_latitude_rate_from_downrange(s, dsdt)
-        dlondt = get_longitude_rate_from_downrange(s, dsdt)
         state_differentiated.append(dlatdt)
-        state_differentiated.append(dlondt)
 
     if time_kick_start == None:
         state_differentiated[3] = 0.0
@@ -1077,7 +1029,7 @@ def run(initial_kick_angle):
     global last_guidance_update_time, guidance_coefficients
     global thrust_history, time_history
     global alpha_history, alpha_time_history
-    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_LONGITUDE_RAD, LAUNCH_ROTATION_SPEED
+    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     
     #===================================================
     # Reset global variables
@@ -1096,7 +1048,6 @@ def run(initial_kick_angle):
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
     LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
-    LAUNCH_LONGITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LONGITUDE)
     LAUNCH_ROTATION_SPEED = 0.0
 
     if sim_params.ENABLE_EARTH_ROTATION:
@@ -1133,7 +1084,6 @@ def run(initial_kick_angle):
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
     if sim_params.ENABLE_EARTH_ROTATION:
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
-        initial_state_1.append(LAUNCH_LONGITUDE_RAD)
 
     # Define time of simulation 1
     time_1 = 500.
@@ -1166,7 +1116,7 @@ def run(initial_kick_angle):
     r_stop = sol_2.y[1, -1]
     v_stop = sol_2.y[2, -1]
     gamma_stop = sol_2.y[3, -1]
-    lat_stop = sol_2.y[5, -1] if sim_params.ENABLE_EARTH_ROTATION and sol_2.y.shape[0] > 5 else LAUNCH_LATITUDE_RAD
+    lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
@@ -1244,7 +1194,7 @@ def run(initial_kick_angle):
             # propagation and circularization so post-SECO dynamics are consistent
             # with the orbital-element and delta-v calculations above.
             if sim_params.ENABLE_EARTH_ROTATION:
-                lat_state_3 = initial_state_3[5] if len(initial_state_3) > 5 else get_latitude_from_downrange(initial_state_3[0])
+                lat_state_3 = get_latitude_from_downrange(initial_state_3[0])
                 v_eci_3, gamma_eci_3 = get_inertial_state_components(
                     initial_state_3[1],
                     initial_state_3[2],
