@@ -1,8 +1,6 @@
 import numpy as np
 
 from Auxiliary import constants as c
-from Auxiliary import frames
-from Auxiliary import launch_azimuth
 
 
 def surface_rotation_velocity(lat_deg, radius=c.R_EARTH):
@@ -181,41 +179,3 @@ def orbit_inclination(lat_deg, beta_inertial):
     cos_i = np.cos(lat_rad) * np.sin(beta_inertial)
     cos_i = np.clip(cos_i, -1.0, 1.0)
     return np.rad2deg(np.arccos(cos_i))
-
-
-def eci_to_ecef(vec_eci, time_s):
-    """Rotate a vector from ECI to ECEF.
-
-    This wrapper keeps frame utilities discoverable from the earth_rotation module.
-    """
-    return frames.eci_to_ecef(np.asarray(vec_eci, dtype=float), float(time_s))
-
-
-def ecef_to_eci(vec_ecef, time_s):
-    """Rotate a vector from ECEF to ECI.
-
-    This wrapper keeps frame utilities discoverable from the earth_rotation module.
-    """
-    return frames.ecef_to_eci(np.asarray(vec_ecef, dtype=float), float(time_s))
-
-
-def inertial_azimuth_for_inclination(inc_deg, lat_deg):
-    """Classical inertial azimuth helper (clockwise from north)."""
-    return launch_azimuth.inertial_azimuth_for_inclination(inc_deg, lat_deg)
-
-
-def corrected_launch_azimuth_with_rotation(inc_deg, lat_deg, lon_deg, target_altitude, time_s=0.0):
-    """Return Earth-fixed azimuth corrected for Earth rotation effects.
-
-    Returns:
-        beta_launch: Earth-fixed azimuth [rad]
-        beta_inertial: inertial azimuth from orbital-plane geometry [rad]
-        v_surface_east: launch-site eastward surface speed [m/s]
-    """
-    return launch_azimuth.corrected_launch_azimuth_with_rotation(
-        target_inclination_deg=inc_deg,
-        launch_latitude_deg=lat_deg,
-        launch_longitude_deg=lon_deg,
-        target_altitude_m=target_altitude,
-        time_s=time_s,
-    )

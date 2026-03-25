@@ -269,7 +269,7 @@ def apollo_guidance(t, t_epoch, state, coefficients):
     
     # Safety limits (prevent excessive maneuvers)
     # Justification: Physical limits of vehicle control authority
-    alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
+   # alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
     
     # Debug output on first call (only once)
     if not hasattr(apollo_guidance, '_debug_printed'):
