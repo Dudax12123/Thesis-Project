@@ -33,10 +33,6 @@ def execute():
     4. Returns the time history, state data, and optimal kick angle
     """
     
-    rotation_mode = ra.get_earth_rotation_mode()
-    rotation_enabled = rotation_mode != ra.ROTATION_MODE_NONE
-    legacy_rotation_mode = rotation_mode == ra.ROTATION_MODE_LEGACY
-
     print("="*60)
     print("COASTING SINGLE BURN TRAJECTORY OPTIMIZATION")
     print("="*60)
@@ -75,7 +71,7 @@ def execute():
         print("  - Enforces position & velocity terminal constraints")
         print("  - Coefficient freezing at t_go < 10s for stability")
 
-    if rotation_enabled:
+    if sim_params.ENABLE_EARTH_ROTATION:
         beta_corrected, beta_inertial, v_rot_surface = earth_rot.corrected_azimuth(
             sim_params.TARGET_ORBIT_INCLINATION,
             sim_params.LAUNCH_LATITUDE,
@@ -91,7 +87,6 @@ def execute():
         print("\n" + "="*60)
         print("EARTH ROTATION CONFIGURATION")
         print("="*60)
-        print(f"Rotation mode: {rotation_mode}")
         print(f"Launch site latitude: {sim_params.LAUNCH_LATITUDE:.4f} deg")
         print(f"Launch site longitude: {sim_params.LAUNCH_LONGITUDE:.4f} deg")
         print(f"Target inclination: {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
@@ -137,12 +132,12 @@ def execute():
     s_final = data[0, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
-    lat_final = ra.get_latitude_from_downrange(s_final) if rotation_enabled else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
 
-    # In legacy rotation_on mode, post-SECO coast/circularization phases are
-    # already propagated in inertial speed/FPA.
+    # In full simulation mode, post-SECO coast/circularization phases are already
+    # propagated in inertial speed/FPA when Earth rotation is enabled.
     state_already_inertial = (
-        legacy_rotation_mode
+        sim_params.ENABLE_EARTH_ROTATION
         and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None
         and time[-1] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     )
@@ -214,7 +209,7 @@ def execute():
     print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
-    if rotation_enabled:
+    if sim_params.ENABLE_EARTH_ROTATION:
         # In this 2D model, latitude propagation is an approximation used for
         # ECI velocity conversion. Inclination from launch geometry should use
         # launch-site latitude and inertial launch azimuth.
@@ -258,7 +253,7 @@ def execute():
     guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
 
     # Latitude history plot (only meaningful when Earth rotation is enabled)
-    if rotation_enabled:
+    if sim_params.ENABLE_EARTH_ROTATION:
         print("\nGenerating propagated latitude plot...")
         guidance_plots.plot_latitude_over_time(time, data)
     

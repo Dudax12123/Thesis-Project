@@ -11,21 +11,8 @@ DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
-# -------------- Earth Rotation Mode --------------
-# Rotation handling options:
-#   "none":
-#       - No Earth-rotation effects.
-#       - No azimuth correction and no ECEF/ECI velocity conversion.
-#   "rotation_on":
-#       - Legacy behavior (kept unchanged).
-#       - Includes azimuth correction and ECEF/ECI velocity conversion for
-#         orbital checks/post-processing.
-#       - Does NOT add Coriolis/centrifugal pseudo-forces in ascent EOM.
-#   "coriolis_centrifugal":
-#       - Includes all "rotation_on" effects.
-#       - Additionally injects Coriolis and centrifugal pseudo-forces into
-#         ascent equations of motion in the rotating frame.
-EARTH_ROTATION_MODE = "coriolis_centrifugal"  # Options: "none", "rotation_on", "coriolis_centrifugal"
+# -------------- Earth Rotation (Optional) --------------
+ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
