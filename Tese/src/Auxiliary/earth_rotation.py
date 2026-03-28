@@ -256,3 +256,73 @@ def achieved_inclination_from_local_state(v_ecef, gamma_ecef, heading_ecef, lat_
     cos_i = np.clip(cos_i, -1.0, 1.0)
 
     return np.rad2deg(np.arccos(cos_i))
+
+
+def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, r_val):
+    """
+    Compute pseudo-force contributions for rotating-frame 2D EOM.
+
+    The returned rates are projections of Coriolis + centrifugal acceleration
+    onto (i) the along-velocity direction and (ii) the vertical-plane normal
+    used in the flight-path-angle equation.
+
+    Parameters:
+    -----------
+    v_ecef : float
+        Velocity magnitude in rotating frame [m/s]
+    gamma_ecef : float
+        Flight path angle in rotating frame [rad]
+    heading_ecef : float
+        Heading/azimuth in rotating frame [rad]
+    lat_rad : float
+        Current geocentric latitude [rad]
+    r_val : float
+        Current geocentric radius [m]
+
+    Returns:
+    --------
+    delta_dvdt : float
+        Additive contribution to dv/dt [m/s^2]
+    delta_dgammadt : float
+        Additive contribution to dgamma/dt [rad/s]
+    """
+    v_horizontal = v_ecef * np.cos(gamma_ecef)
+    v_east = v_horizontal * np.sin(heading_ecef)
+    v_north = v_horizontal * np.cos(heading_ecef)
+    v_up = v_ecef * np.sin(gamma_ecef)
+
+    omega_cos = c.OMEGA_EARTH * np.cos(lat_rad)
+    omega_sin = c.OMEGA_EARTH * np.sin(lat_rad)
+
+    # Coriolis acceleration in local ENU coordinates.
+    a_cor_east = -2.0 * omega_cos * v_up + 2.0 * omega_sin * v_north
+    a_cor_north = -2.0 * omega_sin * v_east
+    a_cor_up = 2.0 * omega_cos * v_east
+
+    # Centrifugal acceleration in local ENU coordinates.
+    a_cent_east = 0.0
+    a_cent_north = -(c.OMEGA_EARTH**2) * r_val * np.sin(lat_rad) * np.cos(lat_rad)
+    a_cent_up = (c.OMEGA_EARTH**2) * r_val * (np.cos(lat_rad)**2)
+
+    a_east = a_cor_east + a_cent_east
+    a_north = a_cor_north + a_cent_north
+    a_up = a_cor_up + a_cent_up
+
+    # Horizontal along-track acceleration in heading direction.
+    a_horizontal_along_heading = (
+        a_east * np.sin(heading_ecef) + a_north * np.cos(heading_ecef)
+    )
+
+    # Projection onto velocity direction (affects dv/dt).
+    delta_dvdt = a_horizontal_along_heading * np.cos(gamma_ecef) + a_up * np.sin(gamma_ecef)
+
+    # Projection onto in-plane normal (affects dgamma/dt).
+    a_normal_in_plane = -a_horizontal_along_heading * np.sin(gamma_ecef) + a_up * np.cos(gamma_ecef)
+
+    epsilon = 1e-9
+    if abs(v_ecef) < epsilon:
+        delta_dgammadt = 0.0
+    else:
+        delta_dgammadt = a_normal_in_plane / v_ecef
+
+    return delta_dvdt, delta_dgammadt

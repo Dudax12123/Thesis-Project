@@ -19,8 +19,7 @@ from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
 from Auxiliary import earth_rotation as earth_rot
-import Plots.plots as plots
-import Plots.guidance_phase_plots as guidance_plots
+import Plots.new_plot_runner as new_plot_runner
 
 def execute():
     """
@@ -89,6 +88,7 @@ def execute():
         print("EARTH ROTATION CONFIGURATION")
         print("="*60)
         print(f"Azimuth mode: {sim_params.EARTH_ROTATION_AZIMUTH_MODE}")
+        print(f"Pseudo-forces in EOM: {sim_params.INCLUDE_PSEUDO_FORCES}")
         print(f"Heading state tracking: {sim_params.TRACK_HEADING_STATE}")
         print(f"Launch site latitude: {sim_params.LAUNCH_LATITUDE:.4f} deg")
         print(f"Launch site longitude: {sim_params.LAUNCH_LONGITUDE:.4f} deg")
@@ -236,33 +236,19 @@ def execute():
     print("="*60 + "\n")
     
     # Plot the results
-    print("Generating plots...")
-    
-    # Key parameters plot (always shown)
-    guidance_plots.plot_key_parameters(time, data, thrust_data, time_thrust)
-    
-    # Ascent phase plot (launch to SECO + 100s)
-    guidance_plots.plot_ascent_phase(time, data, thrust_data, time_thrust)
-    
-    # Full mission plots
-    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust, alpha_data, alpha_time_data)
-    plots.plot_trajectory_xy(data, time)
-    
-    # Generate detailed guidance phase plots
-    if sim_params.GUIDANCE_MODE != "gravity_turn" and ra.time_atmosphere_exit is not None:
-        print("\nGenerating detailed guidance phase analysis...")
-        # guidance_plots.plot_guidance_phase(time, data, thrust_data, time_thrust)  # Commented out: Detailed analysis and rates/performances
-        guidance_plots.plot_trajectory_to_seco(time, data)
-    
-    # Generate steering angle plot (shows entire flight profile)
-    print("\nGenerating steering angle plot...")
-    guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
+    print("Generating new plot suite...")
+    new_plot_runner.run_new_plot_suite(
+        time,
+        data,
+        thrust_data,
+        time_thrust,
+        alpha_data,
+        alpha_time_data,
+        output_dir=None,
+        show=True,
+        close_after=False,
+    )
 
-    # Latitude history plot (only meaningful when Earth rotation is enabled)
-    if sim_params.ENABLE_EARTH_ROTATION:
-        print("\nGenerating propagated latitude plot...")
-        guidance_plots.plot_latitude_over_time(time, data)
-    
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")
     plt.show()

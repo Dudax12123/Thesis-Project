@@ -914,6 +914,17 @@ def rocket_dynamics(t, state):
     state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
                                          a_grav, alpha, Isp)
 
+    if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES:
+        delta_dvdt, delta_dgammadt = earth_rot.rotating_frame_pseudoforce_rates(
+            v,
+            gamma,
+            heading,
+            lat,
+            r_val,
+        )
+        state_differentiated[2] += delta_dvdt
+        state_differentiated[3] += delta_dgammadt
+
     if sim_params.ENABLE_EARTH_ROTATION:
         dsdt = state_differentiated[0]
         dlatdt = get_latitude_rate_from_downrange(s, dsdt)

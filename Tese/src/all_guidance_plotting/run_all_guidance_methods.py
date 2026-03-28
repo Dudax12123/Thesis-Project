@@ -15,13 +15,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for saving figures
-import matplotlib.pyplot as plt
 from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
-from Auxiliary import constants as c
-import Plots.plots as plots
-import Plots.guidance_phase_plots as guidance_plots
+import Plots.new_plot_runner as new_plot_runner
 
 
 # Define guidance modes and their corresponding folder names
@@ -89,48 +86,18 @@ def run_guidance_method(guidance_mode, save_folder):
     save_path = Path(save_folder)
     save_path.mkdir(parents=True, exist_ok=True)
     
-    print(f"\nGenerating and saving plots to: {save_folder}")
-    
-    # Generate and save all 6 plots
-    
-    # Plot 1: Key Parameters
-    print("  - Saving Plot 1: Key Trajectory Parameters")
-    guidance_plots.plot_key_parameters(time, data, thrust_data, time_thrust)
-    plt.savefig(save_path / "01_key_parameters.png", dpi=300, bbox_inches="tight")
-    plt.close('all')
-    
-    # Plot 2: Ascent Phase
-    print("  - Saving Plot 2: Ascent Phase Analysis")
-    guidance_plots.plot_ascent_phase(time, data, thrust_data, time_thrust)
-    plt.savefig(save_path / "02_ascent_phase.png", dpi=300, bbox_inches="tight")
-    plt.close('all')
-    
-    # Plot 3: Trajectory Losses (from single_run)
-    print("  - Saving Plot 3: Trajectory Losses")
-    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust)
-    plt.savefig(save_path / "03_trajectory_losses.png", dpi=300, bbox_inches="tight")
-    plt.close('all')
-    
-    # Plot 4: Trajectory XY
-    print("  - Saving Plot 4: Trajectory X-Y Coordinates")
-    plots.plot_trajectory_xy(data, time)
-    plt.savefig(save_path / "04_trajectory_xy.png", dpi=300, bbox_inches="tight")
-    plt.close('all')
-    
-    # Plot 5: Trajectory to SECO (for non-gravity-turn modes)
-    if guidance_mode != "gravity_turn" and ra.time_atmosphere_exit is not None:
-        print("  - Saving Plot 5: Trajectory to SECO")
-        guidance_plots.plot_trajectory_to_seco(time, data)
-        plt.savefig(save_path / "05_trajectory_to_seco.png", dpi=300, bbox_inches="tight")
-        plt.close('all')
-    else:
-        print("  - Plot 5: Trajectory to SECO (skipped for gravity turn)")
-    
-    # Plot 6: Steering Angles
-    print("  - Saving Plot 6: Steering Angles")
-    guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
-    plt.savefig(save_path / "06_steering_angles.png", dpi=300, bbox_inches="tight")
-    plt.close('all')
+    print(f"\nGenerating and saving new metric-per-file plots to: {save_folder}")
+    new_plot_runner.run_new_plot_suite(
+        time,
+        data,
+        thrust_data,
+        time_thrust,
+        alpha_data,
+        alpha_time_data,
+        output_dir=save_path,
+        show=False,
+        close_after=True,
+    )
     
     print(f"\nAll plots saved successfully to {save_folder}")
     print("="*70 + "\n")

@@ -17,6 +17,7 @@ LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
 EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
+INCLUDE_PSEUDO_FORCES = True                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 TRACK_HEADING_STATE = True                    # if True, propagate heading as an additional state when Earth rotation is enabled
 PRINT_INCLINATION_DRIFT = True                # print achieved final inclination and drift relative to target
 
