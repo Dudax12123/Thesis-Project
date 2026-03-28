@@ -61,10 +61,15 @@ alpha_history = []  # Store steering angles during guidance phase
 alpha_time_history = []  # Store corresponding time values for steering angles
 
 # Earth rotation launch geometry (set in run())
-LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Corrected azimuth in rotating frame [rad]
+LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Active azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
 LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
 LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
+AZIMUTH_MODE_USED = "corrected"     # Active azimuth mode used during current run
+
+# Final inclination metrics from the latest run
+LAST_ACHIEVED_INCLINATION_DEG = np.nan
+LAST_INCLINATION_DRIFT_DEG = np.nan
 
 #===================================================
 # Interrupt functions for simulation
@@ -188,7 +193,8 @@ def interrupt_velocity_exceeded(t, y):
 
     if sim_params.ENABLE_EARTH_ROTATION:
         lat = get_latitude_from_downrange(y[0])
-        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
+        heading = get_heading_from_state(y, lat)
+        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, heading, lat, r_val)
         return v_inertial - v_desired
 
     return v - v_desired
@@ -221,7 +227,8 @@ def interrupt_single_burn_traj(t, y):
         return 1
     else:
         if sim_params.ENABLE_EARTH_ROTATION:
-            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_AZIMUTH, lat, r_val)
+            heading = get_heading_from_state(y, lat)
+            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, heading, lat, r_val)
 
         # Compute current orbital elements
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
@@ -381,6 +388,35 @@ def get_latitude_rate_from_downrange(s, dsdt):
     return dlat_dsigma * dsigma_dt
 
 
+def get_heading_from_state(state, lat_rad=None):
+    """
+    Return heading (azimuth) used for Earth-rotation contributions.
+
+    If heading propagation is enabled and available in the state vector,
+    use that tracked value. Otherwise fall back to the active launch azimuth.
+    """
+    if not sim_params.ENABLE_EARTH_ROTATION:
+        return LAUNCH_AZIMUTH
+
+    if sim_params.TRACK_HEADING_STATE and len(state) > 6:
+        return state[6]
+
+    return LAUNCH_AZIMUTH
+
+
+def get_heading_rate_from_latitude(lat_rad, dlatdt, heading_rad):
+    """
+    Compute d(heading)/dt from great-circle geometry and latitude rate.
+
+    This keeps heading consistent with the same spherical-geometry assumption
+    used for latitude propagation in the 2D ascent model.
+    """
+    if not sim_params.ENABLE_EARTH_ROTATION:
+        return 0.0
+
+    return np.tan(lat_rad) * np.tan(heading_rad) * dlatdt
+
+
 def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     """
     Computes the orbital parameters given the input state.
@@ -421,7 +457,7 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     return a, e, r_apo, r_peri, orbit_period
 
 
-def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
+def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad, heading_rad=None):
     """
     Return velocity and flight-path angle in ECI frame.
 
@@ -435,6 +471,8 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
         Flight-path angle in rotating frame [rad]
     lat_rad : float
         Current latitude [rad]
+    heading_rad : float, optional
+        Current heading/azimuth [rad]. If None, uses active launch azimuth.
 
     Returns:
     --------
@@ -444,7 +482,8 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
         Inertial flight-path angle [rad]
     """
     if sim_params.ENABLE_EARTH_ROTATION:
-        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, LAUNCH_AZIMUTH, lat_rad, r_val)
+        heading = LAUNCH_AZIMUTH if heading_rad is None else heading_rad
+        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, heading, lat_rad, r_val)
     return v_ecef, gamma_ecef
 
 
@@ -633,13 +672,15 @@ def rocket_dynamics(t, state):
         Time variable (necessary for solve_ivp function)
     state : array
         Current state vector of the rocket
-        [s, r, v, gamma, m] or [s, r, v, gamma, m, lat]
+        [s, r, v, gamma, m], [s, r, v, gamma, m, lat], or
+        [s, r, v, gamma, m, lat, heading]
         - s: downtrack [m]
         - r: radius from Earth's center [m]
         - v: velocity norm [m/s]
         - gamma: flight path angle [rad]
         - m: current mass [kg]
         - lat: current latitude [rad] (only when Earth rotation is enabled)
+        - heading: current heading [rad] (optional when heading tracking is enabled)
 
     Returns:
     --------
@@ -655,12 +696,18 @@ def rocket_dynamics(t, state):
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
-    if sim_params.ENABLE_EARTH_ROTATION and len(state) > 5:
-        s, r_val, v, gamma, m, _lat_state = state
-        lat = get_latitude_from_downrange(s)
-    else:
-        s, r_val, v, gamma, m = state[:5]
-        lat = LAUNCH_LATITUDE_RAD
+    s, r_val, v, gamma, m = state[:5]
+    lat = LAUNCH_LATITUDE_RAD
+    heading = LAUNCH_AZIMUTH
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        if len(state) > 5:
+            lat = state[5]
+        else:
+            lat = get_latitude_from_downrange(s)
+
+        if sim_params.TRACK_HEADING_STATE and len(state) > 6:
+            heading = state[6]
 
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
@@ -872,6 +919,10 @@ def rocket_dynamics(t, state):
         dlatdt = get_latitude_rate_from_downrange(s, dsdt)
         state_differentiated.append(dlatdt)
 
+        if sim_params.TRACK_HEADING_STATE:
+            dheadingdt = get_heading_rate_from_latitude(lat, dlatdt, heading)
+            state_differentiated.append(dheadingdt)
+
     if time_kick_start == None:
         state_differentiated[3] = 0.0
 
@@ -1030,6 +1081,8 @@ def run(initial_kick_angle):
     global thrust_history, time_history
     global alpha_history, alpha_time_history
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
+    global AZIMUTH_MODE_USED
+    global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
     
     #===================================================
     # Reset global variables
@@ -1049,15 +1102,21 @@ def run(initial_kick_angle):
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
     LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
     LAUNCH_ROTATION_SPEED = 0.0
+    AZIMUTH_MODE_USED = "corrected"
+
+    LAST_ACHIEVED_INCLINATION_DEG = np.nan
+    LAST_INCLINATION_DRIFT_DEG = np.nan
 
     if sim_params.ENABLE_EARTH_ROTATION:
         (LAUNCH_AZIMUTH,
          LAUNCH_AZIMUTH_INERTIAL,
-         LAUNCH_ROTATION_SPEED) = earth_rot.corrected_azimuth(
+         LAUNCH_ROTATION_SPEED) = earth_rot.select_launch_azimuth(
             sim_params.TARGET_ORBIT_INCLINATION,
             sim_params.LAUNCH_LATITUDE,
             sim_params.TARGET_ORBITAL_ALTITUDE,
+            mode=sim_params.EARTH_ROTATION_AZIMUTH_MODE,
         )
+        AZIMUTH_MODE_USED = sim_params.EARTH_ROTATION_AZIMUTH_MODE.lower().strip()
     
     # Reset guidance phase variables
     atmosphere_exited = False
@@ -1084,6 +1143,8 @@ def run(initial_kick_angle):
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
     if sim_params.ENABLE_EARTH_ROTATION:
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
+        if sim_params.TRACK_HEADING_STATE:
+            initial_state_1.append(LAUNCH_AZIMUTH)
 
     # Define time of simulation 1
     time_1 = 500.
@@ -1117,12 +1178,25 @@ def run(initial_kick_angle):
     v_stop = sol_2.y[2, -1]
     gamma_stop = sol_2.y[3, -1]
     lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
+    heading_stop = LAUNCH_AZIMUTH
+    if sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE and sol_2.y.shape[0] > 6:
+        heading_stop = sol_2.y[6, -1]
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
 
+    if sim_params.ENABLE_EARTH_ROTATION:
+        LAST_ACHIEVED_INCLINATION_DEG = earth_rot.achieved_inclination_from_local_state(
+            v_stop,
+            gamma_stop,
+            heading_stop,
+            lat_stop,
+            r_stop,
+        )
+        LAST_INCLINATION_DRIFT_DEG = LAST_ACHIEVED_INCLINATION_DEG - sim_params.TARGET_ORBIT_INCLINATION
+
     # Convert from rotating frame to inertial frame for orbital mechanics.
-    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, lat_stop)
+    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, lat_stop, heading_stop)
     
     # Calculate orbital elements at stop
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
@@ -1195,11 +1269,15 @@ def run(initial_kick_angle):
             # with the orbital-element and delta-v calculations above.
             if sim_params.ENABLE_EARTH_ROTATION:
                 lat_state_3 = get_latitude_from_downrange(initial_state_3[0])
+                heading_state_3 = LAUNCH_AZIMUTH
+                if sim_params.TRACK_HEADING_STATE and len(initial_state_3) > 6:
+                    heading_state_3 = initial_state_3[6]
                 v_eci_3, gamma_eci_3 = get_inertial_state_components(
                     initial_state_3[1],
                     initial_state_3[2],
                     initial_state_3[3],
                     lat_state_3,
+                    heading_state_3,
                 )
                 initial_state_3[2] = v_eci_3
                 initial_state_3[3] = gamma_eci_3

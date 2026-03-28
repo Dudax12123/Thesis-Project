@@ -61,7 +61,7 @@ def compute_bilinear_coefficients(current_state, target_altitude, t_go):
         Bilinear tangent coefficients [c1, c2, c1_prime, c2_prime]
         where tan(α + γ) = (c1*τ + c2) / (c1'*τ + c2'), τ = t_f - t
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     
     # Boundary conditions
     # Terminal (at t = t_f, τ = 0):

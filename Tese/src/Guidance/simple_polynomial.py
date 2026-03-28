@@ -45,7 +45,7 @@ def compute_polynomial_coefficients(current_state, target_altitude, t_go):
     coefficients : list
         Polynomial coefficients [a0, a1] for linear guidance law
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     
     current_alt = r_val - c.R_EARTH
     
@@ -90,7 +90,7 @@ def polynomial_guidance(t, t_go, current_state, coefficients):
     alpha : float
         Commanded angle of attack [rad]
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     
     # Normalized time-to-go (1 at start, 0 at end)
     if t_go > 0.1:

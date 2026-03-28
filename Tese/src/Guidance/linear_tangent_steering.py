@@ -53,7 +53,7 @@ def compute_lts_coefficients(current_state, target_altitude, t_go):
         Linear tangent coefficients [a, b, t_f]
         where tan(α + γ) = a*(t_f - t) + b
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     
     # Terminal condition: horizontal flight
     # tan(α_terminal + γ_terminal) = tan(0 + 0) = 0
@@ -114,7 +114,7 @@ def linear_tangent_steering(t, t_go, current_state, coefficients):
     alpha : float
         Commanded angle of attack [rad]
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     a, b, t_f = coefficients
     
     # Compute commanded velocity vector inclination
@@ -161,7 +161,7 @@ def compute_lts_coefficients_advanced(current_state, target_altitude, t_go,
     coefficients : list
         Linear tangent coefficients [a, b, t_f]
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     
     # Terminal condition with specified terminal angle
     # At terminal time, assume α ≈ 0 (thrust aligned with velocity)

@@ -97,6 +97,47 @@ def corrected_azimuth(inc_deg, lat_deg, target_altitude):
     return beta_corrected, beta_inertial, v_rot_surface
 
 
+def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="corrected"):
+    """
+    Select active launch azimuth mode for rotating-frame propagation.
+
+    Parameters:
+    -----------
+    inc_deg : float
+        Target orbital inclination [deg]
+    lat_deg : float
+        Launch latitude [deg]
+    target_altitude : float
+        Target circular orbit altitude [m]
+    mode : str
+        Azimuth mode: "corrected" or "geometric"
+
+    Returns:
+    --------
+    beta_active : float
+        Active azimuth used in rotating-frame decomposition [rad]
+    beta_inertial : float
+        Geometric/inertial azimuth [rad]
+    v_rot_surface : float
+        Surface rotation speed at launch latitude [m/s]
+    """
+    beta_corrected, beta_inertial, v_rot_surface = corrected_azimuth(
+        inc_deg,
+        lat_deg,
+        target_altitude,
+    )
+
+    mode_key = mode.lower().strip()
+    if mode_key == "corrected":
+        beta_active = beta_corrected
+    elif mode_key == "geometric":
+        beta_active = beta_inertial
+    else:
+        raise ValueError("EARTH_ROTATION_AZIMUTH_MODE must be 'corrected' or 'geometric'.")
+
+    return beta_active, beta_inertial, v_rot_surface
+
+
 def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):
     """
     Convert local velocity magnitude/FPA from ECEF-like frame to ECI.
@@ -178,4 +219,40 @@ def orbit_inclination(lat_deg, beta_inertial):
     lat_rad = np.deg2rad(lat_deg)
     cos_i = np.cos(lat_rad) * np.sin(beta_inertial)
     cos_i = np.clip(cos_i, -1.0, 1.0)
+    return np.rad2deg(np.arccos(cos_i))
+
+
+def achieved_inclination_from_local_state(v_ecef, gamma_ecef, heading_ecef, lat_rad, r_val):
+    """
+    Compute achieved orbital inclination from local state including Earth rotation.
+
+    Parameters:
+    -----------
+    v_ecef : float
+        Velocity magnitude in rotating frame [m/s]
+    gamma_ecef : float
+        Flight path angle in rotating frame [rad]
+    heading_ecef : float
+        Heading/azimuth in rotating frame [rad]
+    lat_rad : float
+        Current geocentric latitude [rad]
+    r_val : float
+        Current geocentric radius [m]
+
+    Returns:
+    --------
+    float
+        Achieved inclination [deg]
+    """
+    v_horizontal = v_ecef * np.cos(gamma_ecef)
+    v_north = v_horizontal * np.cos(heading_ecef)
+    v_east = v_horizontal * np.sin(heading_ecef)
+
+    v_rot = c.OMEGA_EARTH * r_val * np.cos(lat_rad)
+    v_east_eci = v_east + v_rot
+
+    beta_inertial = np.arctan2(v_east_eci, v_north)
+    cos_i = np.cos(lat_rad) * np.sin(beta_inertial)
+    cos_i = np.clip(cos_i, -1.0, 1.0)
+
     return np.rad2deg(np.arccos(cos_i))

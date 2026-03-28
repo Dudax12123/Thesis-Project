@@ -16,6 +16,9 @@ ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation e
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
+EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
+TRACK_HEADING_STATE = True                    # if True, propagate heading as an additional state when Earth rotation is enabled
+PRINT_INCLINATION_DRIFT = True                # print achieved final inclination and drift relative to target
 
 # -------------- Guidance Mode Selection --------------
 # Choose the guidance strategy for the trajectory:
@@ -77,7 +80,7 @@ OPTIMAL_KICK_ANGLES = {
     "simple_poly": -np.deg2rad(3.0),            # Update after optimization
     "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
-    "apollo": -np.deg2rad(3.8273)                   # Update after optimization
+    "apollo": -np.deg2rad(3.3)                   # Update after optimization
 }
 
 # ===================================================

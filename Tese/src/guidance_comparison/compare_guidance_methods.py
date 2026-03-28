@@ -81,12 +81,15 @@ def run_guidance_method_for_comparison(guidance_mode):
         'propellant_kg': m_propellant_total,
         'time_to_insertion_s': time_insertion,
         'kick_angle_deg': np.rad2deg(kick_angle_optimal),
-        'delta_v': delta_v
+        'delta_v': delta_v,
+        'inclination_drift_deg': ra.LAST_INCLINATION_DRIFT_DEG if sim_params.ENABLE_EARTH_ROTATION else np.nan,
     }
     
     print(f"  Propellant: {m_propellant_total:.2f} kg")
     print(f"  Time to insertion: {time_insertion:.2f} s")
     print(f"  Optimal kick angle: {np.rad2deg(kick_angle_optimal):.4f}°")
+    if sim_params.ENABLE_EARTH_ROTATION and np.isfinite(results['inclination_drift_deg']):
+        print(f"  Inclination drift: {results['inclination_drift_deg']:+.4f}°")
     
     return results
 
@@ -251,20 +254,21 @@ def print_comparison_table(results_dict):
     Args:
         results_dict: Dictionary with guidance method names as keys and results as values
     """
-    print("\n" + "="*90)
+    print("\n" + "="*116)
     print("GUIDANCE METHODS COMPARISON TABLE")
-    print("="*90)
-    print(f"{'Method':<20} {'Propellant [kg]':<18} {'Time [s]':<12} {'Kick Angle [°]':<18} {'Delta-V [m/s]':<15}")
-    print("-"*90)
+    print("="*116)
+    print(f"{'Method':<20} {'Propellant [kg]':<18} {'Time [s]':<12} {'Kick Angle [°]':<18} {'Delta-V [m/s]':<15} {'Drift [deg]':<12}")
+    print("-"*116)
     
     for method, results in results_dict.items():
         display_name = GUIDANCE_MODES[method]
         print(f"{display_name:<20} {results['propellant_kg']:>15.2f}   "
               f"{results['time_to_insertion_s']:>9.2f}   "
               f"{results['kick_angle_deg']:>15.4f}   "
-              f"{results['delta_v']:>12.2f}")
+              f"{results['delta_v']:>12.2f}   "
+              f"{results['inclination_drift_deg']:>+9.4f}")
     
-    print("="*90)
+    print("="*116)
     
     # Find best methods
     methods = list(results_dict.keys())
@@ -276,7 +280,7 @@ def print_comparison_table(results_dict):
     
     print(f"\nBest for Propellant Efficiency: {GUIDANCE_MODES[min_prop_method]} ({min(propellants):.2f} kg)")
     print(f"Best for Time Efficiency: {GUIDANCE_MODES[min_time_method]} ({min(times):.2f} s)")
-    print("="*90 + "\n")
+    print("="*116 + "\n")
 
 
 def main():

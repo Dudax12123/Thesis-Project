@@ -77,24 +77,28 @@ def execute():
             sim_params.LAUNCH_LATITUDE,
             sim_params.TARGET_ORBITAL_ALTITUDE,
         )
-        achieved_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_inertial)
+        active_beta = beta_corrected if sim_params.EARTH_ROTATION_AZIMUTH_MODE.lower().strip() == "corrected" else beta_inertial
+        implied_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_inertial)
         expected_gain = earth_rot.delta_v_gain(
             sim_params.LAUNCH_LATITUDE,
-            beta_corrected,
+            active_beta,
             c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
         )
 
         print("\n" + "="*60)
         print("EARTH ROTATION CONFIGURATION")
         print("="*60)
+        print(f"Azimuth mode: {sim_params.EARTH_ROTATION_AZIMUTH_MODE}")
+        print(f"Heading state tracking: {sim_params.TRACK_HEADING_STATE}")
         print(f"Launch site latitude: {sim_params.LAUNCH_LATITUDE:.4f} deg")
         print(f"Launch site longitude: {sim_params.LAUNCH_LONGITUDE:.4f} deg")
         print(f"Target inclination: {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
         print(f"Geometric inertial azimuth: {np.rad2deg(beta_inertial):.4f} deg")
         print(f"Corrected rotating-frame azimuth: {np.rad2deg(beta_corrected):.4f} deg")
+        print(f"Active rotating-frame azimuth: {np.rad2deg(active_beta):.4f} deg")
         print(f"Surface rotation speed at launch site: {v_rot_surface:.2f} m/s")
         print(f"Estimated inertial delta-v gain: {expected_gain:.2f} m/s")
-        print(f"Inclination implied by azimuth/latitude: {achieved_inclination:.4f} deg")
+        print(f"Inclination implied by geometric azimuth/latitude: {implied_inclination:.4f} deg")
     
     print("="*60)
     
@@ -133,6 +137,9 @@ def execute():
     v_final = data[2, -1]
     gamma_final = data[3, -1]
     lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    heading_final = ra.LAUNCH_AZIMUTH
+    if sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
+        heading_final = data[6, -1]
 
     # In full simulation mode, post-SECO coast/circularization phases are already
     # propagated in inertial speed/FPA when Earth rotation is enabled.
@@ -143,7 +150,7 @@ def execute():
     )
 
     if not state_already_inertial:
-        v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final)
+        v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final, heading_final)
     
     a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
@@ -210,14 +217,13 @@ def execute():
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     if sim_params.ENABLE_EARTH_ROTATION:
-        # In this 2D model, latitude propagation is an approximation used for
-        # ECI velocity conversion. Inclination from launch geometry should use
-        # launch-site latitude and inertial launch azimuth.
-        achieved_inclination = earth_rot.orbit_inclination(
-            sim_params.LAUNCH_LATITUDE,
-            ra.LAUNCH_AZIMUTH_INERTIAL,
-        )
-        print(f"\t* Inclination:\t\t\t\t{achieved_inclination:.4f} deg")
+        print(f"\t* Azimuth mode used:\t\t\t{ra.AZIMUTH_MODE_USED}")
+        if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
+            print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
+        if np.isfinite(ra.LAST_ACHIEVED_INCLINATION_DEG):
+            print(f"\t* Achieved inclination:\t\t{ra.LAST_ACHIEVED_INCLINATION_DEG:.4f} deg")
+            if sim_params.PRINT_INCLINATION_DRIFT:
+                print(f"\t* Inclination drift (achieved-target):\t{ra.LAST_INCLINATION_DRIFT_DEG:+.4f} deg")
     
     print("\n" + "="*60)
     print("PROPELLANT USAGE")
