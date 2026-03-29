@@ -18,6 +18,7 @@ LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (re
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
 EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
 INCLUDE_PSEUDO_FORCES = True                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_CROSS_HEADING_PSEUDO_FORCE = True    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 TRACK_HEADING_STATE = True                    # if True, propagate heading as an additional state when Earth rotation is enabled
 PRINT_INCLINATION_DRIFT = True                # print achieved final inclination and drift relative to target
 

@@ -240,6 +240,7 @@ def execute():
             print(f"\t* Achieved inclination:\t\t{ra.LAST_ACHIEVED_INCLINATION_DEG:.4f} deg")
             if sim_params.PRINT_INCLINATION_DRIFT:
                 print(f"\t* Inclination drift (achieved-target):\t{ra.LAST_INCLINATION_DRIFT_DEG:+.4f} deg")
+        print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
     
     print("\n" + "="*60)
     print("PROPELLANT USAGE")
@@ -265,11 +266,66 @@ def execute():
         close_after=False,
     )
 
+    # --- Heading comparison plot: with vs without cross-heading pseudo-force ---
+    if (sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE
+            and data.shape[0] > 6):
+        print("\nRunning heading comparison (cross-heading pseudo-force ON vs OFF)...")
+        heading_comparison_plot(time, data, kick_angle_optimal,
+                                ra.LAST_ACHIEVED_INCLINATION_DEG)
+
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")
     plt.show()
     
     return time, data, kick_angle_optimal
+
+
+def heading_comparison_plot(time_ref, data_ref, kick_angle, inc_on):
+    """
+    Run a second simulation with cross-heading pseudo-force disabled and
+    plot heading vs time for both cases on the same axes.
+    """
+    heading_on = np.rad2deg(data_ref[6, :])
+
+    # Re-run with cross-heading pseudo-force disabled
+    _saved_cross = sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE
+    sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False
+    ra.SINGLE_BURN_FULL_SIMULATION = True
+    _, data_off, _, _, _, _, _, _, _ = ra.run(kick_angle)
+    sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE = _saved_cross
+
+    if data_off.shape[0] <= 6:
+        print("  Heading state not available in comparison run — skipping plot.")
+        return
+
+    heading_off = np.rad2deg(data_off[6, :])
+    n = min(len(time_ref), data_off.shape[1])
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(time_ref[:n], heading_on[:n],
+            label="With cross-heading pseudo-force", linewidth=1.2)
+    ax.plot(time_ref[:n], heading_off[:n],
+            label="Without cross-heading pseudo-force", linewidth=1.2,
+            linestyle="--")
+    from Plots.plot_state_utils import add_event_markers
+    add_event_markers(ax)
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Heading [deg]")
+    ax.set_title("Heading Evolution: Effect of Cross-Heading Pseudo-Force")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+
+    # Inclination comparison
+    lat_off = ra.get_latitude_from_downrange(data_off[0, -1])
+    heading_off_final = data_off[6, -1]
+    inc_off = earth_rot.achieved_inclination_from_local_state(
+        data_off[2, -1], data_off[3, -1], heading_off_final,
+        lat_off, data_off[1, -1])
+    print(f"\n  Inclination WITH cross-heading pseudo-force:    {inc_on:.4f} deg")
+    print(f"  Inclination WITHOUT cross-heading pseudo-force: {inc_off:.4f} deg")
+    print(f"  Difference: {inc_on - inc_off:+.4f} deg")
+
 
 if __name__ == "__main__":
     execute()

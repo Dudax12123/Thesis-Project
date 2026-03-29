@@ -43,6 +43,10 @@ current_kick_angle = 0.0  # Store current kick angle for interrupt functions
 SINGLE_BURN_FULL_SIMULATION = False
 TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
+# Inertial-frame flag: set True after ECEF→ECI transition at SECO
+# so that pseudo-forces are no longer applied during coast/orbit phases.
+PROPAGATING_IN_INERTIAL_FRAME = False
+
 # Guidance phase flags
 atmosphere_exited = False
 guidance_phase_active = False
@@ -914,8 +918,9 @@ def rocket_dynamics(t, state):
     state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
                                          a_grav, alpha, Isp)
 
-    if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES:
-        delta_dvdt, delta_dgammadt = earth_rot.rotating_frame_pseudoforce_rates(
+    delta_dheadingdt_pseudo = 0.0
+    if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES and not PROPAGATING_IN_INERTIAL_FRAME:
+        delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo = earth_rot.rotating_frame_pseudoforce_rates(
             v,
             gamma,
             heading,
@@ -932,6 +937,8 @@ def rocket_dynamics(t, state):
 
         if sim_params.TRACK_HEADING_STATE:
             dheadingdt = get_heading_rate_from_latitude(lat, dlatdt, heading)
+            if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE and not PROPAGATING_IN_INERTIAL_FRAME:
+                dheadingdt += delta_dheadingdt_pseudo
             state_differentiated.append(dheadingdt)
 
     if time_kick_start == None:
@@ -1094,6 +1101,7 @@ def run(initial_kick_angle):
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
+    global PROPAGATING_IN_INERTIAL_FRAME
     
     #===================================================
     # Reset global variables
@@ -1107,6 +1115,7 @@ def run(initial_kick_angle):
     time_main_engine_cutoff = None
     second_stage_cutoff = False
     flag_falling_single_burn = False
+    PROPAGATING_IN_INERTIAL_FRAME = False
     current_kick_angle = initial_kick_angle  # Store for use in dynamics
 
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
@@ -1299,10 +1308,10 @@ def run(initial_kick_angle):
                                            a_stop, initial_state_3[1])
             
             # The state has been converted to the inertial frame above.
-            # Pseudo-forces (Coriolis / centrifugal) must NOT be applied
-            # during inertial-frame coasting; save and restore the flag.
-            _saved_pseudo = sim_params.INCLUDE_PSEUDO_FORCES
-            sim_params.INCLUDE_PSEUDO_FORCES = False
+            # Mark that we are now propagating in the inertial frame so
+            # pseudo-forces (Coriolis / centrifugal) are automatically
+            # skipped by rocket_dynamics().
+            PROPAGATING_IN_INERTIAL_FRAME = True
             
             sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3, 
                                        False, False)
@@ -1323,9 +1332,6 @@ def run(initial_kick_angle):
             
             sol_4 = simulate_trajectory(init_time_4, time_4, initial_state_4, 
                                        False, False)
-
-            # Restore pseudo-forces flag
-            sim_params.INCLUDE_PSEUDO_FORCES = _saved_pseudo
 
             # Collect data and time steps
             data = np.concatenate((sol_1.y, sol_2.y, sol_3.y, sol_4.y), axis=1)

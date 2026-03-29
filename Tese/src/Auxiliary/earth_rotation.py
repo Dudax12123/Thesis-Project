@@ -285,6 +285,8 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
         Additive contribution to dv/dt [m/s^2]
     delta_dgammadt : float
         Additive contribution to dgamma/dt [rad/s]
+    delta_dheadingdt : float
+        Additive contribution to dheading/dt from cross-heading pseudo-forces [rad/s]
     """
     v_horizontal = v_ecef * np.cos(gamma_ecef)
     v_east = v_horizontal * np.sin(heading_ecef)
@@ -313,6 +315,11 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
         a_east * np.sin(heading_ecef) + a_north * np.cos(heading_ecef)
     )
 
+    # Cross-heading horizontal acceleration (perpendicular to heading in horizontal plane).
+    a_cross_heading = (
+        a_east * np.cos(heading_ecef) - a_north * np.sin(heading_ecef)
+    )
+
     # Projection onto velocity direction (affects dv/dt).
     delta_dvdt = a_horizontal_along_heading * np.cos(gamma_ecef) + a_up * np.sin(gamma_ecef)
 
@@ -322,7 +329,19 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
     epsilon = 1e-9
     if abs(v_ecef) < epsilon:
         delta_dgammadt = 0.0
+        delta_dheadingdt = 0.0
     else:
         delta_dgammadt = a_normal_in_plane / v_ecef
+        # Cross-heading acceleration causes heading drift (divided by horizontal speed).
+        # Use a physically meaningful threshold: heading is ill-defined when
+        # horizontal speed is very small (near-vertical flight), so suppress
+        # the cross-heading contribution below 10 m/s to avoid the coordinate
+        # singularity at gamma ≈ 90°.
+        v_horizontal = v_ecef * np.cos(gamma_ecef)
+        V_HORIZ_THRESHOLD = 10.0  # [m/s]
+        if abs(v_horizontal) < V_HORIZ_THRESHOLD:
+            delta_dheadingdt = 0.0
+        else:
+            delta_dheadingdt = a_cross_heading / v_horizontal
 
-    return delta_dvdt, delta_dgammadt
+    return delta_dvdt, delta_dgammadt, delta_dheadingdt
