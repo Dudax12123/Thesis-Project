@@ -12,6 +12,7 @@ def plot_thrust_over_time(time_steps, thrust_data, time_thrust, save_path=None, 
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Thrust [kN]')
     ax.grid(True, alpha=0.3)
+    psu.add_event_markers(ax)
     ax.legend()
     fig.tight_layout()
 

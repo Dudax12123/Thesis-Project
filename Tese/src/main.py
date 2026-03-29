@@ -131,6 +131,22 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
 
+    # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
+    from Auxiliary import rocket_specs as r_specs
+    max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
+    if m_propellant_total > max_possible_propellant:
+        print("\n" + "!"*60)
+        print("SIMULATION FAILED")
+        print("!"*60)
+        print(f"Propellant metric returned: {m_propellant_total:.0f} kg (sentinel value)")
+        print("The trajectory did not achieve the target orbit.")
+        print("Possible causes:")
+        print("  - Kick angle produces an apogee that misses the target altitude")
+        print("  - Insufficient propellant for circularization burn")
+        print("Skipping plots and orbital element display.")
+        print("!"*60 + "\n")
+        return time, data, kick_angle_optimal
+
     # Calculate final orbital elements
     r_final = data[1, -1]
     s_final = data[0, -1]

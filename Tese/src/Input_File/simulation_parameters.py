@@ -12,13 +12,13 @@ DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = False                 # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
 EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
-INCLUDE_PSEUDO_FORCES = False                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
+INCLUDE_PSEUDO_FORCES = True                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+TRACK_HEADING_STATE = True                    # if True, propagate heading as an additional state when Earth rotation is enabled
 PRINT_INCLINATION_DRIFT = True                # print achieved final inclination and drift relative to target
 
 # -------------- Guidance Mode Selection --------------
@@ -58,7 +58,7 @@ APOLLO_THRUST_MAGNITUDE_CONTROL = True          # Enable thrust magnitude contro
 # Choose how to detect when the rocket exits the atmosphere and guidance should start:
 #   "altitude": Use altitude threshold (traditional method)
 #   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
-ATMOSPHERE_EXIT_METHOD = "altitude"             # Options: "altitude", "dynamic_pressure"
+ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"             # Options: "altitude", "dynamic_pressure"
 ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
                                                  # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]

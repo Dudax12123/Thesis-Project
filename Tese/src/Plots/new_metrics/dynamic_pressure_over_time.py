@@ -13,6 +13,7 @@ def plot_dynamic_pressure_over_time(time_steps, data, save_path=None, show=False
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('q [kPa]')
     ax.grid(True, alpha=0.3)
+    psu.add_event_markers(ax)
     ax.legend()
     fig.tight_layout()
 

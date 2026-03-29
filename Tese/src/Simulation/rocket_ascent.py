@@ -1298,6 +1298,12 @@ def run(initial_kick_angle):
                                            initial_state_3[2], orbit_period_stop, 
                                            a_stop, initial_state_3[1])
             
+            # The state has been converted to the inertial frame above.
+            # Pseudo-forces (Coriolis / centrifugal) must NOT be applied
+            # during inertial-frame coasting; save and restore the flag.
+            _saved_pseudo = sim_params.INCLUDE_PSEUDO_FORCES
+            sim_params.INCLUDE_PSEUDO_FORCES = False
+            
             sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3, 
                                        False, False)
 
@@ -1317,6 +1323,9 @@ def run(initial_kick_angle):
             
             sol_4 = simulate_trajectory(init_time_4, time_4, initial_state_4, 
                                        False, False)
+
+            # Restore pseudo-forces flag
+            sim_params.INCLUDE_PSEUDO_FORCES = _saved_pseudo
 
             # Collect data and time steps
             data = np.concatenate((sol_1.y, sol_2.y, sol_3.y, sol_4.y), axis=1)

@@ -14,6 +14,7 @@ def plot_steering_angle_over_time(alpha_data, alpha_time_data, save_path=None, s
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Steering Angle [deg]')
     ax.grid(True, alpha=0.3)
+    psu.add_event_markers(ax)
     ax.legend()
     fig.tight_layout()
 

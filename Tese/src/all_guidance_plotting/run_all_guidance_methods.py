@@ -73,6 +73,14 @@ def run_guidance_method(guidance_mode, save_folder):
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
 
+    # Check for failed simulation
+    from Auxiliary import rocket_specs as r_specs
+    max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
+    if m_propellant_total > max_possible_propellant:
+        print(f"\n  SKIPPING {guidance_mode}: simulation failed (propellant metric = {m_propellant_total:.0f} kg sentinel)")
+        print("="*70 + "\n")
+        return
+
     # Calculate final orbital elements
     r_final = data[1, -1]
     v_final = data[2, -1]

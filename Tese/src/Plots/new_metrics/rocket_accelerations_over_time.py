@@ -3,9 +3,12 @@ import matplotlib.pyplot as plt
 from Plots import plot_state_utils as psu
 
 
-def plot_rocket_accelerations_over_time(time_steps, data, thrust_data, time_thrust, save_path=None, show=False):
+def plot_rocket_accelerations_over_time(time_steps, data, thrust_data, time_thrust,
+                                        alpha_data=None, alpha_time_data=None,
+                                        save_path=None, show=False):
     channels = psu.extract_state_channels(data)
-    acc = psu.compute_acceleration_components(time_steps, channels, thrust_data=thrust_data, time_thrust=time_thrust)
+    acc = psu.compute_acceleration_components(time_steps, channels, thrust_data=thrust_data, time_thrust=time_thrust,
+                                              alpha_data=alpha_data, alpha_time_data=alpha_time_data)
 
     fig, ax = plt.subplots(figsize=(11, 6))
     ax.plot(time_steps, acc['total_accel'], linewidth=2.0, label='Total dv/dt')
@@ -16,6 +19,7 @@ def plot_rocket_accelerations_over_time(time_steps, data, thrust_data, time_thru
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Acceleration [m/s^2]')
     ax.grid(True, alpha=0.3)
+    psu.add_event_markers(ax)
     ax.legend()
     fig.tight_layout()
 
