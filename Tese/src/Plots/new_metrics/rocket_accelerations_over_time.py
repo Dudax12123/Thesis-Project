@@ -15,6 +15,7 @@ def plot_rocket_accelerations_over_time(time_steps, data, thrust_data, time_thru
     ax.plot(time_steps, acc['thrust_accel'], linewidth=1.8, label='Thrust accel')
     ax.plot(time_steps, -acc['drag_accel'], linewidth=1.8, label='-Drag accel')
     ax.plot(time_steps, -acc['grav_along'], linewidth=1.8, label='-Gravity along-path')
+
     ax.set_title('Rocket Accelerations Over Time')
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Acceleration [m/s^2]')

@@ -71,7 +71,7 @@ def run_guidance_method(guidance_mode, save_folder):
     # Run full simulation with optimal parameters
     print("Running full trajectory simulation...")
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, _cor, _cent = ra.run(kick_angle_optimal)
 
     # Check for failed simulation
     from Auxiliary import rocket_specs as r_specs

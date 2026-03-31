@@ -320,6 +320,10 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
         a_east * np.cos(heading_ecef) - a_north * np.sin(heading_ecef)
     )
 
+    # --- Magnitudes of Coriolis and centrifugal acceleration vectors ---
+    coriolis_mag = np.sqrt(a_cor_east**2 + a_cor_north**2 + a_cor_up**2)
+    centrifugal_mag = np.sqrt(a_cent_east**2 + a_cent_north**2 + a_cent_up**2)
+
     # Projection onto velocity direction (affects dv/dt).
     delta_dvdt = a_horizontal_along_heading * np.cos(gamma_ecef) + a_up * np.sin(gamma_ecef)
 
@@ -344,4 +348,4 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
         else:
             delta_dheadingdt = a_cross_heading / v_horizontal
 
-    return delta_dvdt, delta_dgammadt, delta_dheadingdt
+    return delta_dvdt, delta_dgammadt, delta_dheadingdt, coriolis_mag, centrifugal_mag

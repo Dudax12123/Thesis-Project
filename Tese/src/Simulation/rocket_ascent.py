@@ -64,6 +64,10 @@ apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 alpha_history = []  # Store steering angles during guidance phase
 alpha_time_history = []  # Store corresponding time values for steering angles
 
+# Pseudo-force acceleration history for plotting
+coriolis_mag_history = []      # Store Coriolis acceleration magnitude
+centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
+
 # Earth rotation launch geometry (set in run())
 LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Active azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
@@ -919,8 +923,10 @@ def rocket_dynamics(t, state):
                                          a_grav, alpha, Isp)
 
     delta_dheadingdt_pseudo = 0.0
+    coriolis_mag_val = 0.0
+    centrifugal_mag_val = 0.0
     if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES and not PROPAGATING_IN_INERTIAL_FRAME:
-        delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo = earth_rot.rotating_frame_pseudoforce_rates(
+        delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
             v,
             gamma,
             heading,
@@ -947,8 +953,10 @@ def rocket_dynamics(t, state):
     if state_differentiated[2] < 0:
         flag_falling_single_burn = True
 
-    # Store thrust and time for later retrieval
+    # Store thrust, pseudo-force and time for later retrieval
     thrust_history.append(F_T)
+    coriolis_mag_history.append(coriolis_mag_val)
+    centrifugal_mag_history.append(centrifugal_mag_val)
     time_history.append(t)
 
     return state_differentiated
@@ -1098,6 +1106,7 @@ def run(initial_kick_angle):
     global last_guidance_update_time, guidance_coefficients
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global coriolis_mag_history, centrifugal_mag_history
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
@@ -1145,8 +1154,10 @@ def run(initial_kick_angle):
     last_guidance_update_time = 0.0
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
     
-    # Reset thrust and time history
+    # Reset thrust, pseudo-force, and time history
     thrust_history = []
+    coriolis_mag_history = []
+    centrifugal_mag_history = []
     time_history = []
     
     # Reset steering angle history
@@ -1340,16 +1351,20 @@ def run(initial_kick_angle):
     
             # Convert thrust history to numpy array for easier handling
             thrust_data = np.array(thrust_history)
+            coriolis_mag_data = np.array(coriolis_mag_history)
+            centrifugal_mag_data = np.array(centrifugal_mag_history)
             time_thrust = np.array(time_history)
             alpha_data = np.array(alpha_history)
             alpha_time_data = np.array(alpha_time_history)
     
-            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
+            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
     
     else:
         thrust_data = np.array(thrust_history)
+        coriolis_mag_data = np.array(coriolis_mag_history)
+        centrifugal_mag_data = np.array(centrifugal_mag_history)
         time_thrust = np.array(time_history)
         alpha_data = np.array(alpha_history)
         alpha_time_data = np.array(alpha_time_history)
-        return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data
+        return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 

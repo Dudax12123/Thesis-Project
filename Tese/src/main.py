@@ -129,7 +129,7 @@ def execute():
     print("="*60 + "\n")
     
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal)
 
     # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
     from Auxiliary import rocket_specs as r_specs
@@ -264,6 +264,8 @@ def execute():
         output_dir=None,
         show=True,
         close_after=False,
+        coriolis_mag_data=coriolis_mag_data,
+        centrifugal_mag_data=centrifugal_mag_data,
     )
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---
@@ -291,7 +293,7 @@ def heading_comparison_plot(time_ref, data_ref, kick_angle, inc_on):
     _saved_cross = sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE
     sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    _, data_off, _, _, _, _, _, _, _ = ra.run(kick_angle)
+    _, data_off, _, _, _, _, _, _, _, _, _ = ra.run(kick_angle)
     sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE = _saved_cross
 
     if data_off.shape[0] <= 6:
