@@ -86,6 +86,18 @@ def compute_mach(v, alt):
     return v / a
 
 
+def cutoff_index(time_array, t_cutoff):
+    """Return the index up to which *time_array* should be kept.
+
+    Returns ``len(time_array)`` when *t_cutoff* is ``None`` so callers
+    can always slice with ``[:idx]``.
+    """
+    if t_cutoff is None:
+        return len(time_array)
+    t = np.asarray(time_array)
+    return int(np.searchsorted(t, t_cutoff, side='right'))
+
+
 def interpolate_to_time(time_source, values_source, time_target):
     """Monotonic interpolation helper."""
     t_src, v_src = prepare_monotonic_series(time_source, values_source)

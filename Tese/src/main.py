@@ -303,10 +303,14 @@ def heading_comparison_plot(time_ref, data_ref, kick_angle, inc_on):
     heading_off = np.rad2deg(data_off[6, :])
     n = min(len(time_ref), data_off.shape[1])
 
+    # Truncate at SECO — heading is not propagated after ECI transition
+    from Plots.plot_state_utils import event_times, cutoff_index
+    idx = cutoff_index(time_ref[:n], event_times().get('seco'))
+
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(time_ref[:n], heading_on[:n],
+    ax.plot(time_ref[:idx], heading_on[:idx],
             label="With cross-heading pseudo-force", linewidth=1.2)
-    ax.plot(time_ref[:n], heading_off[:n],
+    ax.plot(time_ref[:idx], heading_off[:idx],
             label="Without cross-heading pseudo-force", linewidth=1.2,
             linestyle="--")
     from Plots.plot_state_utils import add_event_markers

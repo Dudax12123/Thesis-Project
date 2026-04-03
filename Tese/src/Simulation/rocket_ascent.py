@@ -942,9 +942,12 @@ def rocket_dynamics(t, state):
         state_differentiated.append(dlatdt)
 
         if sim_params.TRACK_HEADING_STATE:
-            dheadingdt = get_heading_rate_from_latitude(lat, dlatdt, heading)
-            if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE and not PROPAGATING_IN_INERTIAL_FRAME:
-                dheadingdt += delta_dheadingdt_pseudo
+            if PROPAGATING_IN_INERTIAL_FRAME:
+                dheadingdt = 0.0
+            else:
+                dheadingdt = get_heading_rate_from_latitude(lat, dlatdt, heading)
+                if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE:
+                    dheadingdt += delta_dheadingdt_pseudo
             state_differentiated.append(dheadingdt)
 
     if time_kick_start == None:
