@@ -1,0 +1,889 @@
+% =============================================================================
+%  Simulator Methodology — Thesis Section
+%  To include in a chapter: \input{simulator_methodology}
+% =============================================================================
+
+\section{Simulator Implementation}
+\label{sec:simulator_implementation}
+
+This section describes how the trajectory simulation tool is structured and how
+the theoretical principles introduced in the previous chapter are brought
+together into a working ascent simulator.  The discussion covers the overall
+software architecture, the reference frames adopted, the equations of motion
+actually integrated, the environmental and force models, the guidance laws
+available, and the optimisation strategy used to find the best initial
+conditions.  Vehicle parameters representative of a Falcon~9-class launcher
+close the section.
+
+% -----------------------------------------------------------------------------
+\subsection{Simulation Architecture and Workflow}
+\label{ssec:sim_architecture}
+
+The simulator is organised around three successive mission phases, each
+resolved by a separate call to the numerical integrator:
+
+\begin{enumerate}
+  \item \textbf{Stage~1 powered ascent.}  From lift-off until first-stage
+        propellant depletion (Main Engine Cut-Off, MECO).  During this phase
+        the vehicle follows an initial vertical rise, a pitchover kick
+        manoeuvre, and atmospheric flight with aerodynamic drag.
+
+  \item \textbf{Stage~2 powered ascent with guidance.}  After stage separation
+        and a brief coast interval, the second-stage engine ignites.  An active
+        guidance law (selected from five available modes) shapes the trajectory
+        until the event-triggered Second Engine Cut-Off (SECO), which occurs
+        when the instantaneous apogee of the coasting trajectory matches the
+        target orbital altitude.
+
+  \item \textbf{Ballistic coast and circularisation.}  The vehicle coasts
+        unpowered to apogee, where an impulsive circularisation burn is applied
+        to achieve the target circular orbit.  A final short coast in stable
+        orbit concludes the simulation.
+\end{enumerate}
+
+\subsubsection{State Vector}
+
+The base state vector integrated by the solver is
+\begin{equation}
+  \mathbf{x} = \bigl[\,s,\; r,\; v,\; \gamma,\; m\,\bigr]^T,
+  \label{eq:state_base}
+\end{equation}
+where $s$ is the downrange distance along the Earth surface, $r$ is the
+geocentric radius, $v$ is the velocity magnitude in the rotating frame,
+$\gamma$ is the flight-path angle, and $m$ is the vehicle mass.
+
+When Earth-rotation effects are enabled, the state is extended to include
+geocentric latitude~$\phi$:
+\begin{equation}
+  \mathbf{x} = \bigl[\,s,\; r,\; v,\; \gamma,\; m,\; \phi\,\bigr]^T.
+  \label{eq:state_rot}
+\end{equation}
+
+If heading tracking is additionally activated, the local heading (azimuth)
+$\psi$ becomes the seventh state component:
+\begin{equation}
+  \mathbf{x} = \bigl[\,s,\; r,\; v,\; \gamma,\; m,\; \phi,\; \psi\,\bigr]^T.
+  \label{eq:state_heading}
+\end{equation}
+
+\subsubsection{Numerical Integration}
+
+Each mission phase is propagated with an explicit Runge--Kutta~4(5) scheme
+(Dormand--Prince variant) provided by \texttt{scipy.integrate.solve\_ivp}.  The
+solver uses adaptive step-size control with an absolute tolerance of
+$10^{-8}$, a maximum integration step of $1$~s, and a dense-output time
+resolution of $0.01$~s.
+
+Phase transitions are handled through \emph{event functions}: scalar functions
+of the state that the integrator monitors for zero-crossings.  When a crossing
+is detected the integrator performs root-finding to locate the exact transition
+time and terminates the current phase.  Events used include propellant
+depletion (MECO), stage separation timing, atmosphere exit, target-apogee
+matching (SECO), and ground-collision safeguards.
+
+\subsubsection{Architecture Overview}
+
+Figure~\ref{fig:sim_architecture} shows the high-level data flow.  An outer
+optimisation loop varies the initial kick angle supplied to the simulation
+engine.  Inside each simulation call, the equations of motion are evaluated at
+every integrator step using the current environmental models (gravity,
+atmosphere) and the active guidance law to compute the steering command.  Event
+functions run concurrently and trigger phase switches when their conditions are
+met.  After the full trajectory is obtained, the optimiser evaluates the
+objective function and proceeds to the next candidate.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+      >=latex,
+      block/.style  = {draw, rounded corners, minimum height=1.0cm,
+                        minimum width=2.6cm, align=center, font=\small},
+      smallblock/.style = {draw, rounded corners, minimum height=0.8cm,
+                        minimum width=2.2cm, align=center, font=\footnotesize},
+      arrow/.style  = {->, thick},
+      darrow/.style = {<->, thick},
+    ]
+
+    % Optimisation loop
+    \node[block, fill=blue!12] (opt) {Optimisation\\Loop};
+
+    % Simulation engine
+    \node[block, fill=green!10, right=2.2cm of opt] (sim) {Simulation\\Engine};
+
+    % Inner modules (below sim)
+    \node[smallblock, fill=orange!10, below left=1.4cm and -0.3cm of sim]
+          (guid) {Guidance\\Module};
+    \node[smallblock, fill=orange!10, below=1.4cm of sim]
+          (eom) {Equations\\of Motion};
+    \node[smallblock, fill=orange!10, below right=1.4cm and -0.3cm of sim]
+          (env) {Environment\\Models};
+
+    % Event detection
+    \node[block, fill=red!10, right=2.2cm of sim] (evt) {Event\\Detection};
+
+    % Outputs
+    \node[block, fill=gray!12, right=2.2cm of evt] (out) {Trajectory\\Outputs};
+
+    % Arrows
+    \draw[arrow] (opt) -- node[above, font=\footnotesize]{$\alpha_{\text{kick}}$} (sim);
+    \draw[arrow] (sim) -- (evt);
+    \draw[arrow] (evt) -- (out);
+    \draw[arrow] (out.south) -- ++(0,-1.2) -| node[near start, below, font=\footnotesize]{$J(\alpha)$} (opt.south);
+
+    % Inner connections
+    \draw[arrow] (sim) -- (guid);
+    \draw[arrow] (sim) -- (eom);
+    \draw[arrow] (sim) -- (env);
+    \draw[arrow] (guid) -- (eom);
+    \draw[arrow] (env) -- (eom);
+
+  \end{tikzpicture}
+  \caption{High-level architecture of the trajectory simulator.  The
+           optimisation loop feeds candidate kick angles into the simulation
+           engine, which dispatches environment evaluations and guidance
+           commands to the equations of motion at each integration step.  Event
+           detection triggers phase transitions and engine cutoff.  The
+           resulting trajectory is scored and fed back to the optimiser.}
+  \label{fig:sim_architecture}
+\end{figure}
+
+% -----------------------------------------------------------------------------
+\subsection{Reference Frames}
+\label{ssec:reference_frames}
+
+The simulator employs a mixed-frame strategy that keeps guidance and
+atmosphere coupling straightforward while preserving correct orbital-mechanics
+metrics.
+
+\begin{itemize}
+  \item \textbf{Rotating frame (ECEF-like).}  All ascent dynamics quantities
+        --- velocity magnitude~$v$, flight-path angle~$\gamma$, and heading
+        decomposition --- are expressed in a frame that co-rotates with the
+        Earth.  This simplifies the treatment of aerodynamic drag, which
+        depends on the velocity relative to the atmosphere.
+
+  \item \textbf{Inertial frame (ECI).}  Orbital-energy and orbital-element
+        calculations (semi-major axis, eccentricity, apogee radius) are
+        performed in an Earth-Centred Inertial frame.  This is essential for
+        correct event detection (e.g.\ target-apogee matching) and end-of-run
+        orbit characterisation.
+
+  \item \textbf{Local East--North--Up (ENU).}  Pseudo-force accelerations
+        (Coriolis and centrifugal) are first evaluated in the local ENU basis at
+        the vehicle's current latitude, then projected onto the along-heading
+        and radial directions used by the equations of motion.
+\end{itemize}
+
+\subsubsection{Frame Transition During Flight}
+
+During powered ascent and early coasting the integration proceeds in the
+rotating frame with optional pseudo-force corrections.  Once the vehicle
+reaches the final ballistic coast phase (post-SECO), the propagation switches
+to pure inertial dynamics: pseudo-force terms are deactivated to avoid
+introducing spurious accelerations when the trajectory is governed solely by
+two-body gravity.
+
+\subsubsection{ECEF-to-ECI Velocity Conversion}
+
+At any instant the local rotating-frame velocity components are converted to
+their inertial counterparts by adding the Earth's rotational eastward speed.
+The horizontal velocity magnitude is $v_h = v\cos\gamma$, which decomposes as
+\begin{equation}
+  v_N = v_h\cos\psi, \qquad
+  v_E^{\text{ECEF}} = v_h\sin\psi.
+  \label{eq:vel_ecef}
+\end{equation}
+
+Adding Earth rotation yields
+\begin{equation}
+  v_E^{\text{ECI}} = v_E^{\text{ECEF}} + \Omega_E\, r\cos\phi,
+  \label{eq:ve_eci}
+\end{equation}
+from which the inertial speed and flight-path angle follow:
+\begin{align}
+  v_{\text{ECI}} &= \sqrt{\bigl(v_E^{\text{ECI}}\bigr)^2 + v_N^2
+                    + \bigl(v\sin\gamma\bigr)^2}, \label{eq:v_eci} \\[4pt]
+  \gamma_{\text{ECI}} &= \operatorname{atan2}\!\bigl(v\sin\gamma,\;
+                    \sqrt{\bigl(v_E^{\text{ECI}}\bigr)^2 + v_N^2}\;\bigr).
+                    \label{eq:gamma_eci}
+\end{align}
+
+These inertial quantities are used whenever orbital elements are computed.
+
+% -----------------------------------------------------------------------------
+\subsection{Launch Azimuth and Heading}
+\label{ssec:azimuth_heading}
+
+\subsubsection{Launch Azimuth Determination}
+\label{sssec:launch_azimuth}
+
+The launch azimuth defines the initial heading of the ascent trajectory in the
+horizontal plane and directly controls the achievable orbital inclination.
+Two modes are available.
+
+\paragraph{Geometric (inertial) azimuth.}
+Given a target inclination~$i$ and launch latitude~$\phi$, the classical
+spherical-geometry relation gives the inertial azimuth measured from true
+north:
+\begin{equation}
+  \sin\beta_{\text{geom}} = \frac{\cos i}{\cos\phi}.
+  \label{eq:az_geom}
+\end{equation}
+
+\paragraph{Corrected (rotating-frame) azimuth.}
+Because the rotating-frame velocity seen by the guidance system differs from
+the inertial velocity by the eastward surface speed, the launch azimuth is
+corrected:
+\begin{equation}
+  v_{\text{rot}} = \Omega_E\, R_E\cos\phi,
+  \label{eq:vrot}
+\end{equation}
+\begin{align}
+  v_N &= v_{\text{orb}}\cos\beta_{\text{geom}}, \label{eq:vn_corr} \\
+  v_E^{\text{ECEF}} &= v_{\text{orb}}\sin\beta_{\text{geom}} - v_{\text{rot}},
+  \label{eq:ve_corr}
+\end{align}
+where $v_{\text{orb}} = \sqrt{\mu/r_{\text{target}}}$ is the circular speed at
+the target altitude.  The corrected azimuth is then
+\begin{equation}
+  \beta_{\text{corr}} = \operatorname{atan2}\!\bigl(v_E^{\text{ECEF}},\, v_N\bigr).
+  \label{eq:az_corr}
+\end{equation}
+
+The simulator defaults to the corrected mode; a configuration flag may select
+the geometric mode instead.
+
+\subsubsection{Heading Propagation}
+\label{sssec:heading_propagation}
+
+When heading tracking is enabled, the local azimuth $\psi$ is propagated as a
+state variable.  Its rate is computed from spherical-geometry consistency with
+the great-circle ground track:
+\begin{equation}
+  \dot\psi = \tan\phi\;\tan\psi\;\dot\phi,
+  \label{eq:psi_dot}
+\end{equation}
+where $\dot\phi$ is obtained from the latitude kinematic relation detailed in
+Section~\ref{ssec:eom}.  An optional cross-heading pseudo-force contribution
+may be added:
+\begin{equation}
+  \dot\psi \mathrel{+}= \frac{a_{\perp}}{v\cos\gamma},
+  \label{eq:psi_pseudo}
+\end{equation}
+with $a_{\perp}$ the component of the Coriolis and centrifugal acceleration
+perpendicular to the heading direction (see Section~\ref{sssec:pseudo_forces}).
+
+\subsubsection{Achieved Inclination}
+\label{sssec:achieved_inclination}
+
+At the end of the simulation the achieved orbital inclination is evaluated by
+converting the final rotating-frame velocity to inertial components using
+Eqs.~\eqref{eq:vel_ecef}--\eqref{eq:ve_eci} and computing the inertial
+velocity azimuth:
+\begin{equation}
+  \beta_{\text{ECI}} = \operatorname{atan2}\!\bigl(v_E^{\text{ECI}},\, v_N\bigr).
+  \label{eq:beta_eci}
+\end{equation}
+
+The inclination follows from the classical relation:
+\begin{equation}
+  \cos i_{\text{achieved}} = \cos\phi\;\sin\beta_{\text{ECI}}.
+  \label{eq:inc_achieved}
+\end{equation}
+
+The inclination drift $\Delta i = i_{\text{achieved}} - i_{\text{target}}$ is
+a valuable metric for assessing the fidelity of the rotating-frame treatment
+and the effectiveness of the heading-tracking augmentation.
+
+% -----------------------------------------------------------------------------
+\subsection{Equations of Motion}
+\label{ssec:eom}
+
+\subsubsection{Base Dynamics (Non-Rotating Form)}
+
+The core differential system, expressed in spherical coordinates before
+optional pseudo-force augmentation, is
+\begin{align}
+  \dot s      &= \frac{R_E}{r}\,v\cos\gamma,
+               \label{eq:sdot}\\[3pt]
+  \dot r      &= v\sin\gamma,
+               \label{eq:rdot}\\[3pt]
+  \dot v      &= \frac{F_T}{m}\cos\alpha
+                 - \frac{F_D}{m}
+                 - g(r)\sin\gamma,
+               \label{eq:vdot}\\[3pt]
+  \dot\gamma  &= \frac{1}{v}\!\left(
+                   \frac{F_T}{m}\sin\alpha
+                   + \frac{F_L}{m}
+                   - \Bigl[g(r) - \frac{v^2}{r}\Bigr]\cos\gamma
+                 \right),
+               \label{eq:gammadot}\\[3pt]
+  \dot m      &= -\frac{F_T}{I_{sp}\,g_0},
+               \label{eq:mdot}
+\end{align}
+where $\alpha$ is the angle of attack (steering command from the guidance law),
+$F_T$ and $I_{sp}$ are the current thrust and specific impulse, $F_D$ is
+aerodynamic drag, $F_L$ is lift (set to zero in the present implementation),
+and $g(r) = \mu/r^2$ is the gravitational acceleration.
+
+The term $v^2/r$ in Eq.~\eqref{eq:gammadot} represents the centripetal
+acceleration arising from the curved trajectory; when $v^2/r$ exceeds
+$g\cos\gamma$ the net effect tends to raise the flight-path angle.
+
+Two numerical safeguards are applied:
+\begin{itemize}
+  \item \emph{Small-velocity guard:} when $v < 10^{-6}$\,m/s the angular rate
+        $\dot\gamma$ is forced to zero to prevent a singularity.
+  \item \emph{Vertical-hold constraint:} during the initial vertical rise
+        (before the pitchover kick begins) $\dot\gamma$ is explicitly set to
+        zero regardless of geometric terms.
+\end{itemize}
+
+\subsubsection{Rotating-Frame Augmentation}
+
+When Earth-rotation effects are enabled, Coriolis and centrifugal
+accelerations computed in the local ENU frame (see
+Section~\ref{sssec:pseudo_forces}) are projected onto the along-heading and
+radial directions:
+\begin{equation}
+  a_{h,\parallel} = a_E\sin\psi + a_N\cos\psi,
+  \label{eq:a_parallel}
+\end{equation}
+where $a_E$ and $a_N$ collect both Coriolis and centrifugal components.
+The additive corrections to the velocity and flight-path-angle rates are
+\begin{align}
+  \Delta\dot v     &= a_{h,\parallel}\cos\gamma + a_{\text{up}}\sin\gamma,
+                    \label{eq:dv_pseudo}\\[3pt]
+  \Delta\dot\gamma &= \frac{-a_{h,\parallel}\sin\gamma
+                      + a_{\text{up}}\cos\gamma}{v},
+                    \label{eq:dgamma_pseudo}
+\end{align}
+so that the integrated rates become
+$\dot v_{\text{tot}} = \dot v + \Delta\dot v$ and
+$\dot\gamma_{\text{tot}} = \dot\gamma + \Delta\dot\gamma$.
+
+\subsubsection{Latitude Propagation}
+
+Rather than integrating a differential latitude rate directly, the simulator
+reconstructs latitude from the downrange angle using great-circle geometry,
+which avoids numerical drift:
+\begin{equation}
+  \sigma = \frac{s}{R_E}, \qquad
+  \sin\phi = \sin\phi_0\cos\sigma + \cos\phi_0\sin\sigma\cos\beta_0,
+  \label{eq:lat_recon}
+\end{equation}
+where $\phi_0$ is the launch latitude and $\beta_0$ is the inertial launch
+azimuth.  The latitude rate required by the heading equation
+\eqref{eq:psi_dot} is obtained by differentiating analytically:
+\begin{equation}
+  \dot\phi = \frac{-\sin\phi_0\sin\sigma
+    + \cos\phi_0\cos\sigma\cos\beta_0}{\cos\phi}\;\frac{\dot s}{R_E}.
+  \label{eq:phidot}
+\end{equation}
+
+% -----------------------------------------------------------------------------
+\subsection{Environmental Models}
+\label{ssec:env_models}
+
+\subsubsection{Gravitational Model}
+\label{sssec:gravity}
+
+Gravity is modelled as a central inverse-square field:
+\begin{equation}
+  g(r) = \frac{\mu}{r^2},
+  \label{eq:gravity}
+\end{equation}
+with $\mu = 3.986\times10^{14}$\,m$^3$\,s$^{-2}$.  The Earth is assumed
+spherical; higher-order harmonics such as $J_2$ are not included.
+
+\subsubsection{Atmospheric Model}
+\label{sssec:atmosphere}
+
+Atmospheric density follows an exponential profile:
+\begin{equation}
+  \rho(h) = \rho_0\,\exp\!\left(-\frac{h}{H}\right),
+  \qquad h = r - R_E,
+  \label{eq:atmosphere}
+\end{equation}
+with sea-level density $\rho_0 = 1.225$\,kg\,m$^{-3}$ and scale height
+$H = 8500$\,m.  The dynamic pressure is $q = \tfrac{1}{2}\rho\,v^2$.
+
+Two criteria are available for declaring atmosphere exit and
+activating exo-atmospheric guidance:
+\begin{itemize}
+  \item \emph{Altitude threshold:} $h > 65$\,km.
+  \item \emph{Dynamic-pressure threshold:} $q < 1000$\,Pa (configurable).
+\end{itemize}
+The selected criterion is a simulation parameter.
+
+% -----------------------------------------------------------------------------
+\subsection{External Forces}
+\label{ssec:forces}
+
+\subsubsection{Aerodynamic Forces}
+\label{sssec:aero}
+
+The aerodynamic drag force opposing the velocity vector is
+\begin{equation}
+  F_D = q\,C_D\,A = \tfrac{1}{2}\,\rho\,v^2\,C_D\,A,
+  \label{eq:drag}
+\end{equation}
+with constant drag coefficient $C_D = 0.3$ and reference area $A = 10.52$\,m$^2$.
+A lift model is available in the formulation (Eq.~\ref{eq:gammadot}), but in
+all analyses presented here lift is neglected ($F_L = 0$).
+
+\subsubsection{Propulsive Forces}
+\label{sssec:propulsion}
+
+Thrust magnitude $F_T$ and specific impulse $I_{sp}$ are stage-dependent
+constants that change at discrete events (MECO, stage separation, second-stage
+ignition, SECO).  Thrust is directed at an angle of attack $\alpha$ relative
+to the velocity vector; $\alpha$ is the primary control variable and is
+determined at each integration step by the active guidance law
+(Section~\ref{ssec:guidance}).
+
+The resulting vehicle mass depletion obeys
+\begin{equation}
+  \dot m = -\frac{F_T}{I_{sp}\,g_0},
+  \label{eq:mdot_prop}
+\end{equation}
+where $g_0 = 9.80665$\,m\,s$^{-2}$ is the standard gravitational acceleration.
+
+\subsubsection{Pseudo-Forces (Earth Rotation)}
+\label{sssec:pseudo_forces}
+
+When the integration is performed in the rotating frame with Earth-rotation
+corrections enabled, inertial pseudo-accelerations are applied.
+
+\paragraph{Coriolis acceleration.}
+In the local ENU basis at latitude $\phi$:
+\begin{align}
+  a_E^{\text{cor}} &= -2\Omega_E\cos\phi\;v_{\text{up}}
+                      + 2\Omega_E\sin\phi\;v_N,
+                    \label{eq:cor_e} \\
+  a_N^{\text{cor}} &= -2\Omega_E\sin\phi\;v_E,
+                    \label{eq:cor_n} \\
+  a_{\text{up}}^{\text{cor}} &= 2\Omega_E\cos\phi\;v_E.
+                    \label{eq:cor_u}
+\end{align}
+
+\paragraph{Centrifugal acceleration.}
+\begin{align}
+  a_E^{\text{cen}} &= 0,
+                    \label{eq:cen_e} \\
+  a_N^{\text{cen}} &= -\Omega_E^2\,r\,\sin\phi\cos\phi,
+                    \label{eq:cen_n} \\
+  a_{\text{up}}^{\text{cen}} &= \Omega_E^2\,r\,\cos^2\!\phi.
+                    \label{eq:cen_u}
+\end{align}
+
+\paragraph{Projection onto flight-dynamics directions.}
+The total pseudo-acceleration in each ENU direction is summed ($a_E = a_E^{\text{cor}} + a_E^{\text{cen}}$, etc.) and then projected onto the heading direction and the vertical:
+\begin{align}
+  a_{h,\parallel} &= a_E\sin\psi + a_N\cos\psi
+    & &\text{(along-heading)}, \label{eq:a_par} \\
+  a_{h,\perp}     &= a_E\cos\psi - a_N\sin\psi
+    & &\text{(cross-heading)}, \label{eq:a_perp}
+\end{align}
+with $a_{\text{up}}$ retained for the radial direction.
+
+The along-heading and up components enter the velocity and flight-path-angle
+corrections (Eqs.~\ref{eq:dv_pseudo}--\ref{eq:dgamma_pseudo}).  If cross-heading
+pseudo-force tracking is enabled, $a_{h,\perp}$ contributes to the heading
+rate via Eq.~\eqref{eq:psi_pseudo}.
+
+% -----------------------------------------------------------------------------
+\subsection{Performance Metrics}
+\label{ssec:performance}
+
+\subsubsection{Orbital Elements}
+\label{sssec:orbital_elements}
+
+Once the velocity is converted to the inertial frame
+(Eqs.~\ref{eq:v_eci}--\ref{eq:gamma_eci}), the standard two-body orbital
+elements are computed:
+\begin{align}
+  a &= \frac{\mu\,r}{2\mu - r\,v_{\text{ECI}}^2},
+    \label{eq:sma}\\[3pt]
+  e &= \sqrt{1 - \frac{\bigl(r\,v_{\text{ECI}}\cos\gamma_{\text{ECI}}\bigr)^2}
+       {\mu\,a}},
+    \label{eq:ecc}\\[3pt]
+  r_{\text{apo}} &= a\,(1+e), \qquad
+  r_{\text{peri}} = a\,(1-e).
+  \label{eq:apsides}
+\end{align}
+
+These quantities are evaluated continuously during Stage~2 powered flight: the
+apogee radius $r_{\text{apo}}$ is compared with the target orbital radius in
+the SECO event function (Section~\ref{sssec:seco_event}).
+
+\subsubsection{Circularisation \texorpdfstring{$\Delta v$}{Delta-v}}
+\label{sssec:circ_dv}
+
+At apogee the velocity deficit with respect to a circular orbit is
+\begin{equation}
+  \Delta v_{\text{circ}} = \left|v_{\text{circ}} - v_{\text{apo}}\right|,
+  \qquad v_{\text{circ}} = \sqrt{\frac{\mu}{r_{\text{target}}}},
+  \label{eq:dv_circ}
+\end{equation}
+where $v_{\text{apo}}$ is the coast-phase velocity at apogee.  The propellant
+mass required for this impulsive burn follows from the Tsiolkovsky equation:
+\begin{equation}
+  m_{\text{prop,circ}} = m_{\text{apo}}\!\left(1 - \exp\!\left[
+    -\frac{\Delta v_{\text{circ}}}{I_{sp}\,g_0}\right]\right).
+  \label{eq:mprop_circ}
+\end{equation}
+
+\subsubsection{Trajectory Losses and Gains}
+\label{sssec:losses_gains}
+
+The total velocity change delivered by the propulsion system exceeds the ideal
+circular-orbit speed because several loss mechanisms are present during the
+ascent:
+
+\begin{itemize}
+  \item \textbf{Gravity losses} arise because a component of gravity opposes the
+        velocity during non-horizontal flight, so that not all thrust translates
+        into kinetic-energy gain. These losses are most significant during the
+        steep early ascent and are on the order of
+        $1000$\,m\,s$^{-1}$ for a typical mission.
+
+  \item \textbf{Drag losses} result from aerodynamic deceleration in the
+        lower atmosphere, typically contributing ${\sim}100$\,m\,s$^{-1}$.
+
+  \item \textbf{Steering losses} occur when the thrust vector is not aligned
+        with the velocity direction ($\alpha \neq 0$), reducing the effective
+        thrust along the trajectory.  Their magnitude depends on the guidance
+        law and can reach several hundred m\,s$^{-1}$.
+\end{itemize}
+
+A positive contribution comes from \textbf{Earth rotation}: the launch site's
+eastward surface velocity provides a free initial velocity increment
+\begin{equation}
+  \Delta v_{\text{rot}} = v_{\text{rot}}\sin\beta
+  = \Omega_E\,R_E\cos\phi\;\sin\beta,
+  \label{eq:dv_rot}
+\end{equation}
+where $\beta$ is the launch azimuth.  For an eastward launch from latitude
+$28.5°$ this gain is approximately $410$\,m\,s$^{-1}$, a non-negligible
+fraction of the orbital velocity budget.
+
+% -----------------------------------------------------------------------------
+\subsection{Guidance Laws}
+\label{ssec:guidance}
+
+Five guidance strategies are available in the simulator.  All share a common
+initial pitchover manoeuvre; they differ in how the angle of attack~$\alpha$ is
+computed after the vehicle exits the atmosphere.
+
+\subsubsection{Common Initial Kick Phase}
+\label{sssec:kick_phase}
+
+Regardless of the guidance mode selected, the first seconds of flight follow
+the same pitch programme.  The vehicle rises vertically until time $T_k$
+(nominally $7.5$\,s), then executes a symmetric triangular pitchover manoeuvre
+over a duration $\Delta T_k$ ($45$\,s):
+\begin{equation}
+  \alpha(t) =
+  \begin{cases}
+    0, & t < T_k, \\[2pt]
+    \displaystyle\alpha_k\;\frac{2(t - T_k)}{\Delta T_k},
+      & T_k \le t < T_k + \tfrac{\Delta T_k}{2}, \\[6pt]
+    \displaystyle\alpha_k\;2\!\left(1 - \frac{t - T_k}{\Delta T_k}\right),
+      & T_k + \tfrac{\Delta T_k}{2} \le t < T_k + \Delta T_k, \\[6pt]
+    0, & t \ge T_k + \Delta T_k,
+  \end{cases}
+  \label{eq:kick_profile}
+\end{equation}
+where $\alpha_k$ is the \emph{initial kick angle}, the single design variable
+optimised by the trajectory optimiser (Section~\ref{ssec:optimisation}).
+Typical optimum values lie in the range $\alpha_k \in [-5°,\,-2°]$.
+
+After the kick concludes and until the atmosphere-exit criterion is met,
+$\alpha$ is held at zero.  Active guidance is then engaged.
+
+\subsubsection{Gravity Turn}
+\label{sssec:gt}
+
+The gravity-turn mode applies no active steering after the initial kick:
+\begin{equation}
+  \alpha(t) = 0, \qquad \forall\; t > T_k + \Delta T_k.
+  \label{eq:gt}
+\end{equation}
+
+The trajectory is shaped exclusively by gravity and the initial conditions.
+This constitutes the simplest guidance baseline.
+
+\subsubsection{Simple Polynomial}
+\label{sssec:simple_poly}
+
+Upon atmosphere exit, a linear steering law drives the flight-path angle toward
+zero (horizontal flight for circular-orbit insertion):
+\begin{equation}
+  \alpha(\tau) = a_0 + a_1\,\tau,
+  \label{eq:simple_poly}
+\end{equation}
+where $\tau = t_{\text{go}} / 100$ is a normalised time-to-go parameter, and
+the coefficients are determined from the boundary conditions
+\begin{equation}
+  a_0 = \gamma_{\text{target}} = 0, \qquad
+  a_1 = \gamma_{\text{current}}.
+  \label{eq:simple_poly_bc}
+\end{equation}
+
+The time-to-go is estimated from the remaining altitude and the current radial
+velocity component.  Coefficients are recomputed at a guidance update rate of
+$0.5$\,s.
+
+\subsubsection{Linear Tangent Steering}
+\label{sssec:lts}
+
+Linear tangent steering prescribes that the tangent of the total velocity
+inclination angle $(\alpha + \gamma)$ varies linearly with time-to-go:
+\begin{equation}
+  \tan\bigl(\alpha + \gamma\bigr) = a\;t_{\text{go}} + b.
+  \label{eq:lts}
+\end{equation}
+
+The boundary conditions are:
+\begin{itemize}
+  \item Terminal horizontal flight: $\tan(\alpha_f + \gamma_f) = 0$
+        at $t_{\text{go}} = 0$, giving $b = 0$.
+  \item Current-state continuity: at the present $t_{\text{go}}$,
+        $\tan(\gamma) = a\;t_{\text{go}}$, giving
+        $a = \tan\gamma / t_{\text{go}}$.
+\end{itemize}
+
+The commanded angle of attack is therefore
+\begin{equation}
+  \alpha = \arctan\!\bigl(a\;t_{\text{go}}\bigr) - \gamma.
+  \label{eq:lts_alpha}
+\end{equation}
+
+This classical method provides smooth, monotonic inclination control and
+is updated every $0.5$\,s.
+
+\subsubsection{Bilinear Tangent Steering}
+\label{sssec:bts}
+
+The bilinear tangent law generalises linear tangent steering by representing
+the inclination-angle tangent as a ratio of two linear functions of
+$t_{\text{go}}$:
+\begin{equation}
+  \tan\bigl(\alpha + \gamma\bigr)
+    = \frac{c_1\,t_{\text{go}} + c_2}
+           {c_1'\,t_{\text{go}} + c_2'}.
+  \label{eq:bts}
+\end{equation}
+
+The four coefficients are determined from four boundary conditions:
+\begin{enumerate}
+  \item \emph{Terminal value}: $c_2 = 0$,
+        enforcing $\tan(\alpha_f + \gamma_f) = 0$ at $t_{\text{go}} = 0$.
+  \item \emph{Terminal rate}: $c_1$ is set to a small constant
+        (nominally $0.02$) to ensure a smooth, non-abrupt approach to
+        horizontal flight.
+  \item \emph{Normalisation}: $c_2' = 1$ removes the scaling ambiguity.
+  \item \emph{Initial value}: $c_1'$ is computed so that the inclination
+        at the current $t_{\text{go}}$ matches a blended target:
+        \begin{equation}
+          \gamma_{\text{blended}} = 0.7\;\gamma_{\text{current}}
+            + 0.3\;\gamma_{\text{targeting}},
+          \label{eq:gamma_blend}
+        \end{equation}
+        where $\gamma_{\text{targeting}}$ is a geometric estimate of the
+        flight-path angle required to reach the target altitude over the
+        remaining downrange distance.
+\end{enumerate}
+
+The bilinear form controls both the value and the rate of change of the
+inclination angle at the terminal point, providing smoother orbit insertion
+than the purely linear variant.
+
+\subsubsection{Apollo Polynomial Guidance}
+\label{sssec:apollo}
+
+The most sophisticated guidance mode follows the explicit polynomial approach
+originating from the Apollo programme.  Two independent channels command the
+total acceleration in the downrange ($x$) and altitude ($y$) directions:
+\begin{align}
+  a_x(t) &= k_1\,(t - t_{\text{epoch}}) + k_2, \label{eq:apollo_ax} \\
+  a_y(t) &= k_3\,(t - t_{\text{epoch}}) + k_4, \label{eq:apollo_ay}
+\end{align}
+where $t_{\text{epoch}}$ is the time at which the coefficients were last
+recomputed.
+
+\paragraph{Terminal constraints.}
+The four coefficients $k_1,\dots,k_4$ are chosen to satisfy position and
+velocity constraints at the target orbital altitude:
+\begin{itemize}
+  \item reach the target geocentric radius $r_f$,
+  \item attain the local circular-orbit velocity
+        $v_f = \sqrt{\mu / r_f}$ in the horizontal direction,
+  \item achieve zero radial velocity ($\gamma_f = 0$).
+\end{itemize}
+
+The resulting expressions, derived from polynomial interpolation over the
+interval $t_{\text{go}}$, are (shown for one generic channel with initial
+state subscript~$i$ and final subscript~$f$):
+\begin{align}
+  k_1 &= \frac{6\,(v_f + v_i)\,t_{\text{go}}
+          - 12\,(x_f - x_i)}{t_{\text{go}}^3},
+        \label{eq:apollo_k1} \\[4pt]
+  k_2 &= \frac{-2\,(v_f + 2\,v_i)\,t_{\text{go}}
+          + 6\,(x_f - x_i)}{t_{\text{go}}^2}.
+        \label{eq:apollo_k2}
+\end{align}
+
+Since the downrange target position is not known a~priori, it is estimated from
+the current orbital elements by predicting where the unpowered trajectory would
+intersect the target altitude.
+
+\paragraph{Coefficient freezing.}
+As $t_{\text{go}} \to 0$ the denominators $t_{\text{go}}^3$ and
+$t_{\text{go}}^2$ drive the coefficients toward very large values.  To prevent
+numerical instability the coefficients are frozen at their last computed values
+once $t_{\text{go}}$ falls below a configurable threshold (nominally $10$\,s).
+
+\paragraph{Steering-angle extraction.}
+The total acceleration commanded by Eqs.~\eqref{eq:apollo_ax}--\eqref{eq:apollo_ay}
+includes the gravitational contribution.  The thrust-only acceleration is
+obtained by subtracting the local gravity vector, and the angle of attack is
+then
+\begin{equation}
+  \alpha = \arctan\!\left(\frac{a_y^{\text{thrust}}}{a_x^{\text{thrust}}}\right)
+           - \arctan\!\left(\frac{v_y}{v_x}\right).
+  \label{eq:apollo_alpha}
+\end{equation}
+
+An optional thrust-magnitude-control mode allows the engine throttle to follow
+the commanded acceleration magnitude
+$|\mathbf{a}_{\text{thrust}}| = \sqrt{(a_x^{\text{thrust}})^2 +
+(a_y^{\text{thrust}})^2}$, converting it to a thrust force via $F_T = m\,
+|\mathbf{a}_{\text{thrust}}|$, limited by the maximum available thrust.
+
+% -----------------------------------------------------------------------------
+\subsection{Trajectory Optimisation}
+\label{ssec:optimisation}
+
+\subsubsection{Problem Formulation}
+\label{sssec:opt_formulation}
+
+The optimisation seeks the initial kick angle $\alpha_k$ that minimises the
+total propellant consumption required to reach the target circular orbit:
+\begin{equation}
+  \min_{\alpha_k}\; J(\alpha_k)
+    = m_{\text{prop,ascent}}(\alpha_k)
+    + m_{\text{prop,circ}}(\alpha_k).
+  \label{eq:obj}
+\end{equation}
+
+The single design variable is bounded:
+$\alpha_k \in [\alpha_{\min},\,\alpha_{\max}]$ (nominally $[-5°,\,-2°]$).
+
+Three soft constraints are enforced through a large penalty value
+($J = 10^9$\,kg) applied when any condition is violated:
+\begin{enumerate}
+  \item propellant required for circularisation exceeds the available supply,
+  \item the circularisation burn duration exceeds a maximum limit
+        (nominally $15$\,s),
+  \item the achieved apogee deviates from the target by more than $0.2\,\%$.
+\end{enumerate}
+
+\subsubsection{Optimisation Algorithm}
+\label{sssec:opt_algorithm}
+
+Because the objective function is non-smooth --- discrete events such as
+staging, engine ignitions, and cutoffs introduce discontinuities --- a
+gradient-free approach is used.  A brute-force grid search evaluates
+$J(\alpha_k)$ at $N = 1000$ uniformly spaced points across
+$[\alpha_{\min},\,\alpha_{\max}]$ and selects the global minimum.  No local
+refinement step is applied.
+
+The grid resolution is approximately $0.003°$, which is sufficient for
+engineering accuracy.  With each trajectory evaluation taking on the order of
+one second, the full optimisation completes in roughly $15$--$20$~minutes.
+
+A key architectural feature is that the optimisation loop is entirely
+independent of the guidance mode.  The outer loop supplies a candidate kick
+angle and receives back a scalar cost; the inner simulation selects and
+executes whichever guidance law is active.  Consequently the same search
+procedure applies unchanged to all five guidance modes.
+
+\subsubsection{Event-Based Engine Cutoff}
+\label{sssec:seco_event}
+
+The timing of SECO is not a free optimisation variable.  Instead, it is
+determined implicitly during trajectory integration through an event function:
+\begin{equation}
+  g(t,\mathbf{x}) = r_{\text{apo}}(t,\mathbf{x}) - r_{\text{target}},
+  \label{eq:seco_event}
+\end{equation}
+where $r_{\text{apo}}$ is the instantaneous apogee computed from the current
+orbital elements (Eq.~\ref{eq:apsides}).  The integrator monitors $g$ during
+the Stage~2 burn (above $65$\,km altitude); a sign change triggers root-finding
+to locate the exact cutoff time.
+
+The physical interpretation is direct: the engine burns until the trajectory,
+if left unpowered from that instant onward, would coast to exactly the target
+apogee altitude.  This event-driven approach automatically adapts the burn
+duration to the trajectory shape produced by each guidance law and kick angle.
+
+% -----------------------------------------------------------------------------
+\subsection{Space Launcher Configuration}
+\label{ssec:launcher}
+
+The launch vehicle modelled in the simulator is representative of a
+two-stage Falcon~9-class rocket.  Table~\ref{tab:launcher} summarises
+the key parameters.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Launch-vehicle parameters used in the simulator.}
+  \label{tab:launcher}
+  \begin{tabular}{l c c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Stage~1} & \textbf{Stage~2} & \textbf{Unit} \\
+    \midrule
+    Thrust (vacuum)       & 7\,600  & 934    & kN   \\
+    Specific impulse      & 283     & 348    & s    \\
+    Structural mass       & 25\,600 & 3\,900 & kg   \\
+    Propellant mass       & 395\,700& 92\,670& kg   \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Stage separation occurs $3$\,s after MECO, and the second-stage engine ignites
+$8$\,s after MECO, giving a $5$\,s coast interval between stages.
+
+The aerodynamic reference area is $A = 10.52$\,m$^2$ with a constant drag
+coefficient $C_D = 0.3$.
+
+\subsubsection{Mission Parameters}
+
+The baseline mission targets a $500$\,km circular orbit at an inclination of
+$51.6°$ (representative of the International Space Station orbit), launching
+from a latitude of $28.5°$ (Kennedy Space Center).  The resulting initial mass
+at lift-off is approximately $517.9$\,t (sum of both stages, with zero payload
+in the reference configuration).  Table~\ref{tab:mission} lists the nominal
+mission parameters.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Baseline mission parameters.}
+  \label{tab:mission}
+  \begin{tabular}{l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Value} & \textbf{Unit} \\
+    \midrule
+    Target orbital altitude   & 500    & km   \\
+    Target inclination        & 51.6   & deg  \\
+    Launch latitude           & 28.5   & deg  \\
+    Kick-angle search range   & $[-5,\,-2]$ & deg \\
+    Guidance update rate      & 0.5    & s    \\
+    Integration tolerance     & $10^{-8}$ & --- \\
+    Maximum integration step  & 1.0    & s    \\
+    Output time resolution    & 0.01   & s    \\
+    \bottomrule
+  \end{tabular}
+\end{table}
