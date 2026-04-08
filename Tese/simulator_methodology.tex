@@ -859,31 +859,257 @@ $8$\,s after MECO, giving a $5$\,s coast interval between stages.
 The aerodynamic reference area is $A = 10.52$\,m$^2$ with a constant drag
 coefficient $C_D = 0.3$.
 
-\subsubsection{Mission Parameters}
+% -----------------------------------------------------------------------------
+\subsection{Simulation Parameters}
+\label{ssec:sim_parameters}
 
-The baseline mission targets a $500$\,km circular orbit at an inclination of
-$51.6°$ (representative of the International Space Station orbit), launching
-from a latitude of $28.5°$ (Kennedy Space Center).  The resulting initial mass
-at lift-off is approximately $517.9$\,t (sum of both stages, with zero payload
-in the reference configuration).  Table~\ref{tab:mission} lists the nominal
-mission parameters.
+All configurable inputs of the simulator are collected in a single parameter
+file.  This subsection catalogues every user-defined setting, organised by
+functional category.
+
+\subsubsection{Mission Geometry and Target Orbit}
+
+These parameters define the launch site and the desired final orbit.
 
 \begin{table}[htbp]
   \centering
-  \caption{Baseline mission parameters.}
-  \label{tab:mission}
-  \begin{tabular}{l c c}
+  \caption{Mission geometry and target-orbit parameters.}
+  \label{tab:param_mission}
+  \begin{tabular}{l l c c}
     \toprule
-    \textbf{Parameter} & \textbf{Value} & \textbf{Unit} \\
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
     \midrule
-    Target orbital altitude   & 500    & km   \\
-    Target inclination        & 51.6   & deg  \\
-    Launch latitude           & 28.5   & deg  \\
-    Kick-angle search range   & $[-5,\,-2]$ & deg \\
-    Guidance update rate      & 0.5    & s    \\
-    Integration tolerance     & $10^{-8}$ & --- \\
-    Maximum integration step  & 1.0    & s    \\
-    Output time resolution    & 0.01   & s    \\
+    Target orbital altitude    & Circular orbit height above Earth surface
+                               & 500       & km   \\
+    Target inclination         & Desired final orbital inclination
+                               & 51.6      & deg  \\
+    Launch latitude            & Geodetic latitude of the launch pad
+                               & 28.5      & deg  \\
+    Launch longitude           & Longitude of the launch pad (reserved)
+                               & $-80.5$   & deg  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The baseline mission targets a $500$\,km circular orbit at an inclination of
+$51.6°$ (representative of the International Space Station orbit), launching
+from latitude $28.5°$ (Kennedy Space Center).  The resulting lift-off mass is
+approximately $517.9$\,t (sum of both stages, with zero payload in the
+reference configuration).
+
+\subsubsection{Gravity-Turn Kick Manoeuvre}
+
+The initial pitchover manoeuvre is common to all guidance modes and is
+controlled by two timing parameters and the kick angle itself.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Kick-manoeuvre parameters.}
+  \label{tab:param_kick}
+  \begin{tabular}{l l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
+    \midrule
+    Time to start kick   & Delay from lift-off before pitchover begins
+                         & 7.5    & s    \\
+    Kick duration        & Total duration of the triangular pitch profile
+                         & 45     & s    \\
+    Initial kick angle   & Peak angle of attack during kick (single-run mode)
+                         & $-3.0$ & deg  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Earth-Rotation Settings}
+
+A set of boolean and modal flags controls how Earth-rotation effects are
+incorporated into the simulation.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Earth-rotation configuration flags.}
+  \label{tab:param_earthrot}
+  \begin{tabular}{l l c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} \\
+    \midrule
+    Enable Earth rotation
+      & Include rotation effects in azimuth and ECI calculations
+      & True \\
+    Azimuth mode
+      & \texttt{"corrected"} (accounts for surface velocity) or
+        \texttt{"geometric"} (inertial only)
+      & \texttt{"corrected"} \\
+    Include pseudo-forces
+      & Add Coriolis and centrifugal accelerations to the EOM
+      & True \\
+    Track heading state
+      & Propagate heading $\psi$ as an additional state variable
+      & True \\
+    Cross-heading pseudo-force
+      & Include the cross-heading Coriolis/centrifugal component
+        in $\dot\psi$ (requires both pseudo-forces and heading tracking)
+      & True \\
+    Print inclination drift
+      & Report achieved inclination and drift at end of run
+      & True \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Guidance Mode Selection}
+
+The active guidance law is selected through a single string parameter.
+Table~\ref{tab:param_guidance_mode} lists the available options; their
+mathematical formulations are detailed in Section~\ref{ssec:guidance}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Available guidance modes.}
+  \label{tab:param_guidance_mode}
+  \begin{tabular}{l l}
+    \toprule
+    \textbf{Mode key} & \textbf{Description} \\
+    \midrule
+    \texttt{"gravity\_turn"}     & Pure gravity turn ($\alpha = 0$ after kick) \\
+    \texttt{"simple\_poly"}      & Linear flight-path-angle transition \\
+    \texttt{"linear\_tangent"}   & Linear tangent steering law \\
+    \texttt{"bilinear\_tangent"} & Bilinear tangent steering law \\
+    \texttt{"apollo"}            & Apollo polynomial guidance (default) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Guidance Tuning Parameters}
+
+These settings control the behaviour of the active guidance laws (relevant
+only when a guidance mode other than pure gravity turn is selected).
+
+\begin{table}[htbp]
+  \centering
+  \caption{Guidance tuning parameters.}
+  \label{tab:param_guidance_tune}
+  \begin{tabular}{l l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
+    \midrule
+    Guidance update rate
+      & Interval between coefficient recomputations
+      & 0.5  & s \\
+    Apollo freeze threshold
+      & $t_{\text{go}}$ below which Apollo coefficients are frozen
+      & 10.0 & s \\
+    Apollo thrust magnitude control
+      & Allow Apollo guidance to command thrust magnitude
+      & True & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Atmosphere-Exit Criterion}
+
+The transition from atmospheric to exo-atmospheric flight (and the activation
+of guidance) is governed by one of two selectable criteria.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Atmosphere-exit parameters.}
+  \label{tab:param_atmo_exit}
+  \begin{tabular}{l l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
+    \midrule
+    Exit method
+      & \texttt{"altitude"} or \texttt{"dynamic\_pressure"}
+      & \texttt{"dynamic\_pressure"} & --- \\
+    Altitude threshold
+      & Used when method is \texttt{"altitude"}
+      & 65 & km \\
+    Dynamic-pressure threshold
+      & Used when method is \texttt{"dynamic\_pressure"}
+      & 1\,000 & Pa \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Optimisation Settings}
+
+The kick-angle optimisation is configured by the search bounds and a
+feasibility constraint on the circularisation burn duration.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Optimisation parameters.}
+  \label{tab:param_opt}
+  \begin{tabular}{l l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
+    \midrule
+    Minimum kick angle
+      & Lower bound of the grid search
+      & $-4.0$ & deg \\
+    Maximum kick angle
+      & Upper bound of the grid search
+      & $-2.5$ & deg \\
+    Max.\ accepted burn time
+      & Circularisation burn-time feasibility limit
+      & 15 & s \\
+    Fast-run mode
+      & Skip optimisation; use stored optimal angles
+      & True & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+When fast-run mode is enabled, the simulator bypasses the grid search and uses
+pre-determined optimal kick angles for each guidance mode
+(Table~\ref{tab:param_fast_angles}).
+
+\begin{table}[htbp]
+  \centering
+  \caption{Pre-stored optimal kick angles for fast-run mode.}
+  \label{tab:param_fast_angles}
+  \begin{tabular}{l c}
+    \toprule
+    \textbf{Guidance mode} & \textbf{Optimal kick angle (deg)} \\
+    \midrule
+    Gravity turn        & $-3.0$ \\
+    Simple polynomial   & $-3.0$ \\
+    Linear tangent      & $-3.0$ \\
+    Bilinear tangent    & $-3.0$ \\
+    Apollo              & $-3.8$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Numerical Integration and Output}
+
+These parameters govern the solver behaviour and the post-simulation coast
+duration used for orbit visualisation.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Integration and output parameters.}
+  \label{tab:param_integration}
+  \begin{tabular}{l l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
+    \midrule
+    Output time step
+      & Dense-output evaluation interval
+      & 0.01  & s    \\
+    Integration tolerance
+      & Absolute tolerance of the RK45 solver
+      & $10^{-8}$ & ---  \\
+    Maximum integration step
+      & Upper bound on the adaptive step size
+      & 1.0   & s    \\
+    Post-orbit coast duration
+      & Simulation time after orbit insertion (for visualisation)
+      & 1\,000 & s    \\
+    Second-stage throttle
+      & Throttle setting of the second-stage engine
+      & 1.0 (100\,\%) & ---  \\
     \bottomrule
   \end{tabular}
 \end{table}
