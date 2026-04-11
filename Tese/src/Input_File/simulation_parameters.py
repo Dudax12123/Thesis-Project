@@ -12,11 +12,12 @@ DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation --------------
-# If True, the component of Earth's surface rotation velocity aligned with
-# the launch azimuth is added to the velocity before every orbital-parameter
-# check (apogee targeting, circularization delta-v, final orbital elements).
-# The flight dynamics (EOM) are NOT modified — only the orbital bookkeeping.
-EARTH_ROTATION = True                           # include Earth rotation velocity boost
+# If True, the simulation uses an inertial (ECI) reference frame:
+#   - Initial velocity includes Earth rotation projected onto the orbital plane
+#   - Drag is computed from atmosphere-relative speed (co-rotating atmosphere)
+#   - Orbital elements are inertial by construction (no post-hoc corrections)
+# If False, the simulation uses the surface-relative (ECEF) frame.
+EARTH_ROTATION = True                           # ECI frame toggle
 
 # -------------- Launch Site & Orbit Inclination --------------
 # Select a named launch site or use "custom" with CUSTOM_LATITUDE_DEG.
