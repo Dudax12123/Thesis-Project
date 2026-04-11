@@ -11,6 +11,13 @@ DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
+# -------------- Earth Rotation --------------
+# If True, the component of Earth's surface rotation velocity aligned with
+# the launch azimuth is added to the velocity before every orbital-parameter
+# check (apogee targeting, circularization delta-v, final orbital elements).
+# The flight dynamics (EOM) are NOT modified — only the orbital bookkeeping.
+EARTH_ROTATION = True                           # include Earth rotation velocity boost
+
 # -------------- Launch Site & Orbit Inclination --------------
 # Select a named launch site or use "custom" with CUSTOM_LATITUDE_DEG.
 # Named sites: "KSC", "Vandenberg", "Kourou", "Baikonur"
@@ -83,7 +90,7 @@ MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of 
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = True
+RUN_FAST = False    
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode

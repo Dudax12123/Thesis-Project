@@ -53,6 +53,11 @@ apollo_coefficients_frozen = False  # Flag to indicate if Apollo coefficients ar
 # Thrust history for plotting
 thrust_history = []  # Store thrust values during integration
 time_history = []    # Store corresponding time values
+
+# Earth rotation velocity boost [m/s]
+# Set via set_earth_rotation_boost(); added to tangential velocity before
+# every orbital-parameter evaluation when sim_params.EARTH_ROTATION is True.
+earth_rotation_boost = 0.0
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 
 # Steering angle history for plotting (guidance phase)
@@ -204,8 +209,9 @@ def interrupt_single_burn_traj(t, y):
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
-        # Compute current orbital elements
-        a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
+        # Compute current orbital elements (use inertial velocity)
+        v_i, gamma_i = surface_to_inertial(v, gamma, earth_rotation_boost)
+        a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v_i, gamma_i)
 
         diff = r_apo - (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH)
         
@@ -355,6 +361,51 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     orbit_period = 2 * np.pi * (np.pow(a, 1.5)) / (np.pow(mu, 0.5))
     
     return a, e, r_apo, r_peri, orbit_period
+
+
+def surface_to_inertial(v, gamma, v_boost):
+    """Convert surface-relative velocity to inertial by adding a tangential boost.
+
+    Parameters
+    ----------
+    v : float
+        Surface-relative velocity magnitude [m/s].
+    gamma : float
+        Surface-relative flight path angle [rad].
+    v_boost : float
+        Tangential (horizontal) velocity boost from Earth rotation [m/s].
+
+    Returns
+    -------
+    v_inertial : float
+        Inertial velocity magnitude [m/s].
+    gamma_inertial : float
+        Inertial flight path angle [rad].
+    """
+    v_tan = v * np.cos(gamma) + v_boost
+    v_rad = v * np.sin(gamma)
+    v_inertial = np.sqrt(v_tan**2 + v_rad**2)
+    gamma_inertial = np.arctan2(v_rad, v_tan)
+    return v_inertial, gamma_inertial
+
+
+def set_earth_rotation_boost(azimuth_data):
+    """Compute and store the in-plane Earth-rotation velocity boost.
+
+    Parameters
+    ----------
+    azimuth_data : dict
+        Dictionary returned by ``launch_azimuth.compute_launch_azimuth()``.
+        Must contain keys ``v_E`` and ``A_I_rad``.
+    """
+    global earth_rotation_boost
+    if not sim_params.EARTH_ROTATION:
+        earth_rotation_boost = 0.0
+        return
+    v_E = azimuth_data["v_E"]
+    A_I = azimuth_data["A_I_rad"]
+    # Project eastward surface speed onto the in-plane (azimuth) direction
+    earth_rotation_boost = v_E * np.sin(A_I)
 
 
 def thrust_Isp():
@@ -1000,9 +1051,11 @@ def run(initial_kick_angle):
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
     
-    # Calculate orbital elements at stop
+    # Calculate orbital elements at stop (use inertial velocity)
+    v_stop_i, gamma_stop_i = surface_to_inertial(v_stop, gamma_stop,
+                                                  earth_rotation_boost)
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
-        r_stop, v_stop, gamma_stop)
+        r_stop, v_stop_i, gamma_stop_i)
 
     epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * 0.002
     diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
