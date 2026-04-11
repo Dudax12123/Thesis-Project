@@ -132,14 +132,14 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
 
-    # Calculate final orbital elements (use inertial velocity)
+    # Calculate final orbital elements
+    # Post-circularisation state already includes the Earth rotation boost,
+    # so no additional conversion is needed.
     r_final = data[1, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
-    v_final_i, gamma_final_i = ra.surface_to_inertial(
-        v_final, gamma_final, ra.earth_rotation_boost)
     
-    a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final_i, gamma_final_i)
+    a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
     print("\n" + "="*60)
     print("MISSION EVENT TIMELINE")
