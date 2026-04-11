@@ -18,6 +18,7 @@ from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
+from Auxiliary import launch_azimuth
 import Plots.plots as plots
 import Plots.guidance_phase_plots as guidance_plots
 
@@ -70,6 +71,31 @@ def execute():
         print("  - Enforces position & velocity terminal constraints")
         print("  - Coefficient freezing at t_go < 10s for stability")
     
+    print("="*60)
+
+    # ── Launch azimuth computation ──────────────────────────────
+    azimuth_data = launch_azimuth.compute_launch_azimuth(
+        site=sim_params.LAUNCH_SITE,
+        custom_lat_deg=sim_params.CUSTOM_LATITUDE_DEG,
+        inclination_deg=sim_params.TARGET_INCLINATION_DEG,
+        branch=sim_params.AZIMUTH_BRANCH,
+        v_ref_mps=sim_params.AZIMUTH_REFERENCE_SPEED_MPS,
+        target_altitude=sim_params.TARGET_ORBITAL_ALTITUDE,
+    )
+    # Store on sim_params module so downstream code can access if needed
+    sim_params.LAUNCH_AZIMUTH_DATA = azimuth_data
+
+    print("\n" + "="*60)
+    print("LAUNCH AZIMUTH")
+    print("="*60)
+    print(f"  Launch site:               {sim_params.LAUNCH_SITE} "
+          f"(lat {azimuth_data['lat_deg']:.3f} deg)")
+    print(f"  Target inclination:        {azimuth_data['inclination_deg']:.2f} deg")
+    print(f"  Azimuth branch:            {azimuth_data['branch']}")
+    print(f"  Reference speed (v_ref):   {azimuth_data['v_ref']:.2f} m/s")
+    print(f"  Site eastward speed (v_E): {azimuth_data['v_E']:.2f} m/s")
+    print(f"  Inertial azimuth  (A_I):   {azimuth_data['A_I_deg']:.4f} deg")
+    print(f"  Ground-rel heading (A_G):  {azimuth_data['A_G_deg']:.4f} deg")
     print("="*60)
     
     # Set to optimization mode
@@ -170,6 +196,8 @@ def execute():
     print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
+    print(f"\t* Inclination (target):  \t\t{azimuth_data['inclination_deg']:.2f} deg")
+    print(f"\t* Inertial azimuth (A_I):\t\t{azimuth_data['A_I_deg']:.4f} deg")
     
     print("\n" + "="*60)
     print("PROPELLANT USAGE")

@@ -11,6 +11,27 @@ DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
+# -------------- Launch Site & Orbit Inclination --------------
+# Select a named launch site or use "custom" with CUSTOM_LATITUDE_DEG.
+# Named sites: "KSC", "Vandenberg", "Kourou", "Baikonur"
+LAUNCH_SITE = "KSC"                            # launch site name or "custom"
+CUSTOM_LATITUDE_DEG = None                      # latitude [deg]; only used if LAUNCH_SITE = "custom"
+
+# Target orbit inclination [deg].
+# Must satisfy: inclination >= |launch latitude| for a direct-ascent trajectory.
+# Default 28.573° matches KSC latitude (due-east launch, maximum payload).
+TARGET_INCLINATION_DEG = 51.6                 # target orbit inclination; [deg]
+
+# Ascending or descending node launch.
+#   "ascending"  -> A_I = asin(cos(i)/cos(phi))
+#   "descending" -> A_I = pi - asin(cos(i)/cos(phi))
+AZIMUTH_BRANCH = "ascending"                    # "ascending" or "descending"
+
+# Reference inertial speed for the Earth-rotation heading correction [m/s].
+# If None, defaults to the circular orbital speed at TARGET_ORBITAL_ALTITUDE:
+#   v_ref = sqrt(mu / (R_E + h_target))
+AZIMUTH_REFERENCE_SPEED_MPS = None
+
 # -------------- Guidance Mode Selection --------------
 # Choose the guidance strategy for the trajectory:
 #   "gravity_turn": Pure gravity turn all the way (traditional method)

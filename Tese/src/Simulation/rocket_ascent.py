@@ -1060,6 +1060,13 @@ def run(initial_kick_angle):
             print("\t* Possible Payload: \t\t\t\t", 
                   (r.M_PROP_2 - m_propellant_total_used_2nd_stage), "kg")
 
+            # Print launch azimuth info if available
+            az = getattr(sim_params, "LAUNCH_AZIMUTH_DATA", None)
+            if az is not None:
+                print(f"\nLaunch Azimuth (ascent plane selection):")
+                print(f"\t* Inertial azimuth  (A_I):  {az['A_I_deg']:.4f} deg")
+                print(f"\t* Ground-rel heading (A_G): {az['A_G_deg']:.4f} deg")
+
             # ----- Simulate the rest of the trajectory -----
             # 1. Coasting
             second_stage_cutoff = True
