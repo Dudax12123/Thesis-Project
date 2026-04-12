@@ -59,9 +59,38 @@ apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 alpha_history = []  # Store steering angles during guidance phase
 alpha_time_history = []  # Store corresponding time values for steering angles
 
+# Earth rotation velocity boost (in-plane component, computed once from launch conditions)
+earth_rotation_v_boost = 0.0
+
 #===================================================
 # Interrupt functions for simulation
 #===================================================
+
+def surface_to_inertial(v, gamma):
+    """
+    Convert surface-frame velocity to inertial velocity by adding the
+    in-plane Earth rotation boost (computed once from launch conditions).
+
+    Parameters
+    ----------
+    v : float
+        Surface-relative velocity magnitude [m/s].
+    gamma : float
+        Surface-relative flight path angle [rad].
+
+    Returns
+    -------
+    v_inertial : float
+        Inertial velocity magnitude [m/s].
+    gamma_inertial : float
+        Inertial flight path angle [rad].
+    """
+    v_h = v * np.cos(gamma) + earth_rotation_v_boost
+    v_r = v * np.sin(gamma)
+    v_inertial = np.sqrt(v_h**2 + v_r**2)
+    gamma_inertial = np.arctan2(v_r, v_h)
+    return v_inertial, gamma_inertial
+
 
 def interrupt_radius_check(t, y):
     """
@@ -204,8 +233,11 @@ def interrupt_single_burn_traj(t, y):
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
+        # Convert surface velocity to inertial for orbital element computation
+        v_i, gamma_i = surface_to_inertial(v, gamma)
+
         # Compute current orbital elements
-        a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
+        a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v_i, gamma_i)
 
         diff = r_apo - (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH)
         
@@ -956,6 +988,14 @@ def run(initial_kick_angle):
     alpha_history = []
     alpha_time_history = []
 
+    # Compute Earth rotation in-plane velocity boost from launch conditions
+    global earth_rotation_v_boost
+    az = getattr(sim_params, "LAUNCH_AZIMUTH_DATA", None)
+    if az is not None:
+        earth_rotation_v_boost = az["v_E"] * np.sin(az["A_I_rad"])
+    else:
+        earth_rotation_v_boost = 0.0
+
     #===================================================
     # Simulation until stage separation
     #===================================================
@@ -1000,9 +1040,12 @@ def run(initial_kick_angle):
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
     
+    # Convert surface velocity to inertial for orbital element computation
+    v_stop_i, gamma_stop_i = surface_to_inertial(v_stop, gamma_stop)
+    
     # Calculate orbital elements at stop
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
-        r_stop, v_stop, gamma_stop)
+        r_stop, v_stop_i, gamma_stop_i)
 
     epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * 0.002
     diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
