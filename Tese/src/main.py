@@ -85,7 +85,7 @@ def execute():
     # Store on sim_params module so downstream code can access if needed
     sim_params.LAUNCH_AZIMUTH_DATA = azimuth_data
 
-    # Compute Earth rotation parameters (initial velocity & omega_eff for ECI)
+    # Compute Earth rotation velocity boost for orbital parameter checks
     ra.set_earth_rotation_boost(azimuth_data)
 
     print("\n" + "="*60)
@@ -99,9 +99,8 @@ def execute():
     print(f"  Site eastward speed (v_E): {azimuth_data['v_E']:.2f} m/s")
     print(f"  Inertial azimuth  (A_I):   {azimuth_data['A_I_deg']:.4f} deg")
     print(f"  Ground-rel heading (A_G):  {azimuth_data['A_G_deg']:.4f} deg")
-    frame_label = "ECI" if sim_params.EARTH_ROTATION else "surface"
-    print(f"  In-plane v_boost:          {ra.earth_rotation_boost:.2f} m/s"
-          f"  (frame: {frame_label})")
+    print(f"  Earth rotation boost:      {ra.earth_rotation_boost:.2f} m/s"
+          f"  ({'ON' if sim_params.EARTH_ROTATION else 'OFF'})")
     print("="*60)
     
     # Set to optimization mode

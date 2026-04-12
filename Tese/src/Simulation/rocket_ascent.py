@@ -55,13 +55,9 @@ thrust_history = []  # Store thrust values during integration
 time_history = []    # Store corresponding time values
 
 # Earth rotation velocity boost [m/s]
-# Set via set_earth_rotation_boost(); used as initial tangential speed in ECI mode.
+# Set via set_earth_rotation_boost(); added to tangential velocity before
+# every orbital-parameter evaluation when sim_params.EARTH_ROTATION is True.
 earth_rotation_boost = 0.0
-
-# Effective angular rate of the co-rotating atmosphere projected onto the
-# orbital plane [rad/s].  omega_eff = OMEGA_EARTH * cos(lat) * sin(A_I).
-# v_atm_tangential(r) = omega_eff * r.
-omega_eff_rad = 0.0
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 
 # Steering angle history for plotting (guidance phase)
@@ -393,7 +389,7 @@ def surface_to_inertial(v, gamma, v_boost):
 
 
 def set_earth_rotation_boost(azimuth_data):
-    """Compute and store Earth-rotation parameters for the orbital plane.
+    """Compute and store the in-plane Earth-rotation velocity boost.
 
     Parameters
     ----------
@@ -401,17 +397,14 @@ def set_earth_rotation_boost(azimuth_data):
         Dictionary returned by ``launch_azimuth.compute_launch_azimuth()``.
         Must contain keys ``v_E`` and ``A_I_rad``.
     """
-    global earth_rotation_boost, omega_eff_rad
+    global earth_rotation_boost
     if not sim_params.EARTH_ROTATION:
         earth_rotation_boost = 0.0
-        omega_eff_rad = 0.0
         return
     v_E = azimuth_data["v_E"]
     A_I = azimuth_data["A_I_rad"]
     # Project eastward surface speed onto the in-plane (azimuth) direction
     earth_rotation_boost = v_E * np.sin(A_I)
-    # Effective angular rate of the atmosphere in the orbital plane
-    omega_eff_rad = earth_rotation_boost / c.R_EARTH
 
 
 def thrust_Isp():
@@ -633,11 +626,7 @@ def rocket_dynamics(t, state):
     F_T, Isp = thrust_Isp()
 
     # --- Calculate dynamic pressure (needed for atmosphere exit check and drag) ---
-    if sim_params.EARTH_ROTATION:
-        v_for_drag = _atmosphere_relative_speed(v, gamma, r_val)
-    else:
-        v_for_drag = v
-    q = atm.dynamic_pressure(v_for_drag, alt)
+    q = atm.dynamic_pressure(v, alt)
 
     # --- Check atmosphere exit condition based on selected method ---
     atmosphere_exit_detected = False
@@ -651,12 +640,7 @@ def rocket_dynamics(t, state):
     
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
         # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
-        kick_alpha = pitch_program_linear(t, current_kick_angle)
-        if sim_params.EARTH_ROTATION:
-            # ECI: baseline thrust is radial (alpha = pi/2 - gamma); kick adds perturbation
-            alpha = (np.pi / 2. - gamma) + kick_alpha
-        else:
-            alpha = kick_alpha
+        alpha = pitch_program_linear(t, current_kick_angle)
         
     elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and 
           atmosphere_exit_detected and (not atmosphere_exited) and F_T > 0):
@@ -816,11 +800,7 @@ def rocket_dynamics(t, state):
         
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)
-        if sim_params.EARTH_ROTATION and not kick_performed:
-            # ECI pre-kick: thrust radially outward
-            alpha = np.pi / 2. - gamma
-        else:
-            alpha = 0.
+        alpha = 0.
 
     # Store steering angle throughout the entire flight (for plotting)
     # This captures initial kick, guidance phase, and coasting
@@ -836,16 +816,10 @@ def rocket_dynamics(t, state):
     # Lift force (typically neglected)
     F_L = 0.0
 
-    # --- Select EOM and compute state derivatives ---
-    if sim_params.EARTH_ROTATION:
-        state_differentiated = diff_eom_eci(s, r_val, v, gamma, m, F_L, F_D, F_T,
-                                            a_grav, alpha, Isp)
-    else:
-        state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T,
-                                             a_grav, alpha, Isp)
+    state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
+                                         a_grav, alpha, Isp)
 
-    # In surface frame, lock flight path angle before kick starts
-    if time_kick_start == None and not sim_params.EARTH_ROTATION:
+    if time_kick_start == None:
         state_differentiated[3] = 0.0
 
     if state_differentiated[2] < 0:
@@ -916,68 +890,6 @@ def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
                                (a_grav - (v**2 / r_val)) * c_gamma)
     
     # Derivative of mass
-    dmdt = -F_T / (Isp * c.G_0)
-
-    return [dsdt, drdt, dvdt, dgammadt, dmdt]
-
-
-def _atmosphere_relative_speed(v, gamma, r_val):
-    """Return the atmosphere-relative speed for drag in the ECI frame.
-
-    The atmosphere co-rotates with Earth.  In the orbital plane the
-    effective tangential atmosphere speed at radius *r* is
-    ``omega_eff_rad * r``.
-
-    Parameters
-    ----------
-    v : float
-        Inertial velocity magnitude [m/s].
-    gamma : float
-        Inertial flight path angle [rad].
-    r_val : float
-        Radius from Earth's centre [m].
-
-    Returns
-    -------
-    v_atm : float
-        Atmosphere-relative speed [m/s].
-    """
-    v_tan_rel = v * np.cos(gamma) - omega_eff_rad * r_val
-    v_rad = v * np.sin(gamma)
-    return np.sqrt(v_tan_rel**2 + v_rad**2)
-
-
-def diff_eom_eci(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
-    """
-    Differential equations of motion in the inertial (ECI) frame.
-
-    State vector meaning is the same as ``diff_eom_base`` **except**
-    that *v* and *gamma* are inertial quantities.  The only algebraic
-    difference is the ground-track rate ``ds/dt`` which subtracts the
-    surface rotation.
-
-    Parameters are identical to ``diff_eom_base``.  ``F_D`` must already
-    be computed from the atmosphere-relative speed.
-    """
-    c_gamma = np.cos(gamma)
-    s_gamma = np.sin(gamma)
-    c_alpha = np.cos(alpha)
-    s_alpha = np.sin(alpha)
-
-    # Ground-track: subtract surface rotation projected onto orbital plane
-    dsdt = (c.R_EARTH / r_val) * (v * c_gamma - omega_eff_rad * r_val)
-
-    drdt = v * s_gamma
-
-    dvdt = (F_T / m) * c_alpha - (F_D / m) - a_grav * s_gamma
-
-    epsilon = 1e-6
-    if v < epsilon:
-        dgammadt = 0.
-    else:
-        dgammadt = (1. / v) * ((F_T / m) * s_alpha + F_L / m -
-                               (a_grav - (v**2 / r_val)) * c_gamma)
-
     dmdt = -F_T / (Isp * c.G_0)
 
     return [dsdt, drdt, dvdt, dgammadt, dmdt]
@@ -1101,12 +1013,7 @@ def run(initial_kick_angle):
     # Define initial state
     initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 + 
                    r.M_PROP_2 + r.M_PAYLOAD)
-    if sim_params.EARTH_ROTATION:
-        # ECI frame: initial velocity = in-plane Earth rotation speed, gamma = 0 (horizontal)
-        initial_state_1 = [0., c.R_EARTH, earth_rotation_boost, 0., initial_mass]
-    else:
-        # Surface frame: start from rest, gamma = 90 deg (vertical)
-        initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
+    initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
 
     # Define time of simulation 1
     time_1 = 500.
@@ -1155,10 +1062,14 @@ def run(initial_kick_angle):
         r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
         v_desired = np.sqrt(c.MU_EARTH / r_desired)
         
-        # Get velocity at apogee from vis-viva
-        # In ECI mode v_apo is already inertial; in surface mode boost = 0.
+        # Get velocity at apogee (surface frame)
         v_apo = np.sqrt(c.MU_EARTH * a_stop * (1 - e_stop**2)) / r_apo_stop
-        delta_v = np.abs(v_apo - v_desired)
+
+        # Account for Earth rotation: the inertial velocity at apogee is
+        # higher than the surface velocity, so less circularization burn is
+        # needed.  (At apogee gamma ≈ 0, so the boost is purely tangential.)
+        v_apo_inertial = v_apo + earth_rotation_boost
+        delta_v = np.abs(v_apo_inertial - v_desired)
 
         # ----- Calculate total propellant required -----
         m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD)
@@ -1225,9 +1136,10 @@ def run(initial_kick_angle):
 
             # 2. Circularization burn (instantaneous delta-v)
             initial_state_4 = sol_3.y[:, -1]
-            # In ECI mode velocity is already inertial; in surface mode
-            # boost = 0, so delta_v alone is correct for both frames.
-            initial_state_4[2] += delta_v
+            # Apply the actual burn (delta_v) plus Earth rotation boost so
+            # that the post-circularisation state velocity equals the
+            # inertial circular velocity and the EOM propagation is stable.
+            initial_state_4[2] += delta_v + earth_rotation_boost
 
             burn_time_delta_v = calculate_burn_time(initial_state_4[4], delta_v)
             print("\nBurn times:")

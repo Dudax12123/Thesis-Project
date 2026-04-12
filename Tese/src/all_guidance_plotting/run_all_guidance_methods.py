@@ -152,7 +152,7 @@ def main():
     print(f"Number of guidance methods to run: {len(GUIDANCE_MODES)}")
     print("="*70)
     
-    # Compute launch azimuth and set Earth rotation parameters (once for all methods)
+    # Compute launch azimuth and set Earth rotation boost (once for all methods)
     azimuth_data = launch_azimuth.compute_launch_azimuth(
         site=sim_params.LAUNCH_SITE,
         custom_lat_deg=sim_params.CUSTOM_LATITUDE_DEG,
@@ -163,9 +163,8 @@ def main():
     )
     sim_params.LAUNCH_AZIMUTH_DATA = azimuth_data
     ra.set_earth_rotation_boost(azimuth_data)
-    frame_label = "ECI" if sim_params.EARTH_ROTATION else "surface"
-    print(f"In-plane v_boost: {ra.earth_rotation_boost:.2f} m/s"
-          f"  (frame: {frame_label})")
+    print(f"Earth rotation boost: {ra.earth_rotation_boost:.2f} m/s"
+          f"  ({'ON' if sim_params.EARTH_ROTATION else 'OFF'})")
     
     # Run each guidance method
     for idx, (guidance_mode, folder_name) in enumerate(GUIDANCE_MODES.items(), 1):
