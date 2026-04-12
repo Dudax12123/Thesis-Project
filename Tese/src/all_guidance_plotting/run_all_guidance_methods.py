@@ -20,7 +20,6 @@ from Simulation import solver
 from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
-from Auxiliary import launch_azimuth
 import Plots.plots as plots
 import Plots.guidance_phase_plots as guidance_plots
 
@@ -77,13 +76,11 @@ def run_guidance_method(guidance_mode, save_folder):
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
 
-    # Calculate final orbital elements (use inertial velocity)
+    # Calculate final orbital elements
     r_final = data[1, -1]
     v_final = data[2, -1]
     gamma_final = data[3, -1]
-    v_final_i, gamma_final_i = ra.surface_to_inertial(
-        v_final, gamma_final, ra.earth_rotation_boost)
-    a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final_i, gamma_final_i)
+    a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
     
     print(f"\nTotal propellant consumed: {m_propellant_total:.2f} kg")
     print(f"Total delta-v: {delta_v:.2f} m/s")
@@ -152,20 +149,6 @@ def main():
     print(f"Base output folder: {base_path}")
     print(f"Number of guidance methods to run: {len(GUIDANCE_MODES)}")
     print("="*70)
-    
-    # Compute launch azimuth and set Earth rotation boost (once for all methods)
-    azimuth_data = launch_azimuth.compute_launch_azimuth(
-        site=sim_params.LAUNCH_SITE,
-        custom_lat_deg=sim_params.CUSTOM_LATITUDE_DEG,
-        inclination_deg=sim_params.TARGET_INCLINATION_DEG,
-        branch=sim_params.AZIMUTH_BRANCH,
-        v_ref_mps=sim_params.AZIMUTH_REFERENCE_SPEED_MPS,
-        target_altitude=sim_params.TARGET_ORBITAL_ALTITUDE,
-    )
-    sim_params.LAUNCH_AZIMUTH_DATA = azimuth_data
-    ra.set_earth_rotation_boost(azimuth_data)
-    print(f"Earth rotation boost: {ra.earth_rotation_boost:.2f} m/s"
-          f"  ({'ON' if sim_params.EARTH_ROTATION else 'OFF'})")
     
     # Run each guidance method
     for idx, (guidance_mode, folder_name) in enumerate(GUIDANCE_MODES.items(), 1):
