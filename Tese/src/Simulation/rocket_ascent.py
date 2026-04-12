@@ -209,8 +209,9 @@ def interrupt_single_burn_traj(t, y):
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
-        # Compute current orbital elements
-        a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
+        # Compute current orbital elements (use inertial velocity)
+        v_i, gamma_i = surface_to_inertial(v, gamma, earth_rotation_boost)
+        a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v_i, gamma_i)
 
         diff = r_apo - (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH)
         
@@ -1050,9 +1051,11 @@ def run(initial_kick_angle):
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
     
-    # Calculate orbital elements at stop
+    # Calculate orbital elements at stop (use inertial velocity)
+    v_stop_i, gamma_stop_i = surface_to_inertial(v_stop, gamma_stop,
+                                                  earth_rotation_boost)
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
-        r_stop, v_stop, gamma_stop)
+        r_stop, v_stop_i, gamma_stop_i)
 
     epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * 0.002
     diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
@@ -1062,14 +1065,10 @@ def run(initial_kick_angle):
         r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
         v_desired = np.sqrt(c.MU_EARTH / r_desired)
         
-        # Get velocity at apogee (surface frame)
+        # Get velocity at apogee
         v_apo = np.sqrt(c.MU_EARTH * a_stop * (1 - e_stop**2)) / r_apo_stop
 
-        # Account for Earth rotation: the inertial velocity at apogee is
-        # higher than the surface velocity, so less circularization burn is
-        # needed.  (At apogee gamma ≈ 0, so the boost is purely tangential.)
-        v_apo_inertial = v_apo + earth_rotation_boost
-        delta_v = np.abs(v_apo_inertial - v_desired)
+        delta_v = np.abs(v_apo - v_desired)
 
         # ----- Calculate total propellant required -----
         m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD)
@@ -1136,10 +1135,7 @@ def run(initial_kick_angle):
 
             # 2. Circularization burn (instantaneous delta-v)
             initial_state_4 = sol_3.y[:, -1]
-            # Apply the actual burn (delta_v) plus Earth rotation boost so
-            # that the post-circularisation state velocity equals the
-            # inertial circular velocity and the EOM propagation is stable.
-            initial_state_4[2] += delta_v + earth_rotation_boost
+            initial_state_4[2] += delta_v
 
             burn_time_delta_v = calculate_burn_time(initial_state_4[4], delta_v)
             print("\nBurn times:")
