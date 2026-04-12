@@ -53,6 +53,10 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     h = (data_reduced[1] - c.R_EARTH) / 1000.       # altitude h; [km]
     gamma = data_reduced[3]                          # flight path angle; [rad]
     m_total = data_reduced[4]                        # total mass; [kg]
+
+    # Convert FPA to surface-relative for plotting when using ECI frame
+    if sim_params.EARTH_ROTATION:
+        gamma = ra.inertial_to_surface_gamma(data_reduced[2], gamma, data_reduced[1])
     
     # Compute propellant mass (total mass minus structure and payload)
     m_prop = m_total - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD)
@@ -240,6 +244,10 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     v = data_reduced[2]                              # velocity; [m/s]
     gamma = data_reduced[3]                          # flight path angle; [rad]
     m = data_reduced[4]                              # mass; [kg]
+
+    # Convert FPA to surface-relative for plotting when using ECI frame
+    if sim_params.EARTH_ROTATION:
+        gamma = ra.inertial_to_surface_gamma(v, gamma, data_reduced[1])
     
     # Compute derived quantities
     h_dot = v * np.sin(gamma)                        # vertical velocity; [m/s]
@@ -595,6 +603,10 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     h = (data_reduced[1] - c.R_EARTH) / 1000.       # altitude; [km]
     gamma = data_reduced[3]                          # flight path angle; [rad]
     m_total = data_reduced[4]                        # total mass; [kg]
+
+    # Convert FPA to surface-relative for plotting when using ECI frame
+    if sim_params.EARTH_ROTATION:
+        gamma = ra.inertial_to_surface_gamma(data_reduced[2], gamma, data_reduced[1])
     
     # Interpolate thrust to match reduced time steps
     thrust = np.interp(time_reduced, time_thrust_filtered, thrust_filtered) / 1000.  # kN
@@ -795,8 +807,26 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     ax1.set_ylabel('Angle [deg]', fontsize=18, fontweight='bold')
     ax1.set_title('Steering Angle (Angle of Attack) vs Time', fontsize=20, fontweight='bold')
     
+    # Convert steering angle to surface-equivalent when using ECI frame.
+    # In ECI the stored alpha includes a radial-thrust baseline (pi/2 - gamma)
+    # before the kick ends.  We extract the perturbation command so the plot
+    # matches the surface-frame appearance: triangular kick then zero then
+    # guidance command.
+    alpha_plot = np.copy(alpha_data)
+    kick_end_time = (ra.time_kick_start + sim_params.DURATION_INITIAL_KICK
+                     if ra.time_kick_start is not None else 0.0)
+    mask_pre_kick_end = alpha_time_data <= kick_end_time
+    if sim_params.EARTH_ROTATION:
+        gamma_interp = np.interp(alpha_time_data, time_steps, data[3])
+        # Before kick ends: subtract radial baseline -> leaves kick_alpha
+        alpha_plot[mask_pre_kick_end] = (alpha_data[mask_pre_kick_end]
+                                         - (np.pi / 2. - gamma_interp[mask_pre_kick_end]))
+    # Negate kick/gravity-turn region so pitching toward horizontal is positive.
+    # Guidance commands (after kick) are already positive and stay as-is.
+    alpha_plot[mask_pre_kick_end] = -alpha_plot[mask_pre_kick_end]
+
     # Plot steering angle throughout the flight
-    ax1.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2, label='Steering Angle (α)', alpha=0.8)
+    ax1.plot(alpha_time_data, np.rad2deg(alpha_plot), 'b-', linewidth=2, label='Steering Angle (α)', alpha=0.8)
     ax1.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
     ax1.tick_params(axis='both', which='major', labelsize=12)
     ax1.grid(True, alpha=0.3)

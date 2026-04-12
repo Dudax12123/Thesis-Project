@@ -392,6 +392,40 @@ def surface_to_inertial(v, gamma, v_boost):
     return v_inertial, gamma_inertial
 
 
+def inertial_to_surface_gamma(v, gamma, r_val):
+    """Convert inertial flight path angle to surface-relative.
+
+    Parameters
+    ----------
+    v : float or array
+        Inertial velocity magnitude [m/s].
+    gamma : float or array
+        Inertial flight path angle [rad].
+    r_val : float or array
+        Radius from Earth's centre [m].
+
+    Returns
+    -------
+    gamma_surface : float or array
+        Surface-relative flight path angle [rad].
+    """
+    v_tan_surface = v * np.cos(gamma) - omega_eff_rad * r_val
+    v_rad = v * np.sin(gamma)
+    v_surface = np.sqrt(v_tan_surface**2 + v_rad**2)
+
+    gamma_s = np.arctan2(v_rad, v_tan_surface)
+
+    # When surface speed ≈ 0 the angle is undefined; use π/2 (vertical)
+    # which matches the surface-frame launch convention.
+    if np.isscalar(v_surface):
+        if v_surface < 1.0:
+            gamma_s = np.pi / 2.
+    else:
+        gamma_s = np.where(v_surface < 1.0, np.pi / 2., gamma_s)
+
+    return gamma_s
+
+
 def set_earth_rotation_boost(azimuth_data):
     """Compute and store Earth-rotation parameters for the orbital plane.
 
@@ -652,7 +686,11 @@ def rocket_dynamics(t, state):
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
         # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         kick_alpha = pitch_program_linear(t, current_kick_angle)
-        if sim_params.EARTH_ROTATION:
+        if kick_performed:
+            # pitch_program_linear just set kick_performed on this call;
+            # transition immediately to gravity-turn (alpha = 0).
+            alpha = 0.
+        elif sim_params.EARTH_ROTATION:
             # ECI: baseline thrust is radial (alpha = pi/2 - gamma); kick adds perturbation
             alpha = (np.pi / 2. - gamma) + kick_alpha
         else:
