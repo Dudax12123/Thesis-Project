@@ -100,13 +100,8 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     for i in range(len(time_reduced)):
         alt = h[i] * 1000
         v = data_reduced[2][i]
-        if sim_params.EARTH_ROTATION:
-            v_drag = ra._atmosphere_relative_speed(
-                v, data_reduced[3][i], data_reduced[1][i])
-        else:
-            v_drag = v
         rho = c.RHO_0 * np.exp(-alt / c.H)
-        q[i] = 0.5 * rho * v_drag**2
+        q[i] = 0.5 * rho * v**2
     max_q = max(q)
     print("Maximum Dynamic Pressure:")
     print("\t* Max-Q:\t\t\t\t\t", max_q, "Pa")
@@ -115,24 +110,6 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     # Interpolate alpha_data onto the reduced time grid
     angle_of_attacks = np.interp(time_reduced, alpha_time_data, alpha_data)
 
-    # Convert gamma and alpha to surface-relative for loss / acceleration
-    # formulas that assume: steering loss = (F/m)(1-cos α),
-    #                       gravity loss  = g sin γ,
-    # where α is measured from the velocity vector and γ from the local
-    # horizontal.  In ECI both quantities use a different convention.
-    gamma_for_losses = data_reduced[3].copy()
-    alpha_for_losses = angle_of_attacks.copy()
-    if sim_params.EARTH_ROTATION:
-        gamma_for_losses = ra.inertial_to_surface_gamma(
-            data_reduced[2], data_reduced[3], data_reduced[1])
-        # Alpha: during kick phase the ECI alpha contains the radial baseline
-        # (pi/2 - gamma).  Subtract it to recover the perturbation-only alpha.
-        kick_end_time = (ra.time_kick_start + sim_params.DURATION_INITIAL_KICK
-                         if ra.time_kick_start is not None else 0.0)
-        mask_kick = time_reduced <= kick_end_time
-        gamma_interp_kick = np.interp(time_reduced, time_steps, data[3])
-        alpha_for_losses[mask_kick] = (angle_of_attacks[mask_kick]
-                                       - (np.pi / 2. - gamma_interp_kick[mask_kick]))
 
     # ----- COMPUTE LOSSES -----
     # Only compute losses if we have a time to stop burning
@@ -159,7 +136,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
                 break
 
             current_radius = data_reduced[1][i]
-            current_theta = gamma_for_losses[i]
+            current_theta = data_reduced[3][i]
             current_mass = data_reduced[4][i]
         
             grav_accel = grav.gravitational_acceleration(current_radius)
@@ -169,7 +146,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
             # Interpolate thrust at this time point
             thrust_N = np.interp(time_reduced[i], time_thrust, thrust_data)  # Thrust in N
             thrust_accel = thrust_N / current_mass
-            alpha = alpha_for_losses[i]
+            alpha = angle_of_attacks[i]
             steering_accel = thrust_accel * (1.0 - np.cos(alpha))  # Loss due to angle of attack
             
             # Debug output for first few iterations
@@ -365,7 +342,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         v = data_reduced[2][i]
         m = data_reduced[4][i]
         r_val = data_reduced[1][i]
-        gamma = gamma_for_losses[i]
+        gamma = data_reduced[3][i]
         alt = (r_val - c.R_EARTH)
         
         # Interpolate thrust at this time point
@@ -377,7 +354,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
         a_drag = (q[i] * r.C_D * r.A) / m if m > 0 else 0.0
         
         # Get angle of attack for thrust direction
-        alpha = alpha_for_losses[i]
+        alpha = angle_of_attacks[i]
         
         # Total acceleration along velocity direction (from equations of motion)
         # dvdt = (F_T/m)*cos(alpha) - F_D/m - g*sin(gamma)

@@ -77,7 +77,7 @@ APOLLO_THRUST_MAGNITUDE_CONTROL = True          # Enable thrust magnitude contro
 # Choose how to detect when the rocket exits the atmosphere and guidance should start:
 #   "altitude": Use altitude threshold (traditional method)
 #   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
-ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"             # Options: "altitude", "dynamic_pressure"
+ATMOSPHERE_EXIT_METHOD = "altitude"             # Options: "altitude", "dynamic_pressure"
 ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
                                                  # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
