@@ -39,7 +39,7 @@ def coasting_single_burn_objective(kick_angle):
     m_propellant_total_used_2nd_stage : float
         Total mass of propellant used in the second stage [kg]
     """
-    time_steps, data, alt_stopped, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle)
+    time_steps, data, alt_stopped, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data = ra.run(kick_angle)
 
     # Debugging output
     print("Kick angle:\t\t", np.rad2deg(kick_angle))

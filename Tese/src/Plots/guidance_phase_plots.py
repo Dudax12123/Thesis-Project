@@ -725,21 +725,21 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     plt.tight_layout()
     plt.show(block=False)
 
-def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
+def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data, steering_data=None, steering_time_data=None):
     """
     Plot steering angles (angle of attack) throughout the entire flight.
     
     This function creates a detailed plot showing:
-    - Steering angle (alpha) throughout the flight
-    - Flight path angle (gamma) for reference  
+    - Steering angle (deliberate control input) throughout the flight
+    - Full angle of attack (alpha) for reference
     - Different flight phases marked (kick, guidance, coast)
     
     Parameters:
     -----------
     alpha_data : array
-        Steering angle history throughout flight [rad]
+        Full angle of attack history throughout flight [rad]
     alpha_time_data : array
-        Time values corresponding to steering angles [s]
+        Time values corresponding to alpha angles [s]
     time_steps : array
         Full simulation time steps [s]
     data : array
@@ -749,6 +749,12 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
             * data[2]: velocity norm; [m/s]
             * data[3]: flight path angle; [rad]
             * data[4]: mass of the rocket; [kg]
+    steering_data : array or None
+        Steering angle history (deliberate control input only) [rad].
+        0 during vertical phase and coast; kick command during kick;
+        guidance output during guidance phase.
+    steering_time_data : array or None
+        Time values corresponding to steering angles [s]
     """
     
     # Check if we have steering angle data
@@ -793,10 +799,15 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     # ============= SUBPLOT 1: Steering Angle (Alpha) =============
     ax1.set_xlabel('Time [s]', fontsize=18)
     ax1.set_ylabel('Angle [deg]', fontsize=18, fontweight='bold')
-    ax1.set_title('Steering Angle (Angle of Attack) vs Time', fontsize=20, fontweight='bold')
+    ax1.set_title('Steering Angle vs Time', fontsize=20, fontweight='bold')
     
-    # Plot steering angle throughout the flight
-    ax1.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2, label='Steering Angle (α)', alpha=0.8)
+    # Plot steering angle (deliberate control input) if available, otherwise fall back to full AoA
+    if steering_data is not None and len(steering_data) > 0:
+        ax1.plot(steering_time_data, np.rad2deg(steering_data), 'b-', linewidth=2,
+                 label='Steering Angle (commanded)', alpha=0.8)
+    else:
+        ax1.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2,
+                 label='Angle of Attack (α)', alpha=0.8)
     ax1.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
     ax1.tick_params(axis='both', which='major', labelsize=12)
     ax1.grid(True, alpha=0.3)
@@ -893,5 +904,48 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     # Set x-axis limit to 1000 seconds
     ax1.set_xlim(0, 1000)
     
+    plt.tight_layout()
+    plt.show(block=False)
+
+
+def plot_angle_of_attack(alpha_data, alpha_time_data):
+    """Plot the full angle of attack (alpha) over time.
+
+    Parameters
+    ----------
+    alpha_data : array
+        Full angle of attack history [rad].
+    alpha_time_data : array
+        Corresponding time values [s].
+    """
+    if len(alpha_data) == 0:
+        print("No angle of attack data available - skipping plot")
+        return
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.plot(alpha_time_data, np.rad2deg(alpha_data), 'b-', linewidth=2)
+    ax.set_xlabel('Time [s]', fontsize=18)
+    ax.set_ylabel('Angle of Attack [deg]', fontsize=18, fontweight='bold')
+    ax.set_title('Angle of Attack vs Time', fontsize=20, fontweight='bold')
+    ax.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    ax.tick_params(axis='both', which='major', labelsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Phase markers
+    time_kick_start = ra.time_kick_start
+    time_guidance = ra.time_atmosphere_exit
+    time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+
+    if time_kick_start is not None:
+        ax.axvline(x=time_kick_start, color='green', linestyle='--', linewidth=1.5, alpha=0.6, label='Kick Start')
+        kick_end = time_kick_start + sim_params.DURATION_INITIAL_KICK
+        ax.axvline(x=kick_end, color='lime', linestyle='--', linewidth=1.5, alpha=0.6, label='Kick End')
+    if time_guidance is not None:
+        ax.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=1.5, alpha=0.7, label='Guidance Start')
+    if time_seco is not None:
+        ax.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='SECO')
+
+    ax.legend(loc='best', fontsize=12)
+    ax.set_xlim(0, 1000)
     plt.tight_layout()
     plt.show(block=False)

@@ -99,9 +99,13 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     q = [0.0] * len(time_reduced)          # dynamic pressure; [Pa]
     for i in range(len(time_reduced)):
         alt = h[i] * 1000
-        v = data_reduced[2][i]
+        if sim_params.EARTH_ROTATION:
+            v_drag = ra._atmosphere_relative_speed(
+                data_reduced[2][i], data_reduced[3][i], data_reduced[1][i])
+        else:
+            v_drag = data_reduced[2][i]
         rho = c.RHO_0 * np.exp(-alt / c.H)
-        q[i] = 0.5 * rho * v**2
+        q[i] = 0.5 * rho * v_drag**2
     max_q = max(q)
     print("Maximum Dynamic Pressure:")
     print("\t* Max-Q:\t\t\t\t\t", max_q, "Pa")

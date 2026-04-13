@@ -131,7 +131,7 @@ def execute():
     print("="*60 + "\n")
     
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data = ra.run(kick_angle_optimal)
 
     # Calculate final orbital elements
     # Post-circularisation state already includes the Earth rotation boost,
@@ -238,7 +238,13 @@ def execute():
     
     # Generate steering angle plot (shows entire flight profile)
     print("\nGenerating steering angle plot...")
-    guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
+    guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data,
+                                                steering_data=steering_data,
+                                                steering_time_data=steering_time_data)
+    
+    # Generate angle of attack plot
+    print("Generating angle of attack plot...")
+    guidance_plots.plot_angle_of_attack(alpha_data, alpha_time_data)
     
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")

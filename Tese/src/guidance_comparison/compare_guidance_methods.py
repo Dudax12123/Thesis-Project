@@ -55,7 +55,7 @@ def run_guidance_method_for_comparison(guidance_mode):
     
     # Run full simulation with optimal parameters
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data = ra.run(kick_angle_optimal)
 
     # Find orbit insertion time by detecting velocity discontinuity
     time_insertion = None

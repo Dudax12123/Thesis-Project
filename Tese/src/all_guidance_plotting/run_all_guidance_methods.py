@@ -75,7 +75,7 @@ def run_guidance_method(guidance_mode, save_folder):
     # Run full simulation with optimal parameters
     print("Running full trajectory simulation...")
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data = ra.run(kick_angle_optimal)
 
     # Calculate final orbital elements
     # Post-circularisation state already includes the Earth rotation boost.
@@ -109,7 +109,7 @@ def run_guidance_method(guidance_mode, save_folder):
     
     # Plot 3: Trajectory Losses (from single_run)
     print("  - Saving Plot 3: Trajectory Losses")
-    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust)
+    plots.single_run(time, data, kick_angle_optimal, thrust_data, time_thrust, alpha_data, alpha_time_data)
     plt.savefig(save_path / "03_trajectory_losses.png", dpi=300, bbox_inches="tight")
     plt.close('all')
     
@@ -130,7 +130,9 @@ def run_guidance_method(guidance_mode, save_folder):
     
     # Plot 6: Steering Angles
     print("  - Saving Plot 6: Steering Angles")
-    guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data)
+    guidance_plots.plot_apollo_steering_angles(alpha_data, alpha_time_data, time, data,
+                                                steering_data=steering_data,
+                                                steering_time_data=steering_time_data)
     plt.savefig(save_path / "06_steering_angles.png", dpi=300, bbox_inches="tight")
     plt.close('all')
     

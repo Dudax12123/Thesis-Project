@@ -64,9 +64,14 @@ earth_rotation_boost = 0.0
 omega_eff_rad = 0.0
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 
-# Steering angle history for plotting (guidance phase)
-alpha_history = []  # Store steering angles during guidance phase
-alpha_time_history = []  # Store corresponding time values for steering angles
+# Angle of attack history (full AoA including geometric baseline)
+alpha_history = []  # Store full angle of attack during flight
+alpha_time_history = []  # Store corresponding time values
+
+# Steering angle history (deliberate control input only)
+# 0 during vertical phase and coast; kick command during kick; guidance output during guidance
+steering_history = []
+steering_time_history = []
 
 #===================================================
 # Interrupt functions for simulation
@@ -617,6 +622,7 @@ def rocket_dynamics(t, state):
     global apollo_coefficients_frozen, apollo_freeze_time
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global steering_history, steering_time_history
 
     # Get state components
     s, r_val, v, gamma, m = state
@@ -648,10 +654,13 @@ def rocket_dynamics(t, state):
 
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
+    # steering_angle tracks only the deliberate control input (0 when no command)
+    steering_angle = 0.0
     
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
         # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         kick_alpha = pitch_program_linear(t, current_kick_angle)
+        steering_angle = kick_alpha
         if sim_params.EARTH_ROTATION:
             # ECI: baseline thrust is radial (alpha = pi/2 - gamma); kick adds perturbation
             alpha = (np.pi / 2. - gamma) + kick_alpha
@@ -733,6 +742,9 @@ def rocket_dynamics(t, state):
                 if sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL:
                     print(f"  Commanded thrust accel: {a_thrust_cmd:.2f} m/s²")
         
+        # All guidance initialization branches set alpha as the control command
+        steering_angle = alpha
+        
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "simple_poly" and F_T > 0:
         # Phase 2a: Simple polynomial guidance (only while engines burning)
         
@@ -747,6 +759,7 @@ def rocket_dynamics(t, state):
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = simple_poly_guidance.polynomial_guidance(t, t_go, state, guidance_coefficients)
+        steering_angle = alpha
     
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "linear_tangent" and F_T > 0:
         # Phase 2b: Linear tangent steering guidance (only while engines burning)
@@ -762,6 +775,7 @@ def rocket_dynamics(t, state):
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
+        steering_angle = alpha
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "bilinear_tangent" and F_T > 0:
         # Phase 2c: Bilinear tangent steering guidance (only while engines burning)
@@ -777,6 +791,7 @@ def rocket_dynamics(t, state):
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
+        steering_angle = alpha
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
         # Phase 2b: Apollo polynomial guidance (only while engines burning)
@@ -813,6 +828,7 @@ def rocket_dynamics(t, state):
             F_T_nominal, _ = thrust_Isp()
             # Use commanded thrust but limit to maximum available
             F_T = min(F_T_commanded, F_T_nominal)
+        steering_angle = alpha
         
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)
@@ -822,10 +838,11 @@ def rocket_dynamics(t, state):
         else:
             alpha = 0.
 
-    # Store steering angle throughout the entire flight (for plotting)
-    # This captures initial kick, guidance phase, and coasting
+    # Store angle of attack and steering angle throughout the entire flight (for plotting)
     alpha_history.append(alpha)
     alpha_time_history.append(t)
+    steering_history.append(steering_angle)
+    steering_time_history.append(t)
 
     # --- Determine current accelerations and forces ---
     a_grav = grav.gravitational_acceleration(r_val)
@@ -1064,6 +1081,7 @@ def run(initial_kick_angle):
     global last_guidance_update_time, guidance_coefficients
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global steering_history, steering_time_history
     
     #===================================================
     # Reset global variables
@@ -1090,9 +1108,13 @@ def run(initial_kick_angle):
     thrust_history = []
     time_history = []
     
-    # Reset steering angle history
+    # Reset angle of attack history
     alpha_history = []
     alpha_time_history = []
+    
+    # Reset steering angle history (deliberate control input)
+    steering_history = []
+    steering_time_history = []
 
     #===================================================
     # Simulation until stage separation
@@ -1182,7 +1204,9 @@ def run(initial_kick_angle):
             time_thrust = np.array(time_history)
             alpha_data = np.array(alpha_history)
             alpha_time_data = np.array(alpha_time_history)
-            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
+            steering_data = np.array(steering_history)
+            steering_time_data = np.array(steering_time_history)
+            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data
         else:
             global TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
             TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = sol_2.t[-1]
@@ -1252,13 +1276,17 @@ def run(initial_kick_angle):
             time_thrust = np.array(time_history)
             alpha_data = np.array(alpha_history)
             alpha_time_data = np.array(alpha_time_history)
+            steering_data = np.array(steering_history)
+            steering_time_data = np.array(steering_time_history)
     
-            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
+            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data
     
     else:
         thrust_data = np.array(thrust_history)
         time_thrust = np.array(time_history)
         alpha_data = np.array(alpha_history)
         alpha_time_data = np.array(alpha_time_history)
-        return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data
+        steering_data = np.array(steering_history)
+        steering_time_data = np.array(steering_time_history)
+        return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, steering_data, steering_time_data
 
