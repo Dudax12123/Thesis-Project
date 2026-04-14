@@ -246,6 +246,10 @@ def execute():
     print("Generating angle of attack plot...")
     guidance_plots.plot_angle_of_attack(alpha_data, alpha_time_data)
     
+    # Generate velocity components plot
+    print("Generating velocity components plot...")
+    guidance_plots.plot_velocity_components(time, data)
+    
     # Keep all plot windows open until user closes them
     print("\nAll plots generated. Close plot windows to exit.")
     plt.show()

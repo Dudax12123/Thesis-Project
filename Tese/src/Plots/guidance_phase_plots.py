@@ -949,3 +949,48 @@ def plot_angle_of_attack(alpha_data, alpha_time_data):
     ax.set_xlim(0, 1000)
     plt.tight_layout()
     plt.show(block=False)
+
+
+def plot_velocity_components(time_steps, data):
+    """Plot horizontal and vertical velocity components over time.
+
+    Parameters
+    ----------
+    time_steps : array
+        Simulation time steps [s].
+    data : array
+        State data: data[2] = velocity [m/s], data[3] = gamma [rad].
+    """
+    v = data[2]
+    gamma = data[3]
+    v_horizontal = v * np.cos(gamma)
+    v_vertical = v * np.sin(gamma)
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    ax.plot(time_steps, v_horizontal, 'b-', linewidth=2, label='Horizontal velocity ($v \\cos\\gamma$)')
+    ax.plot(time_steps, v_vertical, 'r-', linewidth=2, label='Vertical velocity ($v \\sin\\gamma$)')
+    ax.set_xlabel('Time [s]', fontsize=18)
+    ax.set_ylabel('Velocity [m/s]', fontsize=18, fontweight='bold')
+    ax.set_title('Velocity Components vs Time', fontsize=20, fontweight='bold')
+    ax.axhline(y=0, color='k', linestyle=':', linewidth=1, alpha=0.5)
+    ax.tick_params(axis='both', which='major', labelsize=12)
+    ax.grid(True, alpha=0.3)
+
+    # Phase markers
+    time_kick_start = ra.time_kick_start
+    time_guidance = ra.time_atmosphere_exit
+    time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+
+    if time_kick_start is not None:
+        ax.axvline(x=time_kick_start, color='green', linestyle='--', linewidth=1.5, alpha=0.6, label='Kick Start')
+        kick_end = time_kick_start + sim_params.DURATION_INITIAL_KICK
+        ax.axvline(x=kick_end, color='lime', linestyle='--', linewidth=1.5, alpha=0.6, label='Kick End')
+    if time_guidance is not None:
+        ax.axvline(x=time_guidance, color='cyan', linestyle='--', linewidth=1.5, alpha=0.7, label='Guidance Start')
+    if time_seco is not None:
+        ax.axvline(x=time_seco, color='red', linestyle='--', linewidth=1.5, alpha=0.7, label='SECO')
+
+    ax.legend(loc='best', fontsize=12)
+    ax.set_xlim(0, 1000)
+    plt.tight_layout()
+    plt.show(block=False)

@@ -85,13 +85,13 @@ DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa
                                                  # Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
 
 # -------------- Optimization --------------
-ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to be tested; [rad]
-ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]
+ALPHA_LOWEST = -np.deg2rad(5.)                  # lowest possible kick angle to be tested; [rad]
+ALPHA_HIGHEST = -np.deg2rad(3)                # highest possible kick angle to be tested; [rad]
 MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of delta-v; [s]
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = True   
+RUN_FAST = False   
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
