@@ -986,14 +986,27 @@ def diff_eom_eci(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
 
     drdt = v * s_gamma
 
-    dvdt = (F_T / m) * c_alpha - (F_D / m) - a_grav * s_gamma
+    # Drag opposes the atmosphere-relative velocity, so we must project
+    # the drag vector onto the inertial velocity-aligned and
+    # velocity-normal directions.
+    v_atm = np.sqrt((v * c_gamma - omega_eff_rad * r_val)**2 +
+                     (v * s_gamma)**2)
+    if v_atm < 1e-6:
+        drag_along_v = 0.
+        drag_normal_v = 0.
+    else:
+        drag_along_v  = (F_D / m) * (v - omega_eff_rad * r_val * c_gamma) / v_atm
+        drag_normal_v = (F_D / m) * (omega_eff_rad * r_val * s_gamma) / v_atm
+
+    dvdt = (F_T / m) * c_alpha - drag_along_v - a_grav * s_gamma
 
     epsilon = 1e-6
     if v < epsilon:
         dgammadt = 0.
     else:
         dgammadt = (1. / v) * ((F_T / m) * s_alpha + F_L / m -
-                               (a_grav - (v**2 / r_val)) * c_gamma)
+                               (a_grav - (v**2 / r_val)) * c_gamma -
+                               drag_normal_v)
 
     dmdt = -F_T / (Isp * c.G_0)
 
