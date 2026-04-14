@@ -91,7 +91,7 @@ MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of 
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = False   
+RUN_FAST = True   
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
@@ -100,7 +100,7 @@ OPTIMAL_KICK_ANGLES = {
     "simple_poly": -np.deg2rad(3.0),            # Update after optimization
     "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
-    "apollo": -np.deg2rad(3.8273)                   # Update after optimization
+    "apollo": -np.deg2rad(3.67)                   # Update after optimization
 }
 
 # ===================================================

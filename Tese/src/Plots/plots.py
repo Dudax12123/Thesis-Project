@@ -99,11 +99,10 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     q = [0.0] * len(time_reduced)          # dynamic pressure; [Pa]
     for i in range(len(time_reduced)):
         alt = h[i] * 1000
-        if sim_params.EARTH_ROTATION:
-            v_drag = ra._atmosphere_relative_speed(
-                data_reduced[2][i], data_reduced[3][i], data_reduced[1][i])
-        else:
-            v_drag = data_reduced[2][i]
+        # Data is in ECI; recover atmosphere-relative (ECEF) speed for drag
+        v_tan_rel = data_reduced[2][i] * np.cos(data_reduced[3][i]) - ra.omega_eff_rad * data_reduced[1][i]
+        v_rad = data_reduced[2][i] * np.sin(data_reduced[3][i])
+        v_drag = np.sqrt(v_tan_rel**2 + v_rad**2)
         rho = c.RHO_0 * np.exp(-alt / c.H)
         q[i] = 0.5 * rho * v_drag**2
     max_q = max(q)
