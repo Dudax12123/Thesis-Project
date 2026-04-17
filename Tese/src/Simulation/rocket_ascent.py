@@ -916,8 +916,11 @@ def rocket_dynamics(t, state):
     # Calculate drag (dynamic pressure already calculated earlier)
     F_D = atm.drag_force(q)
     
-    # Lift force (typically neglected)
-    F_L = 0.0
+    # Lift force
+    if sim_params.INCLUDE_LIFT:
+        F_L = atm.lift_force(q)
+    else:
+        F_L = 0.0
 
     state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
                                          a_grav, alpha, Isp)
@@ -1271,7 +1274,9 @@ def run(initial_kick_angle):
             time_thrust = np.array(time_history)
             alpha_data = np.array(alpha_history)
             alpha_time_data = np.array(alpha_time_history)
-            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data
+            coriolis_mag_data = np.array(coriolis_mag_history)
+            centrifugal_mag_data = np.array(centrifugal_mag_history)
+            return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
         else:
             global TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
             TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = sol_2.t[-1]

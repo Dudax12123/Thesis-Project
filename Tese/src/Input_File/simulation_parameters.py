@@ -8,6 +8,9 @@ import numpy as np
 TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s]
 DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 
+# -------------- Aerodynamics --------------
+INCLUDE_LIFT = False                            # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
@@ -18,9 +21,9 @@ LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (re
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
 EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
 INCLUDE_PSEUDO_FORCES = True                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-INCLUDE_CROSS_HEADING_PSEUDO_FORCE = True    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
-TRACK_HEADING_STATE = True                    # if True, propagate heading as an additional state when Earth rotation is enabled
-PRINT_INCLINATION_DRIFT = True                # print achieved final inclination and drift relative to target
+INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
+TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
+PRINT_INCLINATION_DRIFT = False                # print achieved final inclination and drift relative to target
 
 # -------------- Guidance Mode Selection --------------
 # Choose the guidance strategy for the trajectory:
@@ -67,13 +70,13 @@ DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa
                                                  # Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
 
 # -------------- Optimization --------------
-ALPHA_LOWEST = -np.deg2rad(4.)                  # lowest possible kick angle to be tested; [rad]
-ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]
+ALPHA_LOWEST = -np.deg2rad(5.)                  # lowest possible kick angle to be tested; [rad]
+ALPHA_HIGHEST = -np.deg2rad(3)                # highest possible kick angle to be tested; [rad]
 MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of delta-v; [s]
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = True
+RUN_FAST = False
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
