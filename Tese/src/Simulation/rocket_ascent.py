@@ -748,20 +748,17 @@ def rocket_dynamics(t, state):
     # --- Determine if guidance should start (mode-dependent) ---
     if sim_params.GUIDANCE_START_MODE == "after_kick":
         guidance_start_ready = kick_performed
-    elif sim_params.GUIDANCE_START_MODE == "after_vertical":
-        guidance_start_ready = (t >= sim_params.TIME_TO_START_KICK)
     else:  # "after_atmosphere_exit" (default)
         guidance_start_ready = atmosphere_exit_detected
 
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
     
-    if (t >= sim_params.TIME_TO_START_KICK and (not kick_performed)
-            and sim_params.GUIDANCE_START_MODE != "after_vertical"):
-        # Phase 1: Initial gravity turn (pitchover) - skipped in "after_vertical" mode
+    if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
+        # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         alpha = pitch_program_linear(t, current_kick_angle)
         
-    elif (sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and 
+    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and 
           guidance_start_ready and (not guidance_phase_active) and F_T > 0):
         # Initialize guidance (only if engines burning)
         guidance_phase_active = True

@@ -50,11 +50,10 @@ PRINT_INCLINATION_DRIFT = False                # print achieved final inclinatio
 GUIDANCE_MODE = "bilinear_tangent"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
 
 # -------------- Guidance Start Timing --------------
-# When should the guidance law activate?
+# When should the guidance law activate after the kick maneuver?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-#   "after_vertical": Start guidance right after vertical flight (skip kick entirely, guidance steers from vertical)
-GUIDANCE_START_MODE = "after_vertical"   # Options: "after_atmosphere_exit", "after_kick", "after_vertical"
+GUIDANCE_START_MODE = "after_kick"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
