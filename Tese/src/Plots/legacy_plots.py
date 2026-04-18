@@ -81,7 +81,7 @@ def single_run(time_steps, data, INITIAL_KICK_ANGLE, thrust_data, time_thrust, a
     time_reduced = time_steps[::10]
     
     # Get phase transition times from rocket_ascent module
-    time_guidance = ra.time_atmosphere_exit  # Guidance activation (atmosphere exit)
+    time_guidance = ra.time_guidance_start  # Guidance activation
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL  # End of powered ascent
     
     # Find orbit insertion (apogee) by detecting velocity discontinuity
@@ -642,7 +642,7 @@ def plot_trajectory_xy(data, time_steps):
     time_reduced = time_steps[::10]
     
     # Get phase transition times
-    time_guidance = ra.time_atmosphere_exit
+    time_guidance = ra.time_guidance_start
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     
     # Find orbit insertion by detecting velocity discontinuity

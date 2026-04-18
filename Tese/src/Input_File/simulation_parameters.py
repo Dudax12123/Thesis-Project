@@ -9,7 +9,7 @@ TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s
 DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = False                            # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = True                            # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
@@ -19,7 +19,7 @@ ENABLE_EARTH_ROTATION = False                 # if True, include Earth rotation 
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
+EARTH_ROTATION_AZIMUTH_MODE = "geometric"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
 INCLUDE_PSEUDO_FORCES = False                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -47,13 +47,14 @@ PRINT_INCLINATION_DRIFT = False                # print achieved final inclinatio
 #                   - Polynomial acceleration profiles in x and y directions
 #                   - Enforces position and velocity terminal constraints
 #                   - Used in Apollo missions, more accurate than simple_poly
-GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
+GUIDANCE_MODE = "bilinear_tangent"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
 
 # -------------- Guidance Start Timing --------------
-# When should the guidance law activate after the kick maneuver?
+# When should the guidance law activate?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
+#   "after_vertical": Start guidance right after vertical flight (skip kick entirely, guidance steers from vertical)
+GUIDANCE_START_MODE = "after_vertical"   # Options: "after_atmosphere_exit", "after_kick", "after_vertical"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
@@ -68,7 +69,7 @@ APOLLO_THRUST_MAGNITUDE_CONTROL = True          # Enable thrust magnitude contro
 # Choose how to detect when the rocket exits the atmosphere and guidance should start:
 #   "altitude": Use altitude threshold (traditional method)
 #   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
-ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"             # Options: "altitude", "dynamic_pressure"
+ATMOSPHERE_EXIT_METHOD = "altitude"             # Options: "altitude", "dynamic_pressure"
 ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
                                                  # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
@@ -82,7 +83,7 @@ MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of 
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = True
+RUN_FAST = False
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
@@ -91,7 +92,7 @@ OPTIMAL_KICK_ANGLES = {
     "simple_poly": -np.deg2rad(3.0),            # Update after optimization
     "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
-    "apollo": -np.deg2rad(3.8)                   # Update after optimization
+    "apollo": -np.deg2rad(4.0)                   # Update after optimization
 }
 
 # ===================================================
@@ -112,4 +113,4 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 # FOR DEBUGGING
 # ===================================================
 INTERRUPTS_PRINT = False
-EVENTS_PRINT = False
+EVENTS_PRINT = True

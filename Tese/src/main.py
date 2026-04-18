@@ -115,8 +115,15 @@ def execute():
         print(f"\nUsing pre-determined optimal kick angle: {np.rad2deg(kick_angle_optimal):.4f} degrees")
         print("(Skipping optimization)")
     else:
+        # Suppress event prints during optimization to reduce noise
+        _events_print_saved = sim_params.EVENTS_PRINT
+        sim_params.EVENTS_PRINT = False
+        
         # Find optimal kick angle through optimization
         kick_angle_optimal = solver.find_initial_kick_angle_coast_single_burn()
+        
+        # Restore event prints for the full simulation
+        sim_params.EVENTS_PRINT = _events_print_saved
         
         print("\n" + "="*60)
         print("OPTIMIZATION RESULTS")
@@ -184,14 +191,14 @@ def execute():
     
     if ra.time_atmosphere_exit is not None:
         print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
-        if sim_params.GUIDANCE_MODE != "gravity_turn":
-            guidance_activation_msg = {
-                "simple_poly": "Simple polynomial guidance",
-                "linear_tangent": "Linear tangent steering",
-                "bilinear_tangent": "Bilinear tangent steering",
-                "apollo": "Apollo polynomial guidance"
-            }.get(sim_params.GUIDANCE_MODE, "Guidance")
-            print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\t{guidance_activation_msg} activation")
+    if ra.time_guidance_start is not None and sim_params.GUIDANCE_MODE != "gravity_turn":
+        guidance_activation_msg = {
+            "simple_poly": "Simple polynomial guidance",
+            "linear_tangent": "Linear tangent steering",
+            "bilinear_tangent": "Bilinear tangent steering",
+            "apollo": "Apollo polynomial guidance"
+        }.get(sim_params.GUIDANCE_MODE, "Guidance")
+        print(f"\t* T+{ra.time_guidance_start:.2f}s\t\t{guidance_activation_msg} activation")
     
     if ra.time_main_engine_cutoff is not None:
         print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
@@ -245,6 +252,7 @@ def execute():
     print("\n" + "="*60)
     print("PROPELLANT USAGE")
     print("="*60)
+    print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
     print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
     print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
     

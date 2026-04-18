@@ -64,7 +64,7 @@ def plot_key_parameters(time_steps, data, thrust_data, time_thrust):
     time_thrust, thrust_data = _prepare_monotonic_series(time_thrust, thrust_data)
     
     # Get phase transition times
-    time_guidance = ra.time_atmosphere_exit
+    time_guidance = ra.time_guidance_start
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     time_meco = ra.time_main_engine_cutoff
     
@@ -232,7 +232,7 @@ def plot_guidance_phase(time_steps, data, thrust_data, time_thrust):
     time_thrust, thrust_data = _prepare_monotonic_series(time_thrust, thrust_data)
     
     # Get phase transition times
-    time_guidance = ra.time_atmosphere_exit
+    time_guidance = ra.time_guidance_start
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     
     if time_guidance is None or time_seco is None:
@@ -464,7 +464,7 @@ def plot_trajectory_to_seco(time_steps, data):
     """
     
     # Get phase transition times
-    time_guidance = ra.time_atmosphere_exit
+    time_guidance = ra.time_guidance_start
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     
     if time_seco is None:
@@ -626,7 +626,7 @@ def plot_ascent_phase(time_steps, data, thrust_data, time_thrust):
     thrust = np.interp(time_reduced, time_thrust_filtered, thrust_filtered) / 1000.  # kN
     
     # Get phase transition times
-    time_guidance = ra.time_atmosphere_exit
+    time_guidance = ra.time_guidance_start
     time_meco = ra.time_main_engine_cutoff
     
     # Create figure with single plot
@@ -790,7 +790,7 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
         alpha_limit = np.deg2rad(15)
         
         # Only check angles during guidance phase
-        time_guidance = ra.time_atmosphere_exit
+        time_guidance = ra.time_guidance_start
         time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
         
         if time_guidance is not None and time_seco is not None:
@@ -812,7 +812,7 @@ def plot_apollo_steering_angles(alpha_data, alpha_time_data, time_steps, data):
     
     # Get phase transition times
     time_kick_start = ra.time_kick_start
-    time_guidance = ra.time_atmosphere_exit
+    time_guidance = ra.time_guidance_start
     time_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     #apollo_freeze_time = ra.apollo_freeze_time
     

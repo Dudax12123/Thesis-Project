@@ -188,7 +188,7 @@ def event_times():
     from Simulation import rocket_ascent as ra
 
     return {
-        "guidance_start": ra.time_atmosphere_exit,
+        "guidance_start": ra.time_guidance_start,
         "meco": ra.time_main_engine_cutoff,
         "seco": ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL,
     }
@@ -198,7 +198,7 @@ def add_event_markers(ax):
     """Draw vertical dotted lines for key flight events on a time-axis plot."""
     events = event_times()
     markers = [
-        ("guidance_start", "Atm. Exit", "cyan"),
+        ("guidance_start", "Guidance Start", "cyan"),
         ("meco", "MECO", "orange"),
         ("seco", "SECO", "black"),
     ]
