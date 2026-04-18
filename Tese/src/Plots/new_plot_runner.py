@@ -17,6 +17,7 @@ from Plots.new_metrics.pseudo_forces_over_time import plot_pseudo_forces_over_ti
 from Plots.new_metrics.latitude_over_time import plot_latitude_over_time
 from Plots.new_metrics.aero_forces_over_time import plot_aero_forces_over_time
 from Plots.new_metrics.trajectory_losses_over_time import plot_trajectory_losses_over_time
+from Plots.new_metrics.mass_flow_rate_over_time import plot_mass_flow_rate_over_time
 
 
 def _make_path(output_dir, filename):
@@ -46,6 +47,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         "lat": _make_path(output_dir, "new_11_latitude_over_time.png"),
         "aero": _make_path(output_dir, "new_12_aero_forces_over_time.png"),
         "losses": _make_path(output_dir, "new_13_trajectory_losses_over_time.png"),
+        "mdot": _make_path(output_dir, "new_14_mass_flow_rate_over_time.png"),
     }
 
     plot_fpa_over_time(time, data, save_path=files["fpa"], show=show)
@@ -69,6 +71,8 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
     plot_trajectory_losses_over_time(time, data, thrust_data, time_thrust,
                                      alpha_data, alpha_time_data,
                                      save_path=files["losses"], show=show)
+    plot_mass_flow_rate_over_time(time, thrust_data, time_thrust,
+                                  save_path=files["mdot"], show=show)
 
     if close_after:
         plt.close('all')

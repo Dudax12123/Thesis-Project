@@ -15,12 +15,12 @@ INCLUDE_LIFT = False                            # if True, include aerodynamic l
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = False                 # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
 EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
-INCLUDE_PSEUDO_FORCES = True                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = False                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 PRINT_INCLINATION_DRIFT = False                # print achieved final inclination and drift relative to target
@@ -49,6 +49,12 @@ PRINT_INCLINATION_DRIFT = False                # print achieved final inclinatio
 #                   - Used in Apollo missions, more accurate than simple_poly
 GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
 
+# -------------- Guidance Start Timing --------------
+# When should the guidance law activate after the kick maneuver?
+#   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
+#   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
+GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
+
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
 GUIDANCE_UPDATE_RATE = 0.5                      # How often to recompute guidance coefficients [s]
@@ -76,7 +82,7 @@ MAX_ACCEPTED_BURN_TIME = 15.                    # maximum accepted burn time of 
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = False
+RUN_FAST = True
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
