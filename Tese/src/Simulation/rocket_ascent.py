@@ -263,9 +263,14 @@ def interrupt_horizontal_check(t, y):
     int : 0 if interrupt triggered, 1 otherwise
     """
     gamma = y[3]
+    r_val = y[1]
+    alt = r_val - c.R_EARTH
     epsilon = np.deg2rad(0.01)
     
-    if gamma < epsilon:
+    # Only trigger near the target altitude to prevent false firing during the
+    # coast between stage-1 separation and stage-2 ignition (where gamma
+    # naturally crosses zero on the parabolic arc at low altitude).
+    if gamma < epsilon and alt > 0.7 * sim_params.TARGET_ORBITAL_ALTITUDE:
         if sim_params.INTERRUPTS_PRINT:
             print("Interrupt Horizontal Flight Direction happened at time ", t)
         return 0
@@ -318,10 +323,11 @@ def event_second_engine_ignition(t):
     global time_main_engine_cutoff, second_engine_ignition
     
     if t >= (r.TIME_SECOND_ENGINE_IGNITION + time_main_engine_cutoff):
-        second_engine_ignition = True
-        
-        if sim_params.EVENTS_PRINT:
-            print("Second engine ignited at t = ", t)
+        if not second_engine_ignition:
+            second_engine_ignition = True
+            
+            if sim_params.EVENTS_PRINT:
+                print("Second engine ignited at t = ", t)
         
     return
 
@@ -575,34 +581,59 @@ def pitch_program_linear(t, initial_kick_angle):
 def estimate_time_to_target(state, target_altitude):
     """
     Estimate time remaining until reaching target altitude.
-    
+
+    Uses remaining propellant burn time as the primary estimate, which is far
+    more accurate for Apollo-style guidance than altitude / radial-velocity.
+    The altitude-based formula gives a t_go that is far too large early in
+    ascent (when gamma is large and altitude gain is slow), leading to nearly-
+    vertical thrust commands and an under-powered horizontal channel.
+
     Parameters:
     -----------
     state : array
         Current state [s, r, v, gamma, m]
     target_altitude : float
         Target altitude [m]
-        
+
     Returns:
     --------
     t_go : float
         Estimated time-to-go [s]
     """
     s, r_val, v, gamma, m = state[:5]
-    
-    current_alt = r_val - c.R_EARTH
-    altitude_remaining = target_altitude - current_alt
-    
-    # Simple estimation based on current radial velocity
-    v_radial = v * np.sin(gamma)
-    
-    if v_radial > 1e-3:
-        t_go = altitude_remaining / v_radial
+
+    if not main_engine_cutoff:
+        # Stage 1 is still burning.
+        # t_go = (time to stage-1 burnout) + (stage-2 ignition delay) + (full stage-2 burn time)
+        m_stage1_dry = (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 +
+                        r.M_PROP_2 + r.M_PAYLOAD)
+        m_stage1_remaining = max(m - m_stage1_dry, 0.0)
+        m_dot_1 = r.F_THRUST_1 / (c.G_0 * r.ISP_1)
+        t_burn_1 = m_stage1_remaining / m_dot_1
+
+        m_dot_2 = r.F_THRUST_2 / (c.G_0 * r.ISP_2)
+        t_burn_2 = r.M_PROP_2 / m_dot_2
+
+        t_go = t_burn_1 + r.TIME_SECOND_ENGINE_IGNITION + t_burn_2
+
+    elif second_engine_ignition and not stage_2_burnt:
+        # Stage 2 is burning — use remaining propellant in stage 2.
+        m_stage2_dry = r.M_STRUCTURE_2 + r.M_PAYLOAD
+        m_stage2_remaining = max(m - m_stage2_dry, 0.0)
+        m_dot_2 = r.F_THRUST_2 / (c.G_0 * r.ISP_2)
+        t_go = m_stage2_remaining / m_dot_2
+
     else:
-        # If not climbing much, estimate based on average velocity
-        t_go = 1000.0  # Large default value
-    
-    return max(t_go, 0.1)  # Avoid division by zero issues
+        # Coasting or fallback: altitude / radial-velocity estimate.
+        current_alt = r_val - c.R_EARTH
+        altitude_remaining = target_altitude - current_alt
+        v_radial = v * np.sin(gamma)
+        if v_radial > 1e-3:
+            t_go = altitude_remaining / v_radial
+        else:
+            t_go = 1000.0
+
+    return max(t_go, 0.1)  # Avoid division-by-zero issues
 
 
 def calculate_burn_time(mass_initial, delta_v):
@@ -903,7 +934,10 @@ def rocket_dynamics(t, state):
         # Compute guidance angle using current or frozen coefficients
         alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
         
-        # Apply thrust magnitude control if enabled
+        # Apply thrust magnitude control if enabled.
+        # The commanded thrust is capped at the nominal (maximum) available,
+        # so stage 1 effectively always runs at full thrust when the guidance
+        # commands more acceleration than the engine can provide.
         if sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL:
             # Override thrust with commanded magnitude
             # Convert acceleration command to force
@@ -1090,6 +1124,12 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
     for interrupt in interrupt_list:
         interrupt.terminal = True
         interrupt.direction = 0
+
+    # Only fire SECO when apogee is crossing upward through the target (negative→positive).
+    # This prevents spurious re-triggers caused by numerical fluctuations once the orbit
+    # already exceeds the target apogee (direction=0 would fire on the downward crossing too).
+    if stage_2_flag:
+        interrupt_single_burn_traj.direction = 1
     
     return solve_ivp(rocket_dynamics, y0=state_init, t_span=t_span, t_eval=t_eval, 
                     max_step=1, events=interrupt_list, atol=1e-8)
@@ -1172,6 +1212,11 @@ def run(initial_kick_angle):
     time_guidance_start = None
     last_guidance_update_time = 0.0
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
+    apollo_coefficients_frozen = False
+    apollo_freeze_time = None
+    # Reset Apollo debug flag so warnings fire on each new run
+    if hasattr(apollo_guidance_module.apollo_guidance, '_debug_printed'):
+        del apollo_guidance_module.apollo_guidance._debug_printed
     
     # Reset thrust, pseudo-force, and time history
     thrust_history = []

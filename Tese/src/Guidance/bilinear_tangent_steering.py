@@ -254,7 +254,7 @@ def bilinear_tangent_steering(t, t_go, current_state, coefficients):
     alpha : float
         Commanded angle of attack [rad]
     """
-    s, r_val, v, gamma, m = current_state
+    s, r_val, v, gamma, m = current_state[:5]
     c1, c2, c1_prime, c2_prime = coefficients
     
     # Time-to-go τ = t_f - t

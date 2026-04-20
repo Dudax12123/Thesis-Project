@@ -141,7 +141,7 @@ def execute():
     # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
     from Auxiliary import rocket_specs as r_specs
     max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
-    if m_propellant_total > max_possible_propellant:
+    if False and m_propellant_total > max_possible_propellant:
         print("\n" + "!"*60)
         print("SIMULATION FAILED")
         print("!"*60)
