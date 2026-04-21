@@ -164,15 +164,15 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
     r_target = c.R_EARTH + target_altitude
     vx_target = np.sqrt(c.MU_EARTH / r_target)
     
-    # Horizontal channel: constrain only terminal velocity (not downrange position).
-    # The downrange at orbit insertion is a free variable — over-constraining it
-    # produces a negative initial horizontal acceleration when x_target is estimated
-    # poorly (e.g. early in the ascent when the rocket's orbit doesn't yet reach the
-    # target altitude). Using k1=0 gives a constant horizontal acceleration that
-    # smoothly drives vx toward the circular orbital speed.
-    # Equation: vx_f = vx + k2 * t_go  →  k2 = (vx_target - vx) / t_go
-    k1 = 0.0
-    k2 = (vx_target - vx) / t_go
+   # Estimate target downrange position based on current trajectory
+    x_target = 2*predict_target_downrange(state, target_altitude)
+    
+    # Apply Apollo guidance equations (2.39, 2.40) for both horizontal and vertical channels
+    # Horizontal channel coefficients (enforce downrange position and horizontal velocity)
+    # Equation 2.39: k1 = 6*(vx_f + vx)*t_go - 12*(x_f - x) / t_go^3
+    # Equation 2.40: k2 = -2*(vx_f + 2*vx)*t_go + 6*(x_f - x) / t_go^2
+    k1 = (6 * (vx_target + vx) * t_go - 12 * (x_target - x)) / (t_go ** 3)
+    k2 = (-2 * (vx_target + 2 * vx) * t_go + 6 * (x_target - x)) / (t_go ** 2)
     
     # Vertical channel coefficients (enforce altitude and vertical velocity)
     # Equation 2.39: k3 = 6*(vy_f + vy)*t_go - 12*(y_f - y) / t_go^3

@@ -602,39 +602,20 @@ def estimate_time_to_target(state, target_altitude):
     """
     s, r_val, v, gamma, m = state[:5]
 
-    if not main_engine_cutoff:
-        # Stage 1 is still burning.
-        # t_go = (time to stage-1 burnout) + (stage-2 ignition delay) + (full stage-2 burn time)
-        m_stage1_dry = (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 +
-                        r.M_PROP_2 + r.M_PAYLOAD)
-        m_stage1_remaining = max(m - m_stage1_dry, 0.0)
-        m_dot_1 = r.F_THRUST_1 / (c.G_0 * r.ISP_1)
-        t_burn_1 = m_stage1_remaining / m_dot_1
-
-        m_dot_2 = r.F_THRUST_2 / (c.G_0 * r.ISP_2)
-        t_burn_2 = r.M_PROP_2 / m_dot_2
-
-        t_go = t_burn_1 + r.TIME_SECOND_ENGINE_IGNITION + t_burn_2
-
-    elif second_engine_ignition and not stage_2_burnt:
-        # Stage 2 is burning — use remaining propellant in stage 2.
-        m_stage2_dry = r.M_STRUCTURE_2 + r.M_PAYLOAD
-        m_stage2_remaining = max(m - m_stage2_dry, 0.0)
-        m_dot_2 = r.F_THRUST_2 / (c.G_0 * r.ISP_2)
-        t_go = m_stage2_remaining / m_dot_2
+    current_alt = r_val - c.R_EARTH
+    altitude_remaining = target_altitude - current_alt
+    
+    # Simple estimation based on current radial velocity
+    v_radial = v * np.sin(gamma)
+    
+    if v_radial > 1e-3:
+        t_go = altitude_remaining / v_radial
 
     else:
-        # Coasting or fallback: altitude / radial-velocity estimate.
-        current_alt = r_val - c.R_EARTH
-        altitude_remaining = target_altitude - current_alt
-        v_radial = v * np.sin(gamma)
-        if v_radial > 1e-3:
-            t_go = altitude_remaining / v_radial
-        else:
-            t_go = 1000.0
-
-    return max(t_go, 0.1)  # Avoid division-by-zero issues
-
+        # If not climbing much, estimate based on average velocity
+        t_go = 1000.0  # Large default value
+    
+    return max(t_go, 0.1)  # Avoid division by zero issues
 
 def calculate_burn_time(mass_initial, delta_v):
     """
@@ -1212,11 +1193,6 @@ def run(initial_kick_angle):
     time_guidance_start = None
     last_guidance_update_time = 0.0
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
-    apollo_coefficients_frozen = False
-    apollo_freeze_time = None
-    # Reset Apollo debug flag so warnings fire on each new run
-    if hasattr(apollo_guidance_module.apollo_guidance, '_debug_printed'):
-        del apollo_guidance_module.apollo_guidance._debug_printed
     
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
