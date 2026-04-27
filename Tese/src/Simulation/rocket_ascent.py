@@ -60,10 +60,13 @@ apollo_coefficients_frozen = False  # Flag to indicate if Apollo coefficients ar
 thrust_history = []  # Store thrust values during integration
 time_history = []    # Store corresponding time values
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
+apollo_previous_tgo = None  # Previous Apollo t_go estimate, used as fallback
 
 # Steering angle history for plotting (guidance phase)
 alpha_history = []  # Store steering angles during guidance phase
 alpha_time_history = []  # Store corresponding time values for steering angles
+tgo_history = []    # Store Apollo t_go estimates during guidance phase
+tgo_time_history = []  # Store corresponding time values for t_go
 
 # Pseudo-force acceleration history for plotting
 coriolis_mag_history = []      # Store Coriolis acceleration magnitude
@@ -617,6 +620,102 @@ def estimate_time_to_target(state, target_altitude):
     
     return max(t_go, 0.1)  # Avoid division by zero issues
 
+
+def _compute_apollo_tgo(state, F_T, Isp, target_altitude, previous_tgo):
+    """
+    Compute Apollo-style time-to-go for the Apollo guidance mode.
+
+    Returns a tuple ``(guidance_tgo, display_tgo)``:
+
+    * ``guidance_tgo`` — stage-specific t_go used by the guidance law.
+      During stage 1 it equals ``T_BUP_1 * f(VG/Ve_1)`` (shapes the stage 1
+      trajectory over its remaining burn time).  During stage 2 it equals
+      ``T_BUP_2 * f(VG/Ve_2)`` (the actual remaining stage 2 insertion burn).
+
+    * ``display_tgo`` — total remaining ascent time written to ``tgo_history``
+      for diagnostic plots.  During stage 1 it adds the expected stage 2 burn
+      contribution and the inter-stage coast time so the plot shows a
+      continuous monotonic decline instead of a jump at stage 2 ignition.
+      During stage 2 it equals ``guidance_tgo``.
+
+    Only called when GUIDANCE_MODE == "apollo".
+    """
+    s, r_val, v, gamma, m = state[:5]
+
+    # Dry mass depends on which stage is currently burning
+    if not main_engine_cutoff:
+        dry_mass = (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 +
+                    r.M_PROP_2 + r.M_PAYLOAD)
+    else:
+        dry_mass = r.M_STRUCTURE_2 + r.M_PAYLOAD
+
+    remaining_prop = m - dry_mass
+    if remaining_prop <= 0.0:
+        return 0.0, 0.0
+
+    if F_T <= 0.0 or Isp <= 0.0:
+        fallback = float(previous_tgo) if previous_tgo is not None else 0.0
+        return fallback, fallback
+
+    Ve = Isp * c.G_0
+    mdot = F_T / Ve
+    T_BUP = remaining_prop / mdot
+
+    # Convert current velocity to inertial (ECI) frame if Earth rotation is enabled,
+    # so that VG is computed consistently against the inertial orbital target velocity.
+    v_inertial = v
+    gamma_inertial = gamma
+    if sim_params.ENABLE_EARTH_ROTATION:
+        lat = get_latitude_from_downrange(s)
+        heading = get_heading_from_state(state)
+        v_inertial, gamma_inertial = earth_rot.ecef_to_eci_velocity(
+            v, gamma, heading, lat, r_val
+        )
+
+    # Velocity-to-be-gained in the (downrange, altitude) 2-D frame
+    # — same frame used by compute_apollo_coefficients
+    vx_current = v_inertial * np.cos(gamma_inertial)
+    vy_current = v_inertial * np.sin(gamma_inertial)
+    r_target = c.R_EARTH + target_altitude
+    vx_target = np.sqrt(c.MU_EARTH / r_target)
+    vy_target = 0.0
+    VG_vec = np.array([vx_target - vx_current, vy_target - vy_current])
+
+    # TODO: Add gravity compensation once sign convention is verified:
+    #   VG_vec -= g_eff_vector * previous_tgo
+
+    guidance_tgo = apollo_guidance_module.estimate_apollo_time_to_go(
+        VG_vec, Ve, T_BUP,
+        previous_tgo=previous_tgo,
+        min_tgo=0.1,
+        max_tgo=T_BUP,
+    )
+
+    # --- Display t_go: includes multi-stage contributions ---
+    # During stage 1 the guidance formula only uses stage 1 remaining propellant
+    # (T_BUP_1), which is nearly exhausted when guidance activates.  That would
+    # cause the plot to show a large upward jump at stage 2 ignition.  Instead,
+    # add the expected stage 2 burn contribution and the coast time so the
+    # diagnostic plot is a continuous monotonic decline from guidance activation
+    # to orbit insertion.
+    if not main_engine_cutoff:
+        VG = float(np.linalg.norm(VG_vec))
+        Ve_2 = r.ISP_2 * c.G_0
+        if Ve_2 > 0.0:
+            T_BUP_2_max = r.M_PROP_2 / (r.F_THRUST_2 / Ve_2)
+            x2 = min(max(VG / Ve_2, 0.0), 1.0)
+            stage2_contribution = T_BUP_2_max * x2 * (1.0 - 0.5 * x2)
+        else:
+            stage2_contribution = 0.0
+        coast_time = float(r.TIME_SECOND_ENGINE_IGNITION)
+        display_tgo = guidance_tgo + stage2_contribution + coast_time
+    else:
+        # Stage 2: display t_go is the same as the guidance t_go
+        display_tgo = guidance_tgo
+
+    return guidance_tgo, display_tgo
+
+
 def calculate_burn_time(mass_initial, delta_v):
     """
     Calculate the burn time required for a given delta-v maneuver.
@@ -711,9 +810,10 @@ def rocket_dynamics(t, state):
     global current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
     global last_guidance_update_time, guidance_coefficients
-    global apollo_coefficients_frozen, apollo_freeze_time
+    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global tgo_history, tgo_time_history
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
@@ -824,6 +924,13 @@ def rocket_dynamics(t, state):
                 print(f"  Initial alpha command: {np.rad2deg(alpha):.2f} deg")
                 
         elif sim_params.GUIDANCE_MODE == "apollo":
+            # Compute t_go using the selected method
+            if sim_params.APOLLO_TGO_METHOD == "altitude":
+                t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+                t_go_display = t_go
+            else:  # "propellant" (default)
+                t_go, t_go_display = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, apollo_previous_tgo)
+            apollo_previous_tgo = t_go
             # Apollo polynomial: acceleration profiles with terminal constraints
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
@@ -891,9 +998,14 @@ def rocket_dynamics(t, state):
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
         # Phase 2b: Apollo polynomial guidance (only while engines burning)
-        
-        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-        
+
+        if sim_params.APOLLO_TGO_METHOD == "altitude":
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+            t_go_display = t_go
+        else:  # "propellant" (default)
+            t_go, t_go_display = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, apollo_previous_tgo)
+        apollo_previous_tgo = t_go
+
         # Check if we should freeze coefficients (t_go below threshold)
         if t_go < sim_params.APOLLO_FREEZE_THRESHOLD and not apollo_coefficients_frozen:
             # Freeze coefficients to prevent numerical instability
@@ -911,6 +1023,9 @@ def rocket_dynamics(t, state):
                                                                t_go)
             apollo_freeze_time = t  # Update epoch time
             last_guidance_update_time = t
+            # Record t_go once per guidance update cycle (not every ODE sub-step)
+            tgo_history.append(t_go_display)
+            tgo_time_history.append(t)
         
         # Compute guidance angle using current or frozen coefficients
         alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
@@ -1143,6 +1258,7 @@ def run(initial_kick_angle):
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
     global last_guidance_update_time, guidance_coefficients
+    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo
     global thrust_history, time_history
     global alpha_history, alpha_time_history
     global coriolis_mag_history, centrifugal_mag_history
@@ -1193,7 +1309,10 @@ def run(initial_kick_angle):
     time_guidance_start = None
     last_guidance_update_time = 0.0
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
-    
+    apollo_coefficients_frozen = False
+    apollo_freeze_time = None
+    apollo_previous_tgo = None
+
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
     coriolis_mag_history = []
@@ -1203,6 +1322,10 @@ def run(initial_kick_angle):
     # Reset steering angle history
     alpha_history = []
     alpha_time_history = []
+
+    # Reset Apollo t_go history
+    tgo_history = []
+    tgo_time_history = []
 
     #===================================================
     # Simulation until stage separation

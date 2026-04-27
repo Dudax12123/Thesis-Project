@@ -17,9 +17,98 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import warnings
+
 import numpy as np
 from Auxiliary import constants as c
 from Auxiliary import gravity as grav
+
+
+def estimate_apollo_time_to_go(
+    velocity_to_be_gained_vector,
+    effective_exhaust_velocity,
+    time_to_burnout,
+    previous_tgo=None,
+    min_tgo=0.0,
+    max_tgo=None,
+):
+    """
+    Apollo-style time-to-go estimate for the Apollo guidance mode.
+
+    This uses a second-order truncated rocket-equation relation:
+
+        t_go = T_BUP * (VG / Ve) * (1 - 0.5 * VG / Ve)
+
+    where VG is the magnitude of the velocity-to-be-gained vector, Ve is the
+    effective exhaust velocity, and T_BUP is the estimated time to burnout from
+    the current propellant mass and mass flow rate.
+
+    Tailoff time compensation is intentionally omitted.
+
+    Expected behavior:
+    When the simulator is using the "apollo" / "apolo" guidance mode, time-to-go
+    should be estimated with the truncated rocket-equation expression above instead
+    of a simple t_go = DeltaV / acceleration estimate.
+
+    Parameters
+    ----------
+    velocity_to_be_gained_vector : array-like
+        VG vector = target_velocity - current_velocity [m/s]
+    effective_exhaust_velocity : float
+        Ve = Isp * g0 [m/s]
+    time_to_burnout : float
+        T_BUP = remaining_propellant_mass / mass_flow_rate [s]
+    previous_tgo : float, optional
+        Previous t_go estimate, returned as fallback on invalid inputs [s]
+    min_tgo : float, optional
+        Minimum allowed result [s], default 0.0
+    max_tgo : float, optional
+        Maximum allowed result [s]; recommended to set equal to T_BUP
+
+    Returns
+    -------
+    float
+        Estimated time-to-go [s]
+    """
+    _fallback = (
+        float(previous_tgo)
+        if (previous_tgo is not None and np.isfinite(previous_tgo))
+        else 0.0
+    )
+
+    # Guard invalid propulsive parameters
+    if (
+        not np.isfinite(effective_exhaust_velocity)
+        or effective_exhaust_velocity <= 0.0
+        or not np.isfinite(time_to_burnout)
+        or time_to_burnout <= 0.0
+    ):
+        return _fallback
+
+    vg_vec = np.asarray(velocity_to_be_gained_vector, dtype=float)
+    if not np.all(np.isfinite(vg_vec)):
+        return _fallback
+
+    VG = float(np.linalg.norm(vg_vec))
+    if VG == 0.0:
+        return float(min_tgo)
+
+    x = max(VG / effective_exhaust_velocity, 0.0)
+    if x > 1.0:
+        warnings.warn(
+            f"Apollo t_go: VG/Ve = {x:.4f} > 1.0; clamping to 1.0. "
+            "Propellant may be insufficient for the required delta-V.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        x = 1.0
+
+    t_go = time_to_burnout * x * (1.0 - 0.5 * x)
+    t_go = max(t_go, float(min_tgo))
+    if max_tgo is not None:
+        t_go = min(t_go, float(max_tgo))
+
+    return t_go
 
 
 def predict_target_downrange(state, target_altitude):
@@ -313,6 +402,7 @@ class ApolloGuidanceState:
         self.coefficients = [0.0, 0.0, 0.0, 0.0]
         self.freeze_threshold = freeze_threshold
         self.last_update_time = 0.0
+        self.previous_apollo_tgo = None
         
     def reset(self):
         """Reset guidance state."""
@@ -320,6 +410,7 @@ class ApolloGuidanceState:
         self.freeze_time = None
         self.coefficients = [0.0, 0.0, 0.0, 0.0]
         self.last_update_time = 0.0
+        self.previous_apollo_tgo = None
         
     def should_update_coefficients(self, t, update_interval=0.5):
         """

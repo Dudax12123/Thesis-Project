@@ -15,12 +15,12 @@ INCLUDE_LIFT = True                            # if True, include aerodynamic li
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = False                 # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-EARTH_ROTATION_AZIMUTH_MODE = "corrected"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
-INCLUDE_PSEUDO_FORCES = True                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+EARTH_ROTATION_AZIMUTH_MODE = "geometric"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
+INCLUDE_PSEUDO_FORCES = False                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 PRINT_INCLINATION_DRIFT = False                # print achieved final inclination and drift relative to target
@@ -57,18 +57,23 @@ GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exi
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
-GUIDANCE_UPDATE_RATE = 5                      # How often to recompute guidance coefficients [s]
+GUIDANCE_UPDATE_RATE = 2                      # How often to recompute guidance coefficients [s]
 APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
                                                  # (prevents numerical instability as tgo->0)
 APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
                                                  # If True: Apollo commands both thrust angle AND magnitude
                                                  # If False: Apollo only commands angle (fixed thrust)
+APOLLO_TGO_METHOD = "propellant"                # Time-to-go estimation method for Apollo guidance:
+                                                 #   "propellant": truncated rocket-equation t_go = T_BUP*(VG/Ve)*(1-0.5*VG/Ve)
+                                                 #                  (physically accurate, accounts for remaining propellant)
+                                                 #   "altitude":   simple t_go = altitude_remaining / v_radial
+                                                 #                  (legacy, unreliable when gamma is small)
 
 # -------------- Atmosphere Exit / Guidance Start Marker --------------
 # Choose how to detect when the rocket exits the atmosphere and guidance should start:
 #   "altitude": Use altitude threshold (traditional method)
 #   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
-ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"             # Options: "altitude", "dynamic_pressure"
+ATMOSPHERE_EXIT_METHOD = "altitude"             # Options: "altitude", "dynamic_pressure"
 ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
                                                  # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]

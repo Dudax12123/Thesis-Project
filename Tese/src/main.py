@@ -262,6 +262,16 @@ def execute():
     
     # Plot the results
     print("Generating new plot suite...")
+
+    _tgo_time = (np.array(ra.tgo_time_history)
+                 if sim_params.GUIDANCE_MODE == "apollo" and len(ra.tgo_time_history) > 0
+                 else None)
+    _tgo = (np.array(ra.tgo_history)
+            if sim_params.GUIDANCE_MODE == "apollo" and len(ra.tgo_history) > 0
+            else None)
+    _freeze_threshold = (getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None)
+                         if sim_params.GUIDANCE_MODE == "apollo" else None)
+
     new_plot_runner.run_new_plot_suite(
         time,
         data,
@@ -274,6 +284,9 @@ def execute():
         close_after=False,
         coriolis_mag_data=coriolis_mag_data,
         centrifugal_mag_data=centrifugal_mag_data,
+        tgo_time_data=_tgo_time,
+        tgo_data=_tgo,
+        apollo_freeze_threshold=_freeze_threshold,
     )
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---

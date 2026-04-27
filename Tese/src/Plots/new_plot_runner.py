@@ -18,6 +18,7 @@ from Plots.new_metrics.latitude_over_time import plot_latitude_over_time
 from Plots.new_metrics.aero_forces_over_time import plot_aero_forces_over_time
 from Plots.new_metrics.trajectory_losses_over_time import plot_trajectory_losses_over_time
 from Plots.new_metrics.mass_flow_rate_over_time import plot_mass_flow_rate_over_time
+from Plots.new_metrics.apollo_tgo_over_time import plot_apollo_tgo_over_time
 
 
 def _make_path(output_dir, filename):
@@ -30,7 +31,8 @@ def _make_path(output_dir, filename):
 
 def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_time_data,
                        output_dir=None, show=False, close_after=True,
-                       coriolis_mag_data=None, centrifugal_mag_data=None):
+                       coriolis_mag_data=None, centrifugal_mag_data=None,
+                       tgo_time_data=None, tgo_data=None, apollo_freeze_threshold=None):
     """Generate all new metric plots for a run."""
     files = {
         "fpa": _make_path(output_dir, "new_01_fpa_over_time.png"),
@@ -48,6 +50,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         "aero": _make_path(output_dir, "new_12_aero_forces_over_time.png"),
         "losses": _make_path(output_dir, "new_13_trajectory_losses_over_time.png"),
         "mdot": _make_path(output_dir, "new_14_mass_flow_rate_over_time.png"),
+        "apollo_tgo": _make_path(output_dir, "new_15_apollo_tgo_over_time.png"),
     }
 
     plot_fpa_over_time(time, data, save_path=files["fpa"], show=show)
@@ -73,6 +76,13 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
                                      save_path=files["losses"], show=show)
     plot_mass_flow_rate_over_time(time, thrust_data, time_thrust,
                                   save_path=files["mdot"], show=show)
+
+    if tgo_time_data is not None and tgo_data is not None and len(tgo_time_data) > 0:
+        plot_apollo_tgo_over_time(
+            tgo_time_data, tgo_data,
+            freeze_threshold=apollo_freeze_threshold,
+            save_path=files["apollo_tgo"], show=show,
+        )
 
     if close_after:
         plt.close('all')
