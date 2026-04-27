@@ -57,7 +57,7 @@ GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exi
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
-GUIDANCE_UPDATE_RATE = 0.5                      # How often to recompute guidance coefficients [s]
+GUIDANCE_UPDATE_RATE = 5                      # How often to recompute guidance coefficients [s]
 APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
                                                  # (prevents numerical instability as tgo->0)
 APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
