@@ -627,16 +627,15 @@ def _compute_apollo_tgo(state, F_T, Isp, target_altitude, previous_tgo):
 
     Returns a tuple ``(guidance_tgo, display_tgo)``:
 
-    * ``guidance_tgo`` — stage-specific t_go used by the guidance law.
-      During stage 1 it equals ``T_BUP_1 * f(VG/Ve_1)`` (shapes the stage 1
-      trajectory over its remaining burn time).  During stage 2 it equals
-      ``T_BUP_2 * f(VG/Ve_2)`` (the actual remaining stage 2 insertion burn).
+    * ``guidance_tgo`` — t_go passed to the guidance law (compute_apollo_coefficients
+      and apollo_guidance).  During **stage 1** this is the *total* remaining
+      ascent time: stage-1 remaining burn + coast + full stage-2 insertion burn.
+      This ensures the polynomial plans the full remaining trajectory, not just
+      the few seconds left on stage 1.  During **stage 2** it equals the
+      propellant-derived stage-2 t_go directly.
 
-    * ``display_tgo`` — total remaining ascent time written to ``tgo_history``
-      for diagnostic plots.  During stage 1 it adds the expected stage 2 burn
-      contribution and the inter-stage coast time so the plot shows a
-      continuous monotonic decline instead of a jump at stage 2 ignition.
-      During stage 2 it equals ``guidance_tgo``.
+    * ``display_tgo`` — identical to ``guidance_tgo``; kept as a separate return
+      value for clarity and to avoid changing call-site signatures.
 
     Only called when GUIDANCE_MODE == "apollo".
     """
@@ -684,35 +683,49 @@ def _compute_apollo_tgo(state, F_T, Isp, target_altitude, previous_tgo):
     # TODO: Add gravity compensation once sign convention is verified:
     #   VG_vec -= g_eff_vector * previous_tgo
 
-    guidance_tgo = apollo_guidance_module.estimate_apollo_time_to_go(
-        VG_vec, Ve, T_BUP,
-        previous_tgo=previous_tgo,
-        min_tgo=0.1,
-        max_tgo=T_BUP,
-    )
+    VG = float(np.linalg.norm(VG_vec))
 
-    # --- Display t_go: includes multi-stage contributions ---
-    # During stage 1 the guidance formula only uses stage 1 remaining propellant
-    # (T_BUP_1), which is nearly exhausted when guidance activates.  That would
-    # cause the plot to show a large upward jump at stage 2 ignition.  Instead,
-    # add the expected stage 2 burn contribution and the coast time so the
-    # diagnostic plot is a continuous monotonic decline from guidance activation
-    # to orbit insertion.
     if not main_engine_cutoff:
-        VG = float(np.linalg.norm(VG_vec))
+        # ---------------------------------------------------------------
+        # STAGE 1: guidance_tgo = total remaining ascent time
+        #   T_BUP_1_remaining + coast + stage-2 insertion burn
+        #
+        # The truncated rocket equation (used in estimate_apollo_time_to_go)
+        # is only accurate when VG/Ve << 1.  At guidance activation, VG is
+        # typically ~5000-6000 m/s while Ve_2 = 3413 m/s, so VG/Ve ≈ 1.5-1.7.
+        # The truncated formula always clamps to 0.5 * T_BUP and produces a
+        # constant t_go that never declines.
+        #
+        # Instead, use the exact rocket-equation burn-time formula:
+        #   t_burn = T_BUP * (1 - exp(-VG/Ve))
+        # which is valid for any VG/Ve ratio.
+        # ---------------------------------------------------------------
         Ve_2 = r.ISP_2 * c.G_0
-        if Ve_2 > 0.0:
-            T_BUP_2_max = r.M_PROP_2 / (r.F_THRUST_2 / Ve_2)
-            x2 = min(max(VG / Ve_2, 0.0), 1.0)
-            stage2_contribution = T_BUP_2_max * x2 * (1.0 - 0.5 * x2)
-        else:
-            stage2_contribution = 0.0
+        mdot_2 = r.F_THRUST_2 / Ve_2
+        T_BUP_2_full = r.M_PROP_2 / mdot_2          # max stage-2 burn budget [s]
         coast_time = float(r.TIME_SECOND_ENGINE_IGNITION)
-        display_tgo = guidance_tgo + stage2_contribution + coast_time
-    else:
-        # Stage 2: display t_go is the same as the guidance t_go
-        display_tgo = guidance_tgo
 
+        if VG > 0.0 and Ve_2 > 0.0:
+            stage2_tgo = T_BUP_2_full * (1.0 - np.exp(-VG / Ve_2))
+        else:
+            stage2_tgo = 0.0
+
+        # Total remaining time: stage-1 remaining burn + coast + stage-2 insertion
+        guidance_tgo = T_BUP + coast_time + stage2_tgo
+        guidance_tgo = max(guidance_tgo, 0.1)
+
+    else:
+        # ---------------------------------------------------------------
+        # STAGE 2: use exact rocket-equation burn time for remaining VG.
+        # ---------------------------------------------------------------
+        if VG > 0.0 and Ve > 0.0:
+            guidance_tgo = T_BUP * (1.0 - np.exp(-VG / Ve))
+        else:
+            guidance_tgo = float(previous_tgo) if previous_tgo is not None else 0.0
+        guidance_tgo = max(guidance_tgo, 0.1)
+        guidance_tgo = min(guidance_tgo, T_BUP)  # can't exceed remaining prop time
+
+    display_tgo = guidance_tgo
     return guidance_tgo, display_tgo
 
 
@@ -932,6 +945,8 @@ def rocket_dynamics(t, state):
                 t_go, t_go_display = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, apollo_previous_tgo)
             apollo_previous_tgo = t_go
             # Apollo polynomial: acceleration profiles with terminal constraints
+            # t_go already reflects the full remaining ascent timeline (stage 1 +
+            # coast + stage 2), so the polynomial plans the complete trajectory.
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go)
@@ -1006,13 +1021,16 @@ def rocket_dynamics(t, state):
             t_go, t_go_display = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, apollo_previous_tgo)
         apollo_previous_tgo = t_go
 
-        # Check if we should freeze coefficients (t_go below threshold)
+        # Check if we should freeze coefficients (t_go below threshold).
+        # During stage 1, t_go now reflects the full remaining timeline
+        # (coast + stage-2 burn), so it will not be small until near orbit
+        # insertion — the freeze threshold is safe to apply in both stages.
         if t_go < sim_params.APOLLO_FREEZE_THRESHOLD and not apollo_coefficients_frozen:
             # Freeze coefficients to prevent numerical instability
             # Justification: As t_go->0, denominators in k1,k2,k3,k4 cause unbounded growth
             apollo_coefficients_frozen = True
             apollo_freeze_time = t
-            
+
             if sim_params.EVENTS_PRINT:
                 print(f"\n  Apollo coefficients FROZEN at t = {t:.2f} s (t_go = {t_go:.2f} s)")
         
