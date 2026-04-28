@@ -19,7 +19,41 @@ from Simulation import rocket_ascent as ra
 from Input_File import simulation_parameters as sim_params
 from Auxiliary import constants as c
 from Auxiliary import earth_rotation as earth_rot
+from Auxiliary import rocket_specs as r_specs
 import Plots.new_plot_runner as new_plot_runner
+
+# ---------------------------------------------------------------------------
+# Back-pressure thrust loss lookup
+# ---------------------------------------------------------------------------
+# Digitised from the Ka (ft/s) vs Isp_SL/Isp_VAC chart.
+# Source curve starts at (1.0, 0) and rises as the ratio decreases.
+# Points are (Isp_SL/Isp_VAC, Ka [ft/s]).
+_KA_RATIO = np.array([1.00, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55])
+_KA_FT_S  = np.array([   0,  120,  285,  490,  730,  960, 1130, 1400, 1620, 1900])
+_FT_S_TO_KM_S = 0.0003048   # 1 ft/s = 0.0003048 km/s
+
+def _back_pressure_thrust_loss_kms(isp_sl: float, isp_vac: float) -> float:
+    """
+    Return the back-pressure thrust loss Ka [km/s] by interpolating the
+    Ka vs (Isp_SL / Isp_VAC) reference chart.
+
+    The curve represents the integrated velocity loss suffered by a rocket
+    ascending through the atmosphere when its nozzle is not optimally expanded
+    at every altitude — i.e. the difference between vacuum-Isp performance and
+    the actual performance at ambient pressure.
+
+    Parameters
+    ----------
+    isp_sl  : sea-level specific impulse [s]
+    isp_vac : vacuum specific impulse [s]
+
+    Returns
+    -------
+    Ka [km/s]
+    """
+    ratio = isp_sl / isp_vac
+    ka_ft_s = float(np.interp(ratio, _KA_RATIO[::-1], _KA_FT_S[::-1]))
+    return ka_ft_s * _FT_S_TO_KM_S
 
 def execute():
     """
@@ -139,7 +173,6 @@ def execute():
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal)
 
     # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
-    from Auxiliary import rocket_specs as r_specs
     max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
     if False and m_propellant_total > max_possible_propellant:
         print("\n" + "!"*60)
@@ -255,6 +288,12 @@ def execute():
     print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
     print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
     print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
+
+    # Back-pressure thrust loss
+    ka_kms = _back_pressure_thrust_loss_kms(r_specs.ISP_1_SL, r_specs.ISP_1_VAC)
+    isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC
+    print(f"\n\t* Stage 1 Isp ratio (SL/VAC):\t\t{isp_ratio:.4f}")
+    print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
     
     print("\n" + "="*60)
     print("SIMULATION COMPLETE")
