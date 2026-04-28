@@ -72,6 +72,10 @@ tgo_time_history = []  # Store corresponding time values for t_go
 coriolis_mag_history = []      # Store Coriolis acceleration magnitude
 centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
 
+# Stage 1 Isp linear-ramp state (only active when ISP_1_MODE = "linear")
+_isp1_last_update_time = 0.0   # Last time Isp was stepped
+_isp1_current = r.ISP_1_SL    # Current Isp value used by the ramp
+
 # Earth rotation launch geometry (set in run())
 LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Active azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
@@ -505,7 +509,49 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad, heading_ra
     return v_ecef, gamma_ecef
 
 
-def thrust_Isp():
+def _get_stage1_isp(t):
+    """
+    Returns the effective stage-1 Isp based on the ISP_1_MODE setting in simulation_parameters.
+
+    Modes
+    -----
+    "sea_level"  : constant ISP_1_SL throughout stage 1
+    "vacuum"     : constant ISP_1_VAC throughout stage 1
+    "average"    : constant average of ISP_1_SL and ISP_1_VAC
+    "linear"     : ramps from ISP_1_SL at t=0 to ISP_1_VAC at estimated stage-1 burnout,
+                   updated in discrete steps of ISP_1_LINEAR_UPDATE_RATE seconds
+    """
+    global _isp1_last_update_time, _isp1_current
+
+    mode = sim_params.ISP_1_MODE
+
+    if mode == "sea_level":
+        return r.ISP_1_SL
+
+    if mode == "vacuum":
+        return r.ISP_1_VAC
+
+    if mode == "average":
+        return (r.ISP_1_SL + r.ISP_1_VAC) / 2.0
+
+    if mode == "linear":
+        # Estimated stage-1 burnout time (using sea-level mdot as reference)
+        mdot_sl = r.F_THRUST_1 / (r.ISP_1_SL * c.G_0)
+        t_burnout = r.M_PROP_1 / mdot_sl
+
+        # Only update Isp at the requested step interval
+        if t - _isp1_last_update_time >= sim_params.ISP_1_LINEAR_UPDATE_RATE:
+            frac = min(t / t_burnout, 1.0)
+            _isp1_current = r.ISP_1_SL + frac * (r.ISP_1_VAC - r.ISP_1_SL)
+            _isp1_last_update_time = t
+
+        return _isp1_current
+
+    # Fallback
+    return r.ISP_1_SL
+
+
+def thrust_Isp(t):
     """
     Returns the current thrust and specific impulse based on engine status.
     
@@ -520,10 +566,10 @@ def thrust_Isp():
     
     if not main_engine_cutoff:
         F_T = r.F_THRUST_1
-        Isp = r.ISP_1
+        Isp = _get_stage1_isp(t)
     elif main_engine_cutoff and not second_engine_ignition:
         F_T = 0
-        Isp = r.ISP_1
+        Isp = _get_stage1_isp(t)
     elif main_engine_cutoff and second_stage_cutoff:
         F_T = 0
         Isp = r.ISP_2
@@ -533,7 +579,7 @@ def thrust_Isp():
     else:
         print("Warning: Both first stage and second stage engines are running at the same time.")
         F_T = r.F_THRUST_1
-        Isp = r.ISP_1
+        Isp = _get_stage1_isp(t)
         
     return F_T, Isp
 
@@ -852,7 +898,7 @@ def rocket_dynamics(t, state):
         event_second_engine_ignition(t)
     
     # --- Get current thrust, Isp ---
-    F_T, Isp = thrust_Isp()
+    F_T, Isp = thrust_Isp(t)
 
     # --- Calculate dynamic pressure (needed for atmosphere exit check and drag) ---
     q = atm.dynamic_pressure(v, alt)
@@ -1057,7 +1103,7 @@ def rocket_dynamics(t, state):
             # Convert acceleration command to force
             F_T_commanded = m * a_thrust_cmd
             # Get the nominal (maximum) thrust available
-            F_T_nominal, _ = thrust_Isp()
+            F_T_nominal, _ = thrust_Isp(t)
             # Use commanded thrust but limit to maximum available
             F_T = min(F_T_commanded, F_T_nominal)
         
@@ -1284,6 +1330,7 @@ def run(initial_kick_angle):
     global AZIMUTH_MODE_USED
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
     global PROPAGATING_IN_INERTIAL_FRAME
+    global _isp1_last_update_time, _isp1_current
     
     #===================================================
     # Reset global variables
@@ -1344,6 +1391,10 @@ def run(initial_kick_angle):
     # Reset Apollo t_go history
     tgo_history = []
     tgo_time_history = []
+
+    # Reset stage-1 Isp linear-ramp state
+    _isp1_last_update_time = 0.0
+    _isp1_current = r.ISP_1_SL
 
     #===================================================
     # Simulation until stage separation

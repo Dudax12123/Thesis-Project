@@ -53,7 +53,7 @@ GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tang
 # When should the guidance law activate after the kick maneuver?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-GUIDANCE_START_MODE = "after_kick"   # Options: "after_atmosphere_exit", "after_kick"
+GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
@@ -68,6 +68,16 @@ APOLLO_TGO_METHOD = "propellant"                # Time-to-go estimation method f
                                                  #                  (physically accurate, accounts for remaining propellant)
                                                  #   "altitude":   simple t_go = altitude_remaining / v_radial
                                                  #                  (legacy, unreliable when gamma is small)
+
+# -------------- Stage 1 Specific Impulse Mode --------------
+# Select which Isp value to use for the first stage engine:
+#   "sea_level":  Use sea-level Isp (ISP_1_SL) throughout stage 1 — most conservative
+#   "vacuum":     Use vacuum Isp (ISP_1_VAC) throughout stage 1 — best-case efficiency
+#   "average":    Use the mean of sea-level and vacuum Isp — simple middle ground
+#   "linear":     Linearly ramp from ISP_1_SL at ignition to ISP_1_VAC at stage-1 burnout,
+#                 updating every ISP_1_LINEAR_UPDATE_RATE seconds (discrete steps)
+ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear"
+ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear ramp (only used when ISP_1_MODE = "linear")
 
 # -------------- Atmosphere Exit / Guidance Start Marker --------------
 # Choose how to detect when the rocket exits the atmosphere and guidance should start:

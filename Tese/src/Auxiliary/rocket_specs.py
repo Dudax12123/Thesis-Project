@@ -38,7 +38,9 @@ C_L = 0.1               # lift coefficient [no unit] ---> lift is neglected in t
 # =======================================================
 
 # -------------- Engine Properties --------------
-ISP_1 = 283             # specific impulse [s]
+ISP_1_SL  = 283         # specific impulse at sea level [s]
+ISP_1_VAC = 311         # specific impulse in vacuum [s]
+ISP_1 = ISP_1_SL        # backward-compat alias (sea-level value)
 F_THRUST_1 = 7600e3     # thrust of engine [N]
 
 # -------------- Mass Properties --------------
