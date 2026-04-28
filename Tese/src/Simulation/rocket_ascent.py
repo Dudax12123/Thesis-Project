@@ -76,6 +76,10 @@ centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
 _isp1_last_update_time = 0.0   # Last time Isp was stepped
 _isp1_current = r.ISP_1_SL    # Current Isp value used by the ramp
 
+# Stage 1 Thrust linear-ramp state (only active when THRUST_1_MODE = "linear")
+_thrust1_last_update_time = 0.0   # Last time thrust was stepped
+_thrust1_current = r.F_THRUST_1_SL  # Current thrust value used by the ramp
+
 # Earth rotation launch geometry (set in run())
 LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Active azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
@@ -536,7 +540,7 @@ def _get_stage1_isp(t):
 
     if mode == "linear":
         # Estimated stage-1 burnout time (using sea-level mdot as reference)
-        mdot_sl = r.F_THRUST_1 / (r.ISP_1_SL * c.G_0)
+        mdot_sl = r.F_THRUST_1_SL / (r.ISP_1_SL * c.G_0)
         t_burnout = r.M_PROP_1 / mdot_sl
 
         # Only update Isp at the requested step interval
@@ -549,6 +553,48 @@ def _get_stage1_isp(t):
 
     # Fallback
     return r.ISP_1_SL
+
+
+def _get_stage1_thrust(t):
+    """
+    Returns the effective stage-1 thrust based on the THRUST_1_MODE setting in simulation_parameters.
+
+    Modes
+    -----
+    "sea_level"  : constant F_THRUST_1_SL throughout stage 1
+    "vacuum"     : constant F_THRUST_1_VAC throughout stage 1
+    "average"    : constant average of F_THRUST_1_SL and F_THRUST_1_VAC
+    "linear"     : ramps from F_THRUST_1_SL at t=0 to F_THRUST_1_VAC at estimated stage-1 burnout,
+                   updated in discrete steps of THRUST_1_LINEAR_UPDATE_RATE seconds
+    """
+    global _thrust1_last_update_time, _thrust1_current
+
+    mode = sim_params.THRUST_1_MODE
+
+    if mode == "sea_level":
+        return r.F_THRUST_1_SL
+
+    if mode == "vacuum":
+        return r.F_THRUST_1_VAC
+
+    if mode == "average":
+        return (r.F_THRUST_1_SL + r.F_THRUST_1_VAC) / 2.0
+
+    if mode == "linear":
+        # Estimated stage-1 burnout time (using sea-level mdot as reference)
+        mdot_sl = r.F_THRUST_1_SL / (r.ISP_1_SL * c.G_0)
+        t_burnout = r.M_PROP_1 / mdot_sl
+
+        # Only update thrust at the requested step interval
+        if t - _thrust1_last_update_time >= sim_params.THRUST_1_LINEAR_UPDATE_RATE:
+            frac = min(t / t_burnout, 1.0)
+            _thrust1_current = r.F_THRUST_1_SL + frac * (r.F_THRUST_1_VAC - r.F_THRUST_1_SL)
+            _thrust1_last_update_time = t
+
+        return _thrust1_current
+
+    # Fallback
+    return r.F_THRUST_1_SL
 
 
 def thrust_Isp(t):
@@ -565,7 +611,7 @@ def thrust_Isp(t):
     global main_engine_cutoff, second_engine_ignition, second_stage_cutoff
     
     if not main_engine_cutoff:
-        F_T = r.F_THRUST_1
+        F_T = _get_stage1_thrust(t)
         Isp = _get_stage1_isp(t)
     elif main_engine_cutoff and not second_engine_ignition:
         F_T = 0
@@ -578,7 +624,7 @@ def thrust_Isp(t):
         Isp = r.ISP_2
     else:
         print("Warning: Both first stage and second stage engines are running at the same time.")
-        F_T = r.F_THRUST_1
+        F_T = _get_stage1_thrust(t)
         Isp = _get_stage1_isp(t)
         
     return F_T, Isp
@@ -995,7 +1041,8 @@ def rocket_dynamics(t, state):
             # coast + stage 2), so the polynomial plans the complete trajectory.
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
-                                                               t_go)
+                                                               t_go,
+                                                               use_downrange_constraint=(sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
             apollo_freeze_time = t  # Initialize freeze time
             apollo_coefficients_frozen = False
             alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
@@ -1084,7 +1131,8 @@ def rocket_dynamics(t, state):
         if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
-                                                               t_go)
+                                                               t_go,
+                                                               use_downrange_constraint=(sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
             apollo_freeze_time = t  # Update epoch time
             last_guidance_update_time = t
             # Record t_go once per guidance update cycle (not every ODE sub-step)
@@ -1331,6 +1379,7 @@ def run(initial_kick_angle):
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
     global PROPAGATING_IN_INERTIAL_FRAME
     global _isp1_last_update_time, _isp1_current
+    global _thrust1_last_update_time, _thrust1_current
     
     #===================================================
     # Reset global variables
@@ -1395,6 +1444,10 @@ def run(initial_kick_angle):
     # Reset stage-1 Isp linear-ramp state
     _isp1_last_update_time = 0.0
     _isp1_current = r.ISP_1_SL
+
+    # Reset stage-1 thrust linear-ramp state
+    _thrust1_last_update_time = 0.0
+    _thrust1_current = r.F_THRUST_1_SL
 
     #===================================================
     # Simulation until stage separation

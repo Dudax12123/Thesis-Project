@@ -41,7 +41,9 @@ C_L = 0.1               # lift coefficient [no unit] ---> lift is neglected in t
 ISP_1_SL  = 283         # specific impulse at sea level [s]
 ISP_1_VAC = 311         # specific impulse in vacuum [s]
 ISP_1 = ISP_1_SL        # backward-compat alias (sea-level value)
-F_THRUST_1 = 7600e3     # thrust of engine [N]
+F_THRUST_1_SL  = 7607e3 # thrust at sea level [N]
+F_THRUST_1_VAC = 8227e3 # thrust in vacuum [N]
+F_THRUST_1 = F_THRUST_1_SL  # backward-compat alias (sea-level value)
 
 # -------------- Mass Properties --------------
 M_STRUCTURE_1 = 25.6e3   # mass structure [kg]

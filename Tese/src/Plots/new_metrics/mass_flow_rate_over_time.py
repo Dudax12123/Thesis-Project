@@ -14,7 +14,7 @@ def plot_mass_flow_rate_over_time(time_steps, thrust_data, time_thrust,
     #   Stage 1 thrust ~ 7.6 MN  →  ISP_1
     #   Stage 2 thrust ~ 934 kN  →  ISP_2
     #   Coast (thrust ≈ 0)       →  ISP_2 (mass flow is zero anyway)
-    threshold = (r.F_THRUST_1 + r.F_THRUST_2) / 2.0
+    threshold = (r.F_THRUST_1_SL + r.F_THRUST_2) / 2.0
     isp = np.where(thrust_interp > threshold, r.ISP_1_SL, r.ISP_2)
 
     mdot = thrust_interp / (isp * c.G_0)

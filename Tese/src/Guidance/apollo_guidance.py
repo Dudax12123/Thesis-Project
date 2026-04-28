@@ -199,7 +199,7 @@ def predict_target_downrange(state, target_altitude):
     return downrange_target
 
 
-def compute_apollo_coefficients(state, target_altitude, t_go):
+def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_constraint=False):
     """
     Compute Apollo polynomial guidance coefficients (classical formulation).
     
@@ -207,7 +207,7 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
     Uses linear acceleration profiles to satisfy terminal position and velocity constraints.
     
     This version enforces both horizontal and vertical terminal constraints:
-    - Horizontal: Targets orbital velocity and predicted downrange position
+    - Horizontal: Targets orbital velocity and (optionally) predicted downrange position
     - Vertical: Targets altitude and horizontal flight (gamma = 0)
     
     Justification: Classical Apollo guidance formulation. During ascent, we need to
@@ -228,6 +228,11 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
         Target orbital altitude [m]
     t_go : float
         Time-to-go [s]
+    use_downrange_constraint : bool, optional
+        If True, enforce a downrange position constraint in the horizontal channel
+        using the predicted insertion downrange (x_target = 2 * predict_target_downrange).
+        Suitable when guidance starts after atmosphere exit (gamma is small, prediction
+        is reliable).  If False (default), k1=0 and only orbital velocity is targeted.
         
     Returns:
     --------
@@ -253,25 +258,33 @@ def compute_apollo_coefficients(state, target_altitude, t_go):
     r_target = c.R_EARTH + target_altitude
     vx_target = np.sqrt(c.MU_EARTH / r_target)
     
-    # Horizontal channel: constant-acceleration profile toward orbital velocity.
+    # Horizontal channel
     #
-    # For ascent to circular orbit, the downrange (x) position at cutoff is
-    # NOT a constraint — only the velocity vector and altitude matter at SECO.
-    # Constraining x with predict_target_downrange fails at early flight
-    # (gamma > 60°) because that function estimates the downrange on the
-    # current suborbital arc (~100 km), which is an order of magnitude smaller
-    # than the actual insertion point (~1500 km).  The resulting k2 becomes
-    # strongly negative, commanding backward horizontal thrust and positive AoA,
-    # which pitches the rocket back toward vertical — opposite to the kick.
+    # Two modes are supported via use_downrange_constraint:
     #
-    # Removing the x-constraint (k1 = 0) is equivalent to choosing
-    #   x_target = x + 0.5*(vx + vx_target)*t_go   (midpoint rule)
-    # which gives a constant horizontal acceleration exactly equal to
-    #   k2 = (vx_target - vx) / t_go
-    # This is always positive during ascent (vx < vx_target), correctly
-    # directing the thrust toward building orbital velocity at all altitudes.
-    k1 = 0.0
-    k2 = (vx_target - vx) / t_go
+    # False (default — no position constraint, velocity-only):
+    #   k1 = 0, k2 = (vx_target - vx) / t_go
+    #   Equivalent to a constant-acceleration profile that exactly zeroes the
+    #   horizontal velocity error.  Safe at any flight path angle.
+    #   Used when guidance starts at low altitude (after_kick) where
+    #   predict_target_downrange underestimates the true insertion distance by
+    #   an order of magnitude (~100 km vs ~1500 km), causing k2 to go strongly
+    #   negative and pitch the rocket backward.
+    #
+    # True (full 4-coefficient constraint — position + velocity):
+    #   x_target = 2 * predict_target_downrange(state, target_altitude)
+    #   k1 = (6*(vx_target + vx)*t_go - 12*(x_target - x)) / t_go^3  (eq. 2.39)
+    #   k2 = (-2*(vx_target + 2*vx)*t_go + 6*(x_target - x)) / t_go^2 (eq. 2.40)
+    #   Classical Apollo formulation.  Reliable when guidance starts after
+    #   atmosphere exit where gamma is already small and the orbital-arc
+    #   downrange prediction is accurate.
+    if use_downrange_constraint:
+        x_target = 2.0 * predict_target_downrange(state, target_altitude)
+        k1 = (6.0 * (vx_target + vx) * t_go - 12.0 * (x_target - x)) / (t_go ** 3)
+        k2 = (-2.0 * (vx_target + 2.0 * vx) * t_go + 6.0 * (x_target - x)) / (t_go ** 2)
+    else:
+        k1 = 0.0
+        k2 = (vx_target - vx) / t_go
     
     # Vertical channel coefficients (enforce altitude and vertical velocity)
     # Equation 2.39: k3 = 6*(vy_f + vy)*t_go - 12*(y_f - y) / t_go^3

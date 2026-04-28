@@ -53,7 +53,7 @@ GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tang
 # When should the guidance law activate after the kick maneuver?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
+GUIDANCE_START_MODE = "after_kick"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
@@ -79,11 +79,21 @@ APOLLO_TGO_METHOD = "propellant"                # Time-to-go estimation method f
 ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear"
 ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear ramp (only used when ISP_1_MODE = "linear")
 
+# -------------- Stage 1 Thrust Mode --------------
+# Select which thrust value to use for the first stage engine:
+#   "sea_level":  Use sea-level thrust (F_THRUST_1_SL) throughout stage 1 — most conservative
+#   "vacuum":     Use vacuum thrust (F_THRUST_1_VAC) throughout stage 1 — best-case performance
+#   "average":    Use the mean of sea-level and vacuum thrust — simple middle ground
+#   "linear":     Linearly ramp from F_THRUST_1_SL at ignition to F_THRUST_1_VAC at stage-1 burnout,
+#                 updating every THRUST_1_LINEAR_UPDATE_RATE seconds (discrete steps)
+THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear"
+THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
+
 # -------------- Atmosphere Exit / Guidance Start Marker --------------
 # Choose how to detect when the rocket exits the atmosphere and guidance should start:
 #   "altitude": Use altitude threshold (traditional method)
 #   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
-ATMOSPHERE_EXIT_METHOD = "altitude"             # Options: "altitude", "dynamic_pressure"
+ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"             # Options: "altitude", "dynamic_pressure"
 ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
                                                  # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
