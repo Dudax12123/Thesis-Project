@@ -97,9 +97,14 @@ def corrected_azimuth(inc_deg, lat_deg, target_altitude):
     return beta_corrected, beta_inertial, v_rot_surface
 
 
-def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="corrected"):
+def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="geometric"):
     """
-    Select active launch azimuth mode for rotating-frame propagation.
+    Return the formula-based (geometric) launch azimuth for rotating-frame propagation.
+
+    All AZIMUTH_INCLINATION_MODE options start from the spherical-geometry formula
+        sin(beta) = cos(i_target) / cos(phi_launch)
+    so this function always returns the geometric/inertial azimuth as the active value.
+    The mode parameter is retained for backward-compatibility but is ignored.
 
     Parameters:
     -----------
@@ -110,12 +115,12 @@ def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="corrected"):
     target_altitude : float
         Target circular orbit altitude [m]
     mode : str
-        Azimuth mode: "corrected" or "geometric"
+        Ignored — retained for backward-compatibility only.
 
     Returns:
     --------
     beta_active : float
-        Active azimuth used in rotating-frame decomposition [rad]
+        Formula azimuth used in rotating-frame propagation [rad] (= beta_inertial)
     beta_inertial : float
         Geometric/inertial azimuth [rad]
     v_rot_surface : float
@@ -127,15 +132,10 @@ def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="corrected"):
         target_altitude,
     )
 
-    mode_key = mode.lower().strip()
-    if mode_key == "corrected":
-        beta_active = beta_corrected
-    elif mode_key == "geometric":
-        beta_active = beta_inertial
-    else:
-        raise ValueError("EARTH_ROTATION_AZIMUTH_MODE must be 'corrected' or 'geometric'.")
-
-    return beta_active, beta_inertial, v_rot_surface
+    # All AZIMUTH_INCLINATION_MODE options use the formula (geometric) azimuth as the
+    # simulation baseline.  Comparison, back-derivation, and iterative correction are
+    # handled in main.py after the run completes.
+    return beta_inertial, beta_inertial, v_rot_surface
 
 
 def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):

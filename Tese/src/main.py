@@ -55,6 +55,100 @@ def _back_pressure_thrust_loss_kms(isp_sl: float, isp_vac: float) -> float:
     ka_ft_s = float(np.interp(ratio, _KA_RATIO[::-1], _KA_FT_S[::-1]))
     return ka_ft_s * _FT_S_TO_KM_S
 
+
+def _iterative_azimuth_sweep(kick_angle_optimal, beta_formula):
+    """
+    Sweep launch azimuth ±AZIMUTH_ITER_RANGE_DEG around the formula value in
+    AZIMUTH_ITER_STEP_DEG steps to find the azimuth that best achieves the
+    target inclination.  The kick angle is held fixed from the initial
+    optimisation run.
+
+    Returns the best azimuth [rad], or beta_formula if no solution is found
+    within AZIMUTH_ITER_TOL_DEG degrees of the target.
+    """
+    step_rad  = np.deg2rad(sim_params.AZIMUTH_ITER_STEP_DEG)
+    range_rad = np.deg2rad(sim_params.AZIMUTH_ITER_RANGE_DEG)
+    tol_deg   = sim_params.AZIMUTH_ITER_TOL_DEG
+
+    azimuths = np.arange(
+        beta_formula - range_rad,
+        beta_formula + range_rad + step_rad * 0.5,
+        step_rad,
+    )
+
+    print("\n" + "="*60)
+    print("ITERATIVE AZIMUTH SWEEP")
+    print("="*60)
+    print(f"Sweeping {len(azimuths)} azimuths:  "
+          f"{np.rad2deg(azimuths[0]):.3f}\u00b0 \u2192 {np.rad2deg(azimuths[-1]):.3f}\u00b0  "
+          f"(step {sim_params.AZIMUTH_ITER_STEP_DEG:.3f}\u00b0)")
+
+    best_az      = beta_formula
+    best_err     = np.inf
+    best_inc_deg = np.nan
+
+    _events_saved     = sim_params.EVENTS_PRINT
+    _interrupts_saved = sim_params.INTERRUPTS_PRINT
+    sim_params.EVENTS_PRINT     = False
+    sim_params.INTERRUPTS_PRINT = False
+
+    ra.SINGLE_BURN_FULL_SIMULATION = False
+    for az in azimuths:
+        ra.run(kick_angle_optimal, azimuth_override=az)
+        i_achieved = ra.LAST_ACHIEVED_INCLINATION_DEG
+        if not np.isfinite(i_achieved):
+            continue
+        err = abs(i_achieved - sim_params.TARGET_ORBIT_INCLINATION)
+        if err < best_err:
+            best_err     = err
+            best_az      = az
+            best_inc_deg = i_achieved
+
+    sim_params.EVENTS_PRINT     = _events_saved
+    sim_params.INTERRUPTS_PRINT = _interrupts_saved
+
+    print(f"Best azimuth:         {np.rad2deg(best_az):.4f}\u00b0  "
+          f"(\u0394 = {np.rad2deg(best_az - beta_formula):+.4f}\u00b0 from formula)")
+    print(f"Achieved inclination: {best_inc_deg:.4f}\u00b0  "
+          f"(\u0394 = {best_inc_deg - sim_params.TARGET_ORBIT_INCLINATION:+.4f}\u00b0 from target)")
+
+    if best_err > tol_deg:
+        print(f"\nWARNING: Closest inclination ({best_inc_deg:.4f}\u00b0) is {best_err:.4f}\u00b0 from target "
+              f"\u2014 exceeds tolerance of {tol_deg:.3f}\u00b0.")
+        print(f"         Falling back to formula azimuth ({np.rad2deg(beta_formula):.4f}\u00b0).")
+        return beta_formula
+
+    return best_az
+
+
+def _print_inclination_analysis(i_achieved, beta_formula, best_azimuth_override, sp):
+    """Print the INCLINATION ANALYSIS block for all AZIMUTH_INCLINATION_MODE options."""
+    print("\n" + "="*60)
+    print("INCLINATION ANALYSIS")
+    print("="*60)
+    i_target = sp.TARGET_ORBIT_INCLINATION
+    mode     = sp.AZIMUTH_INCLINATION_MODE
+
+    print(f"\t* Target inclination:\t\t\t{i_target:.4f} deg")
+    print(f"\t* Formula azimuth (\u03b2_formula):\t\t{np.rad2deg(beta_formula):.4f} deg")
+
+    if np.isfinite(i_achieved):
+        print(f"\t* Achieved inclination:\t\t\t{i_achieved:.4f} deg")
+        print(f"\t* Inclination drift (achieved\u2212target):\t{i_achieved - i_target:+.4f} deg")
+
+        if mode == "formula_back_compare":
+            beta_back = earth_rot.geometric_azimuth(i_achieved, sp.LAUNCH_LATITUDE)
+            print(f"\t* Back-derived azimuth (\u03b2_back):\t\t{np.rad2deg(beta_back):.4f} deg")
+            print(f"\t* Azimuth shift (\u03b2_back \u2212 \u03b2_formula):\t{np.rad2deg(beta_back - beta_formula):+.4f} deg")
+
+        if mode == "iterative":
+            az_used = best_azimuth_override if best_azimuth_override is not None else beta_formula
+            print(f"\t* Azimuth used in final run:\t\t{np.rad2deg(az_used):.4f} deg")
+            print(f"\t* Azimuth shift from formula:\t\t{np.rad2deg(az_used - beta_formula):+.4f} deg")
+    else:
+        print("\t* Achieved inclination:\t\t\t(not available)")
+
+
 def execute():
     """
     Main execution function for coasting single burn optimization.
@@ -104,36 +198,38 @@ def execute():
         print("  - Enforces position & velocity terminal constraints")
         print("  - Coefficient freezing at t_go < 10s for stability")
 
+    beta_formula = None
     if sim_params.ENABLE_EARTH_ROTATION:
-        beta_corrected, beta_inertial, v_rot_surface = earth_rot.corrected_azimuth(
+        _, beta_formula, v_rot_surface = earth_rot.select_launch_azimuth(
             sim_params.TARGET_ORBIT_INCLINATION,
             sim_params.LAUNCH_LATITUDE,
             sim_params.TARGET_ORBITAL_ALTITUDE,
         )
-        active_beta = beta_corrected if sim_params.EARTH_ROTATION_AZIMUTH_MODE.lower().strip() == "corrected" else beta_inertial
-        implied_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_inertial)
+        implied_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_formula)
         expected_gain = earth_rot.delta_v_gain(
             sim_params.LAUNCH_LATITUDE,
-            active_beta,
+            beta_formula,
             c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
         )
 
         print("\n" + "="*60)
         print("EARTH ROTATION CONFIGURATION")
         print("="*60)
-        print(f"Azimuth mode: {sim_params.EARTH_ROTATION_AZIMUTH_MODE}")
-        print(f"Pseudo-forces in EOM: {sim_params.INCLUDE_PSEUDO_FORCES}")
-        print(f"Heading state tracking: {sim_params.TRACK_HEADING_STATE}")
-        print(f"Launch site latitude: {sim_params.LAUNCH_LATITUDE:.4f} deg")
-        print(f"Launch site longitude: {sim_params.LAUNCH_LONGITUDE:.4f} deg")
-        print(f"Target inclination: {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
-        print(f"Geometric inertial azimuth: {np.rad2deg(beta_inertial):.4f} deg")
-        print(f"Corrected rotating-frame azimuth: {np.rad2deg(beta_corrected):.4f} deg")
-        print(f"Active rotating-frame azimuth: {np.rad2deg(active_beta):.4f} deg")
-        print(f"Surface rotation speed at launch site: {v_rot_surface:.2f} m/s")
-        print(f"Estimated inertial delta-v gain: {expected_gain:.2f} m/s")
-        print(f"Inclination implied by geometric azimuth/latitude: {implied_inclination:.4f} deg")
-    
+        print(f"Azimuth/inclination mode: {sim_params.AZIMUTH_INCLINATION_MODE}")
+        print(f"Pseudo-forces in EOM:     {sim_params.INCLUDE_PSEUDO_FORCES}")
+        print(f"Heading state tracking:   {sim_params.TRACK_HEADING_STATE}")
+        print(f"Launch site latitude:     {sim_params.LAUNCH_LATITUDE:.4f} deg")
+        print(f"Launch site longitude:    {sim_params.LAUNCH_LONGITUDE:.4f} deg")
+        print(f"Target inclination:       {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
+        print(f"Formula azimuth:          {np.rad2deg(beta_formula):.4f} deg")
+        print(f"Surface rotation speed:   {v_rot_surface:.2f} m/s")
+        print(f"Estimated delta-v gain:   {expected_gain:.2f} m/s")
+        print(f"Implied inclination (formula azimuth): {implied_inclination:.4f} deg")
+        if sim_params.AZIMUTH_INCLINATION_MODE == "iterative":
+            print(f"Iterative sweep range:    \u00b1{sim_params.AZIMUTH_ITER_RANGE_DEG:.2f} deg")
+            print(f"Iterative sweep step:     {sim_params.AZIMUTH_ITER_STEP_DEG:.3f} deg")
+            print(f"Inclination tolerance:    {sim_params.AZIMUTH_ITER_TOL_DEG:.3f} deg")
+
     print("="*60)
     
     # Set to optimization mode
@@ -163,14 +259,19 @@ def execute():
         print("OPTIMIZATION RESULTS")
         print("="*60)
         print(f"\nOptimal kick angle: {np.rad2deg(kick_angle_optimal):.4f} degrees")
-    
+
+    # ---- Iterative azimuth sweep (Option 3) ----
+    best_azimuth_override = None
+    if sim_params.ENABLE_EARTH_ROTATION and sim_params.AZIMUTH_INCLINATION_MODE == "iterative":
+        best_azimuth_override = _iterative_azimuth_sweep(kick_angle_optimal, beta_formula)
+
     # Run full simulation with optimal parameters
     print("\n" + "="*60)
     print("RUNNING FULL TRAJECTORY SIMULATION")
     print("="*60 + "\n")
-    
+
     ra.SINGLE_BURN_FULL_SIMULATION = True
-    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal)
+    time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal, azimuth_override=best_azimuth_override)
 
     # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
     max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
@@ -273,13 +374,9 @@ def execute():
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     if sim_params.ENABLE_EARTH_ROTATION:
-        print(f"\t* Azimuth mode used:\t\t\t{ra.AZIMUTH_MODE_USED}")
+        print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
         if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
             print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
-        if np.isfinite(ra.LAST_ACHIEVED_INCLINATION_DEG):
-            print(f"\t* Achieved inclination:\t\t{ra.LAST_ACHIEVED_INCLINATION_DEG:.4f} deg")
-            if sim_params.PRINT_INCLINATION_DRIFT:
-                print(f"\t* Inclination drift (achieved-target):\t{ra.LAST_INCLINATION_DRIFT_DEG:+.4f} deg")
         print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
     
     print("\n" + "="*60)
@@ -294,7 +391,15 @@ def execute():
     isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC
     print(f"\n\t* Stage 1 Isp ratio (SL/VAC):\t\t{isp_ratio:.4f}")
     print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
-    
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        _print_inclination_analysis(
+            ra.LAST_ACHIEVED_INCLINATION_DEG,
+            beta_formula,
+            best_azimuth_override,
+            sim_params,
+        )
+
     print("\n" + "="*60)
     print("SIMULATION COMPLETE")
     print("="*60 + "\n")

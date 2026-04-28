@@ -1343,7 +1343,7 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
                     max_step=1, events=interrupt_list, atol=1e-8)
 
 
-def run(initial_kick_angle):
+def run(initial_kick_angle, azimuth_override=None):
     """
     Main function to run the rocket trajectory simulation with coasting single burn.
     
@@ -1412,9 +1412,11 @@ def run(initial_kick_angle):
             sim_params.TARGET_ORBIT_INCLINATION,
             sim_params.LAUNCH_LATITUDE,
             sim_params.TARGET_ORBITAL_ALTITUDE,
-            mode=sim_params.EARTH_ROTATION_AZIMUTH_MODE,
         )
-        AZIMUTH_MODE_USED = sim_params.EARTH_ROTATION_AZIMUTH_MODE.lower().strip()
+        if azimuth_override is not None:
+            LAUNCH_AZIMUTH = azimuth_override
+            LAUNCH_AZIMUTH_INERTIAL = azimuth_override
+        AZIMUTH_MODE_USED = getattr(sim_params, "AZIMUTH_INCLINATION_MODE", "formula_compare")
     
     # Reset guidance phase variables
     atmosphere_exited = False

@@ -19,11 +19,31 @@ ENABLE_EARTH_ROTATION = False                 # if True, include Earth rotation 
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-EARTH_ROTATION_AZIMUTH_MODE = "geometric"     # "corrected" (default current behavior) or "geometric" (no rotating-frame correction)
 INCLUDE_PSEUDO_FORCES = False                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
-PRINT_INCLINATION_DRIFT = False                # print achieved final inclination and drift relative to target
+
+# -------------- Azimuth / Inclination Mode --------------
+# All three modes derive the initial launch azimuth from the spherical-geometry formula:
+#   sin(beta) = cos(i_target) / cos(phi_launch)
+# They differ in how they analyse the gap between that formula and the real achieved inclination.
+#
+#   "formula_compare":      Fly with the formula azimuth.
+#                           Report the achieved inclination and its deviation from the target.
+#
+#   "formula_back_compare": Same as "formula_compare", but also back-derives an azimuth from
+#                           the achieved inclination via the same formula and reports the
+#                           difference between the formula azimuth and that back-derived azimuth.
+#
+#   "iterative":            Sweeps the launch azimuth over
+#                           [beta_formula - RANGE, beta_formula + RANGE] in steps of
+#                           AZIMUTH_ITER_STEP_DEG to find the azimuth that best achieves
+#                           the target inclination.  The kick angle is fixed from the
+#                           initial optimisation run (re-optimising per azimuth is too costly).
+AZIMUTH_INCLINATION_MODE = "formula_compare"  # Options: "formula_compare", "formula_back_compare", "iterative"
+AZIMUTH_ITER_STEP_DEG  = 0.1                  # [deg] azimuth step size for iterative sweep (only used when mode = "iterative")
+AZIMUTH_ITER_RANGE_DEG = 10.0                 # [deg] sweep half-width around formula azimuth (only used when mode = "iterative")
+AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — warns and falls back if no solution found within this bound
 
 # -------------- Guidance Mode Selection --------------
 # Choose the guidance strategy for the trajectory:
