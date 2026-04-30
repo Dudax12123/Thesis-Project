@@ -68,6 +68,10 @@ alpha_time_history = []  # Store corresponding time values for steering angles
 tgo_history = []    # Store Apollo t_go estimates during guidance phase
 tgo_time_history = []  # Store corresponding time values for t_go
 
+# Crash detection
+CRASH_DETECTED = False
+CRASH_TIME = None
+
 # Pseudo-force acceleration history for plotting
 coriolis_mag_history = []      # Store Coriolis acceleration magnitude
 centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
@@ -1129,7 +1133,19 @@ def rocket_dynamics(t, state):
         
         # Update coefficients if not frozen and update interval reached
         if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
-            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
+            # When Earth rotation is enabled, guidance must compare against the
+            # inertial orbital target velocity sqrt(mu/r), so convert the
+            # rotating-frame (v, gamma) to ECI before passing to the guidance law.
+            if sim_params.ENABLE_EARTH_ROTATION:
+                v_eci, gamma_eci = earth_rot.ecef_to_eci_velocity(
+                    v, gamma, heading, lat, r_val
+                )
+                state_for_guidance = np.array(list(state[:5]))
+                state_for_guidance[2] = v_eci
+                state_for_guidance[3] = gamma_eci
+            else:
+                state_for_guidance = state
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state_for_guidance,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
                                                                use_downrange_constraint=(sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
@@ -1373,7 +1389,9 @@ def run(initial_kick_angle, azimuth_override=None):
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo
     global thrust_history, time_history
     global alpha_history, alpha_time_history
+    global tgo_history, tgo_time_history
     global coriolis_mag_history, centrifugal_mag_history
+    global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
@@ -1443,6 +1461,10 @@ def run(initial_kick_angle, azimuth_override=None):
     tgo_history = []
     tgo_time_history = []
 
+    # Reset crash detection flags
+    CRASH_DETECTED = False
+    CRASH_TIME = None
+
     # Reset stage-1 Isp linear-ramp state
     _isp1_last_update_time = 0.0
     _isp1_current = r.ISP_1_SL
@@ -1470,6 +1492,17 @@ def run(initial_kick_angle, azimuth_override=None):
     # Call simulation for stage 1
     sol_1 = simulate_trajectory(0, time_1, initial_state_1, True, False)
 
+    if len(sol_1.t_events[1]) > 0:  # interrupt_ground_collision fired in stage 1
+        CRASH_DETECTED = True
+        CRASH_TIME = sol_1.t_events[1][0]
+        thrust_data = np.array(thrust_history)
+        time_thrust = np.array(time_history)
+        alpha_data = np.array(alpha_history)
+        alpha_time_data = np.array(alpha_time_history)
+        coriolis_mag_data = np.array(coriolis_mag_history)
+        centrifugal_mag_data = np.array(centrifugal_mag_history)
+        return sol_1.t, sol_1.y, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+
     #===================================================
     # Simulation after stage separation
     #===================================================
@@ -1485,8 +1518,21 @@ def run(initial_kick_angle, azimuth_override=None):
     time_2 = 4000.
     
     # Call simulation for stage 2
-    sol_2 = simulate_trajectory(init_time_2, time_2, initial_state_2, False, 
+    sol_2 = simulate_trajectory(init_time_2, time_2, initial_state_2, False,
                                True)
+
+    if len(sol_2.t_events[2]) > 0:  # interrupt_ground_collision fired in stage 2
+        CRASH_DETECTED = True
+        CRASH_TIME = sol_2.t_events[2][0]
+        data = np.concatenate((sol_1.y, sol_2.y), axis=1)
+        time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
+        thrust_data = np.array(thrust_history)
+        time_thrust = np.array(time_history)
+        alpha_data = np.array(alpha_history)
+        alpha_time_data = np.array(alpha_time_history)
+        coriolis_mag_data = np.array(coriolis_mag_history)
+        centrifugal_mag_data = np.array(centrifugal_mag_history)
+        return time_steps_simulation, data, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
     data = np.concatenate((sol_1.y, sol_2.y), axis=1)
     time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
@@ -1613,8 +1659,21 @@ def run(initial_kick_angle, azimuth_override=None):
             # skipped by rocket_dynamics().
             PROPAGATING_IN_INERTIAL_FRAME = True
             
-            sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3, 
+            sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3,
                                        False, False)
+
+            if len(sol_3.t_events[0]) > 0:  # interrupt_ground_collision in coast
+                CRASH_DETECTED = True
+                CRASH_TIME = sol_3.t_events[0][0]
+                data = np.concatenate((sol_1.y, sol_2.y, sol_3.y), axis=1)
+                time_steps_simulation = np.concatenate((sol_1.t, sol_2.t, sol_3.t))
+                thrust_data = np.array(thrust_history)
+                time_thrust = np.array(time_history)
+                alpha_data = np.array(alpha_history)
+                alpha_time_data = np.array(alpha_time_history)
+                coriolis_mag_data = np.array(coriolis_mag_history)
+                centrifugal_mag_data = np.array(centrifugal_mag_history)
+                return time_steps_simulation, data, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
             # 2. Circularization burn (instantaneous delta-v)
             initial_state_4 = sol_3.y[:, -1]
@@ -1629,9 +1688,22 @@ def run(initial_kick_angle, azimuth_override=None):
             # 3. Simulation after circularization burn
             init_time_4 = sol_3.t[-1]
             time_4 = sim_params.DURATION_AFTER_SIMULATION
-            
-            sol_4 = simulate_trajectory(init_time_4, time_4, initial_state_4, 
+
+            sol_4 = simulate_trajectory(init_time_4, time_4, initial_state_4,
                                        False, False)
+
+            if len(sol_4.t_events[0]) > 0:  # interrupt_ground_collision post-circ
+                CRASH_DETECTED = True
+                CRASH_TIME = sol_4.t_events[0][0]
+                data = np.concatenate((sol_1.y, sol_2.y, sol_3.y, sol_4.y), axis=1)
+                time_steps_simulation = np.concatenate((sol_1.t, sol_2.t, sol_3.t, sol_4.t))
+                thrust_data = np.array(thrust_history)
+                time_thrust = np.array(time_history)
+                alpha_data = np.array(alpha_history)
+                alpha_time_data = np.array(alpha_time_history)
+                coriolis_mag_data = np.array(coriolis_mag_history)
+                centrifugal_mag_data = np.array(centrifugal_mag_history)
+                return time_steps_simulation, data, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
             # Collect data and time steps
             data = np.concatenate((sol_1.y, sol_2.y, sol_3.y, sol_4.y), axis=1)

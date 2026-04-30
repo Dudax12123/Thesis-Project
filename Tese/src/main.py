@@ -273,6 +273,16 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal, azimuth_override=best_azimuth_override)
 
+    if ra.CRASH_DETECTED:
+        print("\n" + "!"*60)
+        print("SIMULATION FAILED — GROUND IMPACT")
+        print("!"*60)
+        print(f"\t* Ground impact at:\t\t\tT+{ra.CRASH_TIME:.2f} s")
+        print(f"\t* Earth Rotation: {'ON' if sim_params.ENABLE_EARTH_ROTATION else 'OFF'}"
+              f",  Pseudo-forces: {'ON' if sim_params.INCLUDE_PSEUDO_FORCES else 'OFF'}")
+        print("!"*60 + "\n")
+        return time, data, kick_angle_optimal
+
     # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
     max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
     if False and m_propellant_total > max_possible_propellant:

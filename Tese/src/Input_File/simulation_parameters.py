@@ -15,7 +15,7 @@ INCLUDE_LIFT = True                            # if True, include aerodynamic li
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = False                 # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
