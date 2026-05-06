@@ -9,17 +9,17 @@ TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s
 DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = True                            # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = False                            # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = True                 # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = False                # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = False                 # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 
@@ -67,7 +67,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Polynomial acceleration profiles in x and y directions
 #                   - Enforces position and velocity terminal constraints
 #                   - Used in Apollo missions, more accurate than simple_poly
-GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
+GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?

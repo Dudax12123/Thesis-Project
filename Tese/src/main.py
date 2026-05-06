@@ -283,18 +283,15 @@ def execute():
         print("!"*60 + "\n")
         return time, data, kick_angle_optimal
 
-    # Check for failed simulation (sentinel value means apogee missed target or insufficient propellant)
-    max_possible_propellant = r_specs.M_PROP_1 + r_specs.M_PROP_2
-    if False and m_propellant_total > max_possible_propellant:
+    # Check for failed simulation (sentinel value means no valid trajectory was found)
+    if m_propellant_total >= 9999999.0:
         print("\n" + "!"*60)
-        print("SIMULATION FAILED")
+        print("OPTIMISATION FAILED — NO VALID TRAJECTORY FOUND")
         print("!"*60)
-        print(f"Propellant metric returned: {m_propellant_total:.0f} kg (sentinel value)")
-        print("The trajectory did not achieve the target orbit.")
-        print("Possible causes:")
-        print("  - Kick angle produces an apogee that misses the target altitude")
-        print("  - Insufficient propellant for circularization burn")
-        print("Skipping plots and orbital element display.")
+        print("No kick angle in the search range produces a valid orbit.")
+        print(f"  ALPHA_LOWEST  = {np.rad2deg(sim_params.ALPHA_LOWEST):.2f}°")
+        print(f"  ALPHA_HIGHEST = {np.rad2deg(sim_params.ALPHA_HIGHEST):.2f}°")
+        print("Expand the kick-angle range or check guidance mode / target altitude.")
         print("!"*60 + "\n")
         return time, data, kick_angle_optimal
 

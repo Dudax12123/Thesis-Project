@@ -41,8 +41,9 @@ def coasting_single_burn_objective(kick_angle):
     """
     time_steps, data, alt_stopped, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, _cor, _cent = ra.run(kick_angle)
 
-    # Debugging output
     print("Kick angle:\t\t", np.rad2deg(kick_angle))
+    if ra.CRASH_DETECTED:
+        print(f"  [GROUND IMPACT at T+{ra.CRASH_TIME:.1f}s — propellant set to sentinel]")
     print("Propellant used:\t", m_propellant_total_used_2nd_stage, "kg")
     print("\n")
 

@@ -876,12 +876,25 @@ def get_time_until_apogee(e, gamma, v, T, a, r_current):
     time_until_apogee : float
         Time until apogee [s]
     """
+    # For a nearly circular orbit (e ≈ 0) the formula divides by e*r_current ≈ 0
+    # producing NaN. A circular orbit has no preferred apogee; any point is
+    # equivalent, so returning 0 (circularise immediately) is correct.
+    if e < 1e-6:
+        return 0.0
+
     theta = np.arccos((a * (1 - e**2) - r_current) / (e * r_current))
     ecc_anomaly = 2 * np.arctan2(np.sqrt((1 - e) / (1 + e)) * (1 - np.cos(theta)), 
                                    np.sin(theta))
     mean_anomaly = ecc_anomaly - e * np.sin(ecc_anomaly)
     time_until_apogee = T / (2 * np.pi) * mean_anomaly
     time_until_apogee = (T / 2.) - time_until_apogee
+
+    # arccos maps theta to [0, π] (ascending arc only). When gamma < 0 the
+    # rocket is on the descending arc and must coast through perigee before
+    # reaching apogee. By orbital symmetry the correct time is T minus the
+    # ascending-arc estimate.
+    if gamma < 0:
+        time_until_apogee = T - time_until_apogee
 
     return time_until_apogee
 
@@ -1065,7 +1078,7 @@ def rocket_dynamics(t, state):
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "simple_poly" and F_T > 0:
         # Phase 2a: Simple polynomial guidance (only while engines burning)
-        
+
         # Update guidance coefficients periodically
         if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
@@ -1073,14 +1086,14 @@ def rocket_dynamics(t, state):
                                                                  sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                  t_go)
             last_guidance_update_time = t
-        
+
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = simple_poly_guidance.polynomial_guidance(t, t_go, state, guidance_coefficients)
-    
+
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "linear_tangent" and F_T > 0:
         # Phase 2b: Linear tangent steering guidance (only while engines burning)
-        
+
         # Update guidance coefficients periodically
         if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
@@ -1088,14 +1101,14 @@ def rocket_dynamics(t, state):
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go)
             last_guidance_update_time = t
-        
+
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
-        
+
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "bilinear_tangent" and F_T > 0:
         # Phase 2c: Bilinear tangent steering guidance (only while engines burning)
-        
+
         # Update guidance coefficients periodically
         if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
@@ -1103,7 +1116,7 @@ def rocket_dynamics(t, state):
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go)
             last_guidance_update_time = t
-        
+
         # Compute guidance angle
         t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
         alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
@@ -1133,19 +1146,7 @@ def rocket_dynamics(t, state):
         
         # Update coefficients if not frozen and update interval reached
         if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
-            # When Earth rotation is enabled, guidance must compare against the
-            # inertial orbital target velocity sqrt(mu/r), so convert the
-            # rotating-frame (v, gamma) to ECI before passing to the guidance law.
-            if sim_params.ENABLE_EARTH_ROTATION:
-                v_eci, gamma_eci = earth_rot.ecef_to_eci_velocity(
-                    v, gamma, heading, lat, r_val
-                )
-                state_for_guidance = np.array(list(state[:5]))
-                state_for_guidance[2] = v_eci
-                state_for_guidance[3] = gamma_eci
-            else:
-                state_for_guidance = state
-            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state_for_guidance,
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
                                                                use_downrange_constraint=(sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
@@ -1501,7 +1502,7 @@ def run(initial_kick_angle, azimuth_override=None):
         alpha_time_data = np.array(alpha_time_history)
         coriolis_mag_data = np.array(coriolis_mag_history)
         centrifugal_mag_data = np.array(centrifugal_mag_history)
-        return sol_1.t, sol_1.y, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+        return sol_1.t, sol_1.y, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
     #===================================================
     # Simulation after stage separation
@@ -1532,7 +1533,7 @@ def run(initial_kick_angle, azimuth_override=None):
         alpha_time_data = np.array(alpha_time_history)
         coriolis_mag_data = np.array(coriolis_mag_history)
         centrifugal_mag_data = np.array(centrifugal_mag_history)
-        return time_steps_simulation, data, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+        return time_steps_simulation, data, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
     data = np.concatenate((sol_1.y, sol_2.y), axis=1)
     time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
@@ -1597,6 +1598,10 @@ def run(initial_kick_angle, azimuth_override=None):
             m_propellant_total_used_2nd_stage = 999999999.
 
         if not SINGLE_BURN_FULL_SIMULATION:
+            # Penalise kick angles whose coast phase would crash before reaching
+            # apogee: rocket heading toward perigee (gamma < 0) that is inside Earth.
+            if gamma_stop < 0 and r_peri_stop < c.R_EARTH:
+                m_propellant_total_used_2nd_stage = 9999999.0
             thrust_data = np.array(thrust_history)
             time_thrust = np.array(time_history)
             alpha_data = np.array(alpha_history)

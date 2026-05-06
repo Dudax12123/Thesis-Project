@@ -254,9 +254,17 @@ def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_cons
     # Terminal velocity components (horizontal for circular orbit)
     vy_target = 0.0  # Horizontal flight (gamma = 0)
     
-    # Estimate target horizontal velocity (circular orbital velocity)
+    # Estimate target horizontal velocity.
+    # Guidance works in the rotating frame, so target the surface-relative
+    # velocity: Earth's rotation already supplies omega*r*cos(lat) of the
+    # inertial orbital speed, so the rocket only needs to provide the rest.
     r_target = c.R_EARTH + target_altitude
-    vx_target = np.sqrt(c.MU_EARTH / r_target)
+    v_inertial_target = np.sqrt(c.MU_EARTH / r_target)
+    if len(state) > 5:      # Earth rotation enabled: state[5] = latitude
+        lat = state[5]
+        vx_target = v_inertial_target - c.OMEGA_EARTH * r_target * np.cos(lat)
+    else:
+        vx_target = v_inertial_target
     
     # Horizontal channel
     #
