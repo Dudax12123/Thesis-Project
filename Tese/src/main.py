@@ -412,11 +412,12 @@ def execute():
     # Plot the results
     print("Generating new plot suite...")
 
+    _tgo_modes = {"apollo", "linear_tangent", "bilinear_tangent"}
     _tgo_time = (np.array(ra.tgo_time_history)
-                 if sim_params.GUIDANCE_MODE == "apollo" and len(ra.tgo_time_history) > 0
+                 if sim_params.GUIDANCE_MODE in _tgo_modes and len(ra.tgo_time_history) > 0
                  else None)
     _tgo = (np.array(ra.tgo_history)
-            if sim_params.GUIDANCE_MODE == "apollo" and len(ra.tgo_history) > 0
+            if sim_params.GUIDANCE_MODE in _tgo_modes and len(ra.tgo_history) > 0
             else None)
     _freeze_threshold = (getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None)
                          if sim_params.GUIDANCE_MODE == "apollo" else None)

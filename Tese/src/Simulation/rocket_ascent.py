@@ -53,6 +53,7 @@ guidance_phase_active = False
 time_atmosphere_exit = None
 time_guidance_start = None
 last_guidance_update_time = 0.0
+guidance_initial_tgo = None   # t_go stored at guidance start (used when GUIDANCE_TGO_FIXED)
 guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # For simple_poly: [a0, a1] or apollo: [k1, k2, k3, k4]
 apollo_coefficients_frozen = False  # Flag to indicate if Apollo coefficients are frozen
 
@@ -61,6 +62,7 @@ thrust_history = []  # Store thrust values during integration
 time_history = []    # Store corresponding time values
 apollo_freeze_time = None  # Time when coefficients were frozen (tepoch)
 apollo_previous_tgo = None  # Previous Apollo t_go estimate, used as fallback
+lts_previous_tgo = None     # Previous t_go for linear/bilinear propellant method (fallback)
 
 # Steering angle history for plotting (guidance phase)
 alpha_history = []  # Store steering angles during guidance phase
@@ -931,8 +933,8 @@ def rocket_dynamics(t, state):
     global time_kick_start, kick_performed, main_engine_cutoff, flag_falling_single_burn
     global current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
-    global last_guidance_update_time, guidance_coefficients
-    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo
+    global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
+    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global thrust_history, time_history
     global alpha_history, alpha_time_history
     global tgo_history, tgo_time_history
@@ -1000,7 +1002,12 @@ def rocket_dynamics(t, state):
         last_guidance_update_time = t
         
         # Initialize guidance coefficients based on mode
-        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        if sim_params.LTS_TGO_METHOD == "propellant" and sim_params.GUIDANCE_MODE in ["linear_tangent", "bilinear_tangent"]:
+            t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
+            lts_previous_tgo = t_go
+        else:
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        guidance_initial_tgo = t_go   # Store for GUIDANCE_TGO_FIXED mode
         
         if sim_params.GUIDANCE_MODE == "simple_poly":
             # Simple polynomial: linear gamma transition
@@ -1094,8 +1101,9 @@ def rocket_dynamics(t, state):
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "linear_tangent" and F_T > 0:
         # Phase 2b: Linear tangent steering guidance (only while engines burning)
 
-        # Update guidance coefficients periodically
-        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+        # Update guidance coefficients periodically (skip if coefficients are fixed)
+        if not sim_params.GUIDANCE_COEFFICIENTS_FIXED and \
+                (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
             guidance_coefficients = lts_guidance.compute_lts_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
@@ -1103,14 +1111,23 @@ def rocket_dynamics(t, state):
             last_guidance_update_time = t
 
         # Compute guidance angle
-        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        if sim_params.GUIDANCE_TGO_FIXED:
+            t_go = guidance_initial_tgo
+        elif sim_params.LTS_TGO_METHOD == "propellant":
+            t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
+            lts_previous_tgo = t_go
+        else:
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        tgo_history.append(t_go)
+        tgo_time_history.append(t)
         alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
 
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "bilinear_tangent" and F_T > 0:
         # Phase 2c: Bilinear tangent steering guidance (only while engines burning)
 
-        # Update guidance coefficients periodically
-        if (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
+        # Update guidance coefficients periodically (skip if coefficients are fixed)
+        if not sim_params.GUIDANCE_COEFFICIENTS_FIXED and \
+                (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
             guidance_coefficients = bts_guidance.compute_bilinear_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
@@ -1118,7 +1135,15 @@ def rocket_dynamics(t, state):
             last_guidance_update_time = t
 
         # Compute guidance angle
-        t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        if sim_params.GUIDANCE_TGO_FIXED:
+            t_go = guidance_initial_tgo
+        elif sim_params.LTS_TGO_METHOD == "propellant":
+            t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
+            lts_previous_tgo = t_go
+        else:
+            t_go = estimate_time_to_target(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+        tgo_history.append(t_go)
+        tgo_time_history.append(t)
         alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "apollo" and F_T > 0:
@@ -1386,8 +1411,8 @@ def run(initial_kick_angle, azimuth_override=None):
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
-    global last_guidance_update_time, guidance_coefficients
-    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo
+    global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
+    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global thrust_history, time_history
     global alpha_history, alpha_time_history
     global tgo_history, tgo_time_history
@@ -1443,10 +1468,12 @@ def run(initial_kick_angle, azimuth_override=None):
     time_atmosphere_exit = None
     time_guidance_start = None
     last_guidance_update_time = 0.0
+    guidance_initial_tgo = None
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
     apollo_coefficients_frozen = False
     apollo_freeze_time = None
     apollo_previous_tgo = None
+    lts_previous_tgo = None
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []

@@ -9,7 +9,7 @@ TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s
 DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = False                            # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
@@ -67,7 +67,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Polynomial acceleration profiles in x and y directions
 #                   - Enforces position and velocity terminal constraints
 #                   - Used in Apollo missions, more accurate than simple_poly
-GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
+GUIDANCE_MODE = "linear_tangent"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -76,7 +76,7 @@ GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "simple_poly", "linea
 GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
-# (Only used if GUIDANCE_MODE is "simple_poly", "linear_tangent", or "apollo")
+# (Only used if GUIDANCE_MODE is "simple_poly" or "apollo")
 GUIDANCE_UPDATE_RATE = 2                      # How often to recompute guidance coefficients [s]
 APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
                                                  # (prevents numerical instability as tgo->0)
@@ -88,6 +88,21 @@ APOLLO_TGO_METHOD = "propellant"                # Time-to-go estimation method f
                                                  #                  (physically accurate, accounts for remaining propellant)
                                                  #   "altitude":   simple t_go = altitude_remaining / v_radial
                                                  #                  (legacy, unreliable when gamma is small)
+
+# -------------- Linear / Bilinear Tangent Steering Parameters --------------
+# (Only used if GUIDANCE_MODE is "linear_tangent" or "bilinear_tangent")
+GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are computed once at guidance
+                                              # start and held constant; only t_go varies each step.
+                                              # If False (default), recomputed every GUIDANCE_UPDATE_RATE s.
+GUIDANCE_TGO_FIXED = False                    # If True, t_go is computed once at guidance start and
+                                              # held constant throughout guidance.
+                                              # If False (default), recomputed every ODE step.
+LTS_TGO_METHOD = "propellant"                  # t_go estimation method for linear/bilinear tangent laws:
+                                              #   "altitude":   t_go = (target_alt - current_alt) / v_radial
+                                              #                 (simple, default)
+                                              #   "propellant": Apollo rocket-equation t_go
+                                              #                 (stage 1: T_BUP1 + coast + stage-2 burn;
+                                              #                  stage 2: T_BUP2*(1-exp(-VG/Ve)))
 
 # -------------- Stage 1 Specific Impulse Mode --------------
 # Select which Isp value to use for the first stage engine:
