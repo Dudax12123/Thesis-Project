@@ -285,7 +285,7 @@ def interrupt_horizontal_check(t, y):
     # Only trigger near the target altitude to prevent false firing during the
     # coast between stage-1 separation and stage-2 ignition (where gamma
     # naturally crosses zero on the parabolic arc at low altitude).
-    if gamma < epsilon and alt > 0.7 * sim_params.TARGET_ORBITAL_ALTITUDE:
+    if gamma < epsilon:
         if sim_params.INTERRUPTS_PRINT:
             print("Interrupt Horizontal Flight Direction happened at time ", t)
         return 0
@@ -1654,9 +1654,20 @@ def run(initial_kick_angle, azimuth_override=None):
                 initial_state_3[3] = gamma_eci_3
             
             init_time_3 = sol_2.t[-1]
-            time_3 = get_time_until_apogee(e_stop, initial_state_3[3], 
-                                           initial_state_3[2], orbit_period_stop, 
+            time_3 = get_time_until_apogee(e_stop, initial_state_3[3],
+                                           initial_state_3[2], orbit_period_stop,
                                            a_stop, initial_state_3[1])
+
+            print("\n[COAST DIAGNOSTICS]")
+            print(f"  SECO time         : T+{init_time_3:.2f} s")
+            print(f"  SECO altitude     : {(initial_state_3[1] - c.R_EARTH)/1000:.2f} km")
+            print(f"  gamma_stop        : {np.rad2deg(initial_state_3[3]):.4f} deg")
+            print(f"  e_stop            : {e_stop:.6f}")
+            print(f"  r_peri_stop       : {(r_peri_stop - c.R_EARTH)/1000:.2f} km (above Earth surface)")
+            print(f"  r_apo_stop        : {(r_apo_stop - c.R_EARTH)/1000:.2f} km")
+            print(f"  orbit_period      : {orbit_period_stop:.2f} s ({orbit_period_stop/60:.2f} min)")
+            print(f"  time_3 (coast)    : {time_3:.2f} s ({time_3/60:.2f} min)")
+            print(f"  Expected T/2      : {orbit_period_stop/2:.2f} s")
             
             # The state has been converted to the inertial frame above.
             # Mark that we are now propagating in the inertial frame so
@@ -1679,6 +1690,10 @@ def run(initial_kick_angle, azimuth_override=None):
                 coriolis_mag_data = np.array(coriolis_mag_history)
                 centrifugal_mag_data = np.array(centrifugal_mag_history)
                 return time_steps_simulation, data, None, None, None, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+
+            print(f"  Sol_3 ended at    : T+{sol_3.t[-1]:.2f} s  "
+                  f"alt={( sol_3.y[1,-1] - c.R_EARTH)/1000:.2f} km  "
+                  f"gamma={np.rad2deg(sol_3.y[3,-1]):.3f} deg")
 
             # 2. Circularization burn (instantaneous delta-v)
             initial_state_4 = sol_3.y[:, -1]

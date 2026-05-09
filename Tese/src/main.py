@@ -273,6 +273,8 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = True
     time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal, azimuth_override=best_azimuth_override)
 
+    _simulation_failed = False
+
     if ra.CRASH_DETECTED:
         print("\n" + "!"*60)
         print("SIMULATION FAILED — GROUND IMPACT")
@@ -281,10 +283,10 @@ def execute():
         print(f"\t* Earth Rotation: {'ON' if sim_params.ENABLE_EARTH_ROTATION else 'OFF'}"
               f",  Pseudo-forces: {'ON' if sim_params.INCLUDE_PSEUDO_FORCES else 'OFF'}")
         print("!"*60 + "\n")
-        return time, data, kick_angle_optimal
+        _simulation_failed = True
 
     # Check for failed simulation (sentinel value means no valid trajectory was found)
-    if m_propellant_total >= 9999999.0:
+    if not _simulation_failed and m_propellant_total is not None and m_propellant_total >= 9999999.0:
         print("\n" + "!"*60)
         print("OPTIMISATION FAILED — NO VALID TRAJECTORY FOUND")
         print("!"*60)
@@ -293,123 +295,119 @@ def execute():
         print(f"  ALPHA_HIGHEST = {np.rad2deg(sim_params.ALPHA_HIGHEST):.2f}°")
         print("Expand the kick-angle range or check guidance mode / target altitude.")
         print("!"*60 + "\n")
-        return time, data, kick_angle_optimal
+        _simulation_failed = True
 
-    # Calculate final orbital elements
-    r_final = data[1, -1]
-    s_final = data[0, -1]
-    v_final = data[2, -1]
-    gamma_final = data[3, -1]
-    lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
-    heading_final = ra.LAUNCH_AZIMUTH
-    if sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
-        heading_final = data[6, -1]
+    if not _simulation_failed:
+        # Calculate final orbital elements
+        r_final = data[1, -1]
+        s_final = data[0, -1]
+        v_final = data[2, -1]
+        gamma_final = data[3, -1]
+        lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
+        heading_final = ra.LAUNCH_AZIMUTH
+        if sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
+            heading_final = data[6, -1]
 
-    # In full simulation mode, post-SECO coast/circularization phases are already
-    # propagated in inertial speed/FPA when Earth rotation is enabled.
-    state_already_inertial = (
-        sim_params.ENABLE_EARTH_ROTATION
-        and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None
-        and time[-1] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
-    )
-
-    if not state_already_inertial:
-        v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final, heading_final)
-    
-    a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
-    
-    print("\n" + "="*60)
-    print("MISSION EVENT TIMELINE")
-    print("="*60)
-    
-    # Get event timestamps from the simulation
-    print(f"\t* T+{0.0:.2f}s\t\t\tLiftoff")
-    
-    if ra.time_kick_start is not None:
-        print(f"\t* T+{ra.time_kick_start:.2f}s\t\tKick maneuver start")
-        kick_end_time = ra.time_kick_start + sim_params.DURATION_INITIAL_KICK
-        print(f"\t* T+{kick_end_time:.2f}s\t\tKick maneuver end")
-    
-    if ra.time_atmosphere_exit is not None:
-        print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
-    if ra.time_guidance_start is not None and sim_params.GUIDANCE_MODE != "gravity_turn":
-        guidance_activation_msg = {
-            "simple_poly": "Simple polynomial guidance",
-            "linear_tangent": "Linear tangent steering",
-            "bilinear_tangent": "Bilinear tangent steering",
-            "apollo": "Apollo polynomial guidance"
-        }.get(sim_params.GUIDANCE_MODE, "Guidance")
-        print(f"\t* T+{ra.time_guidance_start:.2f}s\t\t{guidance_activation_msg} activation")
-    
-    if ra.time_main_engine_cutoff is not None:
-        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
-        stage_sep_time = ra.time_main_engine_cutoff + 3.0  # TIME_First_STAGE_SEPARATION
-        print(f"\t* T+{stage_sep_time:.2f}s\t\tStage separation")
-        stage2_ignition_time = ra.time_main_engine_cutoff + 8.0  # TIME_SECOND_ENGINE_IGNITION
-        print(f"\t* T+{stage2_ignition_time:.2f}s\t\tStage 2 ignition")
-    
-    if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
-        print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tStage 2 cutoff (SECO)")
-        print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tCoast phase to apogee begins")
-        
-        # Find orbit insertion time by detecting velocity discontinuity
-        time_insertion = None
-        velocity_full = data[2]
-        for i in range(1, len(velocity_full)):
-            if time[i] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:
-                velocity_jump = velocity_full[i] - velocity_full[i-1]
-                time_diff = time[i] - time[i-1]
-                if time_diff > 0:
-                    accel = velocity_jump / time_diff
-                    if accel > 100.0:  # Delta-v application shows high acceleration
-                        time_insertion = time[i]
-                        break
-        
-        if time_insertion is not None:
-            print(f"\t* T+{time_insertion:.2f}s\t\t\tOrbit insertion (circularization burn)")
-    
-    # Final state at end of simulation
-    print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
-
-    
-    print("\n" + "="*60)
-    print("FINAL ORBITAL ELEMENTS")
-    print("="*60)
-    print(f"\t* Semi-major axis:\t\t\t{a/1000:.2f} km")
-    print(f"\t* Eccentricity:\t\t\t\t{e:.6f}")
-    print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
-    print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
-    print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
-    if sim_params.ENABLE_EARTH_ROTATION:
-        print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
-        if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
-            print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
-        print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
-    
-    print("\n" + "="*60)
-    print("PROPELLANT USAGE")
-    print("="*60)
-    print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
-    print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
-    print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
-
-    # Back-pressure thrust loss
-    ka_kms = _back_pressure_thrust_loss_kms(r_specs.ISP_1_SL, r_specs.ISP_1_VAC)
-    isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC
-    print(f"\n\t* Stage 1 Isp ratio (SL/VAC):\t\t{isp_ratio:.4f}")
-    print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
-
-    if sim_params.ENABLE_EARTH_ROTATION:
-        _print_inclination_analysis(
-            ra.LAST_ACHIEVED_INCLINATION_DEG,
-            beta_formula,
-            best_azimuth_override,
-            sim_params,
+        # In full simulation mode, post-SECO coast/circularization phases are already
+        # propagated in inertial speed/FPA when Earth rotation is enabled.
+        state_already_inertial = (
+            sim_params.ENABLE_EARTH_ROTATION
+            and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None
+            and time[-1] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
         )
 
-    print("\n" + "="*60)
-    print("SIMULATION COMPLETE")
-    print("="*60 + "\n")
+        if not state_already_inertial:
+            v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final, heading_final)
+
+        a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
+
+        print("\n" + "="*60)
+        print("MISSION EVENT TIMELINE")
+        print("="*60)
+
+        print(f"\t* T+{0.0:.2f}s\t\t\tLiftoff")
+
+        if ra.time_kick_start is not None:
+            print(f"\t* T+{ra.time_kick_start:.2f}s\t\tKick maneuver start")
+            kick_end_time = ra.time_kick_start + sim_params.DURATION_INITIAL_KICK
+            print(f"\t* T+{kick_end_time:.2f}s\t\tKick maneuver end")
+
+        if ra.time_atmosphere_exit is not None:
+            print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
+        if ra.time_guidance_start is not None and sim_params.GUIDANCE_MODE != "gravity_turn":
+            guidance_activation_msg = {
+                "simple_poly": "Simple polynomial guidance",
+                "linear_tangent": "Linear tangent steering",
+                "bilinear_tangent": "Bilinear tangent steering",
+                "apollo": "Apollo polynomial guidance"
+            }.get(sim_params.GUIDANCE_MODE, "Guidance")
+            print(f"\t* T+{ra.time_guidance_start:.2f}s\t\t{guidance_activation_msg} activation")
+
+        if ra.time_main_engine_cutoff is not None:
+            print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
+            stage_sep_time = ra.time_main_engine_cutoff + 3.0
+            print(f"\t* T+{stage_sep_time:.2f}s\t\tStage separation")
+            stage2_ignition_time = ra.time_main_engine_cutoff + 8.0
+            print(f"\t* T+{stage2_ignition_time:.2f}s\t\tStage 2 ignition")
+
+        if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+            print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tStage 2 cutoff (SECO)")
+            print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tCoast phase to apogee begins")
+
+            time_insertion = None
+            velocity_full = data[2]
+            for i in range(1, len(velocity_full)):
+                if time[i] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:
+                    velocity_jump = velocity_full[i] - velocity_full[i-1]
+                    time_diff = time[i] - time[i-1]
+                    if time_diff > 0:
+                        accel = velocity_jump / time_diff
+                        if accel > 100.0:
+                            time_insertion = time[i]
+                            break
+
+            if time_insertion is not None:
+                print(f"\t* T+{time_insertion:.2f}s\t\t\tOrbit insertion (circularization burn)")
+
+        print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
+
+        print("\n" + "="*60)
+        print("FINAL ORBITAL ELEMENTS")
+        print("="*60)
+        print(f"\t* Semi-major axis:\t\t\t{a/1000:.2f} km")
+        print(f"\t* Eccentricity:\t\t\t\t{e:.6f}")
+        print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
+        print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
+        print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
+        if sim_params.ENABLE_EARTH_ROTATION:
+            print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
+            if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
+                print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
+            print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
+
+        print("\n" + "="*60)
+        print("PROPELLANT USAGE")
+        print("="*60)
+        print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
+        print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
+        print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
+
+        ka_kms = _back_pressure_thrust_loss_kms(r_specs.ISP_1_SL, r_specs.ISP_1_VAC)
+        isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC
+        print(f"\n\t* Stage 1 Isp ratio (SL/VAC):\t\t{isp_ratio:.4f}")
+        print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
+
+        if sim_params.ENABLE_EARTH_ROTATION:
+            _print_inclination_analysis(
+                ra.LAST_ACHIEVED_INCLINATION_DEG,
+                beta_formula,
+                best_azimuth_override,
+                sim_params,
+            )
+
+        print("\n" + "="*60)
+        print("SIMULATION COMPLETE")
+        print("="*60 + "\n")
     
     # Plot the results
     print("Generating new plot suite...")
