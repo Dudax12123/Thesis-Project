@@ -110,6 +110,15 @@ LTS_TGO_METHOD = "propellant"                  # t_go estimation method for line
                                               #                 (stage 1: T_BUP1 + coast + stage-2 burn;
                                               #                  stage 2: T_BUP2*(1-exp(-VG/Ve)))
 
+# -------------- Constant Pitch Rate (CPR) Guidance Parameters --------------
+# (Only used if GUIDANCE_MODE is "cpr")
+CPR_THETA_DOT_MODE = "tgo"       # How to determine the constant pitch rate:
+                                  #   "tgo":    θ_dot = (90°) / t_go  where t_go is from the
+                                  #             Apollo propellant-based rocket-equation estimate
+                                  #   "manual": use CPR_THETA_DOT directly (duration derived)
+CPR_THETA_DOT = 0.2              # [deg/s] manual pitch rate (only used when CPR_THETA_DOT_MODE = "manual")
+                                  # Guidance duration = 90° / CPR_THETA_DOT
+
 # -------------- Stage 1 Specific Impulse Mode --------------
 # Select which Isp value to use for the first stage engine:
 #   "sea_level":  Use sea-level Isp (ISP_1_SL) throughout stage 1 — most conservative

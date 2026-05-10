@@ -1014,14 +1014,19 @@ def rocket_dynamics(t, state):
         cpr_t_start = t
         time_guidance_start = t
         cpr_theta_initial = np.pi / 2.0                            # 90° — vertical
-        t_go, _ = _compute_apollo_tgo(state, F_T, Isp,
-                                       sim_params.TARGET_ORBITAL_ALTITUDE, None)
-        cpr_theta_dot = cpr_theta_initial / max(t_go, 0.1)         # rad/s
+        if sim_params.CPR_THETA_DOT_MODE == "manual":
+            cpr_theta_dot = np.deg2rad(sim_params.CPR_THETA_DOT)   # user-defined [rad/s]
+            t_go = cpr_theta_initial / cpr_theta_dot                # derived duration [s]
+        else:  # "tgo"
+            t_go, _ = _compute_apollo_tgo(state, F_T, Isp,
+                                           sim_params.TARGET_ORBITAL_ALTITUDE, None)
+            cpr_theta_dot = cpr_theta_initial / max(t_go, 0.1)     # rad/s
         alpha = cpr_guidance_module.cpr_alpha(t, cpr_t_start,
                                                cpr_theta_initial, cpr_theta_dot, gamma)
         if sim_params.EVENTS_PRINT:
             print(f"\nCPR guidance start at t = {t:.2f} s")
-            print(f"  t_go = {t_go:.2f} s,  θ_dot = {np.rad2deg(cpr_theta_dot):.4f} deg/s")
+            print(f"  mode = {sim_params.CPR_THETA_DOT_MODE}")
+            print(f"  duration = {t_go:.2f} s,  θ_dot = {np.rad2deg(cpr_theta_dot):.4f} deg/s")
 
     elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and
           guidance_start_ready and (not guidance_phase_active) and F_T > 0):
