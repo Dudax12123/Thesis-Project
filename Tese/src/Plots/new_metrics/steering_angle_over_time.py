@@ -8,7 +8,7 @@ def plot_steering_angle_over_time(alpha_data, alpha_time_data, save_path=None, s
     t, a = psu.prepare_monotonic_series(alpha_time_data, alpha_data)
 
     fig, ax = plt.subplots(figsize=(11, 6))
-    ax.plot(t, np.rad2deg(a), linewidth=2.0, label='Steering Angle')
+    ax.plot(t, np.rad2deg(a), linewidth=2.0, label='Steering Angle (α)')
     ax.axhline(0.0, color='k', linestyle='--', alpha=0.4)
     ax.set_title('Steering Angle Over Time')
     ax.set_xlabel('Time [s]')

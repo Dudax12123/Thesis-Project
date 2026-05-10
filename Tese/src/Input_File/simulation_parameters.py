@@ -67,7 +67,15 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Polynomial acceleration profiles in x and y directions
 #                   - Enforces position and velocity terminal constraints
 #                   - Used in Apollo missions, more accurate than simple_poly
-GUIDANCE_MODE = "linear_tangent"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo"
+#   "cpr":          Constant Pitch Rate guidance
+#                   - No kick maneuver; guidance starts immediately after vertical flight
+#                   - Commands pitch angle theta = theta0 + theta_dot * t
+#                   - Kinematic (recommended) or analytic variant
+#   "cfpar":        Constant Flight-Path-Angle Rate guidance
+#                   - No kick maneuver; guidance starts immediately after vertical flight
+#                   - Commands gamma rate: gamma = gamma0 + gamma_dot * t
+#                   - Analytic formula accounts for thrust, mass flow, and gravity
+GUIDANCE_MODE = "cfpar"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "cfpar"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -174,3 +182,24 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 # ===================================================
 INTERRUPTS_PRINT = False
 EVENTS_PRINT = True
+
+# ===================================================
+# CPR / CFPAR Guidance Parameters
+# (Only used if GUIDANCE_MODE is "cpr" or "cfpar")
+#
+# Both modes start at 90 deg and target 0 deg (horizontal flight).
+# The rate is always derived as: rate = -pi/2 / duration.
+# Optimization is always skipped; no kick angle is used.
+# ===================================================
+
+# -------------- CPR: Constant Pitch Rate --------------
+CPR_DURATION_MODE = "tgo"            # Duration source: "fixed" or "tgo"
+                                     #   "fixed": use CPR_DURATION [s]
+                                     #   "tgo":   Apollo rocket-equation estimate at guidance start
+CPR_DURATION = 200.0                 # CPR segment duration [s] (only used when CPR_DURATION_MODE == "fixed")
+
+# -------------- CFPAR: Constant Flight-Path-Angle Rate --------------
+CFPAR_DURATION_MODE = "tgo"        # Duration source: "fixed" or "tgo"
+                                     #   "fixed": use CFPAR_DURATION [s]
+                                     #   "tgo":   Apollo rocket-equation estimate at guidance start
+CFPAR_DURATION = 200.0               # CFPAR segment duration [s] (only used when CFPAR_DURATION_MODE == "fixed")

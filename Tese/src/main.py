@@ -237,7 +237,13 @@ def execute():
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
     # Determine kick angle (either from optimization or pre-set optimal value)
-    if sim_params.RUN_FAST:
+    if sim_params.GUIDANCE_MODE in ("cpr", "cfpar"):
+        print("\n" + "="*60)
+        print(f"{sim_params.GUIDANCE_MODE.upper()} MODE — SKIPPING KICK-ANGLE OPTIMISATION")
+        print("="*60)
+        kick_angle_optimal = 0.0
+        print("Kick angle: 0.0 deg (not used by CPR/CFPAR guidance)")
+    elif sim_params.RUN_FAST:
         print("\n" + "="*60)
         print("FAST RUN MODE")
         print("="*60)

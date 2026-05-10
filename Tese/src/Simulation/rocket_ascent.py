@@ -22,6 +22,8 @@ import Guidance.simple_polynomial as simple_poly_guidance
 import Guidance.linear_tangent_steering as lts_guidance
 import Guidance.bilinear_tangent_steering as bts_guidance
 import Guidance.apollo_guidance as apollo_guidance_module
+import Guidance.cpr_guidance as cpr_guidance
+import Guidance.cfpar_guidance as cfpar_guidance
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -55,6 +57,15 @@ time_guidance_start = None
 last_guidance_update_time = 0.0
 guidance_initial_tgo = None   # t_go stored at guidance start (used when GUIDANCE_TGO_FIXED)
 guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # For simple_poly: [a0, a1] or apollo: [k1, k2, k3, k4]
+
+# CPR / CFPAR segment state
+cpr_cfpar_phase_active = False
+cpr_cfpar_start_time = None
+cpr_cfpar_theta0 = None
+cpr_cfpar_gamma0 = None
+cpr_cfpar_theta_dot = None
+cpr_cfpar_gamma_dot = None
+cpr_cfpar_duration = None
 apollo_coefficients_frozen = False  # Flag to indicate if Apollo coefficients are frozen
 
 # Thrust history for plotting
@@ -69,6 +80,8 @@ alpha_history = []  # Store steering angles during guidance phase
 alpha_time_history = []  # Store corresponding time values for steering angles
 tgo_history = []    # Store Apollo t_go estimates during guidance phase
 tgo_time_history = []  # Store corresponding time values for t_go
+theta_cmd_history = []       # CPR/CFPAR commanded pitch/FPA for plotting
+theta_cmd_time_history = []
 
 # Crash detection
 CRASH_DETECTED = False
@@ -938,7 +951,11 @@ def rocket_dynamics(t, state):
     global thrust_history, time_history
     global alpha_history, alpha_time_history
     global tgo_history, tgo_time_history
+    global theta_cmd_history, theta_cmd_time_history
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
+    global cpr_cfpar_phase_active, cpr_cfpar_start_time
+    global cpr_cfpar_theta0, cpr_cfpar_gamma0
+    global cpr_cfpar_theta_dot, cpr_cfpar_gamma_dot, cpr_cfpar_duration
 
     # Get state components
     s, r_val, v, gamma, m = state[:5]
@@ -990,11 +1007,73 @@ def rocket_dynamics(t, state):
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
     
-    if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
+    if sim_params.GUIDANCE_MODE in ["cpr", "cfpar"] and t >= sim_params.TIME_TO_START_KICK:
+        # CPR / CFPAR: no kick maneuver — guidance starts immediately after vertical flight
+
+        if not cpr_cfpar_phase_active:
+            kick_performed = True  # Mark kick as done so other logic is not confused
+            cpr_cfpar_phase_active = True
+            cpr_cfpar_start_time = t
+            # Both modes start at 90 deg and target 0 deg (horizontal flight)
+            cpr_cfpar_theta0 = np.pi / 2.0
+            cpr_cfpar_gamma0 = np.pi / 2.0
+
+            # Compute segment duration
+            if sim_params.GUIDANCE_MODE == "cpr":
+                dur_mode = sim_params.CPR_DURATION_MODE
+            else:
+                dur_mode = sim_params.CFPAR_DURATION_MODE
+
+            if dur_mode == "tgo":
+                cpr_cfpar_duration, _ = _compute_apollo_tgo(
+                    state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, None)
+            elif sim_params.GUIDANCE_MODE == "cpr":
+                cpr_cfpar_duration = sim_params.CPR_DURATION
+            else:
+                cpr_cfpar_duration = sim_params.CFPAR_DURATION
+
+            # Rate always derived from duration: 90 deg → 0 deg
+            cpr_cfpar_theta_dot = -(np.pi / 2.0) / cpr_cfpar_duration
+            cpr_cfpar_gamma_dot = -(np.pi / 2.0) / cpr_cfpar_duration
+
+            if sim_params.EVENTS_PRINT:
+                mode_name = "CPR" if sim_params.GUIDANCE_MODE == "cpr" else "CFPAR"
+                print(f"\n{mode_name} guidance start at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+                if dur_mode == "tgo":
+                    print(f"  Estimated t_go (duration): {cpr_cfpar_duration:.2f} s")
+                else:
+                    print(f"  Duration:  {cpr_cfpar_duration:.2f} s")
+                if sim_params.GUIDANCE_MODE == "cpr":
+                    print(f"  theta0:    90.00 deg  →  0.00 deg")
+                    print(f"  theta_dot: {np.rad2deg(cpr_cfpar_theta_dot):.6f} deg/s")
+                else:
+                    print(f"  gamma0:    90.00 deg  →  0.00 deg")
+                    print(f"  gamma_dot: {np.rad2deg(cpr_cfpar_gamma_dot):.6f} deg/s")
+
+        t_segment = t - cpr_cfpar_start_time
+
+        if t_segment > cpr_cfpar_duration:
+            alpha = 0.0
+            _cmd = 0.0
+        elif sim_params.GUIDANCE_MODE == "cpr":
+            g_local = grav.gravitational_acceleration(r_val)
+            alpha = cpr_guidance.alpha_cpr(
+                cpr_cfpar_theta_dot, v, F_T, m, g_local, r_val, gamma)
+            _cmd = cpr_cfpar_theta0 + cpr_cfpar_theta_dot * t_segment
+        else:  # "cfpar"
+            g_local = grav.gravitational_acceleration(r_val)
+            alpha = cfpar_guidance.alpha_cfpar(
+                cpr_cfpar_gamma_dot, v, F_T, m, g_local, r_val, gamma)
+            _cmd = cpr_cfpar_gamma0 + cpr_cfpar_gamma_dot * t_segment
+        theta_cmd_history.append(_cmd)
+        theta_cmd_time_history.append(t)
+
+
+    elif t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
         # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL MODES
         alpha = pitch_program_linear(t, current_kick_angle)
-        
-    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and 
+
+    elif (kick_performed and sim_params.GUIDANCE_MODE in ["simple_poly", "linear_tangent", "bilinear_tangent", "apollo"] and
           guidance_start_ready and (not guidance_phase_active) and F_T > 0):
         # Initialize guidance (only if engines burning)
         guidance_phase_active = True
@@ -1416,8 +1495,12 @@ def run(initial_kick_angle, azimuth_override=None):
     global thrust_history, time_history
     global alpha_history, alpha_time_history
     global tgo_history, tgo_time_history
+    global theta_cmd_history, theta_cmd_time_history
     global coriolis_mag_history, centrifugal_mag_history
     global CRASH_DETECTED, CRASH_TIME
+    global cpr_cfpar_phase_active, cpr_cfpar_start_time
+    global cpr_cfpar_theta0, cpr_cfpar_gamma0
+    global cpr_cfpar_theta_dot, cpr_cfpar_gamma_dot, cpr_cfpar_duration
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
@@ -1474,6 +1557,13 @@ def run(initial_kick_angle, azimuth_override=None):
     apollo_freeze_time = None
     apollo_previous_tgo = None
     lts_previous_tgo = None
+    cpr_cfpar_phase_active = False
+    cpr_cfpar_start_time = None
+    cpr_cfpar_theta0 = None
+    cpr_cfpar_gamma0 = None
+    cpr_cfpar_theta_dot = None
+    cpr_cfpar_gamma_dot = None
+    cpr_cfpar_duration = None
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
@@ -1488,6 +1578,8 @@ def run(initial_kick_angle, azimuth_override=None):
     # Reset Apollo t_go history
     tgo_history = []
     tgo_time_history = []
+    theta_cmd_history = []
+    theta_cmd_time_history = []
 
     # Reset crash detection flags
     CRASH_DETECTED = False
