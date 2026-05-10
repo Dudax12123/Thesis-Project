@@ -4,18 +4,12 @@ import numpy as np
 from Plots import plot_state_utils as psu
 
 
-def plot_pitch_angle_over_time(time_steps, data, alpha_data, alpha_time_data,
-                               save_path=None, show=False):
-    channels = psu.extract_state_channels(data)
-    alpha_interp = psu.interpolate_to_time(alpha_time_data, alpha_data, time_steps)
-    theta = channels['gamma'] + alpha_interp
-
-    t, d = psu.reduce_data(time_steps, np.vstack([theta]), reduction_factor=5)
+def plot_pitch_angle_over_time(theta_data, theta_time_data, save_path=None, show=False):
+    t, th = psu.prepare_monotonic_series(theta_time_data, theta_data)
 
     fig, ax = plt.subplots(figsize=(11, 6))
-    ax.plot(t, np.rad2deg(d[0]), linewidth=2.0, label='Pitch Angle')
-    ax.axhline(0.0,  color='k',    linestyle='--', alpha=0.4, label='0° (horizontal)')
-    ax.axhline(90.0, color='grey', linestyle='--', alpha=0.4, label='90° (vertical)')
+    ax.plot(t, np.rad2deg(th), linewidth=2.0, label='Pitch Angle θ = α + γ')
+    ax.axhline(0.0, color='k', linestyle='--', alpha=0.4)
     ax.set_title('Pitch Angle Over Time')
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Pitch Angle [deg]')

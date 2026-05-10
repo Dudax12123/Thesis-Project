@@ -237,12 +237,12 @@ def execute():
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
     # Determine kick angle (either from optimization or pre-set optimal value)
-    if sim_params.GUIDANCE_MODE in ("cpr", "cfpar"):
-        print("\n" + "="*60)
-        print(f"{sim_params.GUIDANCE_MODE.upper()} MODE — SKIPPING KICK-ANGLE OPTIMISATION")
-        print("="*60)
+    if sim_params.GUIDANCE_MODE == "cpr":
+        # CPR has no kick maneuver — no optimisation needed
         kick_angle_optimal = 0.0
-        print("Kick angle: 0.0 deg (not used by CPR/CFPAR guidance)")
+        print("\n" + "="*60)
+        print("CPR GUIDANCE — NO KICK ANGLE OPTIMISATION")
+        print("="*60)
     elif sim_params.RUN_FAST:
         print("\n" + "="*60)
         print("FAST RUN MODE")
@@ -254,13 +254,13 @@ def execute():
         # Suppress event prints during optimization to reduce noise
         _events_print_saved = sim_params.EVENTS_PRINT
         sim_params.EVENTS_PRINT = False
-        
+
         # Find optimal kick angle through optimization
         kick_angle_optimal = solver.find_initial_kick_angle_coast_single_burn()
-        
+
         # Restore event prints for the full simulation
         sim_params.EVENTS_PRINT = _events_print_saved
-        
+
         print("\n" + "="*60)
         print("OPTIMIZATION RESULTS")
         print("="*60)
@@ -428,6 +428,11 @@ def execute():
     _freeze_threshold = (getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None)
                          if sim_params.GUIDANCE_MODE == "apollo" else None)
 
+    _theta_time = (np.array(ra.theta_time_history)
+                   if len(ra.theta_time_history) > 0 else None)
+    _theta = (np.array(ra.theta_history)
+              if len(ra.theta_history) > 0 else None)
+
     new_plot_runner.run_new_plot_suite(
         time,
         data,
@@ -443,6 +448,8 @@ def execute():
         tgo_time_data=_tgo_time,
         tgo_data=_tgo,
         apollo_freeze_threshold=_freeze_threshold,
+        theta_data=_theta,
+        theta_time_data=_theta_time,
     )
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---

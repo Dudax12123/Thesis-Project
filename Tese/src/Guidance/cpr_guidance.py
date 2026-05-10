@@ -1,54 +1,38 @@
 """
-CPR — Constant Pitch Rate Guidance
+Constant Pitch Rate (CPR) Guidance
 
-Commands the vehicle pitch angle to change at a constant rate:
-    dtheta/dt = theta_dot_cmd
+The pitch angle θ is ramped linearly from θ_initial (vertical, 90°) to
+θ_end = 0° (horizontal) over the estimated time-to-go.  The constant pitch
+rate θ_dot = (θ_initial − θ_end) / t_go is computed once at guidance start.
 
-Uses the inverse-dynamics formula: solves the flight-path-angle EOM for the
-angle of attack that produces exactly dgamma/dt = theta_dot_cmd.
-
-    sin(alpha) = [theta_dot_cmd * v + (g - v^2/r) * cos(gamma)] / (F_T/m)
-    alpha = arcsin(...)
-
-At gamma = 90° the gravity/centripetal term vanishes, leaving:
-    sin(alpha) = theta_dot_cmd * v / (F_T/m)   (non-zero immediately)
-
-theta0 = 90 deg (vertical), theta_final = 0 deg (horizontal).
-theta_dot is derived from the guidance duration: theta_dot = -pi/2 / duration.
+At each step: α = θ_cmd − γ
 """
 
 import numpy as np
 
 
-def alpha_cpr(theta_dot_cmd, v, F_T, m, a_grav, r_val, gamma, eps=1e-9):
+def cpr_alpha(t, t_start, theta_initial, theta_dot, gamma):
     """
-    Inverse-dynamics CPR: angle of attack that makes dgamma/dt = theta_dot_cmd.
+    Return angle of attack for CPR guidance.
 
     Parameters
     ----------
-    theta_dot_cmd : float
-        Commanded pitch rate [rad/s]
-    v : float
-        Current velocity [m/s]
-    F_T : float
-        Current thrust [N]
-    m : float
-        Current mass [kg]
-    a_grav : float
-        Local gravitational acceleration magnitude [m/s²]
-    r_val : float
-        Current radius from Earth centre [m]
+    t : float
+        Current time [s]
+    t_start : float
+        Time when CPR guidance began [s]
+    theta_initial : float
+        Pitch angle at guidance start [rad] (typically π/2)
+    theta_dot : float
+        Constant pitch rate [rad/s] (positive → decreasing θ)
     gamma : float
-        Current flight-path angle [rad]
+        Current flight-path angle from EOM [rad]
 
     Returns
     -------
     float
-        Commanded angle of attack [rad]; 0 when thrust is unavailable.
+        Commanded angle of attack α [rad]
     """
-    if F_T < eps or m < eps or v < eps:
-        return 0.0
-    a_star = F_T / m
-    sin_alpha = (theta_dot_cmd * v + (a_grav - v**2 / r_val) * np.cos(gamma)) / a_star
-    sin_alpha = np.clip(sin_alpha, -1.0, 1.0)
-    return np.arcsin(sin_alpha)
+    theta_cmd = theta_initial - theta_dot * (t - t_start)
+    theta_cmd = max(theta_cmd, 0.0)   # clamp: never pitch below horizontal
+    return theta_cmd - gamma
