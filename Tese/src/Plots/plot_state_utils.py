@@ -109,30 +109,53 @@ def interpolate_to_time(time_source, values_source, time_target):
 def compute_propellant_mass(total_mass, time_steps=None):
     """Estimate propellant mass from total mass and dry masses.
 
-    Accounts for the stage-1 structure jettison: before staging the dry
-    mass includes both structures, after staging only stage-2 structure
-    remains on the vehicle.
-
-    Detection is mass-based: the first single-step drop exceeding half of
-    M_STRUCTURE_1 marks the jettison boundary.  This is robust regardless
-    of the exact time alignment in the concatenated data arrays.
+    Accounts for fairing jettison (small drop) and Stage-1 structure drop (large drop).
+    The fairing can be jettisoned before staging (Stage 1) or after staging (Stage 2).
     """
     total_mass = np.asarray(total_mass, dtype=float)
+    M_FAIRING = getattr(r, 'M_FAIRING', 0.0)
 
-    m_dry_pre_staging = r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD
-    m_dry_post_staging = r.M_STRUCTURE_2 + r.M_PAYLOAD
+    m_dry_pre_fairing       = r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + r.M_PAYLOAD
+    m_dry_post_fairing      = (r.M_STRUCTURE_1 - M_FAIRING) + r.M_STRUCTURE_2 + r.M_PAYLOAD
+    m_dry_post_staging      = r.M_STRUCTURE_2 + r.M_PAYLOAD
+    m_dry_stage2_with_fair  = r.M_STRUCTURE_2 + r.M_PAYLOAD + M_FAIRING
 
     if len(total_mass) > 1:
         dm = np.diff(total_mass)
         big_drop_idx = np.where(dm < -r.M_STRUCTURE_1 * 0.5)[0]
+        if M_FAIRING > 0:
+            small_drop_idx = np.where(
+                (dm < -M_FAIRING * 0.5) & (dm > -r.M_STRUCTURE_1 * 0.5)
+            )[0]
+        else:
+            small_drop_idx = np.array([], dtype=int)
+
+        m_dry = np.full_like(total_mass, m_dry_post_staging)
+
         if len(big_drop_idx) > 0:
             sep_idx = big_drop_idx[0] + 1
-            m_dry = np.full_like(total_mass, m_dry_post_staging)
-            m_dry[:sep_idx] = m_dry_pre_staging
+            m_dry[sep_idx:] = m_dry_post_staging
+
+            if len(small_drop_idx) > 0:
+                fair_idx = small_drop_idx[0] + 1
+                if fair_idx <= sep_idx:                        # fairing before staging (Stage 1)
+                    m_dry[:fair_idx] = m_dry_pre_fairing
+                    m_dry[fair_idx:sep_idx] = m_dry_post_fairing
+                else:                                          # fairing after staging (Stage 2)
+                    m_dry[:sep_idx] = m_dry_pre_fairing
+                    m_dry[sep_idx:fair_idx] = m_dry_stage2_with_fair
+                    # m_dry[fair_idx:] already = m_dry_post_staging
+            else:
+                m_dry[:sep_idx] = m_dry_pre_fairing            # no fairing drop detected
         else:
-            m_dry = np.full_like(total_mass, m_dry_pre_staging)
+            if len(small_drop_idx) > 0:
+                fair_idx = small_drop_idx[0] + 1
+                m_dry[:fair_idx] = m_dry_pre_fairing
+                m_dry[fair_idx:] = m_dry_post_fairing
+            else:
+                m_dry[:] = m_dry_pre_fairing
     else:
-        m_dry = np.full_like(total_mass, m_dry_pre_staging)
+        m_dry = np.full_like(total_mass, m_dry_pre_fairing)
 
     return np.maximum(total_mass - m_dry, 0.0)
 

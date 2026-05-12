@@ -84,6 +84,10 @@ coriolis_mag_history = []      # Store Coriolis acceleration magnitude
 centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
 cross_heading_counter_force_history = []  # Store lateral counter-force [N]
 
+# Fairing jettison state
+fairing_jettisoned = False
+time_fairing_jettison = None
+
 # Stage 1 Isp linear-ramp state (only active when ISP_1_MODE = "linear")
 _isp1_last_update_time = 0.0   # Last time Isp was stepped
 _isp1_current = r.ISP_1_SL    # Current Isp value used by the ramp
@@ -156,23 +160,38 @@ def interrupt_stage_separation(t, y):
     return 1
 
 
+def interrupt_fairing_jettison(t, y):
+    """
+    Returns zero when the atmosphere is exited (fairing jettison point).
+    Fires once; stays at 1.0 afterwards via the fairing_jettisoned flag.
+    """
+    if fairing_jettisoned:
+        return 1.0
+    if atmosphere_exited:
+        if sim_params.INTERRUPTS_PRINT:
+            print("Interrupt Fairing Jettison happened at time", t)
+        return 0.0
+    return 1.0
+
+
 def interrupt_stage_2_burnt(t, y):
     """
     Returns zero if the second stage is fully burnt.
-    
+
     Parameters:
     -----------
     t : float
         Current time since launch [s]
     y : array
         Current state vector
-        
+
     Returns:
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
     m = y[4]
-    if m <= (r.M_PAYLOAD + r.M_STRUCTURE_2):
+    fairing_correction = r.M_FAIRING if not fairing_jettisoned else 0.0
+    if m <= (r.M_PAYLOAD + r.M_STRUCTURE_2 + fairing_correction):
         if sim_params.INTERRUPTS_PRINT:
             print("Interrupt Stage 2 Burnt happened at time ", t)
         return 0
@@ -321,8 +340,9 @@ def event_main_engine_cutoff(t, y):
     if main_engine_cutoff == True:
         return
     
-    first_stage_leftover_propellant = y[4] - (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 + 
-                                                r.M_PROP_2 + r.M_PAYLOAD)
+    stage1_dry = r.M_STRUCTURE_1 - (r.M_FAIRING if fairing_jettisoned else 0.0)
+    first_stage_leftover_propellant = y[4] - (stage1_dry + r.M_STRUCTURE_2 +
+                                               r.M_PROP_2 + r.M_PAYLOAD)
     
     if first_stage_leftover_propellant <= 0 and main_engine_cutoff == False:
         main_engine_cutoff = True
@@ -747,10 +767,11 @@ def _compute_apollo_tgo(state, F_T, Isp, target_altitude, previous_tgo):
 
     # Dry mass depends on which stage is currently burning
     if not main_engine_cutoff:
-        dry_mass = (r.M_STRUCTURE_1 + r.M_STRUCTURE_2 +
-                    r.M_PROP_2 + r.M_PAYLOAD)
+        stage1_dry = r.M_STRUCTURE_1 - (r.M_FAIRING if fairing_jettisoned else 0.0)
+        dry_mass = stage1_dry + r.M_STRUCTURE_2 + r.M_PROP_2 + r.M_PAYLOAD
     else:
-        dry_mass = r.M_STRUCTURE_2 + r.M_PAYLOAD
+        fairing_correction = r.M_FAIRING if not fairing_jettisoned else 0.0
+        dry_mass = r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_correction
 
     remaining_prop = m - dry_mass
     if remaining_prop <= 0.0:
@@ -982,6 +1003,9 @@ def rocket_dynamics(t, state):
         atmosphere_exit_detected = (alt > sim_params.ALT_NO_ATMOSPHERE)
     elif sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
         atmosphere_exit_detected = (q < sim_params.DYNAMIC_PRESSURE_THRESHOLD)
+    elif sim_params.ATMOSPHERE_EXIT_METHOD == "aerothermal_flux":
+        phi = atm.aerothermal_flux(v, alt)
+        atmosphere_exit_detected = (phi < sim_params.AEROTHERMAL_FLUX_THRESHOLD)
 
     # --- Record atmosphere exit event (independent of guidance start) ---
     # Guard with kick_performed to avoid false trigger at t=0 when q=0 (v=0)
@@ -1376,10 +1400,10 @@ def diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, a_grav, alpha, Isp):
 # Simulation Functions
 #===================================================
 
-def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag, 
-                       stage_2_flag):
+def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
+                       stage_2_flag, override_events=None):
     """
-    Simulates the trajectory of the rocket until a given time stamp or 
+    Simulates the trajectory of the rocket until a given time stamp or
     until a certain interrupt function is called.
 
     Parameters:
@@ -1394,20 +1418,25 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
         True if simulating stage 1
     stage_2_flag : bool
         True if simulating stage 2
-    
+    override_events : list or None
+        If provided, use this event list instead of the default for the given stage flags.
+
     Returns:
     --------
     solution : OdeResult
         Solution object from scipy.solve_ivp
     """
     t_span = (init_time, init_time + time_stamp + 1)
-    t_eval = np.arange(init_time, init_time + time_stamp + sim_params.TIME_STEP, 
+    t_eval = np.arange(init_time, init_time + time_stamp + sim_params.TIME_STEP,
                        sim_params.TIME_STEP)
 
-    if stage_1_flag:
-        interrupt_list = [interrupt_stage_separation, interrupt_ground_collision, 
+    if override_events is not None:
+        interrupt_list = override_events
+
+    elif stage_1_flag:
+        interrupt_list = [interrupt_stage_separation, interrupt_ground_collision,
                          interrupt_velocity_exceeded]
-    
+
     elif stage_2_flag:
         # Coasting single burn trajectory
         interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt, 
@@ -1464,6 +1493,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global tgo_history, tgo_time_history
     global coriolis_mag_history, centrifugal_mag_history
     global cross_heading_counter_force_history
+    global fairing_jettisoned, time_fairing_jettison
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1524,6 +1554,10 @@ def run(initial_kick_angle, azimuth_override=None):
     cpr_theta_dot = None
     cpr_t_start = None
 
+    # Reset fairing state
+    fairing_jettisoned = False
+    time_fairing_jettison = None
+
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
     coriolis_mag_history = []
@@ -1569,19 +1603,68 @@ def run(initial_kick_angle, azimuth_override=None):
     # Define time of simulation 1
     time_1 = 500.
 
-    # Call simulation for stage 1
-    sol_1 = simulate_trajectory(0, time_1, initial_state_1, True, False)
+    # === Stage 1A: ascent until fairing jettison OR stage separation ===
+    # interrupt_stage_separation is included so Stage 1A never runs past MECO when
+    # the atmosphere exit (and thus fairing jettison) happens after MECO — e.g. when
+    # ATMOSPHERE_EXIT_METHOD = "aerothermal_flux" with a threshold crossed at ~137 km.
+    sol_1a = simulate_trajectory(0, time_1, initial_state_1, False, False,
+        override_events=[interrupt_fairing_jettison, interrupt_ground_collision,
+                         interrupt_velocity_exceeded, interrupt_stage_separation])
+    # event indices: 0=fairing, 1=crash, 2=velocity, 3=stage_sep
 
-    if len(sol_1.t_events[1]) > 0:  # interrupt_ground_collision fired in stage 1
+    if len(sol_1a.t_events[1]) > 0:  # crash before any other event
         CRASH_DETECTED = True
-        CRASH_TIME = sol_1.t_events[1][0]
+        CRASH_TIME = sol_1a.t_events[1][0]
         thrust_data = np.array(thrust_history)
         time_thrust = np.array(time_history)
         alpha_data = np.array(alpha_history)
         alpha_time_data = np.array(alpha_time_history)
         coriolis_mag_data = np.array(coriolis_mag_history)
         centrifugal_mag_data = np.array(centrifugal_mag_history)
-        return sol_1.t, sol_1.y, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+        return sol_1a.t, sol_1a.y, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+
+    if len(sol_1a.t_events[0]) > 0:
+        # Fairing jettison fired before stage separation — normal case for
+        # dynamic_pressure / altitude methods (atmosphere exit during Stage 1 burn).
+        fairing_jettisoned = True
+        time_fairing_jettison = sol_1a.t[-1]
+        initial_state_1b = sol_1a.y[:, -1].copy()
+        initial_state_1b[4] -= r.M_FAIRING
+        if sim_params.EVENTS_PRINT:
+            print(f"Fairing jettisoned at t = {time_fairing_jettison:.1f} s, "
+                  f"alt = {(initial_state_1b[1] - c.R_EARTH)/1e3:.1f} km")
+
+        # === Stage 1B: continue burn from fairing jettison until stage separation ===
+        sol_1b = simulate_trajectory(time_fairing_jettison, time_1, initial_state_1b,
+                                      True, False)
+
+        if len(sol_1b.t_events[1]) > 0:  # crash after fairing jettison
+            CRASH_DETECTED = True
+            CRASH_TIME = sol_1b.t_events[1][0]
+            thrust_data = np.array(thrust_history)
+            time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+            coriolis_mag_data = np.array(coriolis_mag_history)
+            centrifugal_mag_data = np.array(centrifugal_mag_history)
+            t_combined = np.concatenate([sol_1a.t, sol_1b.t])
+            y_combined = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
+            return t_combined, y_combined, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+
+        # Merge Stage 1A and 1B into a single result for downstream code
+        class _Sol1:
+            t = np.concatenate([sol_1a.t, sol_1b.t])
+            y = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
+            t_events = sol_1b.t_events  # stage sep is t_events[0]; crash handled above
+
+        sol_1 = _Sol1()
+
+    else:
+        # Stage separation fired before fairing jettison — atmosphere exit has not
+        # occurred during Stage 1 (e.g. aerothermal flux threshold crossed in Stage 2).
+        # Use Stage 1A directly as the complete Stage 1 result; the fairing mass is
+        # already part of M_STRUCTURE_1 and will be dropped with it at staging.
+        sol_1 = sol_1a
 
     #===================================================
     # Simulation after stage separation
@@ -1590,29 +1673,95 @@ def run(initial_kick_angle, azimuth_override=None):
     # Define new initial state
     initial_state_2 = sol_1.y[:, -1]
 
-    # Adjust mass -> perform stage separation
-    initial_state_2[4] = initial_state_2[4] - r.M_STRUCTURE_1
+    # Adjust mass -> perform stage separation.
+    # Always drop only the actual Stage-1 structure (M_STRUCTURE_1 - M_FAIRING).
+    # If the fairing was already jettisoned in Stage 1, it is not in the mass at this
+    # point, so the result is correct. If the fairing is still on (atmosphere exit in
+    # Stage 2), Stage 2 starts with M_FAIRING included and drops it later.
+    initial_state_2[4] = initial_state_2[4] - (r.M_STRUCTURE_1 - r.M_FAIRING)
     
     # Define time of simulation 2
     init_time_2 = sol_1.t[-1]
     time_2 = 4000.
     
-    # Call simulation for stage 2
-    sol_2 = simulate_trajectory(init_time_2, time_2, initial_state_2, False,
-                               True)
+    if not fairing_jettisoned:
+        # === Stage 2A: burn with fairing until jettison (atmosphere exit) or normal end ===
+        # Fairing interrupt fires when atmosphere_exited becomes True in Stage 2.
+        # Event indices: fairing=0, radius=1, burnt=2, crash=3, single=4, horiz=5
+        sol_2a = simulate_trajectory(init_time_2, time_2, initial_state_2, False, False,
+            override_events=[interrupt_fairing_jettison, interrupt_radius_check,
+                             interrupt_stage_2_burnt, interrupt_ground_collision,
+                             interrupt_single_burn_traj, interrupt_horizontal_check])
 
-    if len(sol_2.t_events[2]) > 0:  # interrupt_ground_collision fired in stage 2
-        CRASH_DETECTED = True
-        CRASH_TIME = sol_2.t_events[2][0]
-        data = np.concatenate((sol_1.y, sol_2.y), axis=1)
-        time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
-        thrust_data = np.array(thrust_history)
-        time_thrust = np.array(time_history)
-        alpha_data = np.array(alpha_history)
-        alpha_time_data = np.array(alpha_time_history)
-        coriolis_mag_data = np.array(coriolis_mag_history)
-        centrifugal_mag_data = np.array(centrifugal_mag_history)
-        return time_steps_simulation, data, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+        if len(sol_2a.t_events[3]) > 0:  # crash in Stage 2A (index 3 = ground collision)
+            CRASH_DETECTED = True
+            CRASH_TIME = sol_2a.t_events[3][0]
+            data = np.concatenate((sol_1.y, sol_2a.y), axis=1)
+            time_steps_simulation = np.concatenate((sol_1.t, sol_2a.t))
+            thrust_data = np.array(thrust_history)
+            time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+            coriolis_mag_data = np.array(coriolis_mag_history)
+            centrifugal_mag_data = np.array(centrifugal_mag_history)
+            return time_steps_simulation, data, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+
+        if len(sol_2a.t_events[0]) > 0:  # fairing jettison fired in Stage 2A
+            fairing_jettisoned = True
+            time_fairing_jettison = sol_2a.t[-1]
+            initial_state_2b = sol_2a.y[:, -1].copy()
+            initial_state_2b[4] -= r.M_FAIRING
+            if sim_params.EVENTS_PRINT:
+                print(f"Fairing jettisoned in Stage 2 at t = {time_fairing_jettison:.1f} s, "
+                      f"alt = {(initial_state_2b[1] - c.R_EARTH)/1e3:.1f} km")
+
+            # === Stage 2B: continue burn without fairing until normal end ===
+            sol_2b = simulate_trajectory(time_fairing_jettison, time_2,
+                                          initial_state_2b, False, True)
+
+            if len(sol_2b.t_events[2]) > 0:  # crash in Stage 2B (index 2 = ground collision)
+                CRASH_DETECTED = True
+                CRASH_TIME = sol_2b.t_events[2][0]
+                t_combined = np.concatenate([sol_1.t, sol_2a.t, sol_2b.t])
+                y_combined = np.concatenate([sol_1.y, sol_2a.y, sol_2b.y], axis=1)
+                thrust_data = np.array(thrust_history)
+                time_thrust = np.array(time_history)
+                alpha_data = np.array(alpha_history)
+                alpha_time_data = np.array(alpha_time_history)
+                coriolis_mag_data = np.array(coriolis_mag_history)
+                centrifugal_mag_data = np.array(centrifugal_mag_history)
+                return t_combined, y_combined, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+
+            # Merge Stage 2A and 2B; downstream crash check at t_events[2] still works
+            class _Sol2:
+                t = np.concatenate([sol_2a.t, sol_2b.t])
+                y = np.concatenate([sol_2a.y, sol_2b.y], axis=1)
+                t_events = sol_2b.t_events
+
+            sol_2 = _Sol2()
+
+        else:
+            # Orbit/burnout reached before atmosphere exit — fairing never dropped.
+            # Crash already handled above; patch t_events for the downstream check.
+            sol_2a.t_events = [[], [], [], [], []]
+            sol_2 = sol_2a
+
+    else:
+        # === Normal Stage 2: fairing already dropped in Stage 1 ===
+        sol_2 = simulate_trajectory(init_time_2, time_2, initial_state_2, False, True)
+
+        if len(sol_2.t_events[2]) > 0:  # interrupt_ground_collision fired in stage 2
+            CRASH_DETECTED = True
+            CRASH_TIME = sol_2.t_events[2][0]
+            data = np.concatenate((sol_1.y, sol_2.y), axis=1)
+            time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
+            thrust_data = np.array(thrust_history)
+            time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+            coriolis_mag_data = np.array(coriolis_mag_history)
+            centrifugal_mag_data = np.array(centrifugal_mag_history)
+            return time_steps_simulation, data, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
     data = np.concatenate((sol_1.y, sol_2.y), axis=1)
     time_steps_simulation = np.concatenate((sol_1.t, sol_2.t))
@@ -1660,7 +1809,8 @@ def run(initial_kick_angle, azimuth_override=None):
         delta_v = np.abs(v_apo - v_desired)
 
         # ----- Calculate total propellant required -----
-        m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD)
+        fairing_in_mass = r.M_FAIRING if not fairing_jettisoned else 0.0
+        m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_in_mass)
         m_propellant_used = r.M_PROP_2 - m_propellant_left
         m_propellant_required = sol_2.y[4, -1] * (1 - np.exp(-delta_v / 
                                                     (c.G_0 * r.ISP_2)))

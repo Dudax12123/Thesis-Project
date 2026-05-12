@@ -23,6 +23,10 @@ The file includes:
 # -------------- Payload Mass --------------
 M_PAYLOAD = 0e3           # payload mass; [kg]
 
+# -------------- Fairing --------------
+M_FAIRING = 1900          # payload fairing mass [kg] — jettisoned at atmosphere exit
+                           # already included in M_STRUCTURE_1; stored here for the jettison event
+
 # -------------- Event Intervals --------------
 # Define time steps for events after main engine cutoff
 TIME_First_STAGE_SEPARATION = 3             # time when stage separation should take place after main engine cutoff [s]

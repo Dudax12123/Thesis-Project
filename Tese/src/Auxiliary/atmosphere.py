@@ -113,6 +113,31 @@ def dynamic_pressure(velocity, altitude):
     q = 0.5 * rho * velocity**2
     return q
 
+def aerothermal_flux(velocity, altitude):
+    """
+    Calculate aerothermal flux (Phi) at given velocity and altitude.
+
+    Parameters:
+    -----------
+    velocity : float
+        Rocket velocity magnitude [m/s]
+    altitude : float
+        Altitude above sea level [m]
+
+    Returns:
+    --------
+    phi : float
+        Aerothermal flux [W/m^2]
+
+    Notes:
+    ------
+    Aerothermal flux: Phi = 0.5 * rho * v^3
+    """
+    rho = atmospheric_density(altitude)
+    phi = 0.5 * rho * velocity**3
+    return phi
+
+
 def drag_force(q, C_D=r.C_D, A=r.A):
     """
     Calculate aerodynamic drag force acting on the rocket.
