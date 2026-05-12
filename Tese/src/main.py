@@ -433,6 +433,13 @@ def execute():
     _theta = (np.array(ra.theta_history)
               if len(ra.theta_history) > 0 else None)
 
+    _cross_force = (
+        np.array(ra.cross_heading_counter_force_history)
+        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
+           and len(ra.cross_heading_counter_force_history) > 0
+        else None
+    )
+
     new_plot_runner.run_new_plot_suite(
         time,
         data,
@@ -450,6 +457,7 @@ def execute():
         apollo_freeze_threshold=_freeze_threshold,
         theta_data=_theta,
         theta_time_data=_theta_time,
+        cross_heading_counter_force_data=_cross_force,
     )
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---

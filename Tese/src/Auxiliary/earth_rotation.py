@@ -287,6 +287,9 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
         Additive contribution to dgamma/dt [rad/s]
     delta_dheadingdt : float
         Additive contribution to dheading/dt from cross-heading pseudo-forces [rad/s]
+    a_cross_heading : float
+        Raw lateral acceleration perpendicular to heading in horizontal plane [m/s^2]
+        (before the v_horizontal singularity guard — use for force budget calculations)
     """
     v_horizontal = v_ecef * np.cos(gamma_ecef)
     v_east = v_horizontal * np.sin(heading_ecef)
@@ -348,4 +351,4 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
         else:
             delta_dheadingdt = a_cross_heading / v_horizontal
 
-    return delta_dvdt, delta_dgammadt, delta_dheadingdt, coriolis_mag, centrifugal_mag
+    return delta_dvdt, delta_dgammadt, delta_dheadingdt, a_cross_heading, coriolis_mag, centrifugal_mag

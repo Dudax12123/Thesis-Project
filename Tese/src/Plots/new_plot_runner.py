@@ -20,6 +20,7 @@ from Plots.new_metrics.trajectory_losses_over_time import plot_trajectory_losses
 from Plots.new_metrics.mass_flow_rate_over_time import plot_mass_flow_rate_over_time
 from Plots.new_metrics.apollo_tgo_over_time import plot_apollo_tgo_over_time
 from Plots.new_metrics.pitch_angle_over_time import plot_pitch_angle_over_time
+from Plots.new_metrics.cross_heading_counter_force_over_time import plot_cross_heading_counter_force_over_time
 
 
 def _make_path(output_dir, filename):
@@ -34,7 +35,8 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
                        output_dir=None, show=False, close_after=True,
                        coriolis_mag_data=None, centrifugal_mag_data=None,
                        tgo_time_data=None, tgo_data=None, apollo_freeze_threshold=None,
-                       theta_data=None, theta_time_data=None):
+                       theta_data=None, theta_time_data=None,
+                       cross_heading_counter_force_data=None):
     """Generate all new metric plots for a run."""
     files = {
         "fpa": _make_path(output_dir, "new_01_fpa_over_time.png"),
@@ -54,6 +56,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         "mdot": _make_path(output_dir, "new_14_mass_flow_rate_over_time.png"),
         "apollo_tgo": _make_path(output_dir, "new_15_apollo_tgo_over_time.png"),
         "pitch": _make_path(output_dir, "new_16_pitch_angle_over_time.png"),
+        "cross_heading_force": _make_path(output_dir, "new_17_cross_heading_counter_force_over_time.png"),
     }
 
     plot_fpa_over_time(time, data, save_path=files["fpa"], show=show)
@@ -90,6 +93,12 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
     if theta_data is not None and theta_time_data is not None and len(theta_time_data) > 0:
         plot_pitch_angle_over_time(theta_data, theta_time_data,
                                    save_path=files["pitch"], show=show)
+
+    if cross_heading_counter_force_data is not None and len(cross_heading_counter_force_data) > 0:
+        plot_cross_heading_counter_force_over_time(
+            time_thrust, cross_heading_counter_force_data,
+            save_path=files["cross_heading_force"], show=show,
+        )
 
     if close_after:
         plt.close('all')

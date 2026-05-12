@@ -82,6 +82,7 @@ CRASH_TIME = None
 # Pseudo-force acceleration history for plotting
 coriolis_mag_history = []      # Store Coriolis acceleration magnitude
 centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
+cross_heading_counter_force_history = []  # Store lateral counter-force [N]
 
 # Stage 1 Isp linear-ramp state (only active when ISP_1_MODE = "linear")
 _isp1_last_update_time = 0.0   # Last time Isp was stepped
@@ -944,6 +945,7 @@ def rocket_dynamics(t, state):
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
+    global cross_heading_counter_force_history
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
@@ -1262,10 +1264,11 @@ def rocket_dynamics(t, state):
                                          a_grav, alpha, Isp)
 
     delta_dheadingdt_pseudo = 0.0
+    a_cross_heading_pseudo = 0.0
     coriolis_mag_val = 0.0
     centrifugal_mag_val = 0.0
     if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES and not PROPAGATING_IN_INERTIAL_FRAME:
-        delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
+        delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
             v,
             gamma,
             heading,
@@ -1274,6 +1277,8 @@ def rocket_dynamics(t, state):
         )
         state_differentiated[2] += delta_dvdt
         state_differentiated[3] += delta_dgammadt
+
+    cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
 
     if sim_params.ENABLE_EARTH_ROTATION:
         dsdt = state_differentiated[0]
@@ -1458,6 +1463,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
     global coriolis_mag_history, centrifugal_mag_history
+    global cross_heading_counter_force_history
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1522,6 +1528,7 @@ def run(initial_kick_angle, azimuth_override=None):
     thrust_history = []
     coriolis_mag_history = []
     centrifugal_mag_history = []
+    cross_heading_counter_force_history = []
     time_history = []
     
     # Reset steering angle and pitch angle history
