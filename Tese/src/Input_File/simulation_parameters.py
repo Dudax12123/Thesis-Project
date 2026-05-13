@@ -9,17 +9,17 @@ TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s
 DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = False                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = False                # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = True  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -125,6 +125,23 @@ CPR_THETA_DOT_MODE = "manual"       # How to determine the constant pitch rate:
 CPR_THETA_DOT = 0.4              # Between {0.1, 0.5}[deg/s] manual pitch rate (only used when CPR_THETA_DOT_MODE = "manual")
                                   # Guidance duration = 90° / CPR_THETA_DOT
 
+# -------------- PEG Guidance Parameters --------------
+# (Only used if GUIDANCE_MODE is "peg")
+PEG_MAJOR_LOOP_RATE = 2.0           # Major-loop update period [s] — how often A, B, T are recomputed
+
+PEG_CONVERGENCE_MODE = "damped"     # Guide+Estimate convergence method:
+                                     #   "damped":     damped fixed-point iteration (recommended)
+                                     #                 T_next = PEG_CONVERGENCE_DAMPING * T_est
+                                     #                        + (1 - PEG_CONVERGENCE_DAMPING) * T_current
+                                     #                 stops when |ΔT| < PEG_CONVERGENCE_TOL
+                                     #   "fixed_iter": N undamped iterations — may oscillate at Stage-2 start
+PEG_CONVERGENCE_DAMPING = 0.5       # Damping factor ∈ (0, 1] (only used when mode = "damped")
+                                     # Lower = more damping, slower but safer. 0.5 recommended.
+PEG_CONVERGENCE_TOL = 0.5           # Convergence tolerance [s] (only used when mode = "damped")
+PEG_CONVERGENCE_MAX_ITER = 30       # Max iterations for both modes
+                                     # "fixed_iter": runs exactly this many iterations
+                                     # "damped":     upper bound (usually converges in < 10)
+
 # -------------- Stage 1 Specific Impulse Mode --------------
 # Select which Isp value to use for the first stage engine:
 #   "sea_level":  Use sea-level Isp (ISP_1_SL) throughout stage 1 — most conservative
@@ -164,7 +181,7 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
 ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
 ALPHA_STEP = np.deg2rad(0.05)                 # step size for kick angle sweep; [rad]
-MAX_ACCEPTED_BURN_TIME = 300.                    # maximum accepted burn time of delta-v; [s]
+MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles

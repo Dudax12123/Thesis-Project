@@ -143,6 +143,34 @@ def estimate_peg_T(A, B, T, state, v_e, F_T, r_T, mu):
     return float(min(max(T_new, 0.1), tau * 0.9999))
 
 
+def converge_peg(state, T_init, v_e, F_T, r_T, mu,
+                 max_iter=30, tol=0.5, damping=0.5):
+    """Damped Guide+Estimate iteration until T converges.
+
+    Damping prevents the 2-point cycle that arises with undamped iteration
+    when the rocket is far from the target orbit (early Stage-2 conditions).
+    Each step: T_next = damping*T_est + (1-damping)*T_current
+    """
+    m   = float(state[4])
+    a0  = F_T / m
+    tau = v_e / a0
+    T   = float(np.clip(T_init, 0.1, tau * 0.9999))
+    A, B = 0.0, 0.0
+
+    for _ in range(max_iter):
+        A_new, B_new = compute_peg_AB(state, T, v_e, F_T, r_T)
+        T_est = estimate_peg_T(A_new, B_new, T, state, v_e, F_T, r_T, mu)
+        T_next = float(np.clip(damping * T_est + (1.0 - damping) * T,
+                               0.1, tau * 0.9999))
+        A, B = A_new, B_new
+        if abs(T_next - T) < tol:
+            T = T_next
+            break
+        T = T_next
+
+    return A, B, T
+
+
 def peg_alpha(t_since_epoch, A, B, gamma):
     """Minor loop: compute steering angle α from the PEG pitch program.
 

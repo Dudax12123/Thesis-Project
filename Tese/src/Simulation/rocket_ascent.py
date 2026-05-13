@@ -1280,14 +1280,15 @@ def rocket_dynamics(t, state):
         r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
         fairing_corr = r.M_FAIRING if not fairing_jettisoned else 0.0
         dry  = r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_corr
-        peg_T = max(m - dry, 0.1) / (F_T / Ve)  # propellant-based seed
-
-        # Converge Guide + Estimate 5 times from seed
-        for _ in range(5):
-            peg_A, peg_B = peg_guidance_mod.compute_peg_AB(
-                state[:5], peg_T, Ve, F_T, r_tgt)
-            peg_T = peg_guidance_mod.estimate_peg_T(
-                peg_A, peg_B, peg_T, state[:5], Ve, F_T, r_tgt, c.MU_EARTH)
+        T_seed = max(m - dry, 0.1) / (F_T / Ve)  # propellant-based seed
+        _peg_damping = (sim_params.PEG_CONVERGENCE_DAMPING
+                        if sim_params.PEG_CONVERGENCE_MODE == "damped" else 1.0)
+        _peg_tol     = (sim_params.PEG_CONVERGENCE_TOL
+                        if sim_params.PEG_CONVERGENCE_MODE == "damped" else 0.0)
+        peg_A, peg_B, peg_T = peg_guidance_mod.converge_peg(
+            state[:5], T_seed, Ve, F_T, r_tgt, c.MU_EARTH,
+            max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
+            tol=_peg_tol, damping=_peg_damping)
 
         alpha = peg_guidance_mod.peg_alpha(0.0, peg_A, peg_B, gamma)
 
@@ -1297,7 +1298,7 @@ def rocket_dynamics(t, state):
         r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
 
         if (not peg_frozen
-                and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
+                and (t - last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
             dt    = t - last_guidance_update_time
             peg_T = max(peg_T - dt, 0.1)
 
@@ -1306,10 +1307,14 @@ def rocket_dynamics(t, state):
                 if sim_params.EVENTS_PRINT:
                     print(f"PEG coefficients frozen at t = {t:.1f} s, T = {peg_T:.1f} s")
             else:
-                peg_A, peg_B = peg_guidance_mod.compute_peg_AB(
-                    state[:5], peg_T, Ve, F_T, r_tgt)
-                peg_T = peg_guidance_mod.estimate_peg_T(
-                    peg_A, peg_B, peg_T, state[:5], Ve, F_T, r_tgt, c.MU_EARTH)
+                _peg_damping = (sim_params.PEG_CONVERGENCE_DAMPING
+                                if sim_params.PEG_CONVERGENCE_MODE == "damped" else 1.0)
+                _peg_tol     = (sim_params.PEG_CONVERGENCE_TOL
+                                if sim_params.PEG_CONVERGENCE_MODE == "damped" else 0.0)
+                peg_A, peg_B, peg_T = peg_guidance_mod.converge_peg(
+                    state[:5], peg_T, Ve, F_T, r_tgt, c.MU_EARTH,
+                    max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
+                    tol=_peg_tol, damping=_peg_damping)
                 peg_t_epoch = t
             last_guidance_update_time = t
 
