@@ -9,17 +9,17 @@ TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s
 DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = False                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = False                # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = True  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -79,7 +79,15 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Activates in Stage 2 after atmosphere exit only
 #                   - Solves for linear pitch program sin(pitch) = A + B*t each major cycle
 #                   - Explicitly targets r_T, ṙ_T = 0, v_θ_T = √(μ/r_T) for circular orbit
-GUIDANCE_MODE = "peg"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg"
+#   "peg_new":      Analytical Predictor-Corrector PEG (from first principles)
+#                   - Derived from Pontryagin's minimum principle (Jaggers 1977, McHenry et al. 1979)
+#                   - Primary variable: v_go (2D velocity-to-be-gained vector)
+#                   - t_go from rocket equation: t_go = τ·(1−exp(−‖v_go‖/c))
+#                   - Position costate λ'_r from analytical formula (paper eq 71)
+#                   - Steering: û = v_go/‖v_go‖ + λ'_r·(t−t_λ)·r̂  (normalised, eq 72)
+#                   - Gravity handled naturally through v_go iteration (no ad-hoc C correction)
+#                   - Stage 2 only, after atmosphere exit
+GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -196,6 +204,7 @@ OPTIMAL_KICK_ANGLES = {
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
     "apollo": -np.deg2rad(4.5),                  # Update after optimization
     "peg": -np.deg2rad(3.0),                     # Update after optimization
+    "peg_new": -np.deg2rad(3.0),                 # Update after optimization
 }
 
 # ===================================================

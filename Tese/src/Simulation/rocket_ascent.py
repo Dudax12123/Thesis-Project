@@ -24,6 +24,7 @@ import Guidance.bilinear_tangent_steering as bts_guidance
 import Guidance.apollo_guidance as apollo_guidance_module
 import Guidance.cpr_guidance as cpr_guidance_module
 import Guidance.peg_guidance as peg_guidance_mod
+import Guidance.peg_guidance_new as peg_new_mod
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -95,6 +96,16 @@ peg_B       = 0.0
 peg_T       = None   # burn-time estimate [s]
 peg_t_epoch = None   # time of last major-loop update [s]
 peg_frozen  = False
+
+# PEG_new guidance state (analytical predictor-corrector)
+peg_new_vgo_r     = 0.0
+peg_new_vgo_theta = 0.0
+peg_new_L0        = 1.0
+peg_new_tgo       = None
+peg_new_t_lambda  = 0.0
+peg_new_lambda_r  = 0.0
+peg_new_t_epoch   = None
+peg_new_frozen    = False
 
 # Stage 1 Isp linear-ramp state (only active when ISP_1_MODE = "linear")
 _isp1_last_update_time = 0.0   # Last time Isp was stepped
@@ -972,6 +983,8 @@ def rocket_dynamics(t, state):
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global cpr_theta_dot, cpr_t_start
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
+    global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
+    global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
@@ -1321,6 +1334,51 @@ def rocket_dynamics(t, state):
         t_since = t - peg_t_epoch
         alpha   = peg_guidance_mod.peg_alpha(t_since, peg_A, peg_B, gamma)
 
+    # --- PEG_NEW initialisation ---
+    elif (kick_performed and sim_params.GUIDANCE_MODE == "peg_new"
+          and guidance_start_ready and second_engine_ignition
+          and not guidance_phase_active and F_T > 0):
+        guidance_phase_active     = True
+        time_guidance_start       = t
+        last_guidance_update_time = t
+        peg_new_t_epoch           = t
+        peg_new_frozen            = False
+
+        Ve    = r.ISP_2 * c.G_0
+        r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+        (peg_new_vgo_r, peg_new_vgo_theta,
+         peg_new_L0, peg_new_tgo,
+         peg_new_t_lambda, peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
+             state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
+
+        alpha = peg_new_mod.peg_new_alpha(
+            0.0, peg_new_vgo_r, peg_new_vgo_theta,
+            peg_new_L0, peg_new_lambda_r, peg_new_t_lambda, gamma)
+
+    # --- PEG_NEW per-step ---
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "peg_new" and F_T > 0:
+        Ve    = r.ISP_2 * c.G_0
+        r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+
+        if (not peg_new_frozen
+                and (t - last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
+            if peg_new_tgo is not None and peg_new_tgo < sim_params.APOLLO_FREEZE_THRESHOLD:
+                peg_new_frozen = True
+                if sim_params.EVENTS_PRINT:
+                    print(f"PEG_new frozen at t = {t:.1f} s, tgo = {peg_new_tgo:.1f} s")
+            else:
+                (peg_new_vgo_r, peg_new_vgo_theta,
+                 peg_new_L0, peg_new_tgo,
+                 peg_new_t_lambda, peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
+                     state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
+                peg_new_t_epoch = t
+            last_guidance_update_time = t
+
+        t_since = t - peg_new_t_epoch
+        alpha   = peg_new_mod.peg_new_alpha(
+            t_since, peg_new_vgo_r, peg_new_vgo_theta,
+            peg_new_L0, peg_new_lambda_r, peg_new_t_lambda, gamma)
+
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "cpr" and F_T > 0:
         # CPR per-step: command pitch angle ramp, derive alpha
         alpha = cpr_guidance_module.cpr_alpha(t, cpr_t_start,
@@ -1559,6 +1617,8 @@ def run(initial_kick_angle, azimuth_override=None):
     global cross_heading_counter_force_history
     global fairing_jettisoned, time_fairing_jettison
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
+    global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
+    global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1627,6 +1687,13 @@ def run(initial_kick_angle, azimuth_override=None):
     peg_A = peg_B = 0.0
     peg_T = peg_t_epoch = None
     peg_frozen = False
+
+    # Reset PEG_new state
+    peg_new_vgo_r = peg_new_vgo_theta = 0.0
+    peg_new_L0 = 1.0
+    peg_new_tgo = peg_new_t_epoch = None
+    peg_new_t_lambda = peg_new_lambda_r = 0.0
+    peg_new_frozen = False
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
