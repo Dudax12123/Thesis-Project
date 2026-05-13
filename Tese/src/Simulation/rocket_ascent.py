@@ -23,6 +23,7 @@ import Guidance.linear_tangent_steering as lts_guidance
 import Guidance.bilinear_tangent_steering as bts_guidance
 import Guidance.apollo_guidance as apollo_guidance_module
 import Guidance.cpr_guidance as cpr_guidance_module
+import Guidance.peg_guidance as peg_guidance_mod
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -87,6 +88,13 @@ cross_heading_counter_force_history = []  # Store lateral counter-force [N]
 # Fairing jettison state
 fairing_jettisoned = False
 time_fairing_jettison = None
+
+# PEG guidance state
+peg_A       = 0.0
+peg_B       = 0.0
+peg_T       = None   # burn-time estimate [s]
+peg_t_epoch = None   # time of last major-loop update [s]
+peg_frozen  = False
 
 # Stage 1 Isp linear-ramp state (only active when ISP_1_MODE = "linear")
 _isp1_last_update_time = 0.0   # Last time Isp was stepped
@@ -963,6 +971,7 @@ def rocket_dynamics(t, state):
     global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global cpr_theta_dot, cpr_t_start
+    global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
@@ -1257,6 +1266,56 @@ def rocket_dynamics(t, state):
             # Use commanded thrust but limit to maximum available
             F_T = min(F_T_commanded, F_T_nominal)
         
+    # --- PEG initialisation ---
+    elif (kick_performed and sim_params.GUIDANCE_MODE == "peg"
+          and guidance_start_ready and second_engine_ignition
+          and not guidance_phase_active and F_T > 0):
+        guidance_phase_active     = True
+        time_guidance_start       = t
+        last_guidance_update_time = t
+        peg_t_epoch               = t
+        peg_frozen                = False
+
+        Ve    = r.ISP_2 * c.G_0
+        r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+        fairing_corr = r.M_FAIRING if not fairing_jettisoned else 0.0
+        dry  = r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_corr
+        peg_T = max(m - dry, 0.1) / (F_T / Ve)  # propellant-based seed
+
+        # Converge Guide + Estimate 5 times from seed
+        for _ in range(5):
+            peg_A, peg_B = peg_guidance_mod.compute_peg_AB(
+                state[:5], peg_T, Ve, F_T, r_tgt)
+            peg_T = peg_guidance_mod.estimate_peg_T(
+                peg_A, peg_B, peg_T, state[:5], Ve, F_T, r_tgt, c.MU_EARTH)
+
+        alpha = peg_guidance_mod.peg_alpha(0.0, peg_A, peg_B, gamma)
+
+    # --- PEG per-step ---
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "peg" and F_T > 0:
+        Ve    = r.ISP_2 * c.G_0
+        r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+
+        if (not peg_frozen
+                and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
+            dt    = t - last_guidance_update_time
+            peg_T = max(peg_T - dt, 0.1)
+
+            if peg_T < sim_params.APOLLO_FREEZE_THRESHOLD:
+                peg_frozen = True
+                if sim_params.EVENTS_PRINT:
+                    print(f"PEG coefficients frozen at t = {t:.1f} s, T = {peg_T:.1f} s")
+            else:
+                peg_A, peg_B = peg_guidance_mod.compute_peg_AB(
+                    state[:5], peg_T, Ve, F_T, r_tgt)
+                peg_T = peg_guidance_mod.estimate_peg_T(
+                    peg_A, peg_B, peg_T, state[:5], Ve, F_T, r_tgt, c.MU_EARTH)
+                peg_t_epoch = t
+            last_guidance_update_time = t
+
+        t_since = t - peg_t_epoch
+        alpha   = peg_guidance_mod.peg_alpha(t_since, peg_A, peg_B, gamma)
+
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "cpr" and F_T > 0:
         # CPR per-step: command pitch angle ramp, derive alpha
         alpha = cpr_guidance_module.cpr_alpha(t, cpr_t_start,
@@ -1494,6 +1553,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global coriolis_mag_history, centrifugal_mag_history
     global cross_heading_counter_force_history
     global fairing_jettisoned, time_fairing_jettison
+    global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1557,6 +1617,11 @@ def run(initial_kick_angle, azimuth_override=None):
     # Reset fairing state
     fairing_jettisoned = False
     time_fairing_jettison = None
+
+    # Reset PEG state
+    peg_A = peg_B = 0.0
+    peg_T = peg_t_epoch = None
+    peg_frozen = False
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
