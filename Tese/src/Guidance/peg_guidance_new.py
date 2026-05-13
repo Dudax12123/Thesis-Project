@@ -215,5 +215,5 @@ def peg_new_alpha(t_since_epoch, vgo_r, vgo_theta, L0, lambda_r_prime, t_lambda,
         u_theta /= mag
 
     # Pitch angle β (from local horizontal); α = β − γ
-    beta  = np.arctan2(u_r, abs(u_theta))
+    beta  = np.arctan2(u_r, u_theta)
     return float(beta - gamma)
