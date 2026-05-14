@@ -439,6 +439,12 @@ def execute():
            and len(ra.cross_heading_counter_force_history) > 0
         else None
     )
+    _cross_accel = (
+        np.array(ra.cross_heading_accel_history)
+        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
+           and len(ra.cross_heading_accel_history) > 0
+        else None
+    )
 
     new_plot_runner.run_new_plot_suite(
         time,
@@ -458,6 +464,7 @@ def execute():
         theta_data=_theta,
         theta_time_data=_theta_time,
         cross_heading_counter_force_data=_cross_force,
+        cross_heading_accel_data=_cross_accel,
     )
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---

@@ -85,6 +85,7 @@ CRASH_TIME = None
 coriolis_mag_history = []      # Store Coriolis acceleration magnitude
 centrifugal_mag_history = []   # Store centrifugal acceleration magnitude
 cross_heading_counter_force_history = []  # Store lateral counter-force [N]
+cross_heading_accel_history = []          # Store cross-heading acceleration [m/s²]
 
 # Fairing jettison state
 fairing_jettisoned = False
@@ -988,7 +989,7 @@ def rocket_dynamics(t, state):
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
-    global cross_heading_counter_force_history
+    global cross_heading_counter_force_history, cross_heading_accel_history
     global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
 
     # Get state components
@@ -1425,6 +1426,7 @@ def rocket_dynamics(t, state):
         state_differentiated[3] += delta_dgammadt
 
     cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
+    cross_heading_accel_history.append(abs(a_cross_heading_pseudo))
 
     if sim_params.ENABLE_EARTH_ROTATION:
         dsdt = state_differentiated[0]
@@ -1614,7 +1616,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
     global coriolis_mag_history, centrifugal_mag_history
-    global cross_heading_counter_force_history
+    global cross_heading_counter_force_history, cross_heading_accel_history
     global fairing_jettisoned, time_fairing_jettison
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
@@ -1700,6 +1702,7 @@ def run(initial_kick_angle, azimuth_override=None):
     coriolis_mag_history = []
     centrifugal_mag_history = []
     cross_heading_counter_force_history = []
+    cross_heading_accel_history = []
     time_history = []
     
     # Reset steering angle and pitch angle history
