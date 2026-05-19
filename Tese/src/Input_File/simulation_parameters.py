@@ -87,13 +87,19 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Steering: û = v_go/‖v_go‖ + λ'_r·(t−t_λ)·r̂  (normalised, eq 72)
 #                   - Gravity handled naturally through v_go iteration (no ad-hoc C correction)
 #                   - Stage 2 only, after atmosphere exit
-GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new"
+#   "exp_shooting": Exponential pitch-law guidance with single-shot shooting optimization
+#                   - Pitch angle: θ(t_rel) = a·exp(b·t_rel), α = θ − γ
+#                   - (a, b) solved once at guidance start via scipy.optimize.fsolve
+#                   - Terminal constraints: r(T_burnout) = r_T, γ(T_burnout) = 0
+#                   - Fixed coefficients for the entire burn (open-loop after initialization)
+#                   - Works with any GUIDANCE_START_MODE (after_kick or after_atmosphere_exit)
+GUIDANCE_MODE = "exp_shooting"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
+GUIDANCE_START_MODE = "after_kick"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly" or "apollo")
@@ -205,6 +211,7 @@ OPTIMAL_KICK_ANGLES = {
     "apollo": -np.deg2rad(4.5),                  # Update after optimization
     "peg": -np.deg2rad(3.0),                     # Update after optimization
     "peg_new": -np.deg2rad(3.0),                 # Update after optimization
+    "exp_shooting": -np.deg2rad(3.0),            # Update after optimization
 }
 
 # ===================================================

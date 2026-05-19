@@ -25,6 +25,7 @@ import Guidance.apollo_guidance as apollo_guidance_module
 import Guidance.cpr_guidance as cpr_guidance_module
 import Guidance.peg_guidance as peg_guidance_mod
 import Guidance.peg_guidance_new as peg_new_mod
+import Guidance.exp_shooting_guidance as exp_shoot_mod
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -97,6 +98,11 @@ peg_B       = 0.0
 peg_T       = None   # burn-time estimate [s]
 peg_t_epoch = None   # time of last major-loop update [s]
 peg_frozen  = False
+
+# Exponential-shooting guidance state
+exp_shoot_a     = None   # coefficient a in θ(t) = a·exp(b·t_rel)
+exp_shoot_b     = None   # coefficient b
+exp_shoot_epoch = None   # absolute t when (a, b) were computed
 
 # PEG_new guidance state (analytical predictor-corrector)
 peg_new_vgo_r     = 0.0
@@ -986,6 +992,7 @@ def rocket_dynamics(t, state):
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
+    global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
@@ -1385,6 +1392,27 @@ def rocket_dynamics(t, state):
         alpha = cpr_guidance_module.cpr_alpha(t, cpr_t_start,
                                                np.pi / 2.0, cpr_theta_dot, gamma)
 
+    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "exp_shooting" and F_T > 0:
+        # Exponential pitch law: θ(t_rel) = a·exp(b·t_rel), α = θ − γ
+        # Optimize (a, b) once at guidance start, then hold fixed.
+        if exp_shoot_a is None:
+            isp_active = Isp  # already computed by thrust_Isp(t) for current stage
+            if second_engine_ignition:
+                m_dry_active = r.M_STRUCTURE_2
+            elif fairing_jettisoned:
+                m_dry_active = r.M_STRUCTURE_1 - r.M_FAIRING
+            else:
+                m_dry_active = r.M_STRUCTURE_1
+            r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+            exp_shoot_a, exp_shoot_b = exp_shoot_mod.optimize_exp_pitch(
+                state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0
+            )
+            exp_shoot_epoch = t
+            if sim_params.EVENTS_PRINT:
+                print(f"[exp_shooting] initialized at t={t:.1f}s: a={exp_shoot_a:.4f} rad, b={exp_shoot_b:.6f} 1/s")
+        alpha = exp_shoot_mod.exp_pitch_alpha(t - exp_shoot_epoch,
+                                               exp_shoot_a, exp_shoot_b, gamma)
+
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)
         alpha = 0.
@@ -1621,6 +1649,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
+    global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1696,6 +1725,9 @@ def run(initial_kick_angle, azimuth_override=None):
     peg_new_tgo = peg_new_t_epoch = None
     peg_new_t_lambda = peg_new_lambda_r = 0.0
     peg_new_frozen = False
+
+    # Reset exponential-shooting state
+    exp_shoot_a = exp_shoot_b = exp_shoot_epoch = None
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
