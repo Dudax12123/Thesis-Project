@@ -147,6 +147,21 @@ CPR_THETA_DOT_MODE = "manual"       # How to determine the constant pitch rate:
 CPR_THETA_DOT = 0.4              # Between {0.1, 0.5}[deg/s] manual pitch rate (only used when CPR_THETA_DOT_MODE = "manual")
                                   # Guidance duration = 90° / CPR_THETA_DOT
 
+# -------------- Indirect TPBVP Guidance Parameters --------------
+# (Only used if GUIDANCE_MODE is "indirect")
+INDIRECT_COST_MODE = "min_fuel"     # Cost functional to minimize:
+                                     #   "min_fuel": Φ = −m(tf)  maximize propellant remaining
+                                     #               H(tf) = 0,  λ_m(tf) = −1  (eq 64a/b)
+                                     #   "min_time": Φ = tf      minimize ascent duration
+                                     #               H(tf) = −1, λ_m(tf) = 0   (eq 64a/b)
+                                     # Note: min_fuel ≡ min_time for constant thrust.
+                                     #       Set INDIRECT_ALLOW_THROTTLE = True to differentiate.
+INDIRECT_ALLOW_THROTTLE = True      # Enable bang-bang thrust control via switching function:
+                                     #   σ = (λ_v·cosα + λ_γ·sinα/v)/m − λ_m/(Isp·g0)
+                                     #   F_T = F_T_max if σ > 0 (thrust), 0 if σ ≤ 0 (coast)
+                                     # When True: min_fuel may produce coast arcs (less propellant);
+                                     #            min_time thrusts continuously (σ > 0 throughout).
+
 # -------------- PEG Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "peg")
 PEG_MAJOR_LOOP_RATE = 2.0           # Major-loop update period [s] — how often A, B, T are recomputed

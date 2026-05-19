@@ -1434,7 +1434,9 @@ def rocket_dynamics(t, state):
             include_drag = (sim_params.GUIDANCE_START_MODE == "after_kick")
             tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
                 state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0,
-                include_drag=include_drag
+                include_drag=include_drag,
+                cost_mode=sim_params.INDIRECT_COST_MODE,
+                allow_throttle=sim_params.INDIRECT_ALLOW_THROTTLE
             )
             tpbvp_epoch = t
             if sim_params.EVENTS_PRINT:
