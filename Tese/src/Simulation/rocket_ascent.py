@@ -1431,8 +1431,10 @@ def rocket_dynamics(t, state):
             else:
                 m_dry_active = r.M_STRUCTURE_1
             r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+            include_drag = (sim_params.GUIDANCE_START_MODE == "after_kick")
             tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
-                state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0
+                state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0,
+                include_drag=include_drag
             )
             tpbvp_epoch = t
             if sim_params.EVENTS_PRINT:
