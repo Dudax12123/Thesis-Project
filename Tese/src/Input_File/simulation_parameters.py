@@ -156,7 +156,7 @@ INDIRECT_COST_MODE = "min_fuel"     # Cost functional to minimize:
                                      #               H(tf) = −1, λ_m(tf) = 0   (eq 64a/b)
                                      # Note: min_fuel ≡ min_time for constant thrust.
                                      #       Set INDIRECT_ALLOW_THROTTLE = True to differentiate.
-INDIRECT_CLOSED_LOOP = False         # If False: optimize TPBVP once at guidance start (open-loop).
+INDIRECT_CLOSED_LOOP = True         # If False: optimize TPBVP once at guidance start (open-loop).
                                      # If True:  re-optimize every INDIRECT_UPDATE_RATE seconds using
                                      #           the current actual state (closed-loop major loop).
                                      #           Corrects for drag/Earth-rotation deviations that the

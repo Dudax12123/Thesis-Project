@@ -75,7 +75,7 @@ def _compute_drag_lift(r, v, include_drag):
 
 def _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
                     r0, v0, gamma0, m0, F_T, Isp, g0, mu, include_drag,
-                    cost_mode="min_fuel"):
+                    cost_mode="min_fuel", earth_rot_params=None):
     """Compute λ_m0 analytically from H(t0) = H_target (first integral).
 
     H is constant for autonomous systems with L=0.
@@ -96,11 +96,17 @@ def _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
     else:
         alpha0 = np.arctan2(lam_gamma0, v0 * lam_v0)
 
+    dvdt0     = T_m * np.cos(alpha0) - g * np.sin(gamma0) - F_D / m0
     dgammadt0 = (T_m * np.sin(alpha0) + F_L / m0
                  - (g - v0**2 / r0) * np.cos(gamma0)) / v0
 
+    if earth_rot_params is not None:
+        A1, A2, B1 = earth_rot_params
+        dvdt0     += A1 * r0 * np.sin(gamma0) - A2 * r0 * np.cos(gamma0)
+        dgammadt0 += B1 + (A2 * np.sin(gamma0) + A1 * np.cos(gamma0)) * r0 / v0
+
     H_rest = (lam_r0 * v0 * np.sin(gamma0)
-              + lam_v0 * (T_m * np.cos(alpha0) - g * np.sin(gamma0) - F_D / m0)
+              + lam_v0 * dvdt0
               + lam_gamma0 * dgammadt0)
 
     return (H_rest - H_target) * Isp * g0 / F_T
@@ -125,7 +131,8 @@ def _compute_thrust(lam_v, lam_gamma, lam_m, alpha, v, m, F_T_max, Isp, g0,
 
 # ─── 8-state combined ODE ─────────────────────────────────────────────────────
 
-def _combined_odes(y, F_T, Isp, g0, mu, include_drag, allow_throttle):
+def _combined_odes(y, F_T, Isp, g0, mu, include_drag, allow_throttle,
+                   earth_rot_params=None):
     """8-state ODE: [r, v, γ, m, λ_r, λ_v, λ_γ, λ_m]."""
     r, v, gamma, m, lam_r, lam_v, lam_gamma, lam_m = y
 
@@ -168,6 +175,19 @@ def _combined_odes(y, F_T, Isp, g0, mu, include_drag, allow_throttle):
     # dlam_m = 0 automatically during coast (F_T_eff = 0)
     dlam_m = (F_T_eff / m**2) * (lam_v * np.cos(alpha) + lam_gamma * np.sin(alpha) / v)
 
+    # ── Earth-rotation pseudo-force additions (fixed lat, heading) ──
+    if earth_rot_params is not None:
+        A1, A2, B1 = earth_rot_params
+        # State additions: Δv̇ = r(A1·sinγ − A2·cosγ),  Δγ̇ = B1 + r(A2·sinγ + A1·cosγ)/v
+        dvdt     += A1 * r * np.sin(gamma) - A2 * r * np.cos(gamma)
+        dgammadt += B1 + (A2 * np.sin(gamma) + A1 * np.cos(gamma)) * r / v
+        # Adjoint additions: Δλ̇ = −∂(λ_v·Δv̇ + λ_γ·Δγ̇)/∂x
+        dlam_r += (-lam_v * (A1 * np.sin(gamma) - A2 * np.cos(gamma))
+                    - lam_gamma * (A2 * np.sin(gamma) + A1 * np.cos(gamma)) / v)
+        dlam_v += lam_gamma * (A2 * np.sin(gamma) + A1 * np.cos(gamma)) * r / v**2
+        dlam_g += (-lam_v * r * (A1 * np.cos(gamma) + A2 * np.sin(gamma))
+                    - lam_gamma * r * (A2 * np.cos(gamma) - A1 * np.sin(gamma)) / v)
+
     return np.array([drdt, dvdt, dgammadt, dmdt,
                      dlam_r, dlam_v, dlam_g, dlam_m], dtype=float)
 
@@ -195,7 +215,7 @@ def _compute_hamiltonian(y, F_T_eff, Isp, g0, mu, F_D, F_L):
 
 def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
                        F_T, Isp, g0, mu, include_drag, allow_throttle,
-                       dt=0.5, store_alpha=False):
+                       earth_rot_params=None, dt=0.5, store_alpha=False):
     """Integrate the 8-state system with RK4 from t=0 to t=tf.
 
     Parameters
@@ -229,10 +249,10 @@ def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
             t_list.append(t_rel)
             alpha_list.append(alpha_now)
 
-        k1 = _combined_odes(y,                  F_T, Isp, g0, mu, include_drag, allow_throttle)
-        k2 = _combined_odes(y + 0.5*dt_step*k1, F_T, Isp, g0, mu, include_drag, allow_throttle)
-        k3 = _combined_odes(y + 0.5*dt_step*k2, F_T, Isp, g0, mu, include_drag, allow_throttle)
-        k4 = _combined_odes(y +     dt_step*k3, F_T, Isp, g0, mu, include_drag, allow_throttle)
+        k1 = _combined_odes(y,                  F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
+        k2 = _combined_odes(y + 0.5*dt_step*k1, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
+        k3 = _combined_odes(y + 0.5*dt_step*k2, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
+        k4 = _combined_odes(y +     dt_step*k3, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
 
         y     = y + (dt_step / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
         t_rel += dt_step
@@ -260,7 +280,7 @@ def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
 # ─── Residual for fsolve (4D no-throttle / 5D bang-bang) ─────────────────────
 
 def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
-              include_drag, cost_mode, allow_throttle):
+              include_drag, cost_mode, allow_throttle, earth_rot_params):
     """4D residual when allow_throttle=False; 5D when allow_throttle=True.
 
     The 5D case treats lam_m0 as a free variable (the H=const analytical
@@ -278,7 +298,7 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
         lam_r0, lam_v0, lam_gamma0, tf = params
         lam_m0 = _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
                                    r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                   include_drag, cost_mode)
+                                   include_drag, cost_mode, earth_rot_params)
 
     penalty = [1e6] * (5 if allow_throttle else 4)
     if tf <= 0.0:
@@ -288,7 +308,8 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
      lam_r_f, lam_v_f, lam_gamma_f, _, _) = _forward_integrate(
         [lam_r0, lam_v0, lam_gamma0], lam_m0,
         r0, v0, gamma0, m0, m_dry, tf,
-        F_T, Isp, g0, mu, include_drag, allow_throttle, store_alpha=False
+        F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params,
+        store_alpha=False
     )
 
     v_circ = np.sqrt(mu / r_T)
@@ -321,7 +342,8 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
 # ─── Public API ───────────────────────────────────────────────────────────────
 
 def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
-                include_drag=False, cost_mode="min_fuel", allow_throttle=False):
+                include_drag=False, cost_mode="min_fuel", allow_throttle=False,
+                lat=0.0, heading=0.0, include_earth_rotation=False):
     """Solve the minimum-fuel TPBVP via single shooting (complete FONCs).
 
     Satisfies:
@@ -358,10 +380,21 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
     mdot  = F_T / (Isp * g0)
     tf0   = (m0 - m_dry) / mdot   # propellant-based burnout time (initial guess)
 
+    # Earth-rotation constants (fixed lat, heading)
+    if include_earth_rotation:
+        from Auxiliary import constants as _c
+        _om = _c.OMEGA_EARTH
+        A1 = _om**2 * np.cos(lat)**2
+        A2 = _om**2 * np.sin(lat) * np.cos(lat) * np.cos(heading)
+        B1 = 2.0 * _om * np.cos(lat) * np.sin(heading)
+        earth_rot_params = (A1, A2, B1)
+    else:
+        earth_rot_params = None
+
     # Initial guess for costates and tf
     lam_m0_guess = _compute_lam_m0(0.0, 1.0, 0.0,
                                     r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                    include_drag, cost_mode)
+                                    include_drag, cost_mode, earth_rot_params)
     if allow_throttle:
         # 5D: lam_m0 is a free variable; H(tf)=H_target enforced as 5th residual
         p0 = np.array([0.0, 1.0, 0.0, lam_m0_guess, tf0])
@@ -370,7 +403,7 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
         p0 = np.array([0.0, 1.0, 0.0, tf0])
 
     args = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
-            include_drag, cost_mode, allow_throttle)
+            include_drag, cost_mode, allow_throttle, earth_rot_params)
 
     try:
         with warnings.catch_warnings():
@@ -384,7 +417,7 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
                 lam_r0, lam_v0, lam_gamma0, tf = sol
                 lam_m0 = _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
                                           r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                          include_drag, cost_mode)
+                                          include_drag, cost_mode, earth_rot_params)
         else:
             print(f"[indirect] fsolve did not converge: {msg}. Using initial guess.")
             if allow_throttle:
@@ -405,7 +438,8 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
     _, _, _, _, _, _, _, t_arr, alpha_arr = _forward_integrate(
         [lam_r0, lam_v0, lam_gamma0], lam_m0,
         r0, v0, gamma0, m0, m_dry, tf,
-        F_T, Isp, g0, mu, include_drag, allow_throttle, store_alpha=True
+        F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params,
+        store_alpha=True
     )
 
     if t_arr is None or len(t_arr) == 0:

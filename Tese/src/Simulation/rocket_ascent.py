@@ -1436,11 +1436,16 @@ def rocket_dynamics(t, state):
                 m_dry_active = r.M_STRUCTURE_1
             r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
             include_drag = (sim_params.GUIDANCE_START_MODE == "after_kick")
+            inc_earth = (sim_params.ENABLE_EARTH_ROTATION
+                         and sim_params.INCLUDE_PSEUDO_FORCES)
             tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
                 state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0,
                 include_drag=include_drag,
                 cost_mode=sim_params.INDIRECT_COST_MODE,
-                allow_throttle=sim_params.INDIRECT_ALLOW_THROTTLE
+                allow_throttle=sim_params.INDIRECT_ALLOW_THROTTLE,
+                lat=lat,
+                heading=heading,
+                include_earth_rotation=inc_earth
             )
             tpbvp_epoch = t
             if sim_params.EVENTS_PRINT and tpbvp_t_arr is not None:
