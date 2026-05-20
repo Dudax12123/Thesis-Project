@@ -1421,8 +1421,12 @@ def rocket_dynamics(t, state):
                                                exp_shoot_a, exp_shoot_b, gamma)
 
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "indirect" and F_T > 0:
-        # Indirect PMP / TPBVP: solve minimum-fuel problem once, interpolate α*(t)
-        if tpbvp_t_arr is None:
+        # Indirect PMP / TPBVP: solve minimum-fuel TPBVP, re-optimize every
+        # INDIRECT_UPDATE_RATE seconds to correct for real-trajectory deviations.
+        needs_solve = (tpbvp_t_arr is None or
+                       (sim_params.INDIRECT_CLOSED_LOOP
+                        and t - tpbvp_epoch >= sim_params.INDIRECT_UPDATE_RATE))
+        if needs_solve:
             isp_active = Isp
             if second_engine_ignition:
                 m_dry_active = r.M_STRUCTURE_2
@@ -1439,9 +1443,9 @@ def rocket_dynamics(t, state):
                 allow_throttle=sim_params.INDIRECT_ALLOW_THROTTLE
             )
             tpbvp_epoch = t
-            if sim_params.EVENTS_PRINT:
-                tf_est = tpbvp_t_arr[-1] if tpbvp_t_arr is not None else 0.0
-                print(f"[indirect] TPBVP solved at t={t:.1f}s, tf_est={tf_est:.1f}s")
+            if sim_params.EVENTS_PRINT and tpbvp_t_arr is not None:
+                print(f"[indirect] TPBVP solved at t={t:.1f}s, "
+                      f"tf_est={tpbvp_t_arr[-1]:.1f}s")
         alpha = indirect_mod.tpbvp_alpha(t - tpbvp_epoch,
                                           tpbvp_t_arr, tpbvp_alpha_arr)
 
