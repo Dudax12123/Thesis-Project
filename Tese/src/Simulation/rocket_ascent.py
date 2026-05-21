@@ -1045,8 +1045,11 @@ def rocket_dynamics(t, state):
         atmosphere_exit_detected = (phi < sim_params.AEROTHERMAL_FLUX_THRESHOLD)
 
     # --- Record atmosphere exit event (independent of guidance start) ---
-    # Guard with kick_performed to avoid false trigger at t=0 when q=0 (v=0)
-    if kick_performed and atmosphere_exit_detected and not atmosphere_exited:
+    # Guard 1: kick_performed — prevents false trigger at t=0 when v=0 → q=0
+    # Guard 2: alt > 30 km — prevents false trigger when kick_performed is set early
+    #          (e.g. "after_vertical" / "cpr") while the rocket is still at low speed
+    #          and dynamic pressure is below the threshold despite being near the ground.
+    if kick_performed and atmosphere_exit_detected and not atmosphere_exited and alt > 30000.0:
         atmosphere_exited = True
         time_atmosphere_exit = t
 
@@ -1431,36 +1434,53 @@ def rocket_dynamics(t, state):
         if not guidance_phase_active:
             guidance_phase_active = True
             time_guidance_start = t
-        needs_solve = (tpbvp_t_arr is None or
-                       (sim_params.INDIRECT_CLOSED_LOOP
-                        and t - tpbvp_epoch >= sim_params.INDIRECT_UPDATE_RATE))
-        if needs_solve:
-            isp_active = Isp
-            if second_engine_ignition:
-                m_dry_active = r.M_STRUCTURE_2
-            elif fairing_jettisoned:
-                m_dry_active = r.M_STRUCTURE_1 - r.M_FAIRING
+        # TPBVP uses a single-stage model; Stage 1 alone cannot reach orbit.
+        # Use gravity turn during Stage 1; TPBVP activates at Stage 2 ignition.
+        if not second_engine_ignition:
+            alpha = 0.0
+        else:
+            needs_solve = (tpbvp_t_arr is None or
+                           (sim_params.INDIRECT_CLOSED_LOOP
+                            and t - tpbvp_epoch >= sim_params.INDIRECT_UPDATE_RATE))
+            if needs_solve:
+                isp_active = Isp
+                if second_engine_ignition:
+                    m_dry_active = r.M_STRUCTURE_2
+                elif fairing_jettisoned:
+                    m_dry_active = r.M_STRUCTURE_1 - r.M_FAIRING
+                else:
+                    m_dry_active = r.M_STRUCTURE_1
+                r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+                include_drag = sim_params.GUIDANCE_START_MODE in ("after_kick", "after_vertical")
+                inc_lift  = not sim_params.INDIRECT_SIMPLIFIED
+                inc_earth = (sim_params.ENABLE_EARTH_ROTATION
+                             and sim_params.INCLUDE_PSEUDO_FORCES
+                             and not sim_params.INDIRECT_SIMPLIFIED)
+                _t_new, _a_new = indirect_mod.solve_tpbvp(
+                    state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0,
+                    include_drag=include_drag,
+                    cost_mode=sim_params.INDIRECT_COST_MODE,
+                    allow_throttle=sim_params.INDIRECT_ALLOW_THROTTLE,
+                    lat=lat,
+                    heading=heading,
+                    include_earth_rotation=inc_earth,
+                    include_lift=inc_lift,
+                    use_de=sim_params.INDIRECT_USE_DE,
+                    de_popsize=sim_params.INDIRECT_DE_POPSIZE,
+                    de_maxiter=sim_params.INDIRECT_DE_MAXITER,
+                    alpha_search_max=sim_params.INDIRECT_ALPHA_SEARCH_MAX,
+                )
+                if _t_new is not None:
+                    tpbvp_t_arr, tpbvp_alpha_arr = _t_new, _a_new
+                    tpbvp_epoch = t
+                    if sim_params.EVENTS_PRINT:
+                        print(f"[indirect] TPBVP solved at t={t:.1f}s, "
+                              f"tf_est={tpbvp_t_arr[-1]:.1f}s")
+            if tpbvp_t_arr is None:
+                alpha = 0.0
             else:
-                m_dry_active = r.M_STRUCTURE_1
-            r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-            include_drag = (sim_params.GUIDANCE_START_MODE == "after_kick")
-            inc_earth = (sim_params.ENABLE_EARTH_ROTATION
-                         and sim_params.INCLUDE_PSEUDO_FORCES)
-            tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
-                state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0,
-                include_drag=include_drag,
-                cost_mode=sim_params.INDIRECT_COST_MODE,
-                allow_throttle=sim_params.INDIRECT_ALLOW_THROTTLE,
-                lat=lat,
-                heading=heading,
-                include_earth_rotation=inc_earth
-            )
-            tpbvp_epoch = t
-            if sim_params.EVENTS_PRINT and tpbvp_t_arr is not None:
-                print(f"[indirect] TPBVP solved at t={t:.1f}s, "
-                      f"tf_est={tpbvp_t_arr[-1]:.1f}s")
-        alpha = indirect_mod.tpbvp_alpha(t - tpbvp_epoch,
-                                          tpbvp_t_arr, tpbvp_alpha_arr)
+                alpha = indirect_mod.tpbvp_alpha(t - tpbvp_epoch,
+                                                  tpbvp_t_arr, tpbvp_alpha_arr)
 
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)

@@ -243,6 +243,12 @@ def execute():
         print("\n" + "="*60)
         print("CPR GUIDANCE — NO KICK ANGLE OPTIMISATION")
         print("="*60)
+    elif sim_params.GUIDANCE_START_MODE == "after_vertical":
+        # TPBVP handles pitch-over itself — no kick angle to optimise
+        kick_angle_optimal = 0.0
+        print("\n" + "="*60)
+        print("AFTER-VERTICAL START — NO KICK ANGLE OPTIMISATION")
+        print("="*60)
     elif sim_params.RUN_FAST:
         print("\n" + "="*60)
         print("FAST RUN MODE")
@@ -292,14 +298,22 @@ def execute():
         _simulation_failed = True
 
     # Check for failed simulation (sentinel value means no valid trajectory was found)
+    _kick_optimised = (sim_params.GUIDANCE_MODE != "cpr"
+                       and sim_params.GUIDANCE_START_MODE != "after_vertical")
     if not _simulation_failed and m_propellant_total is not None and m_propellant_total >= 9999999.0:
         print("\n" + "!"*60)
-        print("OPTIMISATION FAILED — NO VALID TRAJECTORY FOUND")
+        print("SIMULATION FAILED — NO VALID TRAJECTORY FOUND")
         print("!"*60)
-        print("No kick angle in the search range produces a valid orbit.")
-        print(f"  ALPHA_LOWEST  = {np.rad2deg(sim_params.ALPHA_LOWEST):.2f}°")
-        print(f"  ALPHA_HIGHEST = {np.rad2deg(sim_params.ALPHA_HIGHEST):.2f}°")
-        print("Expand the kick-angle range or check guidance mode / target altitude.")
+        if _kick_optimised:
+            print("No kick angle in the search range produces a valid orbit.")
+            print(f"  ALPHA_LOWEST  = {np.rad2deg(sim_params.ALPHA_LOWEST):.2f}°")
+            print(f"  ALPHA_HIGHEST = {np.rad2deg(sim_params.ALPHA_HIGHEST):.2f}°")
+            print("Expand the kick-angle range or check guidance mode / target altitude.")
+        else:
+            print("The guidance law did not produce a valid orbit.")
+            print(f"  GUIDANCE_MODE       = {sim_params.GUIDANCE_MODE}")
+            print(f"  GUIDANCE_START_MODE = {sim_params.GUIDANCE_START_MODE}")
+            print("Check guidance parameters or target altitude.")
         print("!"*60 + "\n")
         _simulation_failed = True
 
