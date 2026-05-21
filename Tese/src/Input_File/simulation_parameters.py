@@ -156,7 +156,7 @@ INDIRECT_COST_MODE = "min_fuel"     # Cost functional to minimize:
                                      #               H(tf) = −1, λ_m(tf) = 0   (eq 64a/b)
                                      # Note: min_fuel ≡ min_time for constant thrust.
                                      #       Set INDIRECT_ALLOW_THROTTLE = True to differentiate.
-INDIRECT_CLOSED_LOOP = True         # If False: optimize TPBVP once at guidance start (open-loop).
+INDIRECT_CLOSED_LOOP = False        # If False: optimize TPBVP once at guidance start (open-loop).
                                      # If True:  re-optimize every INDIRECT_UPDATE_RATE seconds using
                                      #           the current actual state (closed-loop major loop).
                                      #           Corrects for drag/Earth-rotation deviations that the
@@ -223,8 +223,8 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
                                                  # Phi = 0.5*rho*v^3; negligible heating below this value
 
 # -------------- Optimization --------------
-ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
-ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
+ALPHA_LOWEST = -np.deg2rad(4.1)                  # lowest possible kick angle to be tested; [rad]
+ALPHA_HIGHEST = -np.deg2rad(3.9)                # highest possible kick angle to be tested; [rad]~
 ALPHA_STEP = np.deg2rad(0.05)                 # step size for kick angle sweep; [rad]
 MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
 

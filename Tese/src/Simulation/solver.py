@@ -66,11 +66,14 @@ def find_initial_kick_angle_coast_single_burn():
     # Time measurement
     start_time = time.time()
 
-    # Brute force grid search
+    # Brute force grid search — step size controlled by ALPHA_STEP
+    Ns = max(2, round(abs(sim_params.ALPHA_HIGHEST - sim_params.ALPHA_LOWEST)
+                      / sim_params.ALPHA_STEP) + 1)
+
     result = brute(
         lambda x: abs(coasting_single_burn_objective(x[0])),
         ranges=bounds,
-        Ns=1000,
+        Ns=Ns,
         finish=None,
         full_output=True
     )

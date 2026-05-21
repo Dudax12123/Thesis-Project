@@ -391,47 +391,56 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
     else:
         earth_rot_params = None
 
-    # Initial guess for costates and tf
-    lam_m0_guess = _compute_lam_m0(0.0, 1.0, 0.0,
-                                    r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                    include_drag, cost_mode, earth_rot_params)
-    if allow_throttle:
-        # 5D: lam_m0 is a free variable; H(tf)=H_target enforced as 5th residual
-        p0 = np.array([0.0, 1.0, 0.0, lam_m0_guess, tf0])
-    else:
-        # 4D: lam_m0 computed analytically; H=const satisfied by construction
-        p0 = np.array([0.0, 1.0, 0.0, tf0])
-
     args = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
             include_drag, cost_mode, allow_throttle, earth_rot_params)
 
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            sol, info, ier, msg = fsolve(_residual, p0, args=args,
-                                          full_output=True, xtol=1e-8)
-        if ier == 1:
-            if allow_throttle:
-                lam_r0, lam_v0, lam_gamma0, lam_m0, tf = sol
-            else:
-                lam_r0, lam_v0, lam_gamma0, tf = sol
-                lam_m0 = _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
-                                          r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                          include_drag, cost_mode, earth_rot_params)
-        else:
-            print(f"[indirect] fsolve did not converge: {msg}. Using initial guess.")
-            if allow_throttle:
-                lam_r0, lam_v0, lam_gamma0, lam_m0, tf = p0
-            else:
-                lam_r0, lam_v0, lam_gamma0, tf = p0
-                lam_m0 = lam_m0_guess
-    except Exception as exc:
-        print(f"[indirect] optimizer error: {exc}. Using initial guess.")
-        if allow_throttle:
-            lam_r0, lam_v0, lam_gamma0, lam_m0, tf = p0
-        else:
-            lam_r0, lam_v0, lam_gamma0, tf = p0
-            lam_m0 = lam_m0_guess
+    # Multi-start: try physically motivated λ_γ0 values to escape the trivial solution.
+    # Physical reasoning: α*(t=0) = arctan2(λ_γ0, v0·λ_v0) → λ_γ0 = v0·tan(α_init).
+    # Ascent typically requires slightly negative α (pitch toward horizontal), so we
+    # sweep from −30° to +5° and keep the converged solution with the smallest residual.
+    _alpha_inits = np.deg2rad([-30., -20., -10., -5., 0., 5.])
+
+    best_sol   = None
+    best_rnorm = np.inf
+
+    for _a0 in _alpha_inits:
+        _lg0 = v0 * np.tan(_a0)
+        _lm0 = _compute_lam_m0(0.0, 1.0, _lg0, r0, v0, gamma0, m0, F_T, Isp, g0, mu,
+                                include_drag, cost_mode, earth_rot_params)
+        _p = (np.array([0.0, 1.0, _lg0, _lm0, tf0]) if allow_throttle
+              else np.array([0.0, 1.0, _lg0, tf0]))
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                _sol, _info, _ier, _ = fsolve(_residual, _p, args=args,
+                                               full_output=True, xtol=1e-8)
+            if _ier == 1:
+                _rn = np.linalg.norm(_info['fvec'])
+                if _rn < best_rnorm:
+                    best_rnorm = _rn
+                    best_sol   = _sol
+        except Exception:
+            pass
+
+    if best_sol is not None:
+        sol, ier = best_sol, 1
+    else:
+        # Fallback: use α₀ = −10° — more physical than the gravity-turn (α₀=0°) guess
+        _lg0_fb = v0 * np.tan(np.deg2rad(-10.))
+        _lm0_fb = _compute_lam_m0(0.0, 1.0, _lg0_fb, r0, v0, gamma0, m0, F_T, Isp, g0, mu,
+                                   include_drag, cost_mode, earth_rot_params)
+        sol = (np.array([0.0, 1.0, _lg0_fb, _lm0_fb, tf0]) if allow_throttle
+               else np.array([0.0, 1.0, _lg0_fb, tf0]))
+        ier = 0
+        print("[indirect] fsolve did not converge with any initial guess. Using fallback.")
+
+    if allow_throttle:
+        lam_r0, lam_v0, lam_gamma0, lam_m0, tf = sol
+    else:
+        lam_r0, lam_v0, lam_gamma0, tf = sol
+        lam_m0 = _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
+                                  r0, v0, gamma0, m0, F_T, Isp, g0, mu,
+                                  include_drag, cost_mode, earth_rot_params)
 
     tf = max(tf, 1.0)   # guard against non-positive tf
 

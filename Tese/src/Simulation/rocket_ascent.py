@@ -1051,7 +1051,7 @@ def rocket_dynamics(t, state):
         time_atmosphere_exit = t
 
     # --- Determine if guidance should start (mode-dependent) ---
-    if sim_params.GUIDANCE_START_MODE == "after_kick":
+    if sim_params.GUIDANCE_START_MODE in ("after_kick", "after_vertical"):
         guidance_start_ready = kick_performed
     else:  # "after_atmosphere_exit" (default)
         guidance_start_ready = atmosphere_exit_detected
@@ -1060,9 +1060,9 @@ def rocket_dynamics(t, state):
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
     
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
-        if sim_params.GUIDANCE_MODE == "cpr":
-            # CPR has no kick maneuver — vertical phase ends immediately.
-            # Set time_kick_start to release the dgammadt=0 guard (line ~1285).
+        if sim_params.GUIDANCE_MODE == "cpr" or sim_params.GUIDANCE_START_MODE == "after_vertical":
+            # No kick maneuver — vertical phase ends immediately.
+            # Set time_kick_start to release the dgammadt=0 guard.
             kick_performed = True
             time_kick_start = t
             alpha = 0.0
@@ -1399,9 +1399,13 @@ def rocket_dynamics(t, state):
         alpha = cpr_guidance_module.cpr_alpha(t, cpr_t_start,
                                                np.pi / 2.0, cpr_theta_dot, gamma)
 
-    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "exp_shooting" and F_T > 0:
+    elif (kick_performed and sim_params.GUIDANCE_MODE == "exp_shooting"
+          and guidance_start_ready and F_T > 0):
         # Exponential pitch law: θ(t_rel) = a·exp(b·t_rel), α = θ − γ
         # Optimize (a, b) once at guidance start, then hold fixed.
+        if not guidance_phase_active:
+            guidance_phase_active = True
+            time_guidance_start = t
         if exp_shoot_a is None:
             isp_active = Isp  # already computed by thrust_Isp(t) for current stage
             if second_engine_ignition:
@@ -1420,9 +1424,13 @@ def rocket_dynamics(t, state):
         alpha = exp_shoot_mod.exp_pitch_alpha(t - exp_shoot_epoch,
                                                exp_shoot_a, exp_shoot_b, gamma)
 
-    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "indirect" and F_T > 0:
+    elif (kick_performed and sim_params.GUIDANCE_MODE == "indirect"
+          and guidance_start_ready and F_T > 0):
         # Indirect PMP / TPBVP: solve minimum-fuel TPBVP, re-optimize every
         # INDIRECT_UPDATE_RATE seconds to correct for real-trajectory deviations.
+        if not guidance_phase_active:
+            guidance_phase_active = True
+            time_guidance_start = t
         needs_solve = (tpbvp_t_arr is None or
                        (sim_params.INDIRECT_CLOSED_LOOP
                         and t - tpbvp_epoch >= sim_params.INDIRECT_UPDATE_RATE))
