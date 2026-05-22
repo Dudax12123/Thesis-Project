@@ -213,13 +213,18 @@ def _compute_hamiltonian(y, F_T_eff, Isp, g0, mu, F_D, F_L):
             + lam_m * (-F_T_eff / (Isp * g0)))
 
 
-# ─── RK4 forward integration ──────────────────────────────────────────────────
+# ─── solve_ivp forward integration (single-arc or multi-arc bang-bang) ────────
 
 def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
                        F_T, Isp, g0, mu, include_drag, allow_throttle,
                        earth_rot_params=None, dt=0.5, store_alpha=False,
                        include_lift=True):
-    """Integrate the 8-state system with RK4 from t=0 to t=tf.
+    """Integrate 8-state system [r, v, γ, m, λ_r, λ_v, λ_γ, λ_m] from t=0 to tf.
+
+    allow_throttle=False → single solve_ivp arc, RK45 adaptive.
+    allow_throttle=True  → multi-arc: each arc runs until σ=0 (bang-bang switch),
+                           then F_T toggles and the integrator restarts from the
+                           exact switching time (machine-precision event detection).
 
     Parameters
     ----------
@@ -231,53 +236,102 @@ def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
     r_f, v_f, gamma_f, lam_m_f, lam_r_f, lam_v_f, lam_gamma_f : float
     t_arr, alpha_arr : ndarray or None — populated when store_alpha=True
     """
+    from scipy.integrate import solve_ivp as _solve_ivp
     from Auxiliary import constants as _c
     R_EARTH = _c.R_EARTH
 
-    y = np.array([r0, v0, gamma0, m0,
-                  lam0_3[0], lam0_3[1], lam0_3[2], lam_m0], dtype=float)
+    y0 = np.array([r0, v0, gamma0, m0,
+                   lam0_3[0], lam0_3[1], lam0_3[2], lam_m0], dtype=float)
 
-    t_list     = [] if store_alpha else None
-    alpha_list = [] if store_alpha else None
+    def _alpha_from_col(y_col):
+        lv, lg = y_col[5], y_col[6]
+        return (np.arctan2(lg, y_col[1] * lv)
+                if (abs(lv) > 1e-12 or abs(lg) > 1e-12) else 0.0)
 
-    t_rel = 0.0
+    def _odes_fixed(t, y, F_T_arc):
+        """ODE with thrust fixed per arc (allow_throttle=False avoids re-checking σ)."""
+        return _combined_odes(y, F_T_arc, Isp, g0, mu, include_drag,
+                               False, earth_rot_params, include_lift)
 
-    while t_rel < tf:
-        dt_step = min(dt, tf - t_rel)
+    def _sigma(y):
+        lv, lg, lm = y[5], y[6], y[7]
+        v_loc, m_loc = y[1], y[3]
+        a = (np.arctan2(lg, v_loc * lv)
+             if (abs(lv) > 1e-12 or abs(lg) > 1e-12) else 0.0)
+        return ((lv * np.cos(a) + lg * np.sin(a) / v_loc) / m_loc
+                - lm / (Isp * g0))
+
+    # ── Single arc (constant thrust, no switching) ───────────────────────────────
+    if not allow_throttle:
+        sol = _solve_ivp(
+            lambda t, y: _odes_fixed(t, y, F_T),
+            [0.0, tf], y0,
+            method='RK45', max_step=dt, atol=1e-9, rtol=1e-7,
+        )
+        yf = sol.y[:, -1]
+        if store_alpha:
+            a_arr = np.array([_alpha_from_col(sol.y[:, i])
+                               for i in range(sol.y.shape[1])])
+            return yf[0], yf[1], yf[2], yf[7], yf[4], yf[5], yf[6], sol.t, a_arr
+        return yf[0], yf[1], yf[2], yf[7], yf[4], yf[5], yf[6], None, None
+
+    # ── Multi-arc with σ=0 event detection (bang-bang) ───────────────────────────
+    t_parts = []
+    a_parts = []
+    t_now   = 0.0
+    y_now   = y0.copy()
+    F_T_arc = F_T        # always start with thrust on
+    last_yf = y0.copy()
+
+    for _arc_idx in range(20):   # safety cap — normal trajectories have ≤3 arcs
+        if t_now >= tf:
+            break
+
+        # direction: -1 detects thrust→coast (σ falling through 0)
+        #            +1 detects coast→thrust (σ rising through 0)
+        _dir = -1 if F_T_arc > 0.0 else 1
+
+        def _sigma_evt(t, y, _d=_dir):
+            return _sigma(y)
+        _sigma_evt.terminal  = True
+        _sigma_evt.direction = _dir
+
+        sol = _solve_ivp(
+            lambda t, y, _F=F_T_arc: _odes_fixed(t, y, _F),
+            [t_now, tf], y_now,
+            method='RK45', max_step=dt, atol=1e-9, rtol=1e-7,
+            events=_sigma_evt, dense_output=False,
+        )
+        last_yf = sol.y[:, -1]
 
         if store_alpha:
-            alpha_now = (np.arctan2(y[6], y[1] * y[5])
-                         if (abs(y[5]) > 1e-12 or abs(y[6]) > 1e-12)
-                         else 0.0)
-            t_list.append(t_rel)
-            alpha_list.append(alpha_now)
+            # Skip first point on arcs after the first to avoid duplicate at switch time
+            start_i = 1 if _arc_idx > 0 else 0
+            t_parts.append(sol.t[start_i:])
+            a_parts.append(np.array([_alpha_from_col(sol.y[:, i])
+                                      for i in range(start_i, sol.y.shape[1])]))
 
-        k1 = _combined_odes(y,                  F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-        k2 = _combined_odes(y + 0.5*dt_step*k1, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-        k3 = _combined_odes(y + 0.5*dt_step*k2, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-        k4 = _combined_odes(y +     dt_step*k3, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-
-        y     = y + (dt_step / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
-        t_rel += dt_step
-
-        if y[3] <= m_dry:
+        # Guard: fuel depleted or crash
+        if last_yf[3] <= m_dry or last_yf[0] < R_EARTH:
             break
-        if y[0] < R_EARTH:   # crash guard
-            if store_alpha:
-                return (y[0], y[1], y[2], y[7], y[4], y[5], y[6],
-                        np.array(t_list), np.array(alpha_list))
-            return y[0], y[1], y[2], y[7], y[4], y[5], y[6], None, None
 
+        if sol.t_events[0].size > 0:
+            # Exact switching point found — toggle thrust and restart
+            t_now   = float(sol.t_events[0][0])
+            y_now   = sol.y_events[0][0].copy()
+            F_T_arc = 0.0 if F_T_arc > 0.0 else F_T
+        else:
+            break   # reached tf without switching
+
+    yf = last_yf
     if store_alpha:
-        alpha_final = (np.arctan2(y[6], y[1] * y[5])
-                       if (abs(y[5]) > 1e-12 or abs(y[6]) > 1e-12)
-                       else 0.0)
-        t_list.append(t_rel)
-        alpha_list.append(alpha_final)
-        return (y[0], y[1], y[2], y[7], y[4], y[5], y[6],
-                np.array(t_list), np.array(alpha_list))
-
-    return y[0], y[1], y[2], y[7], y[4], y[5], y[6], None, None
+        if t_parts:
+            t_arr = np.concatenate(t_parts)
+            a_arr = np.concatenate(a_parts)
+        else:
+            t_arr = a_arr = None
+        return yf[0], yf[1], yf[2], yf[7], yf[4], yf[5], yf[6], t_arr, a_arr
+    return yf[0], yf[1], yf[2], yf[7], yf[4], yf[5], yf[6], None, None
 
 
 # ─── Residual for fsolve (4D no-throttle / 5D bang-bang) ─────────────────────

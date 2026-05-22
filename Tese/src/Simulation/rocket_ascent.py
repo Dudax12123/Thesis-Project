@@ -109,6 +109,7 @@ exp_shoot_epoch = None   # absolute t when (a, b) were computed
 tpbvp_t_arr    = None   # time array of precomputed α*(t) [s]
 tpbvp_alpha_arr = None  # optimal α*(t) array [rad]
 tpbvp_epoch    = None   # absolute t when TPBVP was solved [s]
+tpbvp_tf       = None   # optimal Stage 2 burn duration from TPBVP [s]
 
 # PEG_new guidance state (analytical predictor-corrector)
 peg_new_vgo_r     = 0.0
@@ -317,9 +318,23 @@ def interrupt_single_burn_traj(t, y):
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
 
         diff = r_apo - (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH)
-        
+
         return diff
-    
+
+
+def interrupt_tpbvp_seco(t, y):
+    """Fires at t = tpbvp_epoch + tpbvp_tf (TPBVP-optimal SECO time).
+
+    Active only when GUIDANCE_MODE == 'indirect' and the TPBVP has been solved.
+    Returns a large positive value otherwise so the event never fires.
+    """
+    if tpbvp_tf is None or sim_params.GUIDANCE_MODE != "indirect":
+        return 1.0
+    return (tpbvp_epoch + tpbvp_tf) - t
+
+interrupt_tpbvp_seco.terminal  = True
+interrupt_tpbvp_seco.direction = -1   # fires as t approaches epoch+tf from below
+
 
 def interrupt_horizontal_check(t, y):
     """
@@ -999,7 +1014,7 @@ def rocket_dynamics(t, state):
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
     global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
-    global tpbvp_t_arr, tpbvp_alpha_arr, tpbvp_epoch
+    global tpbvp_t_arr, tpbvp_alpha_arr, tpbvp_epoch, tpbvp_tf
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
@@ -1473,6 +1488,7 @@ def rocket_dynamics(t, state):
                 if _t_new is not None:
                     tpbvp_t_arr, tpbvp_alpha_arr = _t_new, _a_new
                     tpbvp_epoch = t
+                    tpbvp_tf    = float(_t_new[-1])
                     if sim_params.EVENTS_PRINT:
                         print(f"[indirect] TPBVP solved at t={t:.1f}s, "
                               f"tf_est={tpbvp_t_arr[-1]:.1f}s")
@@ -1660,9 +1676,9 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
 
     elif stage_2_flag:
         # Coasting single burn trajectory
-        interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt, 
-                         interrupt_ground_collision, interrupt_single_burn_traj, 
-                         interrupt_horizontal_check]
+        interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
+                         interrupt_ground_collision, interrupt_single_burn_traj,
+                         interrupt_horizontal_check, interrupt_tpbvp_seco]
     else:
         interrupt_list = [interrupt_ground_collision]
     
@@ -1719,7 +1735,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
     global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
-    global tpbvp_t_arr, tpbvp_alpha_arr, tpbvp_epoch
+    global tpbvp_t_arr, tpbvp_alpha_arr, tpbvp_epoch, tpbvp_tf
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1800,7 +1816,7 @@ def run(initial_kick_angle, azimuth_override=None):
     exp_shoot_a = exp_shoot_b = exp_shoot_epoch = None
 
     # Reset indirect TPBVP state
-    tpbvp_t_arr = tpbvp_alpha_arr = tpbvp_epoch = None
+    tpbvp_t_arr = tpbvp_alpha_arr = tpbvp_epoch = tpbvp_tf = None
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
@@ -1936,7 +1952,8 @@ def run(initial_kick_angle, azimuth_override=None):
         sol_2a = simulate_trajectory(init_time_2, time_2, initial_state_2, False, False,
             override_events=[interrupt_fairing_jettison, interrupt_radius_check,
                              interrupt_stage_2_burnt, interrupt_ground_collision,
-                             interrupt_single_burn_traj, interrupt_horizontal_check])
+                             interrupt_single_burn_traj, interrupt_horizontal_check,
+                             interrupt_tpbvp_seco])
 
         if len(sol_2a.t_events[3]) > 0:  # crash in Stage 2A (index 3 = ground collision)
             CRASH_DETECTED = True

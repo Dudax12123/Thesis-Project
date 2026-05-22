@@ -169,8 +169,8 @@ INDIRECT_USE_DE     = True          # If True, run differential evolution (globa
                                      # equivalent to the PSO used in the reference paper)
                                      # before the local fsolve grid.  Robust but slow:
                                      #   evaluations ≈ INDIRECT_DE_POPSIZE × 15 × INDIRECT_DE_MAXITER
-INDIRECT_DE_POPSIZE = 10              # DE population size per dimension (↑ = thorough, slow)
-INDIRECT_DE_MAXITER = 50             # DE maximum iterations        (↑ = thorough, slow)
+INDIRECT_DE_POPSIZE = 8              # DE population size per dimension (↑ = thorough, slow)
+INDIRECT_DE_MAXITER = 30             # DE maximum iterations        (↑ = thorough, slow)
 INDIRECT_ALPHA_SEARCH_MAX = 20.0    # [deg] maximum initial thrust angle α*(t=0) searched
                                      # in both the grid and the DE pre-search.
                                      # Corresponds to λ_γ0_n ∈ [−tan(max), +tan(max)].
@@ -178,7 +178,7 @@ INDIRECT_SIMPLIFIED = True          # If True, solve the TPBVP with a simplified
                                      #   • No aerodynamic lift  (F_L = 0; drag is kept)
                                      #   • No Earth-rotation pseudo-forces (Coriolis/centrifugal)
                                      # Reduces adjoint complexity; may improve convergence.
-INDIRECT_ALLOW_THROTTLE = False      # Enable bang-bang thrust control via switching function:
+INDIRECT_ALLOW_THROTTLE = True      # Enable bang-bang thrust control via switching function:
                                      #   σ = (λ_v·cosα + λ_γ·sinα/v)/m − λ_m/(Isp·g0)
                                      #   F_T = F_T_max if σ > 0 (thrust), 0 if σ ≤ 0 (coast)
                                      # When True: min_fuel may produce coast arcs (less propellant);
