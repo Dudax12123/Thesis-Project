@@ -236,8 +236,8 @@ OPTIMAL_KICK_ANGLES = {
 
 # PSO swarm settings (paper sec 5.2 used 250 particles / 1000 iter for validation,
 # sec 6 used 100 particles / 250 iter for design demonstration).
-PSO_PAPER_POPULATION   = 100        # particles per swarm
-PSO_PAPER_ITERATIONS   = 250        # max iterations
+PSO_PAPER_POPULATION   = 250        # particles per swarm
+PSO_PAPER_ITERATIONS   = 1000        # max iterations
 PSO_PAPER_C1           = 2.05       # cognitive coefficient (PyGMO default, paper sec 5.2)
 PSO_PAPER_C2           = 2.05       # social coefficient
 PSO_PAPER_W            = 0.7298     # inertia weight
@@ -252,18 +252,27 @@ PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
 #   x[4] = Δt_c     (coast duration during Stage 2, s)
 #   x[5] = coast_start_pct (fraction of total Stage-2 thrust time spent BEFORE coast)
 #   x[6] = last_burn_pct   (fraction of m_prop_S2 / mdot to burn in Stage 2)
+# Paper §4.1: vertical liftoff until t = PSO_PAPER_T_PITCHOVER, then an
+# instantaneous pitch maneuver sets the flight path angle to gamma_p (= x[3]).
+# The simulator's standard 45s triangular kick is bypassed in paper mode.
+# Set to match TIME_TO_START_KICK so γ stays at 90° via the existing
+# `time_kick_start is None` guard until pitch-over — no separate freeze logic
+# needed, and by 7.5s the rocket is at ~40 m/s where the gravity-turn rate
+# dγ/dt ∝ 1/V is well-behaved (it diverges if pitch-over happens at t=3s, v≈15 m/s).
+PSO_PAPER_T_PITCHOVER           = 7.5                    # [s]
+
 PSO_PAPER_LAMBDA_BOUNDS         = (-1.0, 1.0)            # initial costates [-]
-PSO_PAPER_GAMMA_P_BOUNDS        = (1.54, 1.57)           # initial pitch [rad] (88.2°–89.9°)
-PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 3000.0)          # Δt_c [s]    (paper sec 5.2 used 0–2000; sec 6 used 500–3000)
+PSO_PAPER_GAMMA_P_BOUNDS        = (1.3, 1.57)            # initial pitch [rad] (74.5°–89.9°) — widened from (1.54, 1.57) for Falcon 9 class
+PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 1500.0)          # Δt_c [s] — tightened for 500 km targets (paper sec 6 used (500, 3000) for Electron going much higher)
 PSO_PAPER_COAST_START_PCT       = (0.0, 1.0)             # fraction of Stage-2 thrust time before coast
 PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 max-burn time (paper Table 11; 5% reserve case)
 
 # Penalty weights (paper eq. 39; the paper does not publish s_c values).
 PSO_PAPER_PENALTY_ALT   = 1.0e3
 PSO_PAPER_PENALTY_VEL   = 1.0e3
-PSO_PAPER_PENALTY_GAMMA = 1.0e5
+PSO_PAPER_PENALTY_GAMMA = 1.0e3     # gamma is now normalised to [0,1] — same scale as alt/vel
 PSO_PAPER_PENALTY_HAM   = 1.0e2     # transversality residual (H_f_last + H_f_coast − H_0_last)
-PSO_PAPER_PENALTY_HARD  = 1.0e20    # ground impact / NaN  (paper eq. 40)
+PSO_PAPER_PENALTY_HARD  = 1.0e6     # ground impact / NaN — softened from 1e20: still ~100× worse than typical orbit cost, but gives PSO usable gradients near the crash boundary instead of an infinite wall
 
 # Early-stop convergence (paper sec 6.1, paragraph after Table 13:
 #   "Early PSO convergence is assumed if the PSO algorithm finds the optimal trajectory

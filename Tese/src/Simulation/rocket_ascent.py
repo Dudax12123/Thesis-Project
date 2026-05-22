@@ -237,6 +237,18 @@ def interrupt_stage_2_burnt(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
+    # Paper-mode: stop integration at the PSO-commanded SECO so the
+    # simulation doesn't coast for thousands of seconds afterward.  Without
+    # this, interrupt_stage_2_burnt (propellant-exhausted) never fires when
+    # last_burn_pct < 1 and the integration runs out the full 4000-second
+    # time span — wasting ~8× computation and giving a meaningless final state.
+    if (sim_params.GUIDANCE_MODE == "pso_paper"
+            and pso_paper_seco_t is not None
+            and t >= pso_paper_seco_t):
+        if sim_params.INTERRUPTS_PRINT:
+            print(f"[pso_paper] Stage-2 SECO interrupt at t={t:.2f}s")
+        return 0
+
     m = y[4]
     fairing_correction = r.M_FAIRING if not fairing_jettisoned else 0.0
     if m <= (r.M_PAYLOAD + r.M_STRUCTURE_2 + fairing_correction):
@@ -790,12 +802,25 @@ def pitch_program_linear(t, initial_kick_angle):
     """
     global time_kick_start, kick_performed, time_raise
 
+    # Paper-mode: the pitch maneuver is an instantaneous gamma state-jump
+    # applied inside run() at t = PSO_PAPER_T_PITCHOVER.  This function must
+    # never produce an AOA pulse — return zero always.
+    # kick_performed is set True here (not at t=3s in run()) so that the
+    # atmosphere-exit gate fires at the right altitude.  By t≈7.5s (when this
+    # function is first called), v≈115 m/s → q≈7800 Pa > threshold → no false
+    # atmosphere-exit trigger from the low-velocity vertical-liftoff phase.
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        if time_kick_start is None:
+            time_kick_start = t
+        kick_performed = True
+        return 0.0
+
     if time_kick_start == None:
         time_kick_start = t
         if sim_params.EVENTS_PRINT:
             print("\nInitial kick started at t = ", t)
         return 0.0
-    
+
     elif t > (time_kick_start + sim_params.DURATION_INITIAL_KICK):
         kick_performed = True
         if sim_params.EVENTS_PRINT:
@@ -1132,10 +1157,15 @@ def rocket_dynamics(t, state):
         atmosphere_exit_detected = (phi < sim_params.AEROTHERMAL_FLUX_THRESHOLD)
 
     # --- Record atmosphere exit event (independent of guidance start) ---
-    # Guard with kick_performed to avoid false trigger at t=0 when q=0 (v=0)
+    # Guard with kick_performed to avoid false trigger at t=0 when q=0 (v=0).
+    # pso_paper extra guard: kick_performed is set at t≈7.5s when v≈40 m/s,
+    # i.e. q≈980 Pa < threshold — a false trigger at low altitude.  Require
+    # v > 200 m/s so the exit only registers when genuinely above the atmosphere.
     if kick_performed and atmosphere_exit_detected and not atmosphere_exited:
-        atmosphere_exited = True
-        time_atmosphere_exit = t
+        _v_ok = (v > 200.0 if sim_params.GUIDANCE_MODE == "pso_paper" else True)
+        if _v_ok:
+            atmosphere_exited = True
+            time_atmosphere_exit = t
 
     # --- Determine if guidance should start (mode-dependent) ---
     if sim_params.GUIDANCE_START_MODE == "after_kick":
@@ -1508,11 +1538,13 @@ def rocket_dynamics(t, state):
                                                exp_shoot_a, exp_shoot_b, gamma)
 
     elif (sim_params.GUIDANCE_MODE == "pso_paper" and kick_performed
-          and atmosphere_exited and F_T > 0):
+          and second_engine_ignition and F_T > 0):
         # Paper-mode (Pontryagin + PSO): steering from live costates.
-        # The costates are integrated as extra state slots; pre-guidance they
-        # are frozen at the PSO-supplied initial values, and from atmosphere
-        # exit onward they evolve via paper eq. (30).
+        # Gated on second_engine_ignition to match PEG/PEG_new precedent —
+        # the indirect method (paper §4.1) governs only the free-flight phase
+        # which coincides with Stage 2.  Costates remain frozen (dλ/dt = 0)
+        # through Stage 1, MECO, and the inter-stage coast; they start
+        # evolving per paper eq. (30) only from Stage 2 ignition onward.
         if not guidance_phase_active:
             guidance_phase_active = True
             time_guidance_start = t
@@ -1558,7 +1590,9 @@ def rocket_dynamics(t, state):
     a_cross_heading_pseudo = 0.0
     coriolis_mag_val = 0.0
     centrifugal_mag_val = 0.0
-    if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES and not PROPAGATING_IN_INERTIAL_FRAME:
+    if (sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES
+            and not PROPAGATING_IN_INERTIAL_FRAME
+            and sim_params.GUIDANCE_MODE != "pso_paper"):
         delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
             v,
             gamma,
@@ -1937,14 +1971,67 @@ def run(initial_kick_angle, azimuth_override=None):
     # Define time of simulation 1
     time_1 = 500.
 
+    # === Paper-mode: vertical liftoff [0, t_pitch] then instantaneous pitch-over ===
+    # Integrates t_pitch seconds of pure vertical flight (pitch_program_linear is
+    # short-circuited → alpha = 0), then jumps gamma to gamma_p in the state
+    # snapshot.  This replaces the simulator's 45 s triangular kick entirely.
+    sol_1a_pre   = None
+    init_time_1a = 0.0
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        t_pitch = float(sim_params.PSO_PAPER_T_PITCHOVER)
+        sol_1a_pre = simulate_trajectory(
+            0.0, t_pitch, initial_state_1, False, False,
+            override_events=[interrupt_ground_collision,
+                             interrupt_velocity_exceeded],
+        )
+        # Guard: crash during the 3-second vertical liftoff (extremely rare).
+        if len(sol_1a_pre.t_events[0]) > 0:
+            CRASH_DETECTED = True
+            CRASH_TIME = sol_1a_pre.t_events[0][0]
+            thrust_data = np.array(thrust_history)
+            time_thrust = np.array(time_history)
+            alpha_data = np.array(alpha_history)
+            alpha_time_data = np.array(alpha_time_history)
+            coriolis_mag_data = np.array(coriolis_mag_history)
+            centrifugal_mag_data = np.array(centrifugal_mag_history)
+            return (sol_1a_pre.t, sol_1a_pre.y, None, None, 9999999.0,
+                    thrust_data, time_thrust, alpha_data, alpha_time_data,
+                    coriolis_mag_data, centrifugal_mag_data)
+
+        # Inject the pitch-over: gamma → gamma_p, all other state slots unchanged.
+        initial_state_1 = sol_1a_pre.y[:, -1].copy().tolist()
+        gamma_p_val = (float(pso_paper_gamma_p)
+                       if pso_paper_gamma_p is not None else np.pi / 2.0)
+        initial_state_1[3] = gamma_p_val
+        # NOTE: do NOT set time_kick_start here. Leaving it as None freezes dγ/dt
+        # in diff_eom (line ~1637 guard) until pitch_program_linear is called at
+        # t = TIME_TO_START_KICK (~7.5 s). This avoids the 1/V singularity in the
+        # gravity-turn rate at low velocity — at t = 3 s, V ≈ 15 m/s gives
+        # dγ/dt ~ -10°/s for gamma_p = 1.3 rad, which over-pitches the rocket to
+        # γ < 0 and triggers ground-collision crashes (1e20 PSO penalty).
+        # Real rockets only enter their gravity turn after v > ~100 m/s anyway.
+        init_time_1a = t_pitch
+        if sim_params.EVENTS_PRINT:
+            print(f"[pso_paper] instant pitch-over at t={t_pitch:.1f}s  "
+                  f"gamma -> {np.rad2deg(gamma_p_val):.3f} deg  "
+                  f"(|v|={initial_state_1[2]:.2f} m/s)")
+
     # === Stage 1A: ascent until fairing jettison OR stage separation ===
     # interrupt_stage_separation is included so Stage 1A never runs past MECO when
     # the atmosphere exit (and thus fairing jettison) happens after MECO — e.g. when
     # ATMOSPHERE_EXIT_METHOD = "aerothermal_flux" with a threshold crossed at ~137 km.
-    sol_1a = simulate_trajectory(0, time_1, initial_state_1, False, False,
+    sol_1a = simulate_trajectory(init_time_1a, time_1, initial_state_1, False, False,
         override_events=[interrupt_fairing_jettison, interrupt_ground_collision,
                          interrupt_velocity_exceeded, interrupt_stage_separation])
     # event indices: 0=fairing, 1=crash, 2=velocity, 3=stage_sep
+
+    # Paper-mode: prepend the pre-pitchover arc so downstream code sees [0, end].
+    if sol_1a_pre is not None:
+        class _MergedSol1a:
+            t        = np.concatenate([sol_1a_pre.t, sol_1a.t])
+            y        = np.concatenate([sol_1a_pre.y, sol_1a.y], axis=1)
+            t_events = sol_1a.t_events   # event indices unchanged
+        sol_1a = _MergedSol1a()
 
     if len(sol_1a.t_events[1]) > 0:  # crash before any other event
         CRASH_DETECTED = True

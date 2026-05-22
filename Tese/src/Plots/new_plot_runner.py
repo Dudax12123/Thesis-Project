@@ -22,6 +22,7 @@ from Plots.new_metrics.apollo_tgo_over_time import plot_apollo_tgo_over_time
 from Plots.new_metrics.pitch_angle_over_time import plot_pitch_angle_over_time
 from Plots.new_metrics.cross_heading_counter_force_over_time import plot_cross_heading_counter_force_over_time
 from Plots.new_metrics.cross_heading_accel_over_time import plot_cross_heading_accel_over_time
+from Input_File import simulation_parameters as sim_params
 
 
 def _make_path(output_dir, filename):
@@ -40,6 +41,9 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
                        cross_heading_counter_force_data=None,
                        cross_heading_accel_data=None):
     """Generate all new metric plots for a run."""
+    # pso_paper mode disables pseudo-forces by design (paper §3.2.2); skip those plots.
+    _skip_pseudo = (sim_params.GUIDANCE_MODE == "pso_paper")
+
     files = {
         "fpa": _make_path(output_dir, "new_01_fpa_over_time.png"),
         "steering": _make_path(output_dir, "new_02_steering_angle_over_time.png"),
@@ -72,7 +76,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
     plot_rocket_accelerations_over_time(time, data, thrust_data, time_thrust,
                                         alpha_data=alpha_data, alpha_time_data=alpha_time_data,
                                         save_path=files["accel"], show=show)
-    if coriolis_mag_data is not None and centrifugal_mag_data is not None:
+    if not _skip_pseudo and coriolis_mag_data is not None and centrifugal_mag_data is not None:
         plot_pseudo_forces_over_time(time, time_thrust,
                                     coriolis_mag_data, centrifugal_mag_data,
                                     save_path=files["pseudo"], show=show)
@@ -97,13 +101,13 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         plot_pitch_angle_over_time(theta_data, theta_time_data,
                                    save_path=files["pitch"], show=show)
 
-    if cross_heading_counter_force_data is not None and len(cross_heading_counter_force_data) > 0:
+    if not _skip_pseudo and cross_heading_counter_force_data is not None and len(cross_heading_counter_force_data) > 0:
         plot_cross_heading_counter_force_over_time(
             time_thrust, cross_heading_counter_force_data,
             save_path=files["cross_heading_force"], show=show,
         )
 
-    if cross_heading_accel_data is not None and len(cross_heading_accel_data) > 0:
+    if not _skip_pseudo and cross_heading_accel_data is not None and len(cross_heading_accel_data) > 0:
         plot_cross_heading_accel_over_time(
             time_thrust, cross_heading_accel_data,
             save_path=files["cross_heading_accel"], show=show,

@@ -256,7 +256,9 @@ def execute():
         sim_params.EVENTS_PRINT = False
         best_pos, best_cost = pso_paper_solver.find_pso_paper_trajectory(verbose=True)
         sim_params.EVENTS_PRINT = _events_print_saved
-        kick_angle_optimal = pso_paper_solver.kick_angle_from_best(best_pos)
+        # Kick-angle argument is unused in paper mode — pitch_program_linear is
+        # short-circuited and the pitch maneuver is a state-jump at t=3s.
+        kick_angle_optimal = 0.0
         print("\n" + "="*60)
         print("PSO PAPER-MODE OPTIMIZATION RESULTS")
         print("="*60)
@@ -268,7 +270,7 @@ def execute():
         print(f"  Δt_coast   = {best_pos[4]: .2f} s")
         print(f"  coast_pct  = {best_pos[5]: .4f}  (fraction of Δt_T before coast)")
         print(f"  burn_pct   = {best_pos[6]: .4f}  (fraction of m_prop_S2/ṁ)")
-        print(f"  Mapped kick angle: {np.rad2deg(kick_angle_optimal):.4f} deg")
+        print(f"  Pitch-over: instantaneous gamma jump at t={sim_params.PSO_PAPER_T_PITCHOVER:.1f}s")
     elif sim_params.RUN_FAST:
         print("\n" + "="*60)
         print("FAST RUN MODE")
@@ -317,8 +319,13 @@ def execute():
         print("!"*60 + "\n")
         _simulation_failed = True
 
-    # Check for failed simulation (sentinel value means no valid trajectory was found)
-    if not _simulation_failed and m_propellant_total is not None and m_propellant_total >= 9999999.0:
+    # Check for failed simulation (sentinel value means no valid trajectory was found).
+    # Only report kick-angle failure when brute-force optimisation was actually used —
+    # pso_paper and RUN_FAST modes do not search over kick angles.
+    _used_brute_force = (not sim_params.RUN_FAST
+                         and sim_params.GUIDANCE_MODE != "pso_paper")
+    if (not _simulation_failed and m_propellant_total is not None
+            and m_propellant_total >= 9999999.0 and _used_brute_force):
         print("\n" + "!"*60)
         print("OPTIMISATION FAILED — NO VALID TRAJECTORY FOUND")
         print("!"*60)
