@@ -170,7 +170,12 @@ def execute():
         "simple_poly": "Simplified Polynomial Guidance",
         "linear_tangent": "Linear Tangent Steering",
         "bilinear_tangent": "Bilinear Tangent Steering",
-        "apollo": "Apollo Polynomial Guidance"
+        "apollo": "Apollo Polynomial Guidance",
+        "cpr": "Constant Pitch Rate",
+        "peg": "Powered Explicit Guidance",
+        "peg_new": "Analytical Predictor-Corrector PEG",
+        "exp_shooting": "Exponential Pitch-Law Shooting",
+        "pso_paper": "PSO + Pontryagin (Morgado et al. 2022)",
     }
     
     mode_name = guidance_mode_names.get(sim_params.GUIDANCE_MODE, "Unknown")
@@ -243,6 +248,27 @@ def execute():
         print("\n" + "="*60)
         print("CPR GUIDANCE — NO KICK ANGLE OPTIMISATION")
         print("="*60)
+    elif sim_params.GUIDANCE_MODE == "pso_paper":
+        # Paper-mode (Morgado, Marta, Gil 2022): PSO over 7-dim design space
+        # (3 costates + gamma_p + coast duration + coast start fraction + burn fraction).
+        from Simulation import pso_paper_solver
+        _events_print_saved = sim_params.EVENTS_PRINT
+        sim_params.EVENTS_PRINT = False
+        best_pos, best_cost = pso_paper_solver.find_pso_paper_trajectory(verbose=True)
+        sim_params.EVENTS_PRINT = _events_print_saved
+        kick_angle_optimal = pso_paper_solver.kick_angle_from_best(best_pos)
+        print("\n" + "="*60)
+        print("PSO PAPER-MODE OPTIMIZATION RESULTS")
+        print("="*60)
+        print(f"  Best objective J' = {best_cost:.6e}")
+        print(f"  lam_h0     = {best_pos[0]: .6f}")
+        print(f"  lam_V0     = {best_pos[1]: .6f}")
+        print(f"  lam_g0     = {best_pos[2]: .6f}")
+        print(f"  gamma_p    = {best_pos[3]: .6f} rad ({np.rad2deg(best_pos[3]):.3f} deg)")
+        print(f"  Δt_coast   = {best_pos[4]: .2f} s")
+        print(f"  coast_pct  = {best_pos[5]: .4f}  (fraction of Δt_T before coast)")
+        print(f"  burn_pct   = {best_pos[6]: .4f}  (fraction of m_prop_S2/ṁ)")
+        print(f"  Mapped kick angle: {np.rad2deg(kick_angle_optimal):.4f} deg")
     elif sim_params.RUN_FAST:
         print("\n" + "="*60)
         print("FAST RUN MODE")

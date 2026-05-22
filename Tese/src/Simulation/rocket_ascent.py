@@ -26,6 +26,7 @@ import Guidance.cpr_guidance as cpr_guidance_module
 import Guidance.peg_guidance as peg_guidance_mod
 import Guidance.peg_guidance_new as peg_new_mod
 import Guidance.exp_shooting_guidance as exp_shoot_mod
+import Guidance.pso_paper_guidance as pso_paper_mod
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -104,6 +105,21 @@ exp_shoot_a     = None   # coefficient a in θ(t) = a·exp(b·t_rel)
 exp_shoot_b     = None   # coefficient b
 exp_shoot_epoch = None   # absolute t when (a, b) were computed
 
+# PSO paper-mode guidance state (Morgado, Marta, Gil 2022)
+# These are set by Simulation/pso_paper_solver.py before each ra.run() call.
+pso_paper_lam0          = None    # tuple (lam_h0, lam_V0, lam_g0) — initial costates
+pso_paper_gamma_p       = None    # initial pitch angle [rad] (≈ 1.55, used for kick mapping)
+pso_paper_dt_coast      = 0.0     # coast duration during Stage 2 [s]
+pso_paper_coast_pct     = 0.0     # fraction of Δt_T spent thrusting BEFORE coast
+pso_paper_burn_pct      = 1.0     # fraction of m_prop_S2 / m_dot consumed in Stage 2
+# These are computed once Stage 2 ignites (or coast/seco are needed):
+pso_paper_coast_start_t = None    # absolute time coast window opens [s]
+pso_paper_coast_end_t   = None    # absolute time coast window closes [s]
+pso_paper_seco_t        = None    # absolute time of commanded SECO [s]
+# Per-step history (cleared in run()):
+pso_paper_costate_history       = []   # list of (lam_h, lam_V, lam_g) tuples
+pso_paper_costate_time_history  = []   # matching absolute times [s]
+
 # PEG_new guidance state (analytical predictor-corrector)
 peg_new_vgo_r     = 0.0
 peg_new_vgo_theta = 0.0
@@ -152,10 +168,16 @@ def interrupt_radius_check(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
+    # Paper-mode: let the trajectory propagate even if it overshoots the
+    # target radius — the PSO objective penalises altitude error softly, so
+    # a hard interrupt would just hide bad designs from the cost function.
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        return 1
+
     margin = 50e3
     r = y[1]
     if r > (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH + margin):
-        if sim_params.INTERRUPTS_PRINT: 
+        if sim_params.INTERRUPTS_PRINT:
             print("Interrupt Radius Check happened at time ", t)
         return 0
     return 1
@@ -294,6 +316,12 @@ def interrupt_single_burn_traj(t, y):
     --------
     float : Difference between apogee and target altitude
     """
+    # Paper-mode (Morgado et al. 2022): SECO is commanded from the PSO design
+    # vector via thrust_Isp(); the apogee-crossing check is therefore disabled
+    # so that the mid-burn coast and terminal impulse can run to completion.
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        return 1
+
     r_val = y[1]
     v = y[2]
     gamma = y[3]
@@ -311,9 +339,9 @@ def interrupt_single_burn_traj(t, y):
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
 
         diff = r_apo - (sim_params.TARGET_ORBITAL_ALTITUDE + c.R_EARTH)
-        
+
         return diff
-    
+
 
 def interrupt_horizontal_check(t, y):
     """
@@ -330,11 +358,16 @@ def interrupt_horizontal_check(t, y):
     --------
     int : 0 if interrupt triggered, 1 otherwise
     """
+    # Paper-mode: gamma is allowed to evolve freely toward target via the
+    # costate-driven steering, so the horizontal-flight interrupt is disabled.
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        return 1
+
     gamma = y[3]
     r_val = y[1]
     alt = r_val - c.R_EARTH
     epsilon = np.deg2rad(0.01)
-    
+
     # Only trigger near the target altitude to prevent false firing during the
     # coast between stage-1 separation and stage-2 ignition (where gamma
     # naturally crosses zero on the parabolic arc at low altitude).
@@ -655,10 +688,46 @@ def _get_stage1_thrust(t):
     return r.F_THRUST_1_SL
 
 
+def _paper_costate_offset(state_len):
+    """Return the index where costates begin in the state vector for paper mode.
+
+    Layout: [s, r, v, gamma, m] (+ [lat]) (+ [heading]) + [lam_h, lam_V, lam_g]
+    Returns None if the state isn't extended with costates yet.
+    """
+    base = 5  # s, r, v, gamma, m
+    if sim_params.ENABLE_EARTH_ROTATION:
+        base += 1
+        if sim_params.TRACK_HEADING_STATE:
+            base += 1
+    if state_len >= base + 3:
+        return base
+    return None
+
+
+def _paper_setup_stage2_schedule(t_ignition):
+    """Compute the absolute-time coast/SECO schedule from PSO design vars.
+
+    Called once when Stage 2 ignites (in paper mode).  Uses:
+      - pso_paper_burn_pct  -> total active-thrust duration Δt_T
+      - pso_paper_coast_pct -> fraction of Δt_T thrusting before coast
+      - pso_paper_dt_coast  -> coast duration Δt_c
+    """
+    global pso_paper_coast_start_t, pso_paper_coast_end_t, pso_paper_seco_t
+    if pso_paper_burn_pct is None:
+        return
+    mdot_s2 = r.F_THRUST_2 / (r.ISP_2 * c.G_0)
+    t_max_full_burn = r.M_PROP_2 / mdot_s2
+    dt_T = float(pso_paper_burn_pct) * t_max_full_burn
+    dt_before_coast = float(pso_paper_coast_pct) * dt_T
+    pso_paper_coast_start_t = t_ignition + dt_before_coast
+    pso_paper_coast_end_t   = pso_paper_coast_start_t + float(pso_paper_dt_coast)
+    pso_paper_seco_t        = pso_paper_coast_end_t + (dt_T - dt_before_coast)
+
+
 def thrust_Isp(t):
     """
     Returns the current thrust and specific impulse based on engine status.
-    
+
     Returns:
     --------
     F_T : float
@@ -667,7 +736,7 @@ def thrust_Isp(t):
         Current specific impulse [s]
     """
     global main_engine_cutoff, second_engine_ignition, second_stage_cutoff
-    
+
     if not main_engine_cutoff:
         F_T = _get_stage1_thrust(t)
         Isp = _get_stage1_isp(t)
@@ -684,7 +753,21 @@ def thrust_Isp(t):
         print("Warning: Both first stage and second stage engines are running at the same time.")
         F_T = _get_stage1_thrust(t)
         Isp = _get_stage1_isp(t)
-        
+
+    # --- Paper-mode mid-burn coast / commanded SECO (paper sec 4.1) ---
+    if (sim_params.GUIDANCE_MODE == "pso_paper"
+            and second_engine_ignition
+            and pso_paper_burn_pct is not None):
+        if pso_paper_seco_t is not None and t >= pso_paper_seco_t:
+            # Commanded SECO from PSO design var.  Mark stage as cut so the
+            # downstream coast/circularisation logic engages naturally.
+            second_stage_cutoff = True
+            return 0.0, r.ISP_2
+        if (pso_paper_coast_start_t is not None
+                and pso_paper_coast_start_t <= t < pso_paper_coast_end_t):
+            # Mid-burn coast — engine off, no propellant consumption
+            return 0.0, r.ISP_2
+
     return F_T, Isp
 
 
@@ -1019,8 +1102,19 @@ def rocket_dynamics(t, state):
     # Check main engine state and second engine state
     event_main_engine_cutoff(t, state)
     if main_engine_cutoff:
+        was_ignited = second_engine_ignition
         event_second_engine_ignition(t)
-    
+        # Paper-mode: lock in coast/SECO schedule the instant Stage 2 ignites.
+        if (sim_params.GUIDANCE_MODE == "pso_paper"
+                and second_engine_ignition and not was_ignited
+                and pso_paper_seco_t is None):
+            _paper_setup_stage2_schedule(t)
+            if sim_params.EVENTS_PRINT:
+                print(f"[pso_paper] Stage-2 schedule: "
+                      f"coast_start={pso_paper_coast_start_t:.1f}s, "
+                      f"coast_end={pso_paper_coast_end_t:.1f}s, "
+                      f"seco={pso_paper_seco_t:.1f}s")
+
     # --- Get current thrust, Isp ---
     F_T, Isp = thrust_Isp(t)
 
@@ -1413,6 +1507,28 @@ def rocket_dynamics(t, state):
         alpha = exp_shoot_mod.exp_pitch_alpha(t - exp_shoot_epoch,
                                                exp_shoot_a, exp_shoot_b, gamma)
 
+    elif (sim_params.GUIDANCE_MODE == "pso_paper" and kick_performed
+          and atmosphere_exited and F_T > 0):
+        # Paper-mode (Pontryagin + PSO): steering from live costates.
+        # The costates are integrated as extra state slots; pre-guidance they
+        # are frozen at the PSO-supplied initial values, and from atmosphere
+        # exit onward they evolve via paper eq. (30).
+        if not guidance_phase_active:
+            guidance_phase_active = True
+            time_guidance_start = t
+            if sim_params.EVENTS_PRINT:
+                print(f"[pso_paper] guidance activated at t={t:.2f}s, "
+                      f"alt={alt/1000:.2f} km")
+        cs_offset = _paper_costate_offset(len(state))
+        if cs_offset is not None:
+            lam_h_now = state[cs_offset]
+            lam_V_now = state[cs_offset + 1]
+            lam_g_now = state[cs_offset + 2]
+            alpha = pso_paper_mod.steering_from_costates(lam_V_now, lam_g_now, v)
+        else:
+            # State not extended (shouldn't happen in paper mode) — gravity turn
+            alpha = 0.0
+
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)
         alpha = 0.
@@ -1469,6 +1585,27 @@ def rocket_dynamics(t, state):
                 if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE:
                     dheadingdt += delta_dheadingdt_pseudo
             state_differentiated.append(dheadingdt)
+
+    # --- Paper-mode costate ODEs (Morgado et al. 2022 eq. 30) ---
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        cs_off = _paper_costate_offset(len(state))
+        if cs_off is not None:
+            if guidance_phase_active:
+                lam_h_s = state[cs_off]
+                lam_V_s = state[cs_off + 1]
+                lam_g_s = state[cs_off + 2]
+                dlam_h, dlam_V, dlam_g = pso_paper_mod.costate_derivatives(
+                    r_val, v, gamma, alpha, lam_h_s, lam_V_s, lam_g_s,
+                    F_T, m, c.MU_EARTH)
+                # Record costate history (sampled at every solve_ivp evaluation)
+                pso_paper_costate_history.append((lam_h_s, lam_V_s, lam_g_s))
+                pso_paper_costate_time_history.append(t)
+            else:
+                # Pre-guidance: costates are frozen at their PSO initial values.
+                dlam_h = dlam_V = dlam_g = 0.0
+            state_differentiated.append(dlam_h)
+            state_differentiated.append(dlam_V)
+            state_differentiated.append(dlam_g)
 
     if time_kick_start == None:
         state_differentiated[3] = 0.0
@@ -1590,9 +1727,12 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
                          interrupt_velocity_exceeded]
 
     elif stage_2_flag:
-        # Coasting single burn trajectory
-        interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt, 
-                         interrupt_ground_collision, interrupt_single_burn_traj, 
+        # Coasting single burn trajectory.  Paper-mode (Morgado et al. 2022)
+        # neutralises interrupt_single_burn_traj and interrupt_horizontal_check
+        # internally (they return a constant non-zero value), so the event list
+        # layout stays identical and downstream t_events indexing is preserved.
+        interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
+                         interrupt_ground_collision, interrupt_single_burn_traj,
                          interrupt_horizontal_check]
     else:
         interrupt_list = [interrupt_ground_collision]
@@ -1729,6 +1869,17 @@ def run(initial_kick_angle, azimuth_override=None):
     # Reset exponential-shooting state
     exp_shoot_a = exp_shoot_b = exp_shoot_epoch = None
 
+    # Reset paper-mode (Morgado et al. 2022) per-run state.
+    # NOTE: pso_paper_lam0/_gamma_p/_dt_coast/_coast_pct/_burn_pct are NOT reset here —
+    # they are injected by Simulation/pso_paper_solver.py before each ra.run() call.
+    global pso_paper_coast_start_t, pso_paper_coast_end_t, pso_paper_seco_t
+    global pso_paper_costate_history, pso_paper_costate_time_history
+    pso_paper_coast_start_t = None
+    pso_paper_coast_end_t   = None
+    pso_paper_seco_t        = None
+    pso_paper_costate_history       = []
+    pso_paper_costate_time_history  = []
+
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
     coriolis_mag_history = []
@@ -1771,6 +1922,17 @@ def run(initial_kick_angle, azimuth_override=None):
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
         if sim_params.TRACK_HEADING_STATE:
             initial_state_1.append(LAUNCH_AZIMUTH)
+    # Paper-mode: extend state with 3 costate slots (lam_h, lam_V, lam_gamma).
+    # Initial values come from the PSO design vector via module globals; the
+    # default zero-vector is the safe fallback when paper-mode is enabled but
+    # no PSO injection has happened yet (e.g. unit-test smoke run).
+    if sim_params.GUIDANCE_MODE == "pso_paper":
+        if pso_paper_lam0 is not None:
+            initial_state_1.extend([float(pso_paper_lam0[0]),
+                                    float(pso_paper_lam0[1]),
+                                    float(pso_paper_lam0[2])])
+        else:
+            initial_state_1.extend([0.0, 0.0, 0.0])
 
     # Define time of simulation 1
     time_1 = 500.

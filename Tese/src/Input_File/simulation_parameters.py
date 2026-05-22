@@ -93,7 +93,18 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Terminal constraints: r(T_burnout) = r_T, γ(T_burnout) = 0
 #                   - Fixed coefficients for the entire burn (open-loop after initialization)
 #                   - Works with any GUIDANCE_START_MODE (after_kick or after_atmosphere_exit)
-GUIDANCE_MODE = "exp_shooting"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting"
+#   "pso_paper":    Indirect optimal-control trajectory (Morgado, Marta, Gil 2022)
+#                   - Particle Swarm Optimization (pyswarms) replaces the brute-force kick-angle search
+#                   - Integrates 3 adjoint (costate) variables (lam_h, lam_V, lam_gamma) alongside the
+#                     state during the free-flight phase (post-atmosphere-exit)
+#                   - Steering from Pontryagin's Minimum Principle, paper eq. (34):
+#                       alpha = atan2(-lam_gamma/V, -lam_V)
+#                   - PSO design vars: 3 initial costates, pitch-over angle gamma_p,
+#                     Stage-2 last-burn fraction, coast start fraction, coast duration
+#                   - Coast happens MID-BURN inside Stage 2 (engine cut, then short terminal impulse)
+#                   - Disables Coriolis/centrifugal pseudo-forces during the PSO run to match the
+#                     paper's frame assumption (paper sec 3.2.2)
+GUIDANCE_MODE = "pso_paper"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "pso_paper"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -212,7 +223,61 @@ OPTIMAL_KICK_ANGLES = {
     "peg": -np.deg2rad(3.0),                     # Update after optimization
     "peg_new": -np.deg2rad(3.0),                 # Update after optimization
     "exp_shooting": -np.deg2rad(3.0),            # Update after optimization
+    "pso_paper": -np.deg2rad(3.0),               # Filled in by PSO from gamma_p (initial pitch)
 }
+
+# ===================================================
+# PSO Paper Mode Parameters
+# ===================================================
+# (Only used if GUIDANCE_MODE is "pso_paper")
+# Reference: Morgado, Marta, Gil — "Multistage rocket preliminary design and trajectory
+# optimization using a multidisciplinary approach", Structural and Multidisciplinary
+# Optimization 65:192 (2022).  https://doi.org/10.1007/s00158-022-03285-y
+
+# PSO swarm settings (paper sec 5.2 used 250 particles / 1000 iter for validation,
+# sec 6 used 100 particles / 250 iter for design demonstration).
+PSO_PAPER_POPULATION   = 100        # particles per swarm
+PSO_PAPER_ITERATIONS   = 250        # max iterations
+PSO_PAPER_C1           = 2.05       # cognitive coefficient (PyGMO default, paper sec 5.2)
+PSO_PAPER_C2           = 2.05       # social coefficient
+PSO_PAPER_W            = 0.7298     # inertia weight
+PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
+
+# Design-variable bounds (paper Tables 6, 9).
+# Layout of the 7-element design vector x:
+#   x[0] = lam_h0   (initial costate)
+#   x[1] = lam_V0   (initial costate)
+#   x[2] = lam_g0   (initial costate)
+#   x[3] = gamma_p  (initial pitch after pitch-over, rad)
+#   x[4] = Δt_c     (coast duration during Stage 2, s)
+#   x[5] = coast_start_pct (fraction of total Stage-2 thrust time spent BEFORE coast)
+#   x[6] = last_burn_pct   (fraction of m_prop_S2 / mdot to burn in Stage 2)
+PSO_PAPER_LAMBDA_BOUNDS         = (-1.0, 1.0)            # initial costates [-]
+PSO_PAPER_GAMMA_P_BOUNDS        = (1.54, 1.57)           # initial pitch [rad] (88.2°–89.9°)
+PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 3000.0)          # Δt_c [s]    (paper sec 5.2 used 0–2000; sec 6 used 500–3000)
+PSO_PAPER_COAST_START_PCT       = (0.0, 1.0)             # fraction of Stage-2 thrust time before coast
+PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 max-burn time (paper Table 11; 5% reserve case)
+
+# Penalty weights (paper eq. 39; the paper does not publish s_c values).
+PSO_PAPER_PENALTY_ALT   = 1.0e3
+PSO_PAPER_PENALTY_VEL   = 1.0e3
+PSO_PAPER_PENALTY_GAMMA = 1.0e5
+PSO_PAPER_PENALTY_HAM   = 1.0e2     # transversality residual (H_f_last + H_f_coast − H_0_last)
+PSO_PAPER_PENALTY_HARD  = 1.0e20    # ground impact / NaN  (paper eq. 40)
+
+# Early-stop convergence (paper sec 6.1, paragraph after Table 13:
+#   "Early PSO convergence is assumed if the PSO algorithm finds the optimal trajectory
+#    within 0.1% deviation for the insertion altitude and velocity, and 0.0175 rad
+#    deviation for the final flight path angle.")
+PSO_PAPER_EARLY_STOP_ALT_TOL   = 1.0e-3       # fractional altitude error
+PSO_PAPER_EARLY_STOP_VEL_TOL   = 1.0e-3       # fractional velocity error
+PSO_PAPER_EARLY_STOP_GAMMA_TOL = 0.0175       # absolute gamma error [rad] ≈ 1°
+
+# Pseudo-forces are forced OFF during the PSO run (paper sec 3.2.2 neglects Coriolis
+# and centrifugal accelerations during trajectory simulation, citing Reilly 1979).
+# The solver saves/restores INCLUDE_PSEUDO_FORCES around the swarm. Earth rotation
+# can stay enabled — its initial velocity boost (paper eq. 22) is preserved.
+PSO_PAPER_FORCE_DISABLE_PSEUDO = True
 
 # ===================================================
 # Single Run specific parameters
