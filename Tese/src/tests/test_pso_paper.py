@@ -126,7 +126,7 @@ def test_costate_derivatives_match_hand_computation():
 def test_hamiltonian_zero_velocity_returns_zero():
     """Guard against the V → 0 division before liftoff."""
     H = g.hamiltonian(0.0, 0.0, c.R_EARTH, 0.1, 0.2, 0.3,
-                      0.0, 0.0, 1000.0, c.MU_EARTH, c.R_EARTH)
+                      0.0, 0.0, 1000.0, c.MU_EARTH)
     assert H == 0.0
 
 
@@ -149,7 +149,7 @@ def test_hamiltonian_matches_direct_dot_product():
     H_ref = lam_h * dh + lam_V * dV + lam_g * dgamma
 
     H = g.hamiltonian(V, gamma, r, lam_h, lam_V, lam_g,
-                      alpha, F_T, m, mu, c.R_EARTH)
+                      alpha, F_T, m, mu)
     assert pytest.approx(H, rel=1e-12) == H_ref
 
 

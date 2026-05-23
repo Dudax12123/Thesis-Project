@@ -1810,7 +1810,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global time_kick_start, kick_performed, time_raise, main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
-    global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
+    global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
     global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global cpr_theta_dot, cpr_t_start

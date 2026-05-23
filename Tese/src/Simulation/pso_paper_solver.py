@@ -116,11 +116,12 @@ def _evaluate_particle(x):
     # (interrupt_stage_2_burnt does not fire when propellant reserve remains).
     # Reading data[:,-1] would give a random orbital-coast state; instead find
     # the time-array index nearest to the PSO-commanded SECO time.
-    if ra.pso_paper_seco_t is not None and len(time_arr) > 0:
-        idx_eval = int(np.searchsorted(time_arr, ra.pso_paper_seco_t))
-        idx_eval = min(idx_eval, data.shape[1] - 1)
-    else:
-        idx_eval = -1
+    # Stage 2 must have ignited (otherwise no SECO time is set) — without it
+    # the trajectory state is meaningless for orbit insertion evaluation.
+    if ra.pso_paper_seco_t is None or len(time_arr) == 0:
+        return sim_params.PSO_PAPER_PENALTY_HARD
+    idx_eval = int(np.searchsorted(time_arr, ra.pso_paper_seco_t))
+    idx_eval = min(idx_eval, data.shape[1] - 1)
 
     r_f     = float(data[1, idx_eval])
     v_f     = float(data[2, idx_eval])
@@ -167,10 +168,12 @@ def _evaluate_particle(x):
                 a_i = pso_paper_mod.steering_from_costates(lv, lg, v_i)
                 return pso_paper_mod.hamiltonian(v_i, g_i, r_i, lh, lv, lg,
                                                  a_i, thrust, m_i,
-                                                 c.MU_EARTH, c.R_EARTH)
-            H_f_last  = _ham_at(idx_seco,        0.0)  # at SECO thrust is just cut
-            H_f_coast = _ham_at(idx_coast_start, 0.0)  # entering coast
-            H_0_last  = _ham_at(idx_coast_end,   0.0)  # reigniting after coast
+                                                 c.MU_EARTH)
+            # Paper eq. (38) residual: each sample uses the thrust that is
+            # actually active at that switching point on the THRUSTING side.
+            H_f_last  = _ham_at(idx_seco,        0.0)              # SECO — engine cut
+            H_f_coast = _ham_at(idx_coast_start, 0.0)              # entering coast — engine cut
+            H_0_last  = _ham_at(idx_coast_end,   r_specs.F_THRUST_2)  # re-ignition — engine on
             ham_residual = abs(H_f_last + H_f_coast - H_0_last)
     except Exception:
         ham_residual = 0.0
@@ -223,7 +226,9 @@ def _diagnose_best(best_pos):
     if data is None or data.shape[1] == 0:
         return {"error": "empty trajectory"}
 
-    idx_eval = int(np.searchsorted(time_arr, ra.pso_paper_seco_t)) if ra.pso_paper_seco_t is not None else -1
+    if ra.pso_paper_seco_t is None:
+        return {"error": "Stage 2 SECO time not set (Stage 2 likely never ignited)"}
+    idx_eval = int(np.searchsorted(time_arr, ra.pso_paper_seco_t))
     idx_eval = min(idx_eval, data.shape[1] - 1)
     r_f      = float(data[1, idx_eval])
     v_f      = float(data[2, idx_eval])

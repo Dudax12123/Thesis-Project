@@ -127,7 +127,7 @@ def steering_from_costates(lam_V, lam_gamma, V):
 
 
 def hamiltonian(V, gamma, r_val, lam_h, lam_V, lam_gamma,
-                alpha, F_T, m, mu_earth, R_earth):
+                alpha, F_T, m, mu_earth):
     """Hamiltonian H from paper eq. (28).
 
     H = lam_h * (dh/dt) + lam_V * (dV/dt) + lam_gamma * (d gamma/dt)
