@@ -422,14 +422,28 @@ def execute():
             print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
             if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
                 print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
-            print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
+            if sim_params.GUIDANCE_MODE == "pso_paper":
+                print(f"\t* Cross-heading pseudo-forces:\t\tDISABLED (auto-off in pso_paper mode)")
+            else:
+                print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
 
         print("\n" + "="*60)
         print("PROPELLANT USAGE")
         print("="*60)
-        print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
-        print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
-        print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
+        if sim_params.GUIDANCE_MODE == "pso_paper":
+            gamma_p_deg = np.rad2deg(ra.pso_paper_gamma_p) if ra.pso_paper_gamma_p is not None else 0.0
+            m_s2_used   = float(ra.pso_paper_burn_pct or 0.0) * r_specs.M_PROP_2
+            print(f"\t* Initial pitch-over γ_p:\t\t{gamma_p_deg:.3f} deg  (t = {sim_params.PSO_PAPER_T_PITCHOVER:.1f} s)")
+            print(f"\t* Stage-2 propellant consumed:\t\t{m_s2_used:.0f} kg  ({(ra.pso_paper_burn_pct or 0)*100:.1f} % of M_PROP_2)")
+            print(f"\t* Circularisation delta-v:\t\tN/A (orbit quality assessed by PSO objective)")
+        else:
+            print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
+            if m_propellant_total is not None and m_propellant_total < 9e6:
+                print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
+                print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
+            else:
+                print(f"\t* Total propellant consumed:\t\tN/A (orbit not matched within tolerance)")
+                print(f"\t* Total delta-v:\t\t\tN/A")
 
         ka_kms = _back_pressure_thrust_loss_kms(r_specs.ISP_1_SL, r_specs.ISP_1_VAC)
         isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC

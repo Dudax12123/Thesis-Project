@@ -135,6 +135,12 @@ def _evaluate_particle(x):
     r_T = c.R_EARTH + h_T
     V_T = float(np.sqrt(c.MU_EARTH / r_T))
 
+    # Rotating-frame v_f at SECO vs rotating-frame target.
+    # Earth's surface rotation provides a free ΔV boost; subtract it so the
+    # PSO is not penalised for the velocity the rocket gets for free.
+    V_rot = float(ra.LAUNCH_ROTATION_SPEED) if sim_params.ENABLE_EARTH_ROTATION else 0.0
+    V_T   = V_T - V_rot
+
     alt_err_frac = abs(h_f - h_T) / max(h_T, 1.0)
     vel_err_frac = abs(v_f - V_T) / max(V_T, 1.0)
     gamma_err    = abs(gamma_f) / (np.pi / 2.0)   # normalised to [0, 1]
@@ -224,9 +230,10 @@ def _diagnose_best(best_pos):
     gamma_f  = float(data[3, idx_eval])
     h_f      = r_f - c.R_EARTH
 
-    h_T = sim_params.TARGET_ORBITAL_ALTITUDE
-    r_T = c.R_EARTH + h_T
-    V_T = float(np.sqrt(c.MU_EARTH / r_T))
+    h_T   = sim_params.TARGET_ORBITAL_ALTITUDE
+    r_T   = c.R_EARTH + h_T
+    V_rot = float(ra.LAUNCH_ROTATION_SPEED) if sim_params.ENABLE_EARTH_ROTATION else 0.0
+    V_T   = float(np.sqrt(c.MU_EARTH / r_T)) - V_rot   # rotating-frame target
 
     alt_err_frac   = abs(h_f - h_T) / max(h_T, 1.0)
     vel_err_frac   = abs(v_f - V_T) / max(V_T, 1.0)

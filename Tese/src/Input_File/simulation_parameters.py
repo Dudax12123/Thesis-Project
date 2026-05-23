@@ -236,11 +236,11 @@ OPTIMAL_KICK_ANGLES = {
 
 # PSO swarm settings (paper sec 5.2 used 250 particles / 1000 iter for validation,
 # sec 6 used 100 particles / 250 iter for design demonstration).
-PSO_PAPER_POPULATION   = 250        # particles per swarm
-PSO_PAPER_ITERATIONS   = 1000        # max iterations
-PSO_PAPER_C1           = 2.05       # cognitive coefficient (PyGMO default, paper sec 5.2)
-PSO_PAPER_C2           = 2.05       # social coefficient
-PSO_PAPER_W            = 0.7298     # inertia weight
+PSO_PAPER_POPULATION   = 300        # particles per swarm
+PSO_PAPER_ITERATIONS   = 2000        # max iterations
+PSO_PAPER_C1           = 2.05       # cognitive coefficient (paper sec 5.2)
+PSO_PAPER_C2           = 2.05       # social coefficient — reduced from 2.05 to weaken pull toward global best and reduce premature convergence
+PSO_PAPER_W            = 0.7298       # inertia weight — raised from 0.7298 to slow velocity decay and maintain exploration
 PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
 
 # Design-variable bounds (paper Tables 6, 9).
@@ -271,7 +271,7 @@ PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 m
 PSO_PAPER_PENALTY_ALT   = 1.0e3
 PSO_PAPER_PENALTY_VEL   = 1.0e3
 PSO_PAPER_PENALTY_GAMMA = 1.0e3     # gamma is now normalised to [0,1] — same scale as alt/vel
-PSO_PAPER_PENALTY_HAM   = 1.0e2     # transversality residual (H_f_last + H_f_coast − H_0_last)
+PSO_PAPER_PENALTY_HAM   = 1.0e3     # transversality residual (H_f_last + H_f_coast − H_0_last)
 PSO_PAPER_PENALTY_HARD  = 1.0e6     # ground impact / NaN — softened from 1e20: still ~100× worse than typical orbit cost, but gives PSO usable gradients near the crash boundary instead of an infinite wall
 
 # Early-stop convergence (paper sec 6.1, paragraph after Table 13:
