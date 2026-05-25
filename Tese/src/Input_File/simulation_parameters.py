@@ -19,9 +19,9 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-INCLUDE_CROSS_HEADING_PSEUDO_FORCE = True    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
-COMPUTE_CROSS_HEADING_COUNTER_FORCE = True  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
+COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 
 # -------------- Azimuth / Inclination Mode --------------
@@ -203,7 +203,7 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
                                                  # Phi = 0.5*rho*v^3; negligible heating below this value
 
 # -------------- Optimization --------------
-ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
+ALPHA_LOWEST = -np.deg2rad(5)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
 ALPHA_STEP = np.deg2rad(0.05)                 # step size for kick angle sweep; [rad]
 MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
@@ -261,18 +261,30 @@ PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
 # dγ/dt ∝ 1/V is well-behaved (it diverges if pitch-over happens at t=3s, v≈15 m/s).
 PSO_PAPER_T_PITCHOVER           = 7.5                    # [s]
 
-PSO_PAPER_LAMBDA_BOUNDS         = (-1.0, 1.0)            # initial costates [-]
-PSO_PAPER_GAMMA_P_BOUNDS        = (np.deg2rad(84), np.deg2rad(87.5))            # initial pitch [rad] (74.5°–89.9°) — widened from (1.54, 1.57) for Falcon 9 class
+# Per-costate initial bounds.  lam_V0 and lam_gamma0 are restricted to [-1, 0]
+# so the PMP steering law alpha = atan2(-lam_gamma/V, -lam_V) yields cos(alpha) >= 0
+# at guidance start — no retrograde thrust command on Stage-2 ignition.  Costates
+# evolve freely via paper eq. (30) once guidance is active; this restricts only
+# the initial PSO guess.  lam_h0 is left unconstrained ([-1, 1]).
+PSO_PAPER_LAM_H_BOUNDS          = (-1.0, 1.0)            # initial costate on altitude
+PSO_PAPER_LAM_V_BOUNDS          = (-1.0, 0.0)            # initial costate on velocity  (negative for ascent)
+PSO_PAPER_LAM_G_BOUNDS          = (-1.0, 0.0)            # initial costate on flight-path angle (negative for pitch-up)
+# Paper-original (Morgado/Marta/Gil 2022 Table 6): a tiny pitch-over off vertical
+# so the subsequent gravity turn evolves without over-rotating gamma during the
+# Stage-1 burn.  Wider ranges (e.g. (84°, 87.5°)) let PSO pick pitch-overs that
+# drive gamma below 0° before MECO, producing trajectories that lose altitude
+# during Stage 1.  Reverted to the paper's range to keep trajectories physical.
+PSO_PAPER_GAMMA_P_BOUNDS        = (np.deg2rad(88.2), np.deg2rad(89.95))         # initial pitch [rad]
 PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 1500.0)          # Δt_c [s] — tightened for 500 km targets (paper sec 6 used (500, 3000) for Electron going much higher)
-PSO_PAPER_COAST_START_PCT       = (0.0, 1.0)             # fraction of Stage-2 thrust time before coast
+PSO_PAPER_COAST_START_PCT       = (0.2, 1.0)             # fraction of Stage-2 thrust time before coast — lower bound raised from 0.0 to remove the degenerate "no pre-coast burn" corner
 PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 max-burn time (paper Table 11; 5% reserve case)
 
 # Penalty weights (paper eq. 39; the paper does not publish s_c values).
 PSO_PAPER_PENALTY_ALT   = 1.0e3
 PSO_PAPER_PENALTY_VEL   = 1.0e3
 PSO_PAPER_PENALTY_GAMMA = 1.0e3     # gamma is now normalised to [0,1] — same scale as alt/vel
-PSO_PAPER_PENALTY_HAM   = 1.0e3     # transversality residual (H_f_last + H_f_coast − H_0_last)
-PSO_PAPER_PENALTY_HARD  = 1.0e6     # ground impact / NaN — softened from 1e20: still ~100× worse than typical orbit cost, but gives PSO usable gradients near the crash boundary instead of an infinite wall
+PSO_PAPER_PENALTY_HAM   = 1.0e6     # transversality residual (H_f_last + H_f_coast − H_0_last)
+PSO_PAPER_PENALTY_HARD  = 1.0e10     # ground impact / NaN — softened from 1e20: still ~100× worse than typical orbit cost, but gives PSO usable gradients near the crash boundary instead of an infinite wall
 
 # Early-stop convergence (paper sec 6.1, paragraph after Table 13:
 #   "Early PSO convergence is assumed if the PSO algorithm finds the optimal trajectory
@@ -287,6 +299,56 @@ PSO_PAPER_EARLY_STOP_GAMMA_TOL = 0.0175       # absolute gamma error [rad] ≈ 1
 # The solver saves/restores INCLUDE_PSEUDO_FORCES around the swarm. Earth rotation
 # can stay enabled — its initial velocity boost (paper eq. 22) is preserved.
 PSO_PAPER_FORCE_DISABLE_PSEUDO = True
+
+# Which pyswarms topology to use.
+#   "local"  -> LocalBestPSO  (ring / neighborhood; uses k, p below; keeps swarm
+#               diversity longer; better at escaping local minima).
+#   "global" -> GlobalBestPSO (star / fully connected; every particle pulled
+#               toward the single global best; faster convergence, more prone
+#               to premature collapse on rugged landscapes; ignores k, p).
+PSO_PAPER_TOPOLOGY = "global"  # Options: "local", "global"
+
+# Ring topology parameters for pyswarms.single.LocalBestPSO (ignored when
+# PSO_PAPER_TOPOLOGY = "global").
+# k = number of neighbors per particle (typical 2–5 for a 100-particle swarm);
+# p = Minkowski p-norm used for neighbor distance (1 = L1, 2 = Euclidean).
+PSO_PAPER_K_NEIGHBORS = 3
+PSO_PAPER_P_NORM      = 2
+
+# Warm-start: seed a fraction of the swarm in a small Gaussian cloud around a
+# hand-tuned design vector that is physically reasonable for a normal ascent.
+# Remaining particles are initialised uniformly at random within bounds.
+PSO_PAPER_WARM_START_ENABLED = True
+PSO_PAPER_WARM_START_N_SEEDS = 10        # number of seeded particles (out of POPULATION)
+PSO_PAPER_WARM_START_JITTER  = 0.05      # std-dev of Gaussian jitter, as fraction of each dim's bound range
+
+# Hand-tuned seed for the 7-dim design vector:
+#   [lam_h0, lam_V0, lam_gamma0, gamma_p, dt_c, coast_pct, burn_pct]
+# Steering law: alpha = atan2(-lam_gamma / V, -lam_V).  All three costates
+# negative is the "pitch-up under ascent" basin; timing seeds are mid-range.
+PSO_PAPER_WARM_START_SEED = (
+    -0.3,    # lam_h0
+    -0.7,    # lam_V0
+    -0.5,    # lam_gamma0
+     1.555,  # gamma_p (rad) ≈ 89.1°, mid-range of bounds [88.2°, 89.95°]
+   400.0,    # dt_c (s)
+     0.5,    # coast_pct (within new [0.2, 1.0])
+     0.85,   # burn_pct (within [0.70, 0.95])
+)
+
+# Stagnation-kick restart: when pyswarms' built-in convergence detector fires
+# (no cost improvement greater than PSO_PAPER_STAGNATION_RTOL over the last
+# PSO_PAPER_STAGNATION_PATIENCE iterations), the solver rebuilds the optimizer
+# with the current best preserved as one seeded particle and every other
+# particle re-randomised uniformly within bounds.  The remaining iteration
+# budget continues into the restarted swarm.  Disable to revert to a single
+# uninterrupted PSO_PAPER_ITERATIONS run.
+# Note: pyswarms' ftol is an *absolute* cost difference, not a relative one;
+# tune PSO_PAPER_STAGNATION_RTOL with that in mind (raise it if kicks fire too
+# eagerly given the cost magnitudes you observe in practice).
+PSO_PAPER_STAGNATION_ENABLED  = True
+PSO_PAPER_STAGNATION_PATIENCE = 50         # iters without improvement before a kick
+PSO_PAPER_STAGNATION_RTOL     = 1.0e-3     # cost-improvement threshold passed to pyswarms ftol
 
 # ===================================================
 # Single Run specific parameters

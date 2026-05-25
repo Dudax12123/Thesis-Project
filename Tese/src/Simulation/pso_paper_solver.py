@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import time
 import numpy as np
 import pyswarms as ps
-from pyswarms.single import GlobalBestPSO
+from pyswarms.single import GlobalBestPSO, LocalBestPSO
 
 from Auxiliary import constants as c
 from Auxiliary import rocket_specs as r_specs
@@ -51,14 +51,61 @@ _T_MAX_S2_BURN = r_specs.M_PROP_2 / _MDOT_S2   # ≈ 338.6 s for Falcon 9 specs
 
 def _make_bounds():
     """Build the (lb, ub) tuple for pyswarms from simulation_parameters.py."""
-    lam_lo, lam_hi = sim_params.PSO_PAPER_LAMBDA_BOUNDS
-    gp_lo,  gp_hi  = sim_params.PSO_PAPER_GAMMA_P_BOUNDS
-    dc_lo,  dc_hi  = sim_params.PSO_PAPER_COAST_DURATION_BOUNDS
-    cs_lo,  cs_hi  = sim_params.PSO_PAPER_COAST_START_PCT
-    lb_lo,  lb_hi  = sim_params.PSO_PAPER_LAST_BURN_PCT
-    lb = np.array([lam_lo, lam_lo, lam_lo, gp_lo, dc_lo, cs_lo, lb_lo])
-    ub = np.array([lam_hi, lam_hi, lam_hi, gp_hi, dc_hi, cs_hi, lb_hi])
+    lh_lo, lh_hi = sim_params.PSO_PAPER_LAM_H_BOUNDS
+    lv_lo, lv_hi = sim_params.PSO_PAPER_LAM_V_BOUNDS
+    lg_lo, lg_hi = sim_params.PSO_PAPER_LAM_G_BOUNDS
+    gp_lo, gp_hi = sim_params.PSO_PAPER_GAMMA_P_BOUNDS
+    dc_lo, dc_hi = sim_params.PSO_PAPER_COAST_DURATION_BOUNDS
+    cs_lo, cs_hi = sim_params.PSO_PAPER_COAST_START_PCT
+    lb_lo, lb_hi = sim_params.PSO_PAPER_LAST_BURN_PCT
+    lb = np.array([lh_lo, lv_lo, lg_lo, gp_lo, dc_lo, cs_lo, lb_lo])
+    ub = np.array([lh_hi, lv_hi, lg_hi, gp_hi, dc_hi, cs_hi, lb_hi])
     return lb, ub
+
+
+def _make_init_pos(lb, ub, n_particles):
+    """Return an (n_particles, 7) initial-position matrix, or None for default init.
+
+    When PSO_PAPER_WARM_START_ENABLED is True, the first PSO_PAPER_WARM_START_N_SEEDS
+    rows are a Gaussian cloud around PSO_PAPER_WARM_START_SEED with std-dev =
+    PSO_PAPER_WARM_START_JITTER * (ub - lb), clipped to bounds.  Remaining rows are
+    uniform-random in [lb, ub] (matches pyswarms' default init distribution).
+    """
+    if not getattr(sim_params, "PSO_PAPER_WARM_START_ENABLED", False):
+        return None
+
+    rng_seed = getattr(sim_params, "PSO_PAPER_WARM_START_SEED_RNG", None)
+    rng = np.random.default_rng(rng_seed)
+
+    seed   = np.array(sim_params.PSO_PAPER_WARM_START_SEED, dtype=float)
+    n_seed = min(int(sim_params.PSO_PAPER_WARM_START_N_SEEDS), n_particles)
+    sigma  = float(sim_params.PSO_PAPER_WARM_START_JITTER) * (ub - lb)
+
+    init = np.empty((n_particles, lb.size), dtype=float)
+    if n_seed > 0:
+        init[:n_seed] = np.clip(
+            seed + rng.normal(0.0, sigma, size=(n_seed, lb.size)),
+            lb, ub,
+        )
+    if n_particles - n_seed > 0:
+        init[n_seed:] = rng.uniform(lb, ub, size=(n_particles - n_seed, lb.size))
+    return init
+
+
+def _make_restart_init_pos(elite_pos, lb, ub, n_particles, rng=None):
+    """Build init_pos for a stagnation-kick restart.
+
+    Row 0 is the current best (clipped to bounds); the remaining rows are
+    uniform-random within bounds.  LocalBestPSO's ring topology will pull the
+    elite's neighbours toward it while distant particles explore freely.
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+    init = np.empty((n_particles, lb.size), dtype=float)
+    init[0]  = np.clip(np.asarray(elite_pos, dtype=float), lb, ub)
+    if n_particles > 1:
+        init[1:] = rng.uniform(lb, ub, size=(n_particles - 1, lb.size))
+    return init
 
 
 def _gamma_p_to_kick_angle(gamma_p):
@@ -326,37 +373,110 @@ def find_pso_paper_trajectory(verbose=True):
         lb, ub = _make_bounds()
         bounds = (lb, ub)
 
+        topo = str(getattr(sim_params, "PSO_PAPER_TOPOLOGY", "local")).lower()
+        if topo == "global":
+            pso_cls   = GlobalBestPSO
+            topo_name = "GlobalBestPSO (star topology)"
+        elif topo == "local":
+            pso_cls   = LocalBestPSO
+            topo_name = "LocalBestPSO (ring topology)"
+        else:
+            raise ValueError(
+                f"PSO_PAPER_TOPOLOGY must be 'local' or 'global'; got {topo!r}"
+            )
+
         options = {
             "c1": sim_params.PSO_PAPER_C1,
             "c2": sim_params.PSO_PAPER_C2,
             "w":  sim_params.PSO_PAPER_W,
         }
+        if pso_cls is LocalBestPSO:
+            options["k"] = sim_params.PSO_PAPER_K_NEIGHBORS
+            options["p"] = sim_params.PSO_PAPER_P_NORM
+
+        n_particles = sim_params.PSO_PAPER_POPULATION
+        init_pos = _make_init_pos(lb, ub, n_particles)
+        warm_on  = init_pos is not None
 
         if verbose:
             print("\n" + "="*60)
-            print("PSO PAPER-MODE TRAJECTORY OPTIMIZATION")
+            print(f"PSO PAPER-MODE TRAJECTORY OPTIMIZATION  ({topo_name})")
             print("="*60)
-            print(f"  Particles:  {sim_params.PSO_PAPER_POPULATION}")
+            print(f"  Particles:  {n_particles}")
             print(f"  Iterations: {sim_params.PSO_PAPER_ITERATIONS}")
+            if pso_cls is LocalBestPSO:
+                print(f"  Neighbors (k): {sim_params.PSO_PAPER_K_NEIGHBORS}   p-norm: {sim_params.PSO_PAPER_P_NORM}")
             print(f"  Bounds (lo): {np.array2string(lb, precision=4)}")
             print(f"  Bounds (hi): {np.array2string(ub, precision=4)}")
             print(f"  Pseudo-forces forcibly OFF: "
                   f"{getattr(sim_params, 'PSO_PAPER_FORCE_DISABLE_PSEUDO', True)}")
+            if warm_on:
+                n_seed = min(int(sim_params.PSO_PAPER_WARM_START_N_SEEDS), n_particles)
+                print(f"  Warm-start: {n_seed}/{n_particles} particles seeded "
+                      f"(jitter={sim_params.PSO_PAPER_WARM_START_JITTER:g} × bound range)")
+                print(f"    seed = {np.array2string(np.asarray(sim_params.PSO_PAPER_WARM_START_SEED), precision=4)}")
+            else:
+                print("  Warm-start: OFF (uniform-random init)")
 
-        optimizer = GlobalBestPSO(
-            n_particles=sim_params.PSO_PAPER_POPULATION,
-            dimensions=7,
-            options=options,
-            bounds=bounds,
-        )
+        total_iters  = sim_params.PSO_PAPER_ITERATIONS
+        kick_enabled = bool(getattr(sim_params, "PSO_PAPER_STAGNATION_ENABLED", False))
+        patience     = int(getattr(sim_params, "PSO_PAPER_STAGNATION_PATIENCE", total_iters))
+        rtol         = float(getattr(sim_params, "PSO_PAPER_STAGNATION_RTOL", 0.0))
+
+        if verbose:
+            if kick_enabled:
+                print(f"  Stagnation kick: ON  (patience={patience} iters, ftol={rtol:g})")
+            else:
+                print("  Stagnation kick: OFF")
+
+        best_cost    = np.inf
+        best_pos     = None
+        iters_used   = 0
+        n_restarts   = 0
+        current_init = init_pos   # warm-start (or None) for the very first chunk
 
         t0 = time.time()
-        best_cost, best_pos = optimizer.optimize(
-            _swarm_objective,
-            iters=sim_params.PSO_PAPER_ITERATIONS,
-            verbose=verbose,
-        )
+        while iters_used < total_iters:
+            remaining = total_iters - iters_used
+
+            optimizer = pso_cls(
+                n_particles=n_particles,
+                dimensions=7,
+                options=options,
+                bounds=bounds,
+                init_pos=current_init,
+                ftol      = rtol     if kick_enabled else -np.inf,
+                ftol_iter = patience if kick_enabled else 1,
+            )
+            cost, pos = optimizer.optimize(
+                _swarm_objective,
+                iters=remaining,
+                verbose=verbose,
+            )
+
+            iters_this_chunk = len(optimizer.cost_history)
+            iters_used += iters_this_chunk
+
+            if cost < best_cost:
+                best_cost = float(cost)
+                best_pos  = np.array(pos, dtype=float)
+
+            # Budget consumed or kicks disabled: we're done.
+            if iters_this_chunk >= remaining or not kick_enabled:
+                break
+
+            # ftol fired before the budget — restart with elite.
+            n_restarts += 1
+            if verbose:
+                print(f"\n  [STAGNATION KICK #{n_restarts}] best cost {best_cost:.4e} "
+                      f"stagnated within ftol={rtol:g} for {patience} iters "
+                      f"(after {iters_used}/{total_iters} iters); restarting with elite.")
+            current_init = _make_restart_init_pos(best_pos, lb, ub, n_particles)
+
         wall = time.time() - t0
+
+        if verbose and n_restarts > 0:
+            print(f"\n  Total stagnation kicks: {n_restarts}")
 
         if verbose:
             print("\n" + "-"*60)

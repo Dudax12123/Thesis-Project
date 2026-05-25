@@ -2026,10 +2026,15 @@ def run(initial_kick_angle, azimuth_override=None):
     # event indices: 0=fairing, 1=crash, 2=velocity, 3=stage_sep
 
     # Paper-mode: prepend the pre-pitchover arc so downstream code sees [0, end].
+    # Drop the last sample of sol_1a_pre — it shares t = PSO_PAPER_T_PITCHOVER
+    # with sol_1a.t[0] but carries the PRE-pitchover gamma (= 90°).  Keeping
+    # both produces a duplicate-boundary discontinuity that surfaces as a
+    # rectangular oscillation in the recorded pitch plot.  The integration
+    # itself is unaffected; this is a post-hoc trajectory-stitching fix.
     if sol_1a_pre is not None:
         class _MergedSol1a:
-            t        = np.concatenate([sol_1a_pre.t, sol_1a.t])
-            y        = np.concatenate([sol_1a_pre.y, sol_1a.y], axis=1)
+            t        = np.concatenate([sol_1a_pre.t[:-1],    sol_1a.t])
+            y        = np.concatenate([sol_1a_pre.y[:, :-1], sol_1a.y], axis=1)
             t_events = sol_1a.t_events   # event indices unchanged
         sol_1a = _MergedSol1a()
 
