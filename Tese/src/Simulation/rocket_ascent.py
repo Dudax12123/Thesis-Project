@@ -1370,6 +1370,17 @@ def rocket_dynamics(t, state):
             0.0, peg_new_vgo_r, peg_new_vgo_theta,
             peg_new_L0, peg_new_lambda_r, peg_new_t_lambda, gamma)
 
+    # --- Indirect TPBVP initialisation (Stage 2 only) ---
+    elif (kick_performed and sim_params.GUIDANCE_MODE == "indirect"
+          and guidance_start_ready and second_engine_ignition
+          and not guidance_phase_active and F_T > 0):
+        guidance_phase_active = True
+        time_guidance_start   = t
+        if sim_params.EVENTS_PRINT:
+            print(f"[indirect] Guidance activated at t={t:.1f}s (Stage 2 ignition)")
+        # TPBVP solve happens on the first per-step call below (tpbvp_t_arr is None)
+        alpha = 0.0   # placeholder for this single initialisation step
+
     # --- PEG_NEW per-step ---
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "peg_new" and F_T > 0:
         Ve    = r.ISP_2 * c.G_0
@@ -1421,23 +1432,17 @@ def rocket_dynamics(t, state):
                                                exp_shoot_a, exp_shoot_b, gamma)
 
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "indirect" and F_T > 0:
-        # Indirect PMP / TPBVP: solve minimum-fuel problem once, interpolate α*(t)
+        # Indirect PMP / TPBVP (Stage 2 only): solve once at first call, then interpolate α*(t)
+        # Guidance only activates after second_engine_ignition, so m_dry is always M_STRUCTURE_2.
         if tpbvp_t_arr is None:
-            isp_active = Isp
-            if second_engine_ignition:
-                m_dry_active = r.M_STRUCTURE_2
-            elif fairing_jettisoned:
-                m_dry_active = r.M_STRUCTURE_1 - r.M_FAIRING
-            else:
-                m_dry_active = r.M_STRUCTURE_1
             r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
             tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
-                state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0
+                state[:5], r_tgt, c.MU_EARTH, F_T, Isp, r.M_STRUCTURE_2, c.G_0
             )
             tpbvp_epoch = t
             if sim_params.EVENTS_PRINT:
-                tf_est = tpbvp_t_arr[-1] if tpbvp_t_arr is not None else 0.0
-                print(f"[indirect] TPBVP solved at t={t:.1f}s, tf_est={tf_est:.1f}s")
+                tf_opt = tpbvp_t_arr[-1] if tpbvp_t_arr is not None else 0.0
+                print(f"[indirect] TPBVP solved at t={t:.1f}s, tf_opt={tf_opt:.1f}s")
         alpha = indirect_mod.tpbvp_alpha(t - tpbvp_epoch,
                                           tpbvp_t_arr, tpbvp_alpha_arr)
 
