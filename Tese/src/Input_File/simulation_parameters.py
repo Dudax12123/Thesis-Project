@@ -236,8 +236,8 @@ OPTIMAL_KICK_ANGLES = {
 
 # PSO swarm settings (paper sec 5.2 used 250 particles / 1000 iter for validation,
 # sec 6 used 100 particles / 250 iter for design demonstration).
-PSO_PAPER_POPULATION   = 250        # particles per swarm
-PSO_PAPER_ITERATIONS   = 1000        # max iterations
+PSO_PAPER_POPULATION   = 200        # particles per swarm
+PSO_PAPER_ITERATIONS   = 250        # max iterations
 PSO_PAPER_C1           = 2.05       # cognitive coefficient (paper sec 5.2)
 PSO_PAPER_C2           = 2.05       # social coefficient — reduced from 2.05 to weaken pull toward global best and reduce premature convergence
 PSO_PAPER_W            = 0.7298       # inertia weight — raised from 0.7298 to slow velocity decay and maintain exploration
@@ -283,7 +283,7 @@ PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 m
 PSO_PAPER_PENALTY_ALT   = 1.0e3
 PSO_PAPER_PENALTY_VEL   = 1.0e3
 PSO_PAPER_PENALTY_GAMMA = 1.0e3     # gamma is now normalised to [0,1] — same scale as alt/vel
-PSO_PAPER_PENALTY_HAM   = 1.0e6     # transversality residual (H_f_last + H_f_coast − H_0_last)
+PSO_PAPER_PENALTY_HAM   = 0.0       # TEMPORARY: dropped to 0 to test whether the BCs-only search yields a real orbit. |H_residual|, H_scale, |Δ|/H are still printed in the diagnostic as raw data.
 PSO_PAPER_PENALTY_HARD  = 1.0e10     # ground impact / NaN — softened from 1e20: still ~100× worse than typical orbit cost, but gives PSO usable gradients near the crash boundary instead of an infinite wall
 
 # Early-stop convergence (paper sec 6.1, paragraph after Table 13:
@@ -306,7 +306,7 @@ PSO_PAPER_FORCE_DISABLE_PSEUDO = True
 #   "global" -> GlobalBestPSO (star / fully connected; every particle pulled
 #               toward the single global best; faster convergence, more prone
 #               to premature collapse on rugged landscapes; ignores k, p).
-PSO_PAPER_TOPOLOGY = "global"  # Options: "local", "global"
+PSO_PAPER_TOPOLOGY = "local"  # Options: "local", "global"
 
 # Ring topology parameters for pyswarms.single.LocalBestPSO (ignored when
 # PSO_PAPER_TOPOLOGY = "global").
@@ -327,13 +327,13 @@ PSO_PAPER_WARM_START_JITTER  = 0.05      # std-dev of Gaussian jitter, as fracti
 # Steering law: alpha = atan2(-lam_gamma / V, -lam_V).  All three costates
 # negative is the "pitch-up under ascent" basin; timing seeds are mid-range.
 PSO_PAPER_WARM_START_SEED = (
-    -0.3,    # lam_h0
-    -0.7,    # lam_V0
-    -0.5,    # lam_gamma0
-     1.555,  # gamma_p (rad) ≈ 89.1°, mid-range of bounds [88.2°, 89.95°]
-   400.0,    # dt_c (s)
-     0.5,    # coast_pct (within new [0.2, 1.0])
-     0.85,   # burn_pct (within [0.70, 0.95])
+    -0.001428,    # lam_h0
+    -0.765441,    # lam_V0
+    -0.255961,    # lam_gamma0
+     1.554234,  # gamma_p (rad) ≈ 89.1°, mid-range of bounds [88.2°, 89.95°]
+   200.0,    # dt_c (s)
+     0.472844,    # coast_pct (within new [0.2, 1.0])
+     0.946197,   # burn_pct (within [0.70, 0.95])
 )
 
 # Stagnation-kick restart: when pyswarms' built-in convergence detector fires

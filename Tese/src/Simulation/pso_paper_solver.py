@@ -120,6 +120,80 @@ def _gamma_p_to_kick_angle(gamma_p):
     return -(np.pi / 2.0 - float(gamma_p))
 
 
+def _hamiltonian_residual_breakdown(time_arr, data, verbose=False):
+    """Return (H_f_last, H_f_coast, H_0_last, ham_residual, H_scale, ham_residual_norm).
+
+    Paper eq. (38) sample Hamiltonians at SECO, coast-start, coast-end
+    (re-ignition) plus the natural reference scale
+        H_scale = max(|H_f_last|, |H_f_coast|, |H_0_last|, 1.0)
+    and the dimensionless transversality residual
+        ham_residual_norm = |H_f_last + H_f_coast - H_0_last| / H_scale .
+
+    The PSO cost uses the *normalised* residual so it is commensurate with the
+    other [0, 1]-ish penalty fractions (alt_err_frac, vel_err_frac, gamma_err).
+    The raw residual is kept for diagnostic transparency.
+
+    Returns (0.0, 0.0, 0.0, 0.0, 1.0, 0.0) when the required switching times or
+    costate offset are unavailable (e.g. Stage 2 never ignited).
+
+    When verbose=True, prints the specific reason the breakdown was skipped.
+    Defaults to False so the PSO inner loop is silent; the post-PSO diagnostic
+    passes verbose=True so we can see what is wrong with the winning particle.
+    """
+    def _bail(reason):
+        if verbose:
+            print(f"  [H-residual breakdown skipped] {reason}")
+        return 0.0, 0.0, 0.0, 0.0, 1.0, 0.0
+
+    try:
+        seco_t        = ra.pso_paper_seco_t
+        coast_end_t   = ra.pso_paper_coast_end_t
+        coast_start_t = ra.pso_paper_coast_start_t
+        missing = []
+        if seco_t        is None: missing.append("pso_paper_seco_t")
+        if coast_end_t   is None: missing.append("pso_paper_coast_end_t")
+        if coast_start_t is None: missing.append("pso_paper_coast_start_t")
+        if missing:
+            return _bail(f"switching time(s) None: {', '.join(missing)}")
+
+        n_t = data.shape[1]
+        # Cap each index at n_t - 1.  np.searchsorted returns n_t when the
+        # target time is at or past time_arr[-1] — exactly what happens when
+        # the trajectory log ends at SECO (the common case).  Without the cap
+        # the helper bails for every such particle and term_ham silently
+        # drops out of J', so the PSO never sees pressure from paper eq. 38.
+        idx_seco        = min(int(np.searchsorted(time_arr, seco_t)),        n_t - 1)
+        idx_coast_end   = min(int(np.searchsorted(time_arr, coast_end_t)),   n_t - 1)
+        idx_coast_start = min(int(np.searchsorted(time_arr, coast_start_t)), n_t - 1)
+        cs_off = ra._paper_costate_offset(data.shape[0])
+        if cs_off is None:
+            return _bail(f"costate offset is None (state has {data.shape[0]} rows)")
+        if idx_seco < 0:
+            return _bail(f"idx_seco={idx_seco} negative for seco_t={seco_t:.3f}")
+        if idx_coast_end < 0:
+            return _bail(f"idx_coast_end={idx_coast_end} negative for coast_end_t={coast_end_t:.3f}")
+        if idx_coast_start < 0:
+            return _bail(f"idx_coast_start={idx_coast_start} negative for coast_start_t={coast_start_t:.3f}")
+
+        def _ham_at(idx, thrust):
+            r_i, v_i, g_i, m_i = data[1, idx], data[2, idx], data[3, idx], data[4, idx]
+            lh, lv, lg = data[cs_off, idx], data[cs_off + 1, idx], data[cs_off + 2, idx]
+            a_i = pso_paper_mod.steering_from_costates(lv, lg, v_i)
+            return pso_paper_mod.hamiltonian(v_i, g_i, r_i, lh, lv, lg,
+                                             a_i, thrust, m_i, c.MU_EARTH)
+
+        H_f_last  = _ham_at(idx_seco,        0.0)              # SECO — engine cut
+        H_f_coast = _ham_at(idx_coast_start, 0.0)              # entering coast — engine cut
+        H_0_last  = _ham_at(idx_coast_end,   r_specs.F_THRUST_2)  # re-ignition — engine on
+        ham_residual = abs(H_f_last + H_f_coast - H_0_last)
+        H_scale = max(abs(H_f_last), abs(H_f_coast), abs(H_0_last), 1.0)
+        ham_residual_norm = ham_residual / H_scale
+        return (float(H_f_last), float(H_f_coast), float(H_0_last),
+                float(ham_residual), float(H_scale), float(ham_residual_norm))
+    except Exception as exc:
+        return _bail(f"exception: {type(exc).__name__}: {exc}")
+
+
 # ─── Per-particle objective ───────────────────────────────────────────────────
 
 def _evaluate_particle(x):
@@ -194,36 +268,12 @@ def _evaluate_particle(x):
     gamma_err    = abs(gamma_f) / (np.pi / 2.0)   # normalised to [0, 1]
 
     # --- Transversality residual (paper eq. 38) — best-effort, optional ---
-    # H_0_last : Hamiltonian at the start of the *final* thrusting arc
-    # H_f_last : at SECO
-    # H_f_coast : at start of coast (≡ end of pre-coast arc)
-    ham_residual = 0.0
-    try:
-        idx_seco       = int(np.searchsorted(time_arr, ra.pso_paper_seco_t))        if ra.pso_paper_seco_t        is not None else -1
-        idx_coast_end  = int(np.searchsorted(time_arr, ra.pso_paper_coast_end_t))   if ra.pso_paper_coast_end_t   is not None else -1
-        idx_coast_start= int(np.searchsorted(time_arr, ra.pso_paper_coast_start_t)) if ra.pso_paper_coast_start_t is not None else -1
-
-        n_t = data.shape[1]
-        cs_off = ra._paper_costate_offset(data.shape[0])
-        if (cs_off is not None
-                and 0 <= idx_seco        < n_t
-                and 0 <= idx_coast_end   < n_t
-                and 0 <= idx_coast_start < n_t):
-            def _ham_at(idx, thrust):
-                r_i, v_i, g_i, m_i = data[1, idx], data[2, idx], data[3, idx], data[4, idx]
-                lh, lv, lg = data[cs_off, idx], data[cs_off+1, idx], data[cs_off+2, idx]
-                a_i = pso_paper_mod.steering_from_costates(lv, lg, v_i)
-                return pso_paper_mod.hamiltonian(v_i, g_i, r_i, lh, lv, lg,
-                                                 a_i, thrust, m_i,
-                                                 c.MU_EARTH)
-            # Paper eq. (38) residual: each sample uses the thrust that is
-            # actually active at that switching point on the THRUSTING side.
-            H_f_last  = _ham_at(idx_seco,        0.0)              # SECO — engine cut
-            H_f_coast = _ham_at(idx_coast_start, 0.0)              # entering coast — engine cut
-            H_0_last  = _ham_at(idx_coast_end,   r_specs.F_THRUST_2)  # re-ignition — engine on
-            ham_residual = abs(H_f_last + H_f_coast - H_0_last)
-    except Exception:
-        ham_residual = 0.0
+    # Computation factored into _hamiltonian_residual_breakdown so the same
+    # samples can be re-used by the post-PSO diagnostic.  We use the *normalised*
+    # residual (|Δ|/H_scale) in J' so it is dimensionally commensurate with the
+    # other [0, 1]-ish penalty fractions (alt_err_frac, vel_err_frac, gamma_err).
+    (_H_f_last, _H_f_coast, _H_0_last,
+     _ham_resid_raw, _H_scale, ham_residual_norm) = _hamiltonian_residual_breakdown(time_arr, data)
 
     # --- Impulse-duration component (paper eq. 27), normalised to [0, 1] ---
     # J = (t_seco - t_coast_end) / t_max_s2  — terminal burn fraction
@@ -236,7 +286,7 @@ def _evaluate_particle(x):
                + sim_params.PSO_PAPER_PENALTY_ALT   * alt_err_frac
                + sim_params.PSO_PAPER_PENALTY_VEL   * vel_err_frac
                + sim_params.PSO_PAPER_PENALTY_GAMMA * gamma_err
-               + sim_params.PSO_PAPER_PENALTY_HAM   * ham_residual)
+               + sim_params.PSO_PAPER_PENALTY_HAM   * ham_residual_norm)
     return float(J_prime)
 
 
@@ -295,6 +345,24 @@ def _diagnose_best(best_pos):
                       else 0.0)
     j_frac         = j_raw / max(_T_MAX_S2_BURN, 1.0)
 
+    # --- TPBVP diagnostics (paper eq. 38 + costate end-points) ---
+    # verbose=True so the post-PSO best-particle re-run reports exactly which
+    # guard fires if the breakdown bails out (the PSO inner-loop call passes
+    # verbose=False by default and stays silent).
+    (H_f_last, H_f_coast, H_0_last,
+     ham_residual, H_scale, ham_residual_norm) = _hamiltonian_residual_breakdown(time_arr, data, verbose=True)
+    term_ham_val = sim_params.PSO_PAPER_PENALTY_HAM * ham_residual_norm
+
+    lam0 = (tuple(float(v) for v in ra.pso_paper_lam0)
+            if ra.pso_paper_lam0 is not None else (float("nan"),) * 3)
+    cs_off = ra._paper_costate_offset(data.shape[0])
+    if cs_off is not None and 0 <= idx_eval < data.shape[1]:
+        lam_seco = (float(data[cs_off,     idx_eval]),
+                    float(data[cs_off + 1, idx_eval]),
+                    float(data[cs_off + 2, idx_eval]))
+    else:
+        lam_seco = (float("nan"),) * 3
+
     return {
         "crashed":        False,
         "t_seco":         ra.pso_paper_seco_t,
@@ -313,6 +381,16 @@ def _diagnose_best(best_pos):
         "term_vel":       sim_params.PSO_PAPER_PENALTY_VEL   * vel_err_frac,
         "term_gamma":     sim_params.PSO_PAPER_PENALTY_GAMMA * gamma_err_norm,
         "term_j":         j_frac,
+        # TPBVP
+        "H_f_last":       H_f_last,
+        "H_f_coast":      H_f_coast,
+        "H_0_last":       H_0_last,
+        "ham_resid":      ham_residual,         # raw |Δ|
+        "H_scale":        H_scale,              # max(|H_*|, 1)
+        "ham_resid_norm": ham_residual_norm,    # |Δ| / H_scale
+        "term_ham":       term_ham_val,         # s_ham × |Δ|/H_scale (what PSO sees)
+        "lam0":           lam0,
+        "lam_seco":       lam_seco,
     }
 
 
@@ -341,12 +419,38 @@ def _print_diagnostic(diag):
     print(f"    s_alt   × frac  = {diag['term_alt']:.4f}   (alt err {diag['alt_err_pct']:.3f} %)")
     print(f"    s_vel   × frac  = {diag['term_vel']:.4f}   (vel err {diag['vel_err_pct']:.3f} %)")
     print(f"    s_gamma × norm  = {diag['term_gamma']:.4f}   (|γ_f| {diag['gamma_err_rad']:.4f} rad)")
+    print(f"    s_ham   × |Δ|/H = {diag['term_ham']:.4f}   "
+          f"(|H_residual| {diag['ham_resid']:.4e}, "
+          f"H_scale {diag['H_scale']:.4e}, "
+          f"|Δ|/H = {diag['ham_resid_norm']:.4e})")
+    print()
+    print("  Hamiltonian samples (paper eq. 38; expect H_f_last + H_f_coast ≈ H_0_last):")
+    print(f"    H_f_last  (SECO, F_T=0)        = {diag['H_f_last']: .4e}")
+    print(f"    H_f_coast (coast start, F_T=0) = {diag['H_f_coast']: .4e}")
+    print(f"    H_0_last  (re-ignition, F_T>0) = {diag['H_0_last']: .4e}")
+    print()
+    print("  Costates:")
+    print(f"    initial (from PSO):  λ_h0={diag['lam0'][0]: .4f}  λ_V0={diag['lam0'][1]: .4f}  λ_γ0={diag['lam0'][2]: .4f}")
+    print(f"    at SECO (evolved):   λ_h ={diag['lam_seco'][0]: .4e}  λ_V ={diag['lam_seco'][1]: .4e}  λ_γ ={diag['lam_seco'][2]: .4e}")
     print()
     alt_ok   = diag['alt_err_pct']/100   <= sim_params.PSO_PAPER_EARLY_STOP_ALT_TOL
     vel_ok   = diag['vel_err_pct']/100   <= sim_params.PSO_PAPER_EARLY_STOP_VEL_TOL
     gamma_ok = diag['gamma_err_rad']     <= sim_params.PSO_PAPER_EARLY_STOP_GAMMA_TOL
     _mark = lambda ok: "OK " if ok else "XX "
     print(f"  Orbit tolerance:  alt {_mark(alt_ok)} vel {_mark(vel_ok)} γ {_mark(gamma_ok)}")
+
+    terms = {
+        "alt":   diag['term_alt'],
+        "vel":   diag['term_vel'],
+        "gamma": diag['term_gamma'],
+        "ham":   diag['term_ham'],
+        "j":     diag['term_j'],
+    }
+    dom_term = max(terms, key=terms.get)
+    verdict = ("TPBVP necessary conditions violated"
+               if dom_term == "ham"
+               else "PSO boundary-condition convergence (TPBVP locally consistent)")
+    print(f"  Dominant J' term: {dom_term}   →   {verdict}")
 
 
 # ─── Public entry point ───────────────────────────────────────────────────────
