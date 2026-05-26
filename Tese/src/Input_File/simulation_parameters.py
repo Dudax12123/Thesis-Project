@@ -19,9 +19,9 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-INCLUDE_CROSS_HEADING_PSEUDO_FORCE = True    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
-COMPUTE_CROSS_HEADING_COUNTER_FORCE = True  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
+COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 
 # -------------- Azimuth / Inclination Mode --------------
@@ -200,14 +200,14 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
                                                  # Phi = 0.5*rho*v^3; negligible heating below this value
 
 # -------------- Optimization --------------
-ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
+ALPHA_LOWEST = -np.deg2rad(4.5)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
-ALPHA_STEP = np.deg2rad(0.05)                 # step size for kick angle sweep; [rad]
+ALPHA_STEP = np.deg2rad(0.1)                 # step size for kick angle sweep; [rad]
 MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = False
+RUN_FAST = True
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
