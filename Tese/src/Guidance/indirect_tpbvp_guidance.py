@@ -388,50 +388,38 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0):
         peg_outputs = None
         print(f"[indirect] PEG guess unavailable — using [0,1,0], tf={tf_peg:.1f}s")
 
-    # ── 2. Multi-start shooting attempts ─────────────────────────────────────
-    candidates = [
-        np.array([lam0_peg[0],       lam0_peg[1], lam0_peg[2], tf_peg]),          # PEG-derived
-        np.array([lam0_peg[0] * 2.0, lam0_peg[1], lam0_peg[2], tf_peg]),          # perturbed λ_r
-        np.array([lam0_peg[0],       lam0_peg[1], lam0_peg[2], 0.85 * tf_peg]),   # shorter tf
-        np.array([0.0,               1.0,          0.0,         tf_burnout]),       # original fallback
-    ]
+    # ── 2. Single shooting attempt from PEG initial guess ────────────────────
+    p_init = np.array([lam0_peg[0], lam0_peg[1], lam0_peg[2], tf_peg])
+    args   = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_burnout)
 
-    args = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_burnout)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sol, info, ier, msg = fsolve(_residual_4d, p_init,
+                                          args=args, full_output=True)
 
-    for attempt, p_init in enumerate(candidates):
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                sol, info, ier, msg = fsolve(_residual_4d, p_init,
-                                              args=args, full_output=True)
-            if ier != 1:
-                print(f"[indirect] attempt {attempt+1}/4 did not converge: {msg.strip()}")
-                continue
-
+        if ier == 1:
             lam0_sol = sol[:3]
             tf_sol   = float(sol[3])
 
-            # Sanity check on tf
             if tf_sol < 10.0 or tf_sol > 2.0 * tf_burnout:
-                print(f"[indirect] attempt {attempt+1}/4 gave unrealistic tf={tf_sol:.1f}s — skipping")
-                continue
+                print(f"[indirect] fsolve converged but tf={tf_sol:.1f}s is unrealistic — falling back.")
+            else:
+                _, _, _, _, t_arr, alpha_arr = _forward_integrate(
+                    lam0_sol, r0, v0, gamma0, m0, tf_sol, F_T, Isp, g0, mu,
+                    m_dry=m_dry, store_alpha=True)
 
-            # Re-integrate with store_alpha=True to build α*(t)
-            _, _, _, _, t_arr, alpha_arr = _forward_integrate(
-                lam0_sol, r0, v0, gamma0, m0, tf_sol, F_T, Isp, g0, mu,
-                m_dry=m_dry, store_alpha=True)
+                if t_arr is not None and len(t_arr) > 0:
+                    print(f"[indirect] TPBVP converged: "
+                          f"tf_opt={tf_sol:.1f}s  (saves {tf_burnout - tf_sol:.1f}s vs full burn)")
+                    return t_arr, alpha_arr
 
-            if t_arr is None or len(t_arr) == 0:
-                print(f"[indirect] attempt {attempt+1}/4 produced empty trajectory — skipping")
-                continue
+                print("[indirect] fsolve converged but produced empty trajectory — falling back.")
+        else:
+            print(f"[indirect] fsolve did not converge: {msg.strip()}")
 
-            print(f"[indirect] TPBVP converged (attempt {attempt+1}/4): "
-                  f"tf_opt={tf_sol:.1f}s  (saves {tf_burnout - tf_sol:.1f}s vs full burn)")
-            return t_arr, alpha_arr
-
-        except Exception as exc:
-            print(f"[indirect] attempt {attempt+1}/4 error: {exc}")
-            continue
+    except Exception as exc:
+        print(f"[indirect] fsolve error: {exc}")
 
     # ── 3. Fallback: PEG steering trajectory ─────────────────────────────────
     print("[indirect] All TPBVP attempts failed — using PEG steering fallback (non-zero α).")
