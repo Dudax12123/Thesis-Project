@@ -1437,7 +1437,8 @@ def rocket_dynamics(t, state):
         if tpbvp_t_arr is None:
             r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
             tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
-                state[:5], r_tgt, c.MU_EARTH, F_T, Isp, r.M_STRUCTURE_2, c.G_0
+                state[:5], r_tgt, c.MU_EARTH, F_T, Isp, r.M_STRUCTURE_2, c.G_0,
+                lat_rad=LAUNCH_LATITUDE_RAD
             )
             tpbvp_epoch = t
             if sim_params.EVENTS_PRINT:

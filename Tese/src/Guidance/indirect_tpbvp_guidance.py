@@ -315,16 +315,23 @@ def _peg_initial_guess(state5, r_T, mu, F_T, Isp, g0):
 
 # ─── 4D residual for fsolve ───────────────────────────────────────────────────
 
-def _residual_4d(p, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_ref):
+def _residual_4d(p, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_ref, lat_rad):
     """4D shooting residual with free final time.
 
     Unknowns  : p = [λ_r(0), λ_v(0), λ_γ(0), tf]
     Residuals :
-      0  (r(tf) − r_T)    / 1e5        [× 100 km]
-      1  (v(tf) − v_circ) / 1e3        [× km/s]
-      2  γ(tf)                          [rad]
-      3  H(tf) / (F_T/(Isp·g0))        [dimensionless, transversality]
+      0  (r(tf) − r_T)           / 1e5   [× 100 km]
+      1  (v(tf) − v_circ_ecef)   / 1e3   [× km/s]
+      2  γ(tf)                            [rad]
+      3  H(tf) / (F_T/(Isp·g0))          [dimensionless, transversality]
+
+    v_circ_ecef = √(μ/r_T) − ω_E·r_T·cos(lat_rad)
+    Accounts for the ECEF rotating frame used by the simulation state:
+    the rocket only needs to supply the inertial circular speed minus
+    the Earth-rotation speed it already has for free.
     """
+    from Auxiliary import constants as _c
+
     lam_r0, lam_v0, lam_g0, tf = p
 
     # Soft barrier: keep tf in a physically meaningful range
@@ -336,7 +343,8 @@ def _residual_4d(p, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_ref):
         lam0, r0, v0, gamma0, m0, tf, F_T, Isp, g0, mu,
         m_dry=m_dry, store_alpha=False)
 
-    v_circ  = np.sqrt(mu / r_T)
+    v_rot   = _c.OMEGA_EARTH * r_T * np.cos(lat_rad)  # Earth surface speed at r_T
+    v_circ  = np.sqrt(mu / r_T) - v_rot               # target ECEF velocity
     H_f     = _eval_hamiltonian(y_f, F_T, Isp, g0, mu)
     H_scale = F_T / (Isp * g0)   # normalises the λ_m·(−ṁ) term to O(1)
 
@@ -350,19 +358,23 @@ def _residual_4d(p, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_ref):
 
 # ─── Public API ───────────────────────────────────────────────────────────────
 
-def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0):
+def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0, lat_rad=0.0):
     """Solve the minimum-time/fuel TPBVP via single shooting with free tf.
 
     Parameters
     ----------
-    state : array-like, length ≥ 5
+    state   : array-like, length ≥ 5
         ODE state [s, r, v, gamma, m] at guidance start (Stage 2 ignition).
-    r_T   : float  Target orbital radius [m].
-    mu    : float  Gravitational parameter [m³/s²].
-    F_T   : float  Current thrust [N].
-    Isp   : float  Specific impulse [s].
-    m_dry : float  Dry mass of Stage 2 [kg].
-    g0    : float  Standard gravity [m/s²].
+        Velocity v is in the ECEF rotating frame.
+    r_T     : float  Target orbital radius [m].
+    mu      : float  Gravitational parameter [m³/s²].
+    F_T     : float  Current thrust [N].
+    Isp     : float  Specific impulse [s].
+    m_dry   : float  Dry mass of Stage 2 [kg].
+    g0      : float  Standard gravity [m/s²].
+    lat_rad : float  Launch-site latitude [rad] (default 0).
+        Used to subtract Earth's rotational speed from the target circular
+        velocity: v_circ_ecef = √(μ/r_T) − ω_E·r_T·cos(lat_rad).
 
     Returns
     -------
@@ -390,7 +402,7 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0):
 
     # ── 2. Single shooting attempt from PEG initial guess ────────────────────
     p_init = np.array([lam0_peg[0], lam0_peg[1], lam0_peg[2], tf_peg])
-    args   = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_burnout)
+    args   = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T, tf_burnout, lat_rad)
 
     try:
         with warnings.catch_warnings():
