@@ -93,7 +93,17 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Terminal constraints: r(T_burnout) = r_T, γ(T_burnout) = 0
 #                   - Fixed coefficients for the entire burn (open-loop after initialization)
 #                   - Works with any GUIDANCE_START_MODE (after_kick or after_atmosphere_exit)
-GUIDANCE_MODE = "exp_shooting"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting"
+#   "indirect_pmp": Indirect method via Pontryagin's Minimum Principle (PMP)
+#                   - PSO (PyGMO or scipy.differential_evolution) optimises initial
+#                     costate values plus coast/burn timing and kick angle jointly
+#                   - Stage 1: standard gravity turn (PSO-chosen kick angle)
+#                   - Stage 2: costates [λ_r, λ_v, λ_γ] propagated alongside the
+#                     state with drag-free EOM (free-flight phase after fairing jettison)
+#                   - Control α = atan2(−λ_γ/V, −λ_V) at every timestep (Eq. 34)
+#                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
+#                   - Objective: burn time + terminal constraint penalties (Eq. 39)
+#                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
+GUIDANCE_MODE = "exp_shooting"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -233,3 +243,33 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 # ===================================================
 INTERRUPTS_PRINT = False
 EVENTS_PRINT = True
+
+
+# ===================================================
+# INDIRECT PMP / PSO PARAMETERS
+# (only used when GUIDANCE_MODE = "indirect_pmp")
+# ===================================================
+
+# -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
+PSO_N_PARTICLES     = 250       # swarm size
+PSO_MAX_GENERATIONS = 1000      # maximum number of generations
+PSO_C1              = 2.05      # cognitive parameter (paper default)
+PSO_C2              = 2.05      # social parameter   (paper default)
+PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
+PSO_VMAX            = 0.5       # maximum particle velocity (normalised)
+
+# -------------- Decision-variable bounds (Table 6 of paper) ------------------
+# x = [lambda0_r, lambda0_v, lambda0_g, delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
+PSO_LB = [-1.0,  -1.0,  -1.0,   0.0,   0.0,   0.0,  1.54]   # lower bounds
+PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
+# lambda0_{r,v,g}   : initial costate values for Stage 2     [−1, 1]
+# delta_tc          : coast phase duration                    [0, 2000] s
+# delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
+# coast_start_pct   : coast start as % of Stage-2 burn time   [0, 100] %
+# gamma_p           : pitch maneuver angle                    [1.54, 1.57] rad
+
+# -------------- Penalty weight factors for augmented objective (Eq. 39) ------
+PENALTY_W_ALTITUDE  = 1e-3      # s1: altitude error weight    [1/m]
+PENALTY_W_VELOCITY  = 1e-2      # s2: velocity error weight    [s/m]
+PENALTY_W_FPA       = 1e2       # s3: FPA error weight         [1/rad]
+PENALTY_W_TRANSVERS = 1e1       # s4: transversality condition weight

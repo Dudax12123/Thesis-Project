@@ -2150,3 +2150,197 @@ def run(initial_kick_angle, azimuth_override=None):
         alpha_time_data = np.array(alpha_time_history)
         return time_steps_simulation, data, None, 9999999.0, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
+
+# ===========================================================================
+# Stage-1-only simulation helper  (used by indirect PMP PSO solver)
+# ===========================================================================
+
+def run_stage1(initial_kick_angle):
+    """
+    Runs Stage 1 (gravity turn) only and returns the initial conditions for
+    Stage 2 at the moment of stage separation.
+
+    Intended for the indirect PMP PSO solver.  Stage 2 is then handled by
+    ``indirect_pso_solver.run_indirect_trajectory()``, which propagates the
+    augmented state  [s, r, v, γ, m, λ_r, λ_v, λ_γ]  with the PMP ODE.
+
+    Parameters
+    ----------
+    initial_kick_angle : float
+        Gravity-turn kick angle [rad]  (same meaning as in ``run()``)
+
+    Returns
+    -------
+    t2_start : float or None
+        Time at stage separation [s].  None if crashed.
+    state2_init : ndarray or None
+        State vector at stage separation after mass adjustment [5 or 6 elements].
+        None if crashed.
+    t_meco : float or None
+        Time of main-engine cut-off [s] (= Stage-1 propellant depletion).
+        None if crashed.
+    t_stage1 : ndarray
+        Time array for the Stage-1 trajectory.
+    y_stage1 : ndarray
+        State data for the Stage-1 trajectory (shape: n_states × n_steps).
+    crashed : bool
+        True if a ground collision was detected during Stage 1.
+    """
+    global time_kick_start, kick_performed, time_raise, main_engine_cutoff
+    global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
+    global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
+    global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
+    global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
+    global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
+    global cpr_theta_dot, cpr_t_start
+    global thrust_history, time_history
+    global alpha_history, alpha_time_history, theta_history, theta_time_history
+    global tgo_history, tgo_time_history
+    global coriolis_mag_history, centrifugal_mag_history
+    global cross_heading_counter_force_history, cross_heading_accel_history
+    global fairing_jettisoned, time_fairing_jettison
+    global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
+    global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
+    global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
+    global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
+    global CRASH_DETECTED, CRASH_TIME
+    global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
+    global AZIMUTH_MODE_USED, LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
+    global PROPAGATING_IN_INERTIAL_FRAME
+    global _isp1_last_update_time, _isp1_current
+    global _thrust1_last_update_time, _thrust1_current
+
+    # --- Reset globals (identical to the reset block in run()) ---------------
+    time_kick_start = None
+    kick_performed = False
+    time_raise = sim_params.DURATION_INITIAL_KICK / 2.
+    main_engine_cutoff = False
+    second_engine_ignition = False
+    stage_2_burnt = False
+    time_main_engine_cutoff = None
+    second_stage_cutoff = False
+    flag_falling_single_burn = False
+    PROPAGATING_IN_INERTIAL_FRAME = False
+    current_kick_angle = initial_kick_angle
+
+    LAUNCH_AZIMUTH = np.deg2rad(90.0)
+    LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
+    LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    LAUNCH_ROTATION_SPEED = 0.0
+    AZIMUTH_MODE_USED = "corrected"
+    LAST_ACHIEVED_INCLINATION_DEG = np.nan
+    LAST_INCLINATION_DRIFT_DEG = np.nan
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        (LAUNCH_AZIMUTH,
+         LAUNCH_AZIMUTH_INERTIAL,
+         LAUNCH_ROTATION_SPEED) = earth_rot.select_launch_azimuth(
+            sim_params.TARGET_ORBIT_INCLINATION,
+            sim_params.LAUNCH_LATITUDE,
+            sim_params.TARGET_ORBITAL_ALTITUDE,
+        )
+
+    atmosphere_exited = False
+    guidance_phase_active = False
+    time_atmosphere_exit = None
+    time_guidance_start = None
+    last_guidance_update_time = 0.0
+    guidance_initial_tgo = None
+    guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
+    apollo_coefficients_frozen = False
+    apollo_freeze_time = None
+    apollo_previous_tgo = None
+    lts_previous_tgo = None
+    cpr_theta_dot = None
+    cpr_t_start = None
+
+    fairing_jettisoned = False
+    time_fairing_jettison = None
+
+    peg_A = peg_B = 0.0
+    peg_T = peg_t_epoch = None
+    peg_frozen = False
+    peg_new_vgo_r = peg_new_vgo_theta = 0.0
+    peg_new_L0 = 1.0
+    peg_new_tgo = peg_new_t_epoch = None
+    peg_new_t_lambda = peg_new_lambda_r = 0.0
+    peg_new_frozen = False
+    exp_shoot_a = exp_shoot_b = exp_shoot_epoch = None
+
+    thrust_history = []
+    coriolis_mag_history = []
+    centrifugal_mag_history = []
+    cross_heading_counter_force_history = []
+    cross_heading_accel_history = []
+    time_history = []
+    alpha_history = []
+    alpha_time_history = []
+    theta_history = []
+    theta_time_history = []
+    tgo_history = []
+    tgo_time_history = []
+
+    CRASH_DETECTED = False
+    CRASH_TIME = None
+    _isp1_last_update_time = 0.0
+    _isp1_current = r.ISP_1_SL
+    _thrust1_last_update_time = 0.0
+    _thrust1_current = r.F_THRUST_1_SL
+
+    # --- Initial conditions ---------------------------------------------------
+    initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 +
+                    r.M_PROP_2 + r.M_PAYLOAD)
+    initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
+    if sim_params.ENABLE_EARTH_ROTATION:
+        initial_state_1.append(LAUNCH_LATITUDE_RAD)
+        if sim_params.TRACK_HEADING_STATE:
+            initial_state_1.append(LAUNCH_AZIMUTH)
+
+    time_1 = 500.
+
+    # --- Stage 1A: until fairing jettison OR stage separation ----------------
+    sol_1a = simulate_trajectory(
+        0, time_1, initial_state_1, False, False,
+        override_events=[interrupt_fairing_jettison, interrupt_ground_collision,
+                         interrupt_velocity_exceeded, interrupt_stage_separation])
+
+    if len(sol_1a.t_events[1]) > 0:          # crash before any other event
+        CRASH_DETECTED = True
+        CRASH_TIME = sol_1a.t_events[1][0]
+        return None, None, None, sol_1a.t, sol_1a.y, True
+
+    if len(sol_1a.t_events[0]) > 0:
+        # Fairing jettison fired before stage separation (normal case)
+        fairing_jettisoned = True
+        time_fairing_jettison = sol_1a.t[-1]
+        initial_state_1b = sol_1a.y[:, -1].copy()
+        initial_state_1b[4] -= r.M_FAIRING
+
+        sol_1b = simulate_trajectory(time_fairing_jettison, time_1,
+                                     initial_state_1b, True, False)
+
+        if len(sol_1b.t_events[1]) > 0:      # crash after fairing jettison
+            CRASH_DETECTED = True
+            CRASH_TIME = sol_1b.t_events[1][0]
+            t_c = np.concatenate([sol_1a.t, sol_1b.t])
+            y_c = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
+            return None, None, None, t_c, y_c, True
+
+        class _Sol1:
+            t = np.concatenate([sol_1a.t, sol_1b.t])
+            y = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
+
+        sol_1 = _Sol1()
+
+    else:
+        # Stage separation fired before fairing jettison
+        sol_1 = sol_1a
+
+    # --- Build Stage-2 initial state (mass-adjusted for staging) ------------
+    state2_init = sol_1.y[:, -1].copy()
+    state2_init[4] -= (r.M_STRUCTURE_1 - r.M_FAIRING)
+    t2_start = float(sol_1.t[-1])
+    t_meco = time_main_engine_cutoff        # set by event_main_engine_cutoff()
+
+    return t2_start, state2_init, t_meco, sol_1.t, sol_1.y, False
+

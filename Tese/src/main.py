@@ -236,6 +236,106 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = False
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
+    # =========================================================================
+    # INDIRECT PMP MODE — PSO optimisation replaces brute-force kick-angle search
+    # =========================================================================
+    if sim_params.GUIDANCE_MODE == "indirect_pmp":
+        from Simulation.indirect_pso_solver import (
+            run_pso_optimization,
+            run_indirect_full,
+        )
+
+        print("\n" + "="*60)
+        print("INDIRECT PMP — PSO TRAJECTORY OPTIMISATION")
+        print("="*60)
+        print("  Optimising 7 variables: λ₀_r, λ₀_v, λ₀_γ, Δt_c,")
+        print("  Δt_r%, coast_start%, γ_p  (see Table 6 of paper)")
+        print("="*60)
+
+        # Suppress event prints during PSO (thousands of trajectory evals)
+        _events_print_saved     = sim_params.EVENTS_PRINT
+        _interrupts_print_saved = sim_params.INTERRUPTS_PRINT
+        sim_params.EVENTS_PRINT     = False
+        sim_params.INTERRUPTS_PRINT = False
+
+        optimal_params, J_optimal = run_pso_optimization(verbose=True)
+
+        sim_params.EVENTS_PRINT     = _events_print_saved
+        sim_params.INTERRUPTS_PRINT = _interrupts_print_saved
+
+        # --- Full-resolution re-run for plotting ---
+        print("\n" + "="*60)
+        print("RUNNING FULL TRAJECTORY SIMULATION (optimal params)")
+        print("="*60 + "\n")
+        sim_params.EVENTS_PRINT = True
+
+        (time, data, thrust_full, alpha_full,
+         _, result_opt) = run_indirect_full(optimal_params, verbose=True)
+
+        # Pack into variables expected by the display/plotting code below.
+        # (No circularization delta-v computed for indirect PMP — set sentinel.)
+        thrust_data      = thrust_full
+        time_thrust      = time
+        alpha_data       = alpha_full
+        alpha_time_data  = time
+        coriolis_mag_data    = np.zeros_like(time)
+        centrifugal_mag_data = np.zeros_like(time)
+        delta_v          = 0.0
+
+        kick_angle_optimal     = optimal_params[6] - np.pi / 2.0   # gamma_p → kick angle
+        best_azimuth_override  = None
+        _simulation_failed     = result_opt['crashed']
+
+        if _simulation_failed:
+            print("\n" + "!"*60)
+            print("INDIRECT PMP SIMULATION FAILED — trajectory crashed")
+            print("!"*60 + "\n")
+
+        # Print PSO results summary
+        if not _simulation_failed:
+            sf  = data[:, -1]
+            h_f = (sf[1] - c.R_EARTH) / 1e3
+            v_f = sf[2]
+            g_f = np.rad2deg(sf[3])
+            r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+            v_c = np.sqrt(c.MU_EARTH / r_t)
+            print("\n" + "="*60)
+            print("INDIRECT PMP OPTIMISATION RESULTS")
+            print("="*60)
+            print(f"\t* Augmented objective J':\t\t{J_optimal:.4f}")
+            print(f"\t* Final altitude:\t\t\t{h_f:.2f} km  "
+                  f"(target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km)")
+            print(f"\t* Final velocity:\t\t\t{v_f:.2f} m/s  "
+                  f"(circular {v_c:.2f} m/s)")
+            print(f"\t* Final FPA:\t\t\t\t{g_f:.4f}°  (target 0°)")
+            H_tv = (result_opt['H_burn_end'] + result_opt['H_coast_end']
+                    - result_opt['H_burn_start'])
+            print(f"\t* Transversality residual:\t\t{H_tv:.6f}  (target 0)")
+
+        # Skip the rest of the normal execute() flow
+        if _simulation_failed:
+            return time, data, kick_angle_optimal
+
+        # Jump to plotting (handled below by falling through with the assembled variables)
+        # Note: inclination analysis and circularization are not run for indirect_pmp.
+        print("\n" + "="*60)
+        print("SKIPPING CIRCULARIZATION & INCLINATION ANALYSIS")
+        print("(Not applicable to indirect PMP mode)")
+        print("="*60)
+
+        new_plot_runner.run_new_plot_suite(
+            time, data, thrust_data, time_thrust, alpha_data, alpha_time_data,
+            output_dir=f"../../Images/{sim_params.GUIDANCE_MODE}",
+            show=True, close_after=False,
+            coriolis_mag_data=coriolis_mag_data,
+            centrifugal_mag_data=centrifugal_mag_data,
+        )
+        return time, data, kick_angle_optimal
+
+    # =========================================================================
+    # ALL OTHER GUIDANCE MODES — existing brute-force kick-angle optimisation
+    # =========================================================================
+
     # Determine kick angle (either from optimization or pre-set optimal value)
     if sim_params.GUIDANCE_MODE == "cpr":
         # CPR has no kick maneuver — no optimisation needed
