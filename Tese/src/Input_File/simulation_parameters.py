@@ -236,12 +236,12 @@ OPTIMAL_KICK_ANGLES = {
 
 # PSO swarm settings (paper sec 5.2 used 250 particles / 1000 iter for validation,
 # sec 6 used 100 particles / 250 iter for design demonstration).
-PSO_PAPER_POPULATION   = 250        # particles per swarm
-PSO_PAPER_ITERATIONS   = 1000        # max iterations
-PSO_PAPER_C1           = 2.05       # cognitive coefficient (paper sec 5.2)
-PSO_PAPER_C2           = 2.05       # social coefficient — reduced from 2.05 to weaken pull toward global best and reduce premature convergence
-PSO_PAPER_W            = 0.7298       # inertia weight — raised from 0.7298 to slow velocity decay and maintain exploration
-PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
+PSO_PAPER_POPULATION   = 50        # particles per swarm
+PSO_PAPER_ITERATIONS   = 50        # max iterations
+PSO_PAPER_C1           = 2.15       # cognitive coefficient (paper sec 5.2)
+PSO_PAPER_C2           = 2.15       # social coefficient — reduced from 2.05 to weaken pull toward global best and reduce premature convergence
+PSO_PAPER_W            = 0.85       # inertia weight — raised from 0.7298 to slow velocity decay and maintain exploration
+PSO_PAPER_VMAX_NORM    = 0.7        # normalized max velocity
 
 # Design-variable bounds (paper Tables 6, 9).
 # Layout of the 7-element design vector x:
@@ -262,7 +262,7 @@ PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
 PSO_PAPER_T_PITCHOVER           = 7.5                    # [s]
 
 PSO_PAPER_LAMBDA_BOUNDS         = (-1.0, 1.0)            # initial costates [-]
-PSO_PAPER_GAMMA_P_BOUNDS        = (np.deg2rad(84), np.deg2rad(87.5))            # initial pitch [rad] (74.5°–89.9°) — widened from (1.54, 1.57) for Falcon 9 class
+PSO_PAPER_GAMMA_P_BOUNDS        = (1.54, 1.57)            # initial pitch [rad] (74.5°–89.9°) — widened from (1.54, 1.57) for Falcon 9 class
 PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 1500.0)          # Δt_c [s] — tightened for 500 km targets (paper sec 6 used (500, 3000) for Electron going much higher)
 PSO_PAPER_COAST_START_PCT       = (0.0, 1.0)             # fraction of Stage-2 thrust time before coast
 PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 max-burn time (paper Table 11; 5% reserve case)
