@@ -93,15 +93,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Terminal constraints: r(T_burnout) = r_T, γ(T_burnout) = 0
 #                   - Fixed coefficients for the entire burn (open-loop after initialization)
 #                   - Works with any GUIDANCE_START_MODE (after_kick or after_atmosphere_exit)
-#   "indirect":     Indirect optimal control (PMP / TPBVP, minimum fuel)
-#                   - Based on Pontryagin's Maximum Principle (eqs 59–64)
-#                   - Hamiltonian H = λᵀf; optimality H_u=0 gives α*(t)=arctan2(λ_γ, v·λ_v)
-#                   - Adjoint equations λ̇=−H_x integrated alongside state equations
-#                   - Costates λ(t0) found by fsolve on 3D residual [r−r_T, v−v_circ, γ]
-#                   - TPBVP solved once at guidance start; α*(t) interpolated thereafter
-#                   - Terminal constraints: r=r_T, v=v_circ=√(μ/r_T), γ=0
-#                   - Works with any GUIDANCE_START_MODE
-GUIDANCE_MODE = "indirect"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect"
+GUIDANCE_MODE = "exp_shooting"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -220,7 +212,6 @@ OPTIMAL_KICK_ANGLES = {
     "peg": -np.deg2rad(3.0),                     # Update after optimization
     "peg_new": -np.deg2rad(3.0),                 # Update after optimization
     "exp_shooting": -np.deg2rad(3.0),            # Update after optimization
-    "indirect": -np.deg2rad(3.0),               # Update after optimization
 }
 
 # ===================================================

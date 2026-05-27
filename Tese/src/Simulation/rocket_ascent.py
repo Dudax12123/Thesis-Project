@@ -26,7 +26,6 @@ import Guidance.cpr_guidance as cpr_guidance_module
 import Guidance.peg_guidance as peg_guidance_mod
 import Guidance.peg_guidance_new as peg_new_mod
 import Guidance.exp_shooting_guidance as exp_shoot_mod
-import Guidance.indirect_tpbvp_guidance as indirect_mod
 import numpy as np
 from scipy.integrate import solve_ivp
 
@@ -104,11 +103,6 @@ peg_frozen  = False
 exp_shoot_a     = None   # coefficient a in θ(t) = a·exp(b·t_rel)
 exp_shoot_b     = None   # coefficient b
 exp_shoot_epoch = None   # absolute t when (a, b) were computed
-
-# Indirect TPBVP guidance state (PMP / minimum-fuel)
-tpbvp_t_arr    = None   # time array of precomputed α*(t) [s]
-tpbvp_alpha_arr = None  # optimal α*(t) array [rad]
-tpbvp_epoch    = None   # absolute t when TPBVP was solved [s]
 
 # PEG_new guidance state (analytical predictor-corrector)
 peg_new_vgo_r     = 0.0
@@ -999,7 +993,6 @@ def rocket_dynamics(t, state):
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
     global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
-    global tpbvp_t_arr, tpbvp_alpha_arr, tpbvp_epoch
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
@@ -1420,27 +1413,6 @@ def rocket_dynamics(t, state):
         alpha = exp_shoot_mod.exp_pitch_alpha(t - exp_shoot_epoch,
                                                exp_shoot_a, exp_shoot_b, gamma)
 
-    elif guidance_phase_active and sim_params.GUIDANCE_MODE == "indirect" and F_T > 0:
-        # Indirect PMP / TPBVP: solve minimum-fuel problem once, interpolate α*(t)
-        if tpbvp_t_arr is None:
-            isp_active = Isp
-            if second_engine_ignition:
-                m_dry_active = r.M_STRUCTURE_2
-            elif fairing_jettisoned:
-                m_dry_active = r.M_STRUCTURE_1 - r.M_FAIRING
-            else:
-                m_dry_active = r.M_STRUCTURE_1
-            r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-            tpbvp_t_arr, tpbvp_alpha_arr = indirect_mod.solve_tpbvp(
-                state[:5], r_tgt, c.MU_EARTH, F_T, isp_active, m_dry_active, c.G_0
-            )
-            tpbvp_epoch = t
-            if sim_params.EVENTS_PRINT:
-                tf_est = tpbvp_t_arr[-1] if tpbvp_t_arr is not None else 0.0
-                print(f"[indirect] TPBVP solved at t={t:.1f}s, tf_est={tf_est:.1f}s")
-        alpha = indirect_mod.tpbvp_alpha(t - tpbvp_epoch,
-                                          tpbvp_t_arr, tpbvp_alpha_arr)
-
     else:
         # Default: zero angle of attack (gravity turn mode or coasting)
         alpha = 0.
@@ -1678,7 +1650,6 @@ def run(initial_kick_angle, azimuth_override=None):
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
     global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
-    global tpbvp_t_arr, tpbvp_alpha_arr, tpbvp_epoch
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
@@ -1757,9 +1728,6 @@ def run(initial_kick_angle, azimuth_override=None):
 
     # Reset exponential-shooting state
     exp_shoot_a = exp_shoot_b = exp_shoot_epoch = None
-
-    # Reset indirect TPBVP state
-    tpbvp_t_arr = tpbvp_alpha_arr = tpbvp_epoch = None
 
     # Reset thrust, pseudo-force, and time history
     thrust_history = []
