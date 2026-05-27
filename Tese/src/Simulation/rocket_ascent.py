@@ -130,6 +130,11 @@ peg_new_lambda_r  = 0.0
 peg_new_t_epoch   = None
 peg_new_frozen    = False
 
+# Snapshot of peg_new's internal state at the first major-loop call (= SEI).
+# Written once per run; read by pso_paper_solver._run_peg_new_trial() to derive
+# physics-informed initial costates for the PSO warm-start.
+peg_new_sei_snapshot = None   # dict or None
+
 # Stage 1 Isp linear-ramp state (only active when ISP_1_MODE = "linear")
 _isp1_last_update_time = 0.0   # Last time Isp was stepped
 _isp1_current = r.ISP_1_SL    # Current Isp value used by the ramp
@@ -1100,6 +1105,7 @@ def rocket_dynamics(t, state):
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
+    global peg_new_sei_snapshot
     global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
     global thrust_history, time_history
     global alpha_history, alpha_time_history, theta_history, theta_time_history
@@ -1483,6 +1489,18 @@ def rocket_dynamics(t, state):
          peg_new_t_lambda, peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
              state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
 
+        # Capture SEI snapshot for PSO warm-start seed extraction (first call only).
+        if peg_new_sei_snapshot is None:
+            peg_new_sei_snapshot = {
+                "state":     state[:5].copy(),   # [s, r, v, gamma, m]
+                "vgo_r":     peg_new_vgo_r,
+                "vgo_theta": peg_new_vgo_theta,
+                "L0":        peg_new_L0,
+                "tgo":       peg_new_tgo,
+                "t_lambda":  peg_new_t_lambda,
+                "lambda_r":  peg_new_lambda_r,
+            }
+
         alpha = peg_new_mod.peg_new_alpha(
             0.0, peg_new_vgo_r, peg_new_vgo_theta,
             peg_new_L0, peg_new_lambda_r, peg_new_t_lambda, gamma)
@@ -1823,6 +1841,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
     global peg_new_vgo_r, peg_new_vgo_theta, peg_new_L0, peg_new_tgo
     global peg_new_t_lambda, peg_new_lambda_r, peg_new_t_epoch, peg_new_frozen
+    global peg_new_sei_snapshot
     global exp_shoot_a, exp_shoot_b, exp_shoot_epoch
     global CRASH_DETECTED, CRASH_TIME
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
@@ -1831,7 +1850,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global PROPAGATING_IN_INERTIAL_FRAME
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
-    
+
     #===================================================
     # Reset global variables
     #===================================================
@@ -1899,6 +1918,7 @@ def run(initial_kick_angle, azimuth_override=None):
     peg_new_tgo = peg_new_t_epoch = None
     peg_new_t_lambda = peg_new_lambda_r = 0.0
     peg_new_frozen = False
+    peg_new_sei_snapshot = None
 
     # Reset exponential-shooting state
     exp_shoot_a = exp_shoot_b = exp_shoot_epoch = None

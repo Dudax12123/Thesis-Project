@@ -236,9 +236,9 @@ OPTIMAL_KICK_ANGLES = {
 
 # PSO swarm settings (paper sec 5.2 used 250 particles / 1000 iter for validation,
 # sec 6 used 100 particles / 250 iter for design demonstration).
-PSO_PAPER_POPULATION   = 200        # particles per swarm
-PSO_PAPER_ITERATIONS   = 250        # max iterations
-PSO_PAPER_C1           = 2.05       # cognitive coefficient (paper sec 5.2)
+PSO_PAPER_POPULATION   = 100        # particles per swarm
+PSO_PAPER_ITERATIONS   = 50        # max iterations
+PSO_PAPER_C1           = 2.05       # cognitive coefficient — reduced from 2.05 to weaken pull toward personal best and encourage exploration of the design space
 PSO_PAPER_C2           = 2.05       # social coefficient — reduced from 2.05 to weaken pull toward global best and reduce premature convergence
 PSO_PAPER_W            = 0.7298       # inertia weight — raised from 0.7298 to slow velocity decay and maintain exploration
 PSO_PAPER_VMAX_NORM    = 0.5        # normalized max velocity
@@ -268,22 +268,30 @@ PSO_PAPER_T_PITCHOVER           = 7.5                    # [s]
 # the initial PSO guess.  lam_h0 is left unconstrained ([-1, 1]).
 PSO_PAPER_LAM_H_BOUNDS          = (-1.0, 1.0)            # initial costate on altitude
 PSO_PAPER_LAM_V_BOUNDS          = (-1.0, 0.0)            # initial costate on velocity  (negative for ascent)
-PSO_PAPER_LAM_G_BOUNDS          = (-1.0, 0.0)            # initial costate on flight-path angle (negative for pitch-up)
+PSO_PAPER_LAM_G_BOUNDS          = (-1.0, 1.0)            # initial costate on flight-path angle; expanded to [-1,1] to allow
+                                                          # downward pitch (alpha < 0) needed for circular-orbit circularisation.
+                                                          # Retrograde thrust is already prevented by lam_V <= 0 alone.
 # Paper-original (Morgado/Marta/Gil 2022 Table 6): a tiny pitch-over off vertical
 # so the subsequent gravity turn evolves without over-rotating gamma during the
 # Stage-1 burn.  Wider ranges (e.g. (84°, 87.5°)) let PSO pick pitch-overs that
 # drive gamma below 0° before MECO, producing trajectories that lose altitude
 # during Stage 1.  Reverted to the paper's range to keep trajectories physical.
 PSO_PAPER_GAMMA_P_BOUNDS        = (np.deg2rad(88.2), np.deg2rad(89.95))         # initial pitch [rad]
-PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 1500.0)          # Δt_c [s] — tightened for 500 km targets (paper sec 6 used (500, 3000) for Electron going much higher)
+PSO_PAPER_COAST_DURATION_BOUNDS = (0.0, 90.0)            # Δt_c [s] — tightened to match 500 km LEO profile; peg_new baseline = 0 s
+                                                          # (paper used (500, 3000) s for Electron → much higher orbits; 261 s coast was dominating search)
+                                                          # 90 s covers any Hohmann-like insertion delay; also shrinks peg_new seed σ from 45 s to 2.7 s
 PSO_PAPER_COAST_START_PCT       = (0.2, 1.0)             # fraction of Stage-2 thrust time before coast — lower bound raised from 0.0 to remove the degenerate "no pre-coast burn" corner
 PSO_PAPER_LAST_BURN_PCT         = (0.70, 0.95)           # fraction of Stage-2 max-burn time (paper Table 11; 5% reserve case)
 
 # Penalty weights (paper eq. 39; the paper does not publish s_c values).
 PSO_PAPER_PENALTY_ALT   = 1.0e3
 PSO_PAPER_PENALTY_VEL   = 1.0e3
-PSO_PAPER_PENALTY_GAMMA = 1.0e3     # gamma is now normalised to [0,1] — same scale as alt/vel
-PSO_PAPER_PENALTY_HAM   = 0.0       # TEMPORARY: dropped to 0 to test whether the BCs-only search yields a real orbit. |H_residual|, H_scale, |Δ|/H are still printed in the diagnostic as raw data.
+PSO_PAPER_PENALTY_GAMMA     = 1.0e3     # gamma is now normalised to [0,1] — same scale as alt/vel
+PSO_PAPER_PENALTY_GAMMA_NEG = 5.0       # extra multiplier applied when γ_f < 0 (descending at SECO → suborbital)
+                                         # total penalty on negative γ = (1 + 5) × 1e3 = 6e3
+PSO_PAPER_PENALTY_HAM   = 1.0e3       # conservative start; |ΔH|/H_scale ≈ 0.89 → adds ~89 to cost (same magnitude as γ term)
+PSO_PAPER_PENALTY_PERI  = 1.0e2       # osculating periapsis below target altitude
+                                       # bad case (h_peri=-1840 km): err=4.68 → +936; good case (h_peri=490 km): err=0.02 → +4
 PSO_PAPER_PENALTY_HARD  = 1.0e10     # ground impact / NaN — softened from 1e20: still ~100× worse than typical orbit cost, but gives PSO usable gradients near the crash boundary instead of an infinite wall
 
 # Early-stop convergence (paper sec 6.1, paragraph after Table 13:
@@ -306,7 +314,7 @@ PSO_PAPER_FORCE_DISABLE_PSEUDO = True
 #   "global" -> GlobalBestPSO (star / fully connected; every particle pulled
 #               toward the single global best; faster convergence, more prone
 #               to premature collapse on rugged landscapes; ignores k, p).
-PSO_PAPER_TOPOLOGY = "local"  # Options: "local", "global"
+PSO_PAPER_TOPOLOGY = "global"  # Options: "local", "global"
 
 # Ring topology parameters for pyswarms.single.LocalBestPSO (ignored when
 # PSO_PAPER_TOPOLOGY = "global").
@@ -318,8 +326,9 @@ PSO_PAPER_P_NORM      = 2
 # Warm-start: seed a fraction of the swarm in a small Gaussian cloud around a
 # hand-tuned design vector that is physically reasonable for a normal ascent.
 # Remaining particles are initialised uniformly at random within bounds.
-PSO_PAPER_WARM_START_ENABLED = True
-PSO_PAPER_WARM_START_N_SEEDS = 10        # number of seeded particles (out of POPULATION)
+PSO_PAPER_WARM_START_ENABLED = False
+PSO_PAPER_WARM_START_N_SEEDS = 0         # disabled — peg_new cloud (below) replaces it;
+                                          # old hand-tuned values had lam_g0 < 0 (wrong direction post-bounds-expansion)
 PSO_PAPER_WARM_START_JITTER  = 0.05      # std-dev of Gaussian jitter, as fraction of each dim's bound range
 
 # Hand-tuned seed for the 7-dim design vector:
@@ -330,11 +339,21 @@ PSO_PAPER_WARM_START_SEED = (
     -0.001428,    # lam_h0
     -0.765441,    # lam_V0
     -0.255961,    # lam_gamma0
-     1.554234,  # gamma_p (rad) ≈ 89.1°, mid-range of bounds [88.2°, 89.95°]
-   200.0,    # dt_c (s)
-     0.472844,    # coast_pct (within new [0.2, 1.0])
-     0.946197,   # burn_pct (within [0.70, 0.95])
+    1.554234,  # gamma_p (rad) ≈ 89.1°, mid-range of bounds [88.2°, 89.95°]
+    200.0,    # dt_c (s)
+    0.472844,    # coast_pct (within new [0.2, 1.0])
+    0.946197,   # burn_pct (within [0.70, 0.95])
 )
+
+# peg_new-derived warm-start: before the PSO begins, one trial run with peg_new
+# guidance is executed.  The SEI snapshot (vgo, lambda_r, tgo at Stage-2 ignition)
+# is converted to initial PSO costates via the velocity-normalized formula:
+#   lam_V0 = -cos(alpha_peg),  lam_g0 = -(V_SEI/V_ref)*sin(alpha_peg)
+# This Gaussian cluster is now the sole physics-informed seed (hand-tuned cloud disabled).
+# gamma_p used for the trial: PSO_PAPER_WARM_START_SEED[3] (kept as the reference gamma_p).
+PSO_PAPER_PEG_SEED_ENABLED      = False  # enable the peg_new warm-start seed (replaces the hand-tuned seed)
+PSO_PAPER_PEG_SEED_N_PARTICLES  = int(0.40*PSO_PAPER_POPULATION)  # 40% of swarm seeded from peg_new (raised from 25%; no hand-tuned cloud)
+PSO_PAPER_PEG_SEED_JITTER       = 0.03  # 3% σ around the physics-derived point
 
 # Stagnation-kick restart: when pyswarms' built-in convergence detector fires
 # (no cost improvement greater than PSO_PAPER_STAGNATION_RTOL over the last
@@ -346,7 +365,7 @@ PSO_PAPER_WARM_START_SEED = (
 # Note: pyswarms' ftol is an *absolute* cost difference, not a relative one;
 # tune PSO_PAPER_STAGNATION_RTOL with that in mind (raise it if kicks fire too
 # eagerly given the cost magnitudes you observe in practice).
-PSO_PAPER_STAGNATION_ENABLED  = True
+PSO_PAPER_STAGNATION_ENABLED  = False
 PSO_PAPER_STAGNATION_PATIENCE = 50         # iters without improvement before a kick
 PSO_PAPER_STAGNATION_RTOL     = 1.0e-3     # cost-improvement threshold passed to pyswarms ftol
 

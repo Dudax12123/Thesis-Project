@@ -41,6 +41,7 @@ from Auxiliary import rocket_specs as r_specs
 from Input_File import simulation_parameters as sim_params
 from Simulation import rocket_ascent as ra
 import Guidance.pso_paper_guidance as pso_paper_mod
+import Guidance.peg_guidance_new as peg_new_mod
 
 # Max Stage-2 burn duration (used to normalise j_impulse to [0, 1])
 _MDOT_S2       = r_specs.F_THRUST_2 / (r_specs.ISP_2 * c.G_0)
@@ -66,10 +67,14 @@ def _make_bounds():
 def _make_init_pos(lb, ub, n_particles):
     """Return an (n_particles, 7) initial-position matrix, or None for default init.
 
-    When PSO_PAPER_WARM_START_ENABLED is True, the first PSO_PAPER_WARM_START_N_SEEDS
-    rows are a Gaussian cloud around PSO_PAPER_WARM_START_SEED with std-dev =
-    PSO_PAPER_WARM_START_JITTER * (ub - lb), clipped to bounds.  Remaining rows are
-    uniform-random in [lb, ub] (matches pyswarms' default init distribution).
+    Population layout (all rows clipped to [lb, ub]):
+      [0 : n_hand]              Gaussian cloud around PSO_PAPER_WARM_START_SEED
+      [n_hand : n_hand+n_peg]   Gaussian cloud around peg_new-derived costate seed
+      [n_hand+n_peg : end]      Uniform random within bounds
+
+    The peg_new seed block is only built when PSO_PAPER_PEG_SEED_ENABLED is True
+    and the trial run successfully reaches Stage-2 ignition.  If the trial fails,
+    the slot falls back to uniform random without raising an error.
     """
     if not getattr(sim_params, "PSO_PAPER_WARM_START_ENABLED", False):
         return None
@@ -77,18 +82,44 @@ def _make_init_pos(lb, ub, n_particles):
     rng_seed = getattr(sim_params, "PSO_PAPER_WARM_START_SEED_RNG", None)
     rng = np.random.default_rng(rng_seed)
 
-    seed   = np.array(sim_params.PSO_PAPER_WARM_START_SEED, dtype=float)
-    n_seed = min(int(sim_params.PSO_PAPER_WARM_START_N_SEEDS), n_particles)
-    sigma  = float(sim_params.PSO_PAPER_WARM_START_JITTER) * (ub - lb)
-
     init = np.empty((n_particles, lb.size), dtype=float)
-    if n_seed > 0:
-        init[:n_seed] = np.clip(
-            seed + rng.normal(0.0, sigma, size=(n_seed, lb.size)),
+    cursor = 0  # next unfilled row
+
+    # ── Hand-tuned Gaussian cloud ──────────────────────────────────────────────
+    seed   = np.array(sim_params.PSO_PAPER_WARM_START_SEED, dtype=float)
+    n_hand = min(int(sim_params.PSO_PAPER_WARM_START_N_SEEDS), n_particles)
+    if n_hand > 0:
+        sigma = float(sim_params.PSO_PAPER_WARM_START_JITTER) * (ub - lb)
+        init[:n_hand] = np.clip(
+            seed + rng.normal(0.0, sigma, size=(n_hand, lb.size)),
             lb, ub,
         )
-    if n_particles - n_seed > 0:
-        init[n_seed:] = rng.uniform(lb, ub, size=(n_particles - n_seed, lb.size))
+        cursor = n_hand
+
+    # ── peg_new-derived Gaussian cloud ─────────────────────────────────────────
+    n_peg = min(
+        int(getattr(sim_params, "PSO_PAPER_PEG_SEED_N_PARTICLES", 0)),
+        n_particles - cursor,
+    )
+    if getattr(sim_params, "PSO_PAPER_PEG_SEED_ENABLED", False) and n_peg > 0:
+        # Trial run uses the same γ_p as the hand-tuned seed for consistency.
+        gamma_p_trial = float(sim_params.PSO_PAPER_WARM_START_SEED[3])
+        snap    = _run_peg_new_trial(gamma_p_trial)
+        peg_vec = _peg_to_pso_seed(snap, gamma_p_trial)
+        if peg_vec is not None:
+            sigma_peg = float(getattr(sim_params, "PSO_PAPER_PEG_SEED_JITTER", 0.03)) * (ub - lb)
+            init[cursor : cursor + n_peg] = np.clip(
+                peg_vec + rng.normal(0.0, sigma_peg, size=(n_peg, lb.size)),
+                lb, ub,
+            )
+            cursor += n_peg
+        else:
+            print("[peg_new seed] Trial failed — falling back to uniform random for this block.")
+
+    # ── Remainder: uniform random ──────────────────────────────────────────────
+    if n_particles - cursor > 0:
+        init[cursor:] = rng.uniform(lb, ub, size=(n_particles - cursor, lb.size))
+
     return init
 
 
@@ -118,6 +149,159 @@ def _gamma_p_to_kick_angle(gamma_p):
     vertical (π/2) down to gamma_p.  Mapping: kick = -(π/2 - gamma_p).
     """
     return -(np.pi / 2.0 - float(gamma_p))
+
+
+# ─── peg_new-derived warm-start helpers ───────────────────────────────────────
+
+def _run_peg_new_trial(gamma_p_seed):
+    """Run a pso_paper trial trajectory and evaluate peg_new at the SEI state.
+
+    Strategy
+    --------
+    We need the rocket state at Stage-2 ignition (SEI) produced by the same
+    instantaneous pitch-over that the PSO paper mode uses.  Running in pure
+    "peg_new" mode would use the standard 45-second triangular kick, giving a
+    very different Stage-1 trajectory.  Instead we:
+
+      1. Run ra.run(0.0) in "pso_paper" mode with the requested γ_p and
+         gravity-turn costates (lam_V = −1, others = 0) so Stage 2 coasts
+         ballistically — we only care about the state *at* Stage-2 ignition.
+      2. Extract the state vector at t_SEI from the returned trajectory array.
+      3. Call peg_new_major_loop() directly on that state.
+
+    Returns a snapshot dict (same schema as peg_new_sei_snapshot in
+    rocket_ascent) or None if Stage-2 ignition was not reached.
+    """
+    # --- Save state that will be overwritten ---
+    prev_mode      = sim_params.GUIDANCE_MODE
+    prev_pseudo    = getattr(sim_params, "INCLUDE_PSEUDO_FORCES", True)
+    prev_lam0      = ra.pso_paper_lam0
+    prev_gamma_p   = ra.pso_paper_gamma_p
+    prev_dt_coast  = ra.pso_paper_dt_coast
+    prev_coast_pct = ra.pso_paper_coast_pct
+    prev_burn_pct  = ra.pso_paper_burn_pct
+
+    try:
+        sim_params.GUIDANCE_MODE = "pso_paper"
+        if getattr(sim_params, "PSO_PAPER_FORCE_DISABLE_PSEUDO", True):
+            sim_params.INCLUDE_PSEUDO_FORCES = False
+
+        # Gravity-turn costates: α = atan2(0/V, 1) = 0 throughout Stage 2.
+        # Stage 2 trajectory doesn't matter — only the SEI state does.
+        ra.pso_paper_lam0      = (0.0, -1.0, 0.0)
+        ra.pso_paper_gamma_p   = gamma_p_seed
+        # Use the existing warm-start seed for burn scheduling so the run
+        # terminates cleanly rather than timing out.
+        ws = sim_params.PSO_PAPER_WARM_START_SEED
+        ra.pso_paper_dt_coast  = float(ws[4])
+        ra.pso_paper_coast_pct = float(ws[5])
+        ra.pso_paper_burn_pct  = float(ws[6])
+        ra.SINGLE_BURN_FULL_SIMULATION = False
+
+        try:
+            result = ra.run(0.0)   # kick angle unused in paper mode
+        except Exception:
+            return None
+
+        time_arr, data = result[0], result[1]
+        if data is None or data.shape[1] == 0:
+            return None
+        if ra.time_main_engine_cutoff is None:
+            return None
+
+        # --- Find state at Stage-2 ignition time ---
+        t_sei = ra.time_main_engine_cutoff + r_specs.TIME_SECOND_ENGINE_IGNITION
+        idx   = int(np.searchsorted(time_arr, t_sei))
+        idx   = min(idx, data.shape[1] - 1)
+        state_sei = data[:5, idx].copy()   # [s, r, v, gamma, m]
+
+        if not np.all(np.isfinite(state_sei)):
+            return None
+
+        # --- Call peg_new_major_loop() directly at the SEI state ---
+        Ve    = r_specs.ISP_2 * c.G_0
+        r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+        (vgo_r, vgo_theta, L0, tgo,
+         t_lambda, lambda_r) = peg_new_mod.peg_new_major_loop(
+             state_sei, r_tgt, c.MU_EARTH, Ve, r_specs.F_THRUST_2)
+
+        return {
+            "state":     state_sei,
+            "vgo_r":     vgo_r,
+            "vgo_theta": vgo_theta,
+            "L0":        L0,
+            "tgo":       tgo,
+            "t_lambda":  t_lambda,
+            "lambda_r":  lambda_r,
+        }
+
+    finally:
+        sim_params.GUIDANCE_MODE         = prev_mode
+        sim_params.INCLUDE_PSEUDO_FORCES = prev_pseudo
+        ra.pso_paper_lam0                = prev_lam0
+        ra.pso_paper_gamma_p             = prev_gamma_p
+        ra.pso_paper_dt_coast            = prev_dt_coast
+        ra.pso_paper_coast_pct           = prev_coast_pct
+        ra.pso_paper_burn_pct            = prev_burn_pct
+
+
+def _peg_to_pso_seed(snapshot, gamma_p_trial):
+    """Convert a peg_new SEI snapshot to a 7-element PSO design vector.
+
+    Costate mapping (paper velocity-normalization convention):
+        V_ref = sqrt(μ / r_T)          ← circular-orbit speed at target altitude
+        V̄    = V_SEI / V_ref           ← dimensionless speed at Stage-2 ignition
+        α_peg                          ← peg_new steering angle at t_epoch
+        λ_V0  = −cos(α_peg)            ← ∈ [−1, 0] for |α| < 90°
+        λ_γ0  = −V̄ · sin(α_peg)       ← ∈ [−1, 1] (requires expanded bounds)
+        λ_h0  ≈ λ'_r · tgo · V̄ / 1e4  ← small dimensionless estimate
+
+    Burn-scheduling estimate:
+        burn_pct = clip(tgo / T_max_S2, 0.70, 0.95)
+        dt_coast seeded at 0 (peg_new has no coast); PSO searches around it.
+        coast_pct seeded at 0.5 (bounds midpoint).
+
+    Returns None if snapshot is None or contains degenerate values.
+    """
+    if snapshot is None:
+        return None
+
+    state     = snapshot["state"]
+    gamma_sei = float(state[3])
+    V_sei     = float(state[2])
+    tgo       = snapshot["tgo"]
+
+    if tgo is None or tgo <= 0 or V_sei <= 0:
+        return None
+
+    V_ref = np.sqrt(c.MU_EARTH / (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
+    V_bar = V_sei / V_ref   # ≈ 0.4–0.6 at Stage-2 ignition
+
+    alpha_peg = peg_new_mod.peg_new_alpha(
+        t_since_epoch=0.0,
+        vgo_r=snapshot["vgo_r"],
+        vgo_theta=snapshot["vgo_theta"],
+        L0=snapshot["L0"],
+        lambda_r_prime=snapshot["lambda_r"],
+        t_lambda=snapshot["t_lambda"],
+        gamma=gamma_sei,
+    )
+
+    lam_V0   = float(-np.cos(alpha_peg))
+    lam_g0   = float(-V_bar * np.sin(alpha_peg))
+    lam_h0   = float(snapshot["lambda_r"]) * float(tgo) * V_bar / 1e4
+
+    burn_pct = float(np.clip(float(tgo) / _T_MAX_S2_BURN, 0.70, 0.95))
+
+    print(f"[peg_new seed] alpha_peg={np.degrees(alpha_peg):.2f} deg  "
+          f"V_bar={V_bar:.3f}  burn_pct={burn_pct:.3f}  "
+          f"(lam_h,lam_V,lam_g)=({lam_h0:.4f},{lam_V0:.4f},{lam_g0:.4f})")
+
+    return np.array([lam_h0, lam_V0, lam_g0,
+                     float(gamma_p_trial),
+                     0.0,    # dt_coast: no coast in peg_new baseline
+                     0.5,    # coast_pct: midpoint of bounds
+                     burn_pct])
 
 
 def _hamiltonian_residual_breakdown(time_arr, data, verbose=False):
@@ -266,6 +450,27 @@ def _evaluate_particle(x):
     alt_err_frac = abs(h_f - h_T) / max(h_T, 1.0)
     vel_err_frac = abs(v_f - V_T) / max(V_T, 1.0)
     gamma_err    = abs(gamma_f) / (np.pi / 2.0)   # normalised to [0, 1]
+    # Asymmetric extra penalty for γ < 0 (descending at SECO → periapsis underground).
+    # A positive γ at SECO is acceptable (ascending arc); negative γ means the rocket
+    # already overshot its apoapsis, making the orbit suborbital.
+    if gamma_f < 0.0:
+        gamma_err += getattr(sim_params, "PSO_PAPER_PENALTY_GAMMA_NEG", 5.0) * abs(gamma_f) / (np.pi / 2.0)
+
+    # --- Periapsis penalty: guard against suborbital / highly-elliptic orbits ---
+    # Compute the osculating periapsis altitude from the SECO state.
+    # Penalises any orbit whose periapsis falls below the target altitude, regardless
+    # of whether γ_f is positive.  A circular orbit at h_T has peri_err = 0.
+    v_t_seco = v_f * np.cos(gamma_f)           # tangential speed at SECO
+    h_mom    = r_f * v_t_seco                   # specific angular momentum [m²/s]
+    E_orb    = 0.5 * v_f**2 - c.MU_EARTH / r_f # specific orbital energy [m²/s²]
+    if E_orb < -1.0:                            # bound orbit (E < 0)
+        a_orb   = -c.MU_EARTH / (2.0 * E_orb)
+        ecc_orb = np.sqrt(max(0.0, 1.0 - h_mom**2 / (c.MU_EARTH * a_orb)))
+        r_peri  = a_orb * (1.0 - ecc_orb)
+        h_peri  = r_peri - c.R_EARTH
+        peri_err = max(0.0, h_T - h_peri) / max(h_T, 1.0)
+    else:
+        peri_err = 10.0   # hyperbolic trajectory — treat as maximally bad
 
     # --- Transversality residual (paper eq. 38) — best-effort, optional ---
     # Computation factored into _hamiltonian_residual_breakdown so the same
@@ -286,6 +491,7 @@ def _evaluate_particle(x):
                + sim_params.PSO_PAPER_PENALTY_ALT   * alt_err_frac
                + sim_params.PSO_PAPER_PENALTY_VEL   * vel_err_frac
                + sim_params.PSO_PAPER_PENALTY_GAMMA * gamma_err
+               + sim_params.PSO_PAPER_PENALTY_PERI  * peri_err
                + sim_params.PSO_PAPER_PENALTY_HAM   * ham_residual_norm)
     return float(J_prime)
 
@@ -345,6 +551,20 @@ def _diagnose_best(best_pos):
                       else 0.0)
     j_frac         = j_raw / max(_T_MAX_S2_BURN, 1.0)
 
+    # Osculating periapsis from SECO state (same formula as in _evaluate_particle)
+    v_t_seco_d = v_f * np.cos(gamma_f)
+    h_mom_d    = r_f * v_t_seco_d
+    E_orb_d    = 0.5 * v_f**2 - c.MU_EARTH / r_f
+    if E_orb_d < -1.0:
+        a_orb_d   = -c.MU_EARTH / (2.0 * E_orb_d)
+        ecc_orb_d = np.sqrt(max(0.0, 1.0 - h_mom_d**2 / (c.MU_EARTH * a_orb_d)))
+        r_peri_d  = a_orb_d * (1.0 - ecc_orb_d)
+        h_peri_d  = r_peri_d - c.R_EARTH
+        peri_err_d = max(0.0, h_T - h_peri_d) / max(h_T, 1.0)
+    else:
+        h_peri_d   = float("nan")
+        peri_err_d = 10.0
+
     # --- TPBVP diagnostics (paper eq. 38 + costate end-points) ---
     # verbose=True so the post-PSO best-particle re-run reports exactly which
     # guard fires if the breakdown bails out (the PSO inner-loop call passes
@@ -381,6 +601,9 @@ def _diagnose_best(best_pos):
         "term_vel":       sim_params.PSO_PAPER_PENALTY_VEL   * vel_err_frac,
         "term_gamma":     sim_params.PSO_PAPER_PENALTY_GAMMA * gamma_err_norm,
         "term_j":         j_frac,
+        "h_peri_km":      h_peri_d / 1e3,
+        "peri_err":       peri_err_d,
+        "term_peri":      getattr(sim_params, "PSO_PAPER_PENALTY_PERI", 0.0) * peri_err_d,
         # TPBVP
         "H_f_last":       H_f_last,
         "H_f_coast":      H_f_coast,
@@ -419,6 +642,7 @@ def _print_diagnostic(diag):
     print(f"    s_alt   × frac  = {diag['term_alt']:.4f}   (alt err {diag['alt_err_pct']:.3f} %)")
     print(f"    s_vel   × frac  = {diag['term_vel']:.4f}   (vel err {diag['vel_err_pct']:.3f} %)")
     print(f"    s_gamma × norm  = {diag['term_gamma']:.4f}   (|γ_f| {diag['gamma_err_rad']:.4f} rad)")
+    print(f"    s_peri  × err   = {diag['term_peri']:.4f}   (h_peri {diag['h_peri_km']:.3f} km, peri_err {diag['peri_err']:.4f})")
     print(f"    s_ham   × |Δ|/H = {diag['term_ham']:.4f}   "
           f"(|H_residual| {diag['ham_resid']:.4e}, "
           f"H_scale {diag['H_scale']:.4e}, "
@@ -443,6 +667,7 @@ def _print_diagnostic(diag):
         "alt":   diag['term_alt'],
         "vel":   diag['term_vel'],
         "gamma": diag['term_gamma'],
+        "peri":  diag['term_peri'],
         "ham":   diag['term_ham'],
         "j":     diag['term_j'],
     }
