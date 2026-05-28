@@ -5,8 +5,10 @@ import numpy as np
 # ===================================================
 
 # -------------- Gravity Turn --------------
-TIME_TO_START_KICK = 7.5                        # time to start gravity turn; [s]
-DURATION_INITIAL_KICK = 45.                     # duration of gravity turn; [s]
+TIME_TO_START_KICK = 7.5                        # time at which the instantaneous pitch-over is applied; [s]
+DURATION_INITIAL_KICK = 45.                     # DEPRECATED — kept only so legacy plot scripts that reference
+                                                # this symbol still import cleanly. The kick is now an
+                                                # instantaneous gamma jump at TIME_TO_START_KICK and has no duration.
 
 # -------------- Aerodynamics --------------
 INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
@@ -19,9 +21,9 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-INCLUDE_CROSS_HEADING_PSEUDO_FORCE = True    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
-COMPUTE_CROSS_HEADING_COUNTER_FORCE = True  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
+COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 
 # -------------- Azimuth / Inclination Mode --------------
@@ -251,8 +253,8 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 250       # swarm size
-PSO_MAX_GENERATIONS = 1000      # maximum number of generations
+PSO_N_PARTICLES     = 100       # swarm size
+PSO_MAX_GENERATIONS = 50      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -270,6 +272,6 @@ PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
 
 # -------------- Penalty weight factors for augmented objective (Eq. 39) ------
 PENALTY_W_ALTITUDE  = 1e-3      # s1: altitude error weight    [1/m]
-PENALTY_W_VELOCITY  = 1e-2      # s2: velocity error weight    [s/m]
+PENALTY_W_VELOCITY  = 1e-1      # s2: velocity error weight    [s/m]
 PENALTY_W_FPA       = 1e2       # s3: FPA error weight         [1/rad]
 PENALTY_W_TRANSVERS = 1e1       # s4: transversality condition weight

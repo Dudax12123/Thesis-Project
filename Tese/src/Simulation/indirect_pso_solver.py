@@ -25,8 +25,7 @@ The objective function (Eq. 39) penalises:
   • transversality condition violation (Eq. 38)
   • trajectories that crash or deplete all propellant before reaching orbit
 
-PyGMO is used when available; otherwise scipy.optimize.differential_evolution
-provides an equivalent (though parameter-incompatible) fallback.
+PyGMO is used.
 """
 
 import sys
@@ -185,10 +184,13 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # -----------------------------------------------------------------
     # Phase 1: Stage 1 gravity turn
     # -----------------------------------------------------------------
-    # gamma_p is the pitch maneuver angle in [1.54, 1.57] rad (≈ 88–90°).
-    # In the existing code, the kick angle is a small negative offset from
-    # vertical; we convert: kick_angle = gamma_p − π/2  (negative for pitchover)
-    kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] → [−0.031, −0.001] rad
+    # gamma_p is the pitch maneuver angle in [1.54, 1.57] rad (~ 88–90 deg).
+    # With the instantaneous pitch-over now in place, the kick is a discontinuous
+    # gamma jump applied exactly at TIME_TO_START_KICK:  gamma_post = pi/2 + kick_angle.
+    # Setting kick_angle = gamma_p - pi/2 therefore makes gamma_post == gamma_p
+    # exactly — gamma_p is literally the post-kick flight-path angle (and pitch
+    # angle, since alpha = 0 in the subsequent gravity turn).
+    kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] -> [-0.031, -0.001] rad
 
     t2_start, state2_init, t_meco, t_stage1, y_stage1, crashed = ra.run_stage1(kick_angle)
 
@@ -282,7 +284,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
                 'state_final': None,
                 'H_burn_start': H_burn_start,
                 'H_coast_end': 0.0, 'H_burn_end': 0.0,
-                't_f': sol_arc1.t_events[0][0], 't_cf': 0.0,
+                't_f': 0.0, 't_cf': 0.0,
                 't_stage2_start': t2_start, 't_ignition': t_ignition,
                 't_stage1': t_stage1, 'y_stage1': y_stage1,
             }
@@ -292,8 +294,12 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         aug_state_arc2 = aug_state_ign
         t_arc2_start = t_ignition
 
-    # Record t_cf (coast start time) for objective J = t_f − t_cf
-    t_cf = t_arc2_start
+    # Paper Eq. 27: J = t_f - t_cf = total powered time = T_burn_total
+    # t_f  = total Stage-2 flight time (powered + coast), computed from plan
+    # t_cf = coast duration only
+    # Using planned values avoids ODE endpoint overshoot artifacts.
+    t_f_result  = T_burn_total + delta_tc
+    t_cf_result = delta_tc
 
     # ------------------------------------------------------------------
     # Arc 2: coast  (t_arc2_start → t_arc2_start + delta_tc)
@@ -315,7 +321,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
                 'state_final': None,
                 'H_burn_start': H_burn_start,
                 'H_coast_end': 0.0, 'H_burn_end': 0.0,
-                't_f': sol_arc2.t_events[0][0], 't_cf': t_cf,
+                't_f': 0.0, 't_cf': 0.0,
                 't_stage2_start': t2_start, 't_ignition': t_ignition,
                 't_stage1': t_stage1, 'y_stage1': y_stage1,
             }
@@ -354,15 +360,13 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
                 'state_final': None,
                 'H_burn_start': H_burn_start,
                 'H_coast_end': H_coast_end, 'H_burn_end': 0.0,
-                't_f': sol_arc3.t_events[0][0], 't_cf': t_cf,
+                't_f': 0.0, 't_cf': 0.0,
                 't_stage2_start': t2_start, 't_ignition': t_ignition,
                 't_stage1': t_stage1, 'y_stage1': y_stage1,
             }
         aug_final = sol_arc3.y[:, -1]
-        t_f = float(sol_arc3.t[-1])
     else:
         aug_final = np.array(aug_state_arc3)
-        t_f = t_arc3_start
 
     state_final = aug_final[:5]
 
@@ -376,7 +380,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 
     if verbose:
         h_f = state_final[1] - c.R_EARTH
-        print(f"  Stage 2 end: t={t_f:.1f}s, h={h_f/1e3:.1f}km, "
+        t_end_abs = t_ignition + t_f_result  # absolute end time for display
+        print(f"  Stage 2 end: t={t_end_abs:.1f}s, h={h_f/1e3:.1f}km, "
               f"v={state_final[2]:.0f}m/s, gam={np.rad2deg(state_final[3]):.2f}deg")
         print(f"  H_burn_start={H_burn_start:.4f}  H_coast_end={H_coast_end:.4f}  "
               f"H_burn_end={H_burn_end:.4f}")
@@ -387,8 +392,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         'H_burn_start': H_burn_start,
         'H_coast_end':  H_coast_end,
         'H_burn_end':   H_burn_end,
-        't_f':  t_f,
-        't_cf': t_cf,
+        't_f':  t_f_result,
+        't_cf': t_cf_result,
         't_stage2_start': t2_start,
         't_ignition':     t_ignition,
         't_stage1': t_stage1,
@@ -441,7 +446,8 @@ def compute_augmented_objective(result):
 
     # --- Target orbital parameters ---
     r_target  = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_circular = np.sqrt(c.MU_EARTH / r_target)
+    v_rot     = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
     gamma_target = 0.0   # horizontal injection
 
     # --- Terminal constraint errors (Eq. 37) ---
@@ -472,6 +478,35 @@ def compute_augmented_objective(result):
                + C)
 
     return float(J_prime)
+
+
+def breakdown_objective(result):
+    """Decompose J' into its individual penalty terms for diagnostic output.
+
+    Returns a dict with keys: J, alt, vel, fpa, transv — each the scaled
+    contribution to J_prime.  Values sum to the same J_prime as
+    compute_augmented_objective (ignoring the crash penalty C).
+    """
+    if result['crashed'] or result['state_final'] is None:
+        return {'J': 1e20, 'alt': 1e20, 'vel': 1e20, 'fpa': 1e20, 'transv': 1e20}
+
+    state      = result['state_final']
+    r_val      = state[1]
+    v_f        = state[2]
+    g_f        = state[3]
+    J          = result['t_f'] - result['t_cf']
+
+    r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    v_circular = np.sqrt(c.MU_EARTH / r_target)
+    transv     = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
+
+    return {
+        'J'     : J,
+        'alt'   : sim_params.PENALTY_W_ALTITUDE  * abs(r_val - r_target),
+        'vel'   : sim_params.PENALTY_W_VELOCITY  * abs(v_f - v_circular),
+        'fpa'   : sim_params.PENALTY_W_FPA       * abs(g_f),
+        'transv': sim_params.PENALTY_W_TRANSVERS * abs(transv),
+    }
 
 
 # ===========================================================================
@@ -513,9 +548,7 @@ def run_pso_optimization(verbose=True):
     """
     Run the PSO optimisation as described in the paper (Sect. 4.2.2).
 
-    Attempts to use PyGMO (``pygmo``) first.  If not installed, falls back to
-    ``scipy.optimize.differential_evolution`` with a comparable population size
-    and generation count.
+    Attempts to use PyGMO (``pygmo``) first. 
 
     Parameters
     ----------
@@ -559,7 +592,7 @@ def run_pso_optimization(verbose=True):
             max_vel  = sim_params.PSO_VMAX,
         ))
         if verbose:
-            algo.set_verbosity(50)   # print every 50 generations
+            algo.set_verbosity(25)   # print every 50 generations
 
         pop = pg.population(prob, size=n_particles)
         pop = algo.evolve(pop)
@@ -575,44 +608,10 @@ def run_pso_optimization(verbose=True):
         return best_x, best_f
 
     except ImportError:
-        warnings.warn(
-            "pygmo not found - falling back to scipy.differential_evolution. "
-            "PSO-specific parameters (c1, c2, omega) are not reproduced exactly.",
-            RuntimeWarning,
-            stacklevel=2,
+        raise ImportError(
+            "pygmo is required for the indirect PMP optimisation. "
+            "Install it with: conda install -c conda-forge pygmo"
         )
-
-    # ------------------------------------------------------------------
-    # Fallback: scipy Differential Evolution
-    # ------------------------------------------------------------------
-    from scipy.optimize import differential_evolution  # type: ignore
-
-    def _obj(x):
-        result = run_indirect_trajectory(*x)
-        return compute_augmented_objective(result)
-
-    de_result = differential_evolution(
-        _obj,
-        bounds=bounds_list,
-        maxiter=n_gen,
-        popsize=max(1, n_particles // 7),   # DE popsize = multiplier of n_vars
-        seed=42,
-        disp=verbose,
-        tol=1e-9,
-        mutation=(0.5, 1.0),
-        recombination=0.9,
-        workers=1,
-    )
-
-    best_x = list(de_result.x)
-    best_f = float(de_result.fun)
-
-    if verbose:
-        print(f"\n[scipy DE] Finished in {time.time()-t_start:.1f}s")
-        print(f"  Best J' = {best_f:.4f}")
-        _print_solution(best_x, best_f)
-
-    return best_x, best_f
 
 
 # ===========================================================================
@@ -822,3 +821,13 @@ def _print_solution(x, J_prime):
         print(f"  FPA      : {g_f:.4f} deg  (target 0.0 deg)")
         H_trans = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
         print(f"  Transversality: {H_trans:.6f}  (target ~0)")
+        bd = breakdown_objective(result)
+        print(f"\nJ prime breakdown:")
+        print(f"  J (total burn time):  {bd['J']:.2f} s")
+        print(f"  Altitude penalty:     {bd['alt']:.4f}")
+        print(f"  Velocity penalty:     {bd['vel']:.4f}")
+        print(f"  FPA penalty:          {bd['fpa']:.4f}")
+        print(f"  Transversality:       {bd['transv']:.4f}")
+        print(f"  Total J prime:        {sum(bd.values()):.4f}")
+        if result['t_cf'] < 1.0:
+            print(f"  (coast = {result['t_cf']:.2f} s -- direct insertion trajectory)")

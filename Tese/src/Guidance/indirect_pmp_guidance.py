@@ -66,8 +66,8 @@ def pmp_control_law(lambda_v, lambda_gamma, v):
         # Near-singular arc — costates both ≈ 0, set α = 0 (coast-like)
         return 0.0
 
-    sin_alpha = -lg_over_v / denom
-    cos_alpha = -lambda_v / denom
+    sin_alpha = -lg_over_v * denom
+    cos_alpha = -lambda_v * denom
     return float(np.arctan2(sin_alpha, cos_alpha))
 
 
@@ -116,7 +116,7 @@ def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha):
 
     # Eq. 30b  — λ̇_r
     dlam_r = ((v * cg / r2) * lam_g
-              - (2.0 * mu / r3) * (lam_v * sg + lam_g * cg / v_safe))
+              - (2.0 * mu / r3) * (lam_v * sg + (lam_g * cg / v_safe)))
 
     # Eq. 30c  — λ̇_v
     dlam_v = (-lam_r * sg

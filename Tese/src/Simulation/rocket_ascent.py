@@ -34,7 +34,6 @@ from scipy.integrate import solve_ivp
 #===================================================
 time_kick_start = None
 kick_performed = False
-time_raise = sim_params.DURATION_INITIAL_KICK / 2.
 main_engine_cutoff = False
 second_engine_ignition = False
 stage_2_burnt = False
@@ -275,6 +274,18 @@ def interrupt_velocity_exceeded(t, y):
         return v_inertial - v_desired
 
     return v - v_desired
+
+
+def interrupt_kick_time(t, y):
+    """Terminal event that fires the instant t reaches TIME_TO_START_KICK.
+
+    Triggers the instantaneous pitch-over (γ jump) outside the ODE RHS.
+    Once `kick_performed` is True, this event becomes inactive so it never
+    fires twice during a single trajectory.
+    """
+    if kick_performed:
+        return 1.0
+    return t - sim_params.TIME_TO_START_KICK
 
 
 def interrupt_single_burn_traj(t, y):
@@ -688,49 +699,6 @@ def thrust_Isp(t):
     return F_T, Isp
 
 
-def pitch_program_linear(t, initial_kick_angle):
-    """
-    Returns the angle of attack for the initial kick.
-    Increases the angle of attack to a certain value and decreases it 
-    afterwards in a linear way.
-
-    Parameters:
-    -----------
-    t : float
-        Current time since launch [s]
-    initial_kick_angle : float
-        Maximum kick angle [rad]
-        
-    Returns:
-    --------
-    float : Current angle of attack [rad]
-    """
-    global time_kick_start, kick_performed, time_raise
-
-    if time_kick_start == None:
-        time_kick_start = t
-        if sim_params.EVENTS_PRINT:
-            print("\nInitial kick started at t = ", t)
-        return 0.0
-    
-    elif t > (time_kick_start + sim_params.DURATION_INITIAL_KICK):
-        kick_performed = True
-        if sim_params.EVENTS_PRINT:
-            print("\nInitial kick ended at t = ", t)
-        return 0.0
-    
-    else:
-        # Check if angle should raise or decrease
-        if t < (time_kick_start + time_raise):
-            # Define rate of angle change
-            angle_rate = (t - time_kick_start) / time_raise
-            return initial_kick_angle * angle_rate
-        else:
-            # Define rate of angle change
-            angle_rate = (t - (time_kick_start + time_raise)) / time_raise
-            return initial_kick_angle * (1 - angle_rate)
-
-
 def estimate_time_to_target(state, target_altitude):
     """
     Estimate time remaining until reaching target altitude.
@@ -1060,8 +1028,10 @@ def rocket_dynamics(t, state):
             time_kick_start = t
             alpha = 0.0
         else:
-            # Phase 1: Initial gravity turn (pitchover) - COMMON TO ALL OTHER MODES
-            alpha = pitch_program_linear(t, current_kick_angle)
+            # Instantaneous pitch-over: the γ jump is applied outside the ODE RHS
+            # by _run_stage1a_with_kick. Angle of attack stays at zero throughout
+            # the gravity turn — there is no triangular α profile any more.
+            alpha = 0.0
 
     elif (kick_performed and sim_params.GUIDANCE_MODE == "cpr"
           and not guidance_phase_active and F_T > 0):
@@ -1607,8 +1577,70 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
     if stage_2_flag:
         interrupt_single_burn_traj.direction = 1
     
-    return solve_ivp(rocket_dynamics, y0=state_init, t_span=t_span, t_eval=t_eval, 
+    return solve_ivp(rocket_dynamics, y0=state_init, t_span=t_span, t_eval=t_eval,
                     max_step=1, events=interrupt_list, atol=1e-8)
+
+
+class _MergedSol:
+    """Lightweight stand-in for a scipy.OdeResult, used by the Stage-1A kick split."""
+    __slots__ = ("t", "y", "t_events")
+    def __init__(self, t, y, t_events):
+        self.t = t
+        self.y = y
+        self.t_events = t_events
+
+
+def _run_stage1a_with_kick(init_time, time_horizon, state_init, base_events):
+    """Run Stage 1A in two ODE segments around the instantaneous kick.
+
+    The kick is implemented as a discontinuous γ jump applied at exactly
+    `TIME_TO_START_KICK`. A terminal `interrupt_kick_time` event is appended
+    to `base_events` to stop integration at that instant; control then
+    re-enters Python, γ is incremented by `current_kick_angle`, and a second
+    `simulate_trajectory` call resumes from the modified state with α ≡ 0.
+
+    The merged solution has the same `t_events` shape (and indexing) as a
+    plain `simulate_trajectory(..., override_events=base_events)` call —
+    the kick channel is consumed inside this helper.
+    """
+    global time_kick_start, kick_performed
+
+    extended_events = list(base_events) + [interrupt_kick_time]
+    kick_idx = len(extended_events) - 1
+
+    sol_seg1 = simulate_trajectory(init_time, time_horizon, state_init,
+                                   False, False,
+                                   override_events=extended_events)
+
+    if len(sol_seg1.t_events[kick_idx]) == 0:
+        # Some other terminal event fired first (crash, fairing, separation, ...).
+        # Drop the unused kick channel so downstream indexing matches base_events.
+        sol_seg1.t_events = sol_seg1.t_events[:kick_idx]
+        return sol_seg1
+
+    # --- Apply the instantaneous γ jump ---
+    t_kick = float(sol_seg1.t[-1])
+    state_post = sol_seg1.y[:, -1].copy()
+    state_post[3] += current_kick_angle  # state[3] = γ (flight-path angle)
+
+    time_kick_start = t_kick
+    kick_performed = True
+    if sim_params.EVENTS_PRINT:
+        print(f"\nInstantaneous pitch-over at t = {t_kick:.4f}s "
+              f"(Δγ = {np.rad2deg(current_kick_angle):+.4f}°)")
+
+    # --- Resume Stage 1A from the post-kick state ---
+    remaining = time_horizon - (t_kick - init_time)
+    sol_seg2 = simulate_trajectory(t_kick, remaining, state_post,
+                                   False, False,
+                                   override_events=list(base_events))
+
+    # Keep BOTH boundary samples at t_kick: sol_seg1[-1] holds the pre-kick state
+    # (γ = π/2) and sol_seg2[0] holds the post-kick state (γ = π/2 + kick_angle).
+    # The duplicate timestamp is what materialises the γ discontinuity in plots.
+    t_merged = np.concatenate([sol_seg1.t, sol_seg2.t])
+    y_merged = np.concatenate([sol_seg1.y, sol_seg2.y], axis=1)
+    return _MergedSol(t_merged, y_merged, sol_seg2.t_events)
 
 
 def run(initial_kick_angle, azimuth_override=None):
@@ -1633,7 +1665,7 @@ def run(initial_kick_angle, azimuth_override=None):
     m_propellant_total_used_2nd_stage : float
         Total propellant used in 2nd stage [kg]
     """
-    global time_kick_start, kick_performed, time_raise, main_engine_cutoff
+    global time_kick_start, kick_performed, main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
@@ -1663,7 +1695,6 @@ def run(initial_kick_angle, azimuth_override=None):
     #===================================================
     time_kick_start = None
     kick_performed = False
-    time_raise = sim_params.DURATION_INITIAL_KICK / 2.
     main_engine_cutoff = False
     second_engine_ignition = False
     stage_2_burnt = False
@@ -1779,9 +1810,14 @@ def run(initial_kick_angle, azimuth_override=None):
     # interrupt_stage_separation is included so Stage 1A never runs past MECO when
     # the atmosphere exit (and thus fairing jettison) happens after MECO — e.g. when
     # ATMOSPHERE_EXIT_METHOD = "aerothermal_flux" with a threshold crossed at ~137 km.
-    sol_1a = simulate_trajectory(0, time_1, initial_state_1, False, False,
-        override_events=[interrupt_fairing_jettison, interrupt_ground_collision,
-                         interrupt_velocity_exceeded, interrupt_stage_separation])
+    # _run_stage1a_with_kick performs an internal two-segment integration around
+    # the instantaneous pitch-over (γ jump at TIME_TO_START_KICK); the kick event
+    # is consumed inside the helper so the returned t_events list keeps the same
+    # 0=fairing / 1=crash / 2=velocity / 3=stage_sep indexing.
+    sol_1a = _run_stage1a_with_kick(
+        0, time_1, initial_state_1,
+        base_events=[interrupt_fairing_jettison, interrupt_ground_collision,
+                     interrupt_velocity_exceeded, interrupt_stage_separation])
     # event indices: 0=fairing, 1=crash, 2=velocity, 3=stage_sep
 
     if len(sol_1a.t_events[1]) > 0:  # crash before any other event
@@ -2186,7 +2222,7 @@ def run_stage1(initial_kick_angle):
     crashed : bool
         True if a ground collision was detected during Stage 1.
     """
-    global time_kick_start, kick_performed, time_raise, main_engine_cutoff
+    global time_kick_start, kick_performed, main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
@@ -2213,7 +2249,6 @@ def run_stage1(initial_kick_angle):
     # --- Reset globals (identical to the reset block in run()) ---------------
     time_kick_start = None
     kick_performed = False
-    time_raise = sim_params.DURATION_INITIAL_KICK / 2.
     main_engine_cutoff = False
     second_engine_ignition = False
     stage_2_burnt = False
@@ -2299,10 +2334,10 @@ def run_stage1(initial_kick_angle):
     time_1 = 500.
 
     # --- Stage 1A: until fairing jettison OR stage separation ----------------
-    sol_1a = simulate_trajectory(
-        0, time_1, initial_state_1, False, False,
-        override_events=[interrupt_fairing_jettison, interrupt_ground_collision,
-                         interrupt_velocity_exceeded, interrupt_stage_separation])
+    sol_1a = _run_stage1a_with_kick(
+        0, time_1, initial_state_1,
+        base_events=[interrupt_fairing_jettison, interrupt_ground_collision,
+                     interrupt_velocity_exceeded, interrupt_stage_separation])
 
     if len(sol_1a.t_events[1]) > 0:          # crash before any other event
         CRASH_DETECTED = True
