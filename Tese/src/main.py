@@ -330,8 +330,8 @@ def execute():
             coriolis_mag_data=coriolis_mag_data,
             centrifugal_mag_data=centrifugal_mag_data,
         )
-        print("\nAll plots generated.")
-        plt.show(block=False)
+        print("\nAll plots generated. Close plot windows to exit.")
+        plt.show()
         return time, data, kick_angle_optimal
 
     # =========================================================================
@@ -576,7 +576,9 @@ def execute():
         heading_comparison_plot(time, data, kick_angle_optimal,
                                 ra.LAST_ACHIEVED_INCLINATION_DEG)
 
-    print("\nAll plots generated.")
+    # Keep all plot windows open until user closes them
+    print("\nAll plots generated. Close plot windows to exit.")
+    plt.show()
     
     return time, data, kick_angle_optimal
 
@@ -634,5 +636,3 @@ def heading_comparison_plot(time_ref, data_ref, kick_angle, inc_on):
 
 if __name__ == "__main__":
     execute()
-    input("\nPress Enter to close plots and exit...")
-    plt.close("all")
