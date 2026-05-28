@@ -254,7 +254,7 @@ EVENTS_PRINT = True
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
 PSO_N_PARTICLES     = 100       # swarm size
-PSO_MAX_GENERATIONS = 50      # maximum number of generations
+PSO_MAX_GENERATIONS = 100      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
