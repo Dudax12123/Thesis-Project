@@ -63,6 +63,30 @@ _T_IGNITION_DELAY = r.TIME_SECOND_ENGINE_IGNITION - r.TIME_First_STAGE_SEPARATIO
 
 
 # ===========================================================================
+# Stage-1 → Stage-2 state handoff
+# ===========================================================================
+
+def _strip_to_pmp_state(state, lat_fallback_rad):
+    """Return [s, r, v, γ, m] for the PMP ODE.
+
+    Applies a rotating→inertial frame transform on (v, γ) when
+    INCLUDE_PSEUDO_FORCES is enabled — Stage 1 would then have been
+    integrated in the rotating frame, while _stage2_ode is inertial.
+    With the flag off (default) this is a plain [:5] slice.
+    """
+    if sim_params.INCLUDE_PSEUDO_FORCES:
+        lat = state[5] if len(state) > 5 else lat_fallback_rad
+        heading = state[6] if len(state) > 6 else ra.LAUNCH_AZIMUTH
+        v_in, g_in = ra.get_inertial_state_components(
+            state[1], state[2], state[3], lat, heading
+        )
+        out = np.array(state[:5], dtype=float).copy()
+        out[2], out[3] = v_in, g_in
+        return out
+    return np.array(state[:5], dtype=float)
+
+
+# ===========================================================================
 # Stage-2 augmented ODE
 # ===========================================================================
 
@@ -206,7 +230,9 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 
     # Strip optional lat/heading states — the PMP ODE uses drag-free vacuum
     # dynamics and requires exactly [s, r, v, gamma, m] (5 elements).
-    state2_init = state2_init[:5]
+    state2_init = _strip_to_pmp_state(
+        state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    )
 
     if verbose:
         h2 = state2_init[1] - c.R_EARTH
@@ -497,7 +523,8 @@ def breakdown_objective(result):
     J          = result['t_f'] - result['t_cf']
 
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_circular = np.sqrt(c.MU_EARTH / r_target)
+    v_rot      = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
     transv     = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
 
     return {
@@ -651,7 +678,9 @@ def run_indirect_full(optimal_params, verbose=True):
     t_ignition = t2_start + _T_IGNITION_DELAY
 
     # Strip optional lat/heading — PMP ODE needs exactly [s, r, v, gamma, m]
-    state2_init = state2_init[:5]
+    state2_init = _strip_to_pmp_state(
+        state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    )
 
     # timing
     T_burn_total  = (delta_tr_pct   / 100.0) * _T_MAX_2
