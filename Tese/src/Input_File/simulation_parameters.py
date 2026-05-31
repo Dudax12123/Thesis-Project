@@ -253,12 +253,13 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 100       # swarm size
-PSO_MAX_GENERATIONS = 100      # maximum number of generations
+PSO_N_PARTICLES     = 350       # swarm size
+PSO_MAX_GENERATIONS = 1250      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
 PSO_VMAX            = 0.5       # maximum particle velocity (normalised)
+PSO_SEED            = 42        # RNG seed for reproducible PSO runs
 
 # -------------- Decision-variable bounds (Table 6 of paper) ------------------
 # x = [lambda0_r, lambda0_v, lambda0_g, delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
@@ -271,7 +272,15 @@ PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
 # gamma_p           : pitch maneuver angle                    [1.54, 1.57] rad
 
 # -------------- Penalty weight factors for augmented objective (Eq. 39) ------
-PENALTY_W_ALTITUDE  = 1e-3      # s1: altitude error weight    [1/m]
-PENALTY_W_VELOCITY  = 1e-1      # s2: velocity error weight    [s/m]
-PENALTY_W_FPA       = 1e2       # s3: FPA error weight         [1/rad]
-PENALTY_W_TRANSVERS = 1e1       # s4: transversality condition weight
+# All terms are now NON-DIMENSIONAL (see indirect_pso_solver._objective_terms),
+# so these weights are unitless and directly comparable. Tuned so that near
+# feasibility (<1% terminal errors) the penalties are O(1) — comparable to the
+# normalised burn-time term J_nd ∈ [0, 1] — while a few-percent miss makes the
+# constraints dominate, forcing PSO to hit the target orbit before shaving burn
+# time. Lower the constraint weights later if feasibility becomes reliable.
+PENALTY_W_J         = 1.0       # burn-time term (J normalised by T_MAX_2)
+PENALTY_W_ALTITUDE  = 100.0     # s1: relative altitude error (1% error -> 1.0)
+PENALTY_W_VELOCITY  = 200.0     # s2: relative velocity error (1% error -> 1.0)
+PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
+PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
+GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]

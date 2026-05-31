@@ -313,8 +313,9 @@ def execute():
                     - result_opt['H_burn_start'])
             print(f"\t* Transversality residual:\t\t{H_tv:.6f}  (target 0)")
             bd = breakdown_objective(result_opt)
+            burn_s = result_opt['t_f'] - result_opt['t_cf']
             print(f"\n\t  J' breakdown:")
-            print(f"\t  J (total burn time):    {bd['J']:.2f} s")
+            print(f"\t  J term (burn frac):     {bd['J']:.4f}  (burn {burn_s:.1f} s)")
             print(f"\t  Altitude penalty:       {bd['alt']:.4f}")
             print(f"\t  Velocity penalty:       {bd['vel']:.4f}")
             print(f"\t  FPA penalty:            {bd['fpa']:.4f}")

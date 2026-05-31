@@ -61,10 +61,37 @@ _T_MAX_2 = r.M_PROP_2 / _MDOT_2                        # Time to deplete ALL Sta
 # Engine-ignition delay measured from stage separation:
 _T_IGNITION_DELAY = r.TIME_SECOND_ENGINE_IGNITION - r.TIME_First_STAGE_SEPARATION
 
+# ---------------------------------------------------------------------------
+# Integration tolerances (shared by all solve_ivp calls)
+# ---------------------------------------------------------------------------
+# Tight rtol/atol give good relative accuracy on the mixed-scale state
+# (r~1e7, v~1e3, m~1e4, costates~1); the default rtol=1e-3 tolerated ~km-level
+# error in r, which fed straight into the altitude penalty. max_step is relaxed
+# from 0.5 s — the dynamics are smooth, so the adaptive stepper takes large
+# steps on long coasts while the crash event is still bracketed reliably.
+_RTOL = 1e-9
+_ATOL = 1e-9
+_MAX_STEP = 10.0
+
 
 # ===========================================================================
 # Stage-1 → Stage-2 state handoff
 # ===========================================================================
+
+def _normalize_costates(lam_r, lam_v, lam_g):
+    """Return the initial costate vector scaled to unit norm.
+
+    The trajectory depends only on the costate direction (control law and
+    linear costate ODEs are invariant to positive scaling), while every
+    Hamiltonian scales linearly with the costate magnitude. Pinning ‖λ‖=1
+    fixes that gauge so the transversality residual is a meaningful constraint.
+    If the vector is ~0 it is returned unchanged (degenerate → α≈0).
+    """
+    norm = np.sqrt(lam_r ** 2 + lam_v ** 2 + lam_g ** 2)
+    if norm > 1e-12:
+        return lam_r / norm, lam_v / norm, lam_g / norm
+    return lam_r, lam_v, lam_g
+
 
 def _strip_to_pmp_state(state, lat_fallback_rad):
     """Return [s, r, v, γ, m] for the PMP ODE.
@@ -216,6 +243,16 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # angle, since alpha = 0 in the subsequent gravity turn).
     kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] -> [-0.031, -0.001] rad
 
+    # Normalize the initial costate vector to unit norm. The trajectory depends
+    # only on the costate DIRECTION (the control law and linear costate ODEs are
+    # invariant to positive scaling), while the Hamiltonian — and hence the
+    # transversality residual — scales linearly with the costate magnitude.
+    # Pinning ‖λ₀‖=1 fixes that free gauge so the transversality penalty cannot
+    # be driven to zero by simply shrinking the costates.
+    lambda0_r, lambda0_v, lambda0_g = _normalize_costates(
+        lambda0_r, lambda0_v, lambda0_g
+    )
+
     t2_start, state2_init, t_meco, t_stage1, y_stage1, crashed = ra.run_stage1(kick_angle)
 
     if crashed:
@@ -260,9 +297,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
         t_span=(t2_start, t_ignition + 0.5),
         y0=aug0_preig,
-        max_step=0.5,
+        rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
         events=_event_crash,
-        atol=1e-8,
     )
 
     if len(sol_pre.t_events[0]) > 0:           # crash during ignition delay
@@ -300,9 +336,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
             lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
             t_span=(t_ignition, t_arc1_end + 0.5),
             y0=aug_state_ign,
-            max_step=0.5,
+            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
-            atol=1e-8,
         )
         if len(sol_arc1.t_events[0]) > 0:
             return {
@@ -337,9 +372,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
             lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
             t_span=(t_arc2_start, t_arc2_end + 0.5),
             y0=aug_state_arc2,
-            max_step=0.5,
+            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
-            atol=1e-8,
         )
         if len(sol_arc2.t_events[0]) > 0:
             return {
@@ -364,7 +398,18 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     else:
         aug_state_arc3 = aug_state_arc2
         t_arc3_start = t_arc2_start
-        H_coast_end = H_burn_start   # no coast → same Hamiltonian
+        # Honest H at the (zero-duration) coast endpoint: same state as end
+        # of Arc 1, but evaluated with thrust=0 so the thrust contribution to
+        # H_geom is removed (matches the > 0.01 branch in the limit
+        # delta_tc → 0). The previous shortcut H_coast_end = H_burn_start
+        # under-counted the residual by (T/m)·D and biased PSO toward
+        # near-zero-coast solutions.
+        H_coast_end = compute_hamiltonian(
+            aug_state_arc3[1], aug_state_arc3[2], aug_state_arc3[3],
+            0.0, aug_state_arc3[4],
+            pmp_control_law(aug_state_arc3[6], aug_state_arc3[7], aug_state_arc3[2]),
+            aug_state_arc3[5], aug_state_arc3[6], aug_state_arc3[7],
+        )
 
     # ------------------------------------------------------------------
     # Arc 3: thrust  (t_arc3_start → t_arc3_start + t_arc3_burn)
@@ -376,9 +421,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
             lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
             t_span=(t_arc3_start, t_arc3_end + 0.5),
             y0=aug_state_arc3,
-            max_step=0.5,
+            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
-            atol=1e-8,
         )
         if len(sol_arc3.t_events[0]) > 0:
             return {
@@ -431,21 +475,58 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 # Augmented objective function  (Eq. 39)
 # ===========================================================================
 
+CRASH_PENALTY = 1e20
+
+
+def _objective_terms(result):
+    """Weighted, non-dimensional contributions to J' — single source of truth.
+
+    Every term is non-dimensionalised so the weights in
+    ``simulation_parameters`` are unitless and directly comparable:
+
+        J_nd  = (t_f − t_cf) / T_MAX_2          burn time as a fraction of the
+                                                propellant-limited maximum  ∈ [0, 1]
+        Δh_nd = (r_f − r_target) / h_target     relative altitude error
+        ΔV_nd = (V_f − V_circular) / V_circular relative velocity error
+        Δγ_nd = γ_f / γ_ref                     FPA error in units of γ_ref (deg)
+        tv_nd = (H_be + H_ce − H_bs) / V_circ   transversality residual; H scales
+                                                like ṙ (velocity), so divide by V_circ
+
+    Both ``compute_augmented_objective`` and ``breakdown_objective`` consume
+    this, so they cannot drift out of sync.
+    """
+    state = result['state_final']
+    r_val, v_f, g_f = state[1], state[2], state[3]
+
+    r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    v_rot      = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
+    gamma_ref  = np.deg2rad(sim_params.GAMMA_REF_DEG)
+
+    J_nd  = (result['t_f'] - result['t_cf']) / _T_MAX_2
+    dh_nd = (r_val - r_target) / sim_params.TARGET_ORBITAL_ALTITUDE
+    dv_nd = (v_f - v_circular) / v_circular
+    dg_nd = g_f / gamma_ref
+    transv = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
+    tv_nd  = transv / v_circular
+
+    return {
+        'J'     : sim_params.PENALTY_W_J         * J_nd,
+        'alt'   : sim_params.PENALTY_W_ALTITUDE  * abs(dh_nd),
+        'vel'   : sim_params.PENALTY_W_VELOCITY  * abs(dv_nd),
+        'fpa'   : sim_params.PENALTY_W_FPA       * abs(dg_nd),
+        'transv': sim_params.PENALTY_W_TRANSVERS * abs(tv_nd),
+    }
+
+
 def compute_augmented_objective(result):
     """
-    Augmented objective J' (Eq. 39 of the paper):
+    Augmented objective J' (Eq. 39 of the paper), non-dimensional form:
 
-        J' = J  +  s1|Δh|  +  s2|ΔV|  +  s3|Δγ|
-               +  s4|H_f^burn + H_f^coast − H_0^burn|  +  C
+        J' = w_J·J_nd + s1|Δh_nd| + s2|ΔV_nd| + s3|Δγ_nd| + s4|tv_nd| + C
 
-    where:
-        J         = t_f − t_cf                (impulse duration — minimised)
-        Δh        = h_f − h_target
-        ΔV        = V_f − V_circular(h_f)
-        Δγ        = γ_f − 0  (target: horizontal at injection)
-        C         = 10^20 if trajectory constraints violated, else 0
-
-    The penalty weights s1…s4 come from ``simulation_parameters``.
+    where C = 10^20 if the trajectory crashed / is unphysical, else 0.
+    See ``_objective_terms`` for the term definitions.
 
     Parameters
     ----------
@@ -455,85 +536,32 @@ def compute_augmented_objective(result):
     -------
     J_prime : float  Augmented objective value
     """
-    CRASH_PENALTY = 1e20
-
     if result['crashed'] or result['state_final'] is None:
         return CRASH_PENALTY
 
-    state  = result['state_final']
-    r_val  = state[1]
-    v_f    = state[2]
-    g_f    = state[3]   # flight path angle at final time
-    t_f    = result['t_f']
-    t_cf   = result['t_cf']
-
-    # --- Primary objective: burn duration ---
-    J = t_f - t_cf    # Eq. 27
-
-    # --- Target orbital parameters ---
-    r_target  = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_rot     = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
-    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
-    gamma_target = 0.0   # horizontal injection
-
-    # --- Terminal constraint errors (Eq. 37) ---
-    delta_h = r_val  - r_target           # altitude error  [m]
-    delta_v = v_f    - v_circular         # velocity error  [m/s]
-    delta_g = g_f    - gamma_target       # FPA error       [rad]
-
-    # --- Transversality condition (Eq. 38) ---
-    H0  = result['H_burn_start']
-    Hfc = result['H_coast_end']
-    Hfb = result['H_burn_end']
-    transversality = Hfb + Hfc - H0      # should be 0 at optimum
-
     # --- Trajectory constraint penalty C (Eq. 40) ---
-    h_final = r_val - c.R_EARTH
+    state = result['state_final']
+    r_val, v_f = state[1], state[2]
     C = 0.0
-    if h_final < 0:                       # below ground
+    if (r_val - c.R_EARTH) < 0:           # below ground
         C = CRASH_PENALTY
     elif v_f < 0:                         # negative velocity (unphysical)
         C = CRASH_PENALTY
 
-    # --- Augmented objective (Eq. 39) ---
-    J_prime = (J
-               + sim_params.PENALTY_W_ALTITUDE  * abs(delta_h)
-               + sim_params.PENALTY_W_VELOCITY  * abs(delta_v)
-               + sim_params.PENALTY_W_FPA       * abs(delta_g)
-               + sim_params.PENALTY_W_TRANSVERS * abs(transversality)
-               + C)
-
-    return float(J_prime)
+    return float(sum(_objective_terms(result).values()) + C)
 
 
 def breakdown_objective(result):
-    """Decompose J' into its individual penalty terms for diagnostic output.
+    """Decompose J' into its individual (weighted, non-dimensional) terms.
 
-    Returns a dict with keys: J, alt, vel, fpa, transv — each the scaled
-    contribution to J_prime.  Values sum to the same J_prime as
-    compute_augmented_objective (ignoring the crash penalty C).
+    Returns a dict with keys: J, alt, vel, fpa, transv.  For a non-crashed
+    trajectory the values sum to the same J' as ``compute_augmented_objective``
+    (ignoring the crash penalty C).
     """
     if result['crashed'] or result['state_final'] is None:
         return {'J': 1e20, 'alt': 1e20, 'vel': 1e20, 'fpa': 1e20, 'transv': 1e20}
 
-    state      = result['state_final']
-    r_val      = state[1]
-    v_f        = state[2]
-    g_f        = state[3]
-    J          = result['t_f'] - result['t_cf']
-
-    r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_rot      = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
-    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
-    transv     = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
-
-    return {
-        'J'     : J,
-        'alt'   : sim_params.PENALTY_W_ALTITUDE  * abs(r_val - r_target),
-        'vel'   : sim_params.PENALTY_W_VELOCITY  * abs(v_f - v_circular),
-        'fpa'   : sim_params.PENALTY_W_FPA       * abs(g_f),
-        'transv': sim_params.PENALTY_W_TRANSVERS * abs(transv),
-    }
+    return _objective_terms(result)
 
 
 # ===========================================================================
@@ -617,11 +645,12 @@ def run_pso_optimization(verbose=True):
             eta1     = sim_params.PSO_C1,
             eta2     = sim_params.PSO_C2,
             max_vel  = sim_params.PSO_VMAX,
+            seed     = sim_params.PSO_SEED,
         ))
         if verbose:
-            algo.set_verbosity(25)   # print every 50 generations
+            algo.set_verbosity(25)   # print every 25 generations
 
-        pop = pg.population(prob, size=n_particles)
+        pop = pg.population(prob, size=n_particles, seed=sim_params.PSO_SEED)
         pop = algo.evolve(pop)
 
         best_x = list(pop.champion_x)
@@ -667,6 +696,11 @@ def run_indirect_full(optimal_params, verbose=True):
     (lambda0_r, lambda0_v, lambda0_g,
      delta_tc, delta_tr_pct, coast_start_pct, gamma_p) = optimal_params
 
+    # Match run_indirect_trajectory: the trajectory uses the unit-norm costates.
+    lambda0_r, lambda0_v, lambda0_g = _normalize_costates(
+        lambda0_r, lambda0_v, lambda0_g
+    )
+
     kick_angle = gamma_p - np.pi / 2.0
 
     # --- Stage 1 ---
@@ -681,6 +715,17 @@ def run_indirect_full(optimal_params, verbose=True):
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE)
     )
+
+    # Sanity check: _T_MAX_2 is built from M_PROP_2, so a full burn assumes the
+    # mass handed over by Stage 1 equals the Stage-2 wet mass. Warn if it drifts.
+    if verbose:
+        m_stage2_expected = r.M_STRUCTURE_2 + r.M_PROP_2 + r.M_PAYLOAD
+        m_handoff = state2_init[4]
+        if abs(m_handoff - m_stage2_expected) > 0.01 * m_stage2_expected:
+            print(f"  [warn] Stage-2 handoff mass {m_handoff:.0f} kg differs from "
+                  f"expected wet mass {m_stage2_expected:.0f} kg by "
+                  f"{100*(m_handoff-m_stage2_expected)/m_stage2_expected:+.1f}% — "
+                  f"_T_MAX_2 (propellant cap) may be inconsistent.")
 
     # timing
     T_burn_total  = (delta_tr_pct   / 100.0) * _T_MAX_2
@@ -701,7 +746,7 @@ def run_indirect_full(optimal_params, verbose=True):
         t_span=(t2_start, t_ignition + 0.5),
         y0=aug0_preig,
         t_eval=_make_teval(t2_start, t_ignition),
-        max_step=0.5, events=_event_crash, atol=1e-8,
+        rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
     )
     state_at_ign = sol_pre.y[:n_state, -1].copy()
     aug_ign = list(state_at_ign) + [lambda0_r, lambda0_v, lambda0_g]
@@ -714,7 +759,7 @@ def run_indirect_full(optimal_params, verbose=True):
             t_span=(t_ignition, t_arc1_end + 0.5),
             y0=aug_ign,
             t_eval=_make_teval(t_ignition, t_arc1_end),
-            max_step=0.5, events=_event_crash, atol=1e-8,
+            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
         )
         aug_arc2 = list(sol1.y[:, -1])
         t_arc2_start = float(sol1.t[-1])
@@ -731,7 +776,7 @@ def run_indirect_full(optimal_params, verbose=True):
             t_span=(t_arc2_start, t_arc2_end + 0.5),
             y0=aug_arc2,
             t_eval=_make_teval(t_arc2_start, t_arc2_end),
-            max_step=0.5, events=_event_crash, atol=1e-8,
+            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
         )
         aug_arc3 = list(sol2.y[:, -1])
         t_arc3_start = float(sol2.t[-1])
@@ -748,7 +793,7 @@ def run_indirect_full(optimal_params, verbose=True):
             t_span=(t_arc3_start, t_arc3_end + 0.5),
             y0=aug_arc3,
             t_eval=_make_teval(t_arc3_start, t_arc3_end),
-            max_step=0.5, events=_event_crash, atol=1e-8,
+            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
         )
     else:
         sol3 = None
@@ -790,18 +835,19 @@ def run_indirect_full(optimal_params, verbose=True):
 
     time_full   = np.concatenate([t_stage1, t_stage2_full])
     data_full   = np.concatenate([y1, y_stage2_full], axis=1)
-    thrust_full = np.concatenate([
-        np.array(ra.thrust_history)[:len(t_stage1)]
-        if len(ra.thrust_history) >= len(t_stage1)
-        else np.zeros(len(t_stage1)),
-        thrust_stage2,
-    ])
-    alpha_full  = np.concatenate([
-        np.array(ra.alpha_history)[:len(t_stage1)]
-        if len(ra.alpha_history) >= len(t_stage1)
-        else np.zeros(len(t_stage1)),
-        alpha_stage2,
-    ])
+
+    # Stage-1 thrust/alpha are recorded inside the RHS (rocket_dynamics) at the
+    # solver's RK evaluations, NOT on the t_stage1 output grid — so they have a
+    # different length and time mapping. Interpolate each history onto t_stage1
+    # using its own paired timestamps before concatenating with Stage 2.
+    # (A previous index-slice zeroed all of Stage 1 whenever the grid was denser
+    # than the RHS-eval count, leaving plots showing only Stage 2.)
+    from Plots.plot_state_utils import interpolate_to_time
+    thrust_stage1 = interpolate_to_time(ra.time_history, ra.thrust_history, t_stage1)
+    alpha_stage1  = interpolate_to_time(ra.alpha_time_history, ra.alpha_history, t_stage1)
+
+    thrust_full = np.concatenate([thrust_stage1, thrust_stage2])
+    alpha_full  = np.concatenate([alpha_stage1,  alpha_stage2])
 
     if verbose:
         sf = y_stage2_full[:, -1]
@@ -823,10 +869,13 @@ def _print_solution(x, J_prime):
     """Pretty-print the optimal PSO solution."""
     (lambda0_r, lambda0_v, lambda0_g,
      delta_tc, delta_tr_pct, coast_start_pct, gamma_p) = x
+    # The trajectory uses the unit-norm costates; report those (the raw PSO
+    # values only matter through their direction).
+    n_lr, n_lv, n_lg = _normalize_costates(lambda0_r, lambda0_v, lambda0_g)
     print("\nOptimal parameters:")
-    print(f"  lam0_r        = {lambda0_r:.6f}")
-    print(f"  lam0_v        = {lambda0_v:.6f}")
-    print(f"  lam0_gam      = {lambda0_g:.6f}")
+    print(f"  lam0_r        = {lambda0_r:.6f}  (normalised {n_lr:.6f})")
+    print(f"  lam0_v        = {lambda0_v:.6f}  (normalised {n_lv:.6f})")
+    print(f"  lam0_gam      = {lambda0_g:.6f}  (normalised {n_lg:.6f})")
     print(f"  Coast time    = {delta_tc:.2f} s")
     print(f"  Burn %        = {delta_tr_pct:.2f} %  of T_max = {_T_MAX_2:.1f} s")
     print(f"  Coast start % = {coast_start_pct:.2f} %")
@@ -851,8 +900,9 @@ def _print_solution(x, J_prime):
         H_trans = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
         print(f"  Transversality: {H_trans:.6f}  (target ~0)")
         bd = breakdown_objective(result)
+        burn_s = result['t_f'] - result['t_cf']
         print(f"\nJ prime breakdown:")
-        print(f"  J (total burn time):  {bd['J']:.2f} s")
+        print(f"  J term (burn frac):   {bd['J']:.4f}  (burn time {burn_s:.1f} s of {_T_MAX_2:.1f} s max)")
         print(f"  Altitude penalty:     {bd['alt']:.4f}")
         print(f"  Velocity penalty:     {bd['vel']:.4f}")
         print(f"  FPA penalty:          {bd['fpa']:.4f}")
