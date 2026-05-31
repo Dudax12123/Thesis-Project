@@ -295,7 +295,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 
     sol_pre = solve_ivp(
         lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
-        t_span=(t2_start, t_ignition + 0.5),
+        t_span=(t2_start, t_ignition),
         y0=aug0_preig,
         rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
         events=_event_crash,
@@ -334,7 +334,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     if t_coast_start > 0.01:
         sol_arc1 = solve_ivp(
             lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
-            t_span=(t_ignition, t_arc1_end + 0.5),
+            t_span=(t_ignition, t_arc1_end),
             y0=aug_state_ign,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
@@ -370,7 +370,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     if delta_tc > 0.01:
         sol_arc2 = solve_ivp(
             lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
-            t_span=(t_arc2_start, t_arc2_end + 0.5),
+            t_span=(t_arc2_start, t_arc2_end),
             y0=aug_state_arc2,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
@@ -419,7 +419,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     if t_arc3_burn > 0.01:
         sol_arc3 = solve_ivp(
             lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
-            t_span=(t_arc3_start, t_arc3_end + 0.5),
+            t_span=(t_arc3_start, t_arc3_end),
             y0=aug_state_arc3,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
@@ -738,12 +738,18 @@ def run_indirect_full(optimal_params, verbose=True):
     _dt = 0.5   # output step for plotting
 
     def _make_teval(t0, t1):
-        return np.arange(t0, t1, _dt)
+        # Include the exact endpoint so each arc is sampled at its planned end
+        # (np.arange excludes the stop value). This keeps the plotted/reported
+        # terminal state identical to the objective's run_indirect_trajectory.
+        pts = np.arange(t0, t1, _dt)
+        if len(pts) == 0 or pts[-1] < t1:
+            pts = np.append(pts, t1)
+        return pts
 
     # --- Pre-ignition coast ---
     sol_pre = solve_ivp(
         lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
-        t_span=(t2_start, t_ignition + 0.5),
+        t_span=(t2_start, t_ignition),
         y0=aug0_preig,
         t_eval=_make_teval(t2_start, t_ignition),
         rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
@@ -756,7 +762,7 @@ def run_indirect_full(optimal_params, verbose=True):
     if t_coast_start > 0.01:
         sol1 = solve_ivp(
             lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
-            t_span=(t_ignition, t_arc1_end + 0.5),
+            t_span=(t_ignition, t_arc1_end),
             y0=aug_ign,
             t_eval=_make_teval(t_ignition, t_arc1_end),
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
@@ -773,7 +779,7 @@ def run_indirect_full(optimal_params, verbose=True):
     if delta_tc > 0.01:
         sol2 = solve_ivp(
             lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
-            t_span=(t_arc2_start, t_arc2_end + 0.5),
+            t_span=(t_arc2_start, t_arc2_end),
             y0=aug_arc2,
             t_eval=_make_teval(t_arc2_start, t_arc2_end),
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
@@ -790,7 +796,7 @@ def run_indirect_full(optimal_params, verbose=True):
     if t_arc3_burn > 0.01:
         sol3 = solve_ivp(
             lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
-            t_span=(t_arc3_start, t_arc3_end + 0.5),
+            t_span=(t_arc3_start, t_arc3_end),
             y0=aug_arc3,
             t_eval=_make_teval(t_arc3_start, t_arc3_end),
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,

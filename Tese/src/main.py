@@ -300,6 +300,11 @@ def execute():
             g_f = np.rad2deg(sf[3])
             r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
             v_c = np.sqrt(c.MU_EARTH / r_t)
+            # The objective targets v_circular MINUS the Earth-rotation surface
+            # speed credit (the same v_rot used in _objective_terms), so report
+            # against that target rather than the unadjusted circular velocity.
+            v_rot = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+            v_target = v_c - v_rot
             print("\n" + "="*60)
             print("INDIRECT PMP OPTIMISATION RESULTS")
             print("="*60)
@@ -307,7 +312,8 @@ def execute():
             print(f"\t* Final altitude:\t\t\t{h_f:.2f} km  "
                   f"(target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km)")
             print(f"\t* Final velocity:\t\t\t{v_f:.2f} m/s  "
-                  f"(circular {v_c:.2f} m/s)")
+                  f"(target {v_target:.2f} m/s; circular {v_c:.2f}, "
+                  f"Earth-rot credit {v_rot:.2f})")
             print(f"\t* Final FPA:\t\t\t\t{g_f:.4f}°  (target 0°)")
             H_tv = (result_opt['H_burn_end'] + result_opt['H_coast_end']
                     - result_opt['H_burn_start'])
