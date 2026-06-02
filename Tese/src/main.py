@@ -327,6 +327,19 @@ def execute():
             print(f"\t  FPA penalty:            {bd['fpa']:.4f}")
             print(f"\t  Transversality:         {bd['transv']:.4f}")
 
+            # Propellant summary. data[4] is the mass channel; Stage-2 numbers
+            # are exact from the final mass, total assumes Stage 1 burns to
+            # depletion at staging (standard here).
+            mf = data[4, -1]                                  # Stage-2 mass at end
+            p2_remaining = max(0.0, mf - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
+            p2_used      = r_specs.M_PROP_2 - p2_remaining
+            total_used   = r_specs.M_PROP_1 + p2_used
+            print(f"\n\t  PROPELLANT USAGE:")
+            print(f"\t  Total propellant used (S1+S2):  {total_used:.1f} kg")
+            print(f"\t  Stage-2 propellant used:        {p2_used:.1f} kg "
+                  f"({100.0 * p2_used / r_specs.M_PROP_2:.1f}% of {r_specs.M_PROP_2:.0f} kg)")
+            print(f"\t  Stage-2 propellant remaining:   {p2_remaining:.1f} kg")
+
         # Skip the rest of the normal execute() flow if crashed
         if _simulation_failed:
             return time, data, kick_angle_optimal
@@ -567,7 +580,6 @@ def execute():
         cross_heading_counter_force_data=_cross_force,
         cross_heading_accel_data=_cross_accel,
     )
-    plt.pause(0.001)  # pump event loop so windows appear immediately
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---
     if (sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE
@@ -633,6 +645,7 @@ def heading_comparison_plot(time_ref, data_ref, kick_angle, inc_on):
 
 if __name__ == "__main__":
     execute()
-    # Keep figure windows open until the user closes them all
-    while plt.get_fignums():
-        plt.pause(0.5)
+    # Single blocking call: shows all generated figures at once and keeps them
+    # open until the user closes them, without the busy-redraw flicker that a
+    # plt.pause() keep-alive loop produces.
+    plt.show()

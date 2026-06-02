@@ -253,7 +253,7 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 350       # swarm size
+PSO_N_PARTICLES     = 350      # swarm size
 PSO_MAX_GENERATIONS = 1250      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
@@ -280,7 +280,7 @@ PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
 # time. Lower the constraint weights later if feasibility becomes reliable.
 PENALTY_W_J         = 1.0       # burn-time term (J normalised by T_MAX_2)
 PENALTY_W_ALTITUDE  = 100.0     # s1: relative altitude error (1% error -> 1.0)
-PENALTY_W_VELOCITY  = 200.0     # s2: relative velocity error (1% error -> 1.0)
+PENALTY_W_VELOCITY  = 100.0     # s2: relative velocity error (1% error -> 1.0)
 PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
 PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
 GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
