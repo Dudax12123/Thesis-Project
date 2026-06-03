@@ -5,10 +5,10 @@ import numpy as np
 # ===================================================
 
 # -------------- Gravity Turn --------------
-TIME_TO_START_KICK = 7.5                        # time at which the instantaneous pitch-over is applied; [s]
-DURATION_INITIAL_KICK = 45.                     # DEPRECATED — kept only so legacy plot scripts that reference
-                                                # this symbol still import cleanly. The kick is now an
-                                                # instantaneous gamma jump at TIME_TO_START_KICK and has no duration.
+TIME_TO_START_KICK = 7.5                        # time at which the kick maneuver begins; [s]
+DURATION_INITIAL_KICK = 45.                     # duration of the triangular alpha kick profile [s]
+                                                # (apogee_check path only; pso_coast / indirect_pmp use
+                                                #  an instantaneous γ jump and ignore this value)
 
 # -------------- Aerodynamics --------------
 INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
@@ -21,7 +21,7 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -105,7 +105,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "indirect_pmp"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -253,8 +253,8 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 100      # swarm size
-PSO_MAX_GENERATIONS = 250      # maximum number of generations
+PSO_N_PARTICLES     = 20      # swarm size
+PSO_MAX_GENERATIONS = 30      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -284,3 +284,56 @@ PENALTY_W_VELOCITY  = 100.0     # s2: relative velocity error (1% error -> 1.0)
 PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
 PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
 GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
+
+
+# ===================================================
+# COAST METHOD SELECTION
+# (applies to all guidance modes except "indirect_pmp")
+# ===================================================
+
+# Choose how the coast start is determined during Stage 2:
+#   "apogee_check" : current method (unchanged).
+#                    interrupt_single_burn_traj fires when the rocket's
+#                    instantaneous apogee equals the target altitude.
+#                    The rocket then coasts ballistically to apogee and an
+#                    impulsive circularisation burn is applied.
+#   "pso_coast"    : PSO simultaneously optimises kick angle (gamma_p),
+#                    total Stage-2 burn fraction (delta_tr_pct), coast-start
+#                    fraction (coast_start_pct), and coast duration (delta_tc).
+#                    The trajectory is Thrust → Coast → Thrust with direct
+#                    orbit insertion — no separate circularisation burn.
+#                    The selected guidance law (apollo, peg, …) steers the
+#                    rocket during both thrust arcs.
+#                    Has no effect when GUIDANCE_MODE = "indirect_pmp" (that
+#                    mode always uses its own PSO with costates).
+COAST_METHOD = "apogee_check"   # Options: "apogee_check", "pso_coast"
+
+# -------------- PSO COAST algorithm settings --------------
+# (only used when COAST_METHOD == "pso_coast")
+PSO_COAST_N_PARTICLES     = 20      # swarm size
+PSO_COAST_MAX_GENERATIONS = 30      # maximum number of generations
+PSO_COAST_C1              = 2.05    # cognitive parameter
+PSO_COAST_C2              = 2.05    # social parameter
+PSO_COAST_OMEGA           = 0.7298  # inertia weight
+PSO_COAST_VMAX            = 0.5     # maximum particle velocity (normalised)
+PSO_COAST_SEED            = 42      # RNG seed for reproducible runs
+
+# Decision-variable bounds for the 4-variable coast PSO:
+# x = [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
+# gamma_p bounds are derived from ALPHA_LOWEST/ALPHA_HIGHEST (the apogee_check
+# brute-force sweep range) with a 1.5° margin on each side, so the PSO
+# searches over the same physically meaningful kick-angle space.
+PSO_COAST_LB = [  0.0,   0.0,   0.0,  1.54]
+PSO_COAST_UB = [2000.0, 100.0, 100.0,  1.57]
+# delta_tc          : coast phase duration                    [0, 2000] s
+# delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
+# coast_start_pct   : coast start as % of Stage-2 burn time   [0, 100] %
+# gamma_p           : pitch maneuver angle                    [1.54, 1.57] rad
+
+# -------------- Penalty weights for coast PSO objective --------------
+# No transversality term (no costates in this solver).
+PSO_COAST_W_J         = 1.0     # burn-time term (J normalised by T_MAX_2)
+PSO_COAST_W_ALTITUDE  = 100.0   # relative altitude error  (1% error → 1.0)
+PSO_COAST_W_VELOCITY  = 100.0   # relative velocity error  (1% error → 1.0)
+PSO_COAST_W_FPA       = 10.0    # FPA error in deg         (1 deg  → 10.0)
+PSO_COAST_GAMMA_REF_DEG = 1.0   # FPA non-dimensionalisation reference [deg]

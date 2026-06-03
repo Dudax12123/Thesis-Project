@@ -41,10 +41,15 @@ time_main_engine_cutoff = None
 second_stage_cutoff = False
 flag_falling_single_burn = False
 current_kick_angle = 0.0  # Store current kick angle for interrupt functions
+time_raise = sim_params.DURATION_INITIAL_KICK / 2.0  # Half-duration for triangular pitch ramp [s]
 
 # For single burn optimization
 SINGLE_BURN_FULL_SIMULATION = False
 TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
+
+# PSO coast mode markers — written by pso_coast_solver.run_pso_coast_full()
+# so that event-marker code (plot_state_utils.event_times) can pick them up.
+PSO_COAST_ARC2_START_TIME = None   # absolute time when coast arc begins [s]
 
 # Inertial-frame flag: set True after ECEF→ECI transition at SECO
 # so that pseudo-forces are no longer applied during coast/orbit phases.
@@ -1027,10 +1032,12 @@ def rocket_dynamics(t, state):
             kick_performed = True
             time_kick_start = t
             alpha = 0.0
+        elif getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'apogee_check':
+            # apogee_check: triangular alpha ramp over DURATION_INITIAL_KICK seconds.
+            alpha = pitch_program_linear(t, current_kick_angle)
         else:
-            # Instantaneous pitch-over: the γ jump is applied outside the ODE RHS
-            # by _run_stage1a_with_kick. Angle of attack stays at zero throughout
-            # the gravity turn — there is no triangular α profile any more.
+            # pso_coast / indirect_pmp: instantaneous γ jump handled outside ODE
+            # by _run_stage1a_with_kick; α stays zero here.
             alpha = 0.0
 
     elif (kick_performed and sim_params.GUIDANCE_MODE == "cpr"
@@ -1590,6 +1597,39 @@ class _MergedSol:
         self.t_events = t_events
 
 
+def pitch_program_linear(t, initial_kick_angle):
+    """Triangular angle-of-attack profile for the `apogee_check` kick maneuver.
+
+    Alpha ramps linearly from 0 to ``initial_kick_angle`` over the first half
+    of ``DURATION_INITIAL_KICK``, then ramps back to 0 over the second half.
+    The resulting profile is triangular when plotted against time.  Used only
+    when ``COAST_METHOD == "apogee_check"``; PSO paths use the instantaneous
+    γ jump via ``_run_stage1a_with_kick`` instead.
+    """
+    global time_kick_start, kick_performed, time_raise
+
+    if time_kick_start is None:
+        time_kick_start = t
+        if sim_params.EVENTS_PRINT:
+            print(f"\nTriangular kick started at t = {t:.4f}s")
+        return 0.0
+
+    elif t > (time_kick_start + sim_params.DURATION_INITIAL_KICK):
+        kick_performed = True
+        if sim_params.EVENTS_PRINT:
+            print(f"\nTriangular kick ended at t = {t:.4f}s  "
+                  f"(Δγ_total ≈ {np.rad2deg(initial_kick_angle):+.4f}° amplitude)")
+        return 0.0
+
+    else:
+        if t < (time_kick_start + time_raise):
+            angle_rate = (t - time_kick_start) / time_raise
+            return initial_kick_angle * angle_rate
+        else:
+            angle_rate = (t - (time_kick_start + time_raise)) / time_raise
+            return initial_kick_angle * (1.0 - angle_rate)
+
+
 def _run_stage1a_with_kick(init_time, time_horizon, state_init, base_events):
     """Run Stage 1A in two ODE segments around the instantaneous kick.
 
@@ -1689,7 +1729,8 @@ def run(initial_kick_angle, azimuth_override=None):
     global PROPAGATING_IN_INERTIAL_FRAME
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
-    
+    global time_raise
+
     #===================================================
     # Reset global variables
     #===================================================
@@ -1703,6 +1744,7 @@ def run(initial_kick_angle, azimuth_override=None):
     flag_falling_single_burn = False
     PROPAGATING_IN_INERTIAL_FRAME = False
     current_kick_angle = initial_kick_angle  # Store for use in dynamics
+    time_raise = sim_params.DURATION_INITIAL_KICK / 2.0  # Re-derive in case param changed
 
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
@@ -1810,14 +1852,23 @@ def run(initial_kick_angle, azimuth_override=None):
     # interrupt_stage_separation is included so Stage 1A never runs past MECO when
     # the atmosphere exit (and thus fairing jettison) happens after MECO — e.g. when
     # ATMOSPHERE_EXIT_METHOD = "aerothermal_flux" with a threshold crossed at ~137 km.
-    # _run_stage1a_with_kick performs an internal two-segment integration around
-    # the instantaneous pitch-over (γ jump at TIME_TO_START_KICK); the kick event
-    # is consumed inside the helper so the returned t_events list keeps the same
-    # 0=fairing / 1=crash / 2=velocity / 3=stage_sep indexing.
-    sol_1a = _run_stage1a_with_kick(
-        0, time_1, initial_state_1,
-        base_events=[interrupt_fairing_jettison, interrupt_ground_collision,
-                     interrupt_velocity_exceeded, interrupt_stage_separation])
+    #
+    # COAST_METHOD == "apogee_check": use a plain simulate_trajectory so the kick is
+    # handled continuously inside the ODE RHS via pitch_program_linear (triangular
+    # alpha profile). t_events indexing: 0=fairing, 1=crash, 2=velocity, 3=stage_sep.
+    #
+    # COAST_METHOD == "pso_coast" / "indirect_pmp": _run_stage1a_with_kick performs an
+    # internal two-segment integration around the instantaneous pitch-over (γ jump at
+    # TIME_TO_START_KICK); the kick event is consumed inside the helper so the returned
+    # t_events list keeps the same 0=fairing / 1=crash / 2=velocity / 3=stage_sep indexing.
+    _stage1a_events = [interrupt_fairing_jettison, interrupt_ground_collision,
+                       interrupt_velocity_exceeded, interrupt_stage_separation]
+    if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'apogee_check':
+        sol_1a = simulate_trajectory(0, time_1, initial_state_1, False, False,
+                                     override_events=_stage1a_events)
+    else:
+        sol_1a = _run_stage1a_with_kick(0, time_1, initial_state_1,
+                                        base_events=_stage1a_events)
     # event indices: 0=fairing, 1=crash, 2=velocity, 3=stage_sep
 
     if len(sol_1a.t_events[1]) > 0:  # crash before any other event
@@ -2245,6 +2296,7 @@ def run_stage1(initial_kick_angle):
     global PROPAGATING_IN_INERTIAL_FRAME
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
+    global time_raise
 
     # --- Reset globals (identical to the reset block in run()) ---------------
     time_kick_start = None
@@ -2257,6 +2309,7 @@ def run_stage1(initial_kick_angle):
     flag_falling_single_burn = False
     PROPAGATING_IN_INERTIAL_FRAME = False
     current_kick_angle = initial_kick_angle
+    time_raise = sim_params.DURATION_INITIAL_KICK / 2.0
 
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
