@@ -107,8 +107,7 @@ GUIDANCE_MODE = "indirect"  # Options: "gravity_turn", "simple_poly", "linear_ta
 # When should the guidance law activate after the kick maneuver?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-#   "after_vertical": Start guidance immediately after a vertical ascent phase
-GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick", "after_vertical"
+GUIDANCE_START_MODE = "after_kick"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "simple_poly" or "apollo")
@@ -165,20 +164,7 @@ INDIRECT_CLOSED_LOOP = False        # If False: optimize TPBVP once at guidance 
 INDIRECT_UPDATE_RATE = 10.0          # [s] Re-optimization interval — only used when
                                      # INDIRECT_CLOSED_LOOP = True.
                                      # Lower = more accurate, Higher = faster (~0.1–0.5 s per solve).
-INDIRECT_USE_DE     = True          # If True, run differential evolution (global search,
-                                     # equivalent to the PSO used in the reference paper)
-                                     # before the local fsolve grid.  Robust but slow:
-                                     #   evaluations ≈ INDIRECT_DE_POPSIZE × 15 × INDIRECT_DE_MAXITER
-INDIRECT_DE_POPSIZE = 10              # DE population size per dimension (↑ = thorough, slow)
-INDIRECT_DE_MAXITER = 50             # DE maximum iterations        (↑ = thorough, slow)
-INDIRECT_ALPHA_SEARCH_MAX = 20.0    # [deg] maximum initial thrust angle α*(t=0) searched
-                                     # in both the grid and the DE pre-search.
-                                     # Corresponds to λ_γ0_n ∈ [−tan(max), +tan(max)].
-INDIRECT_SIMPLIFIED = True          # If True, solve the TPBVP with a simplified model:
-                                     #   • No aerodynamic lift  (F_L = 0; drag is kept)
-                                     #   • No Earth-rotation pseudo-forces (Coriolis/centrifugal)
-                                     # Reduces adjoint complexity; may improve convergence.
-INDIRECT_ALLOW_THROTTLE = False      # Enable bang-bang thrust control via switching function:
+INDIRECT_ALLOW_THROTTLE = True      # Enable bang-bang thrust control via switching function:
                                      #   σ = (λ_v·cosα + λ_γ·sinα/v)/m − λ_m/(Isp·g0)
                                      #   F_T = F_T_max if σ > 0 (thrust), 0 if σ ≤ 0 (coast)
                                      # When True: min_fuel may produce coast arcs (less propellant);
@@ -237,14 +223,14 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
                                                  # Phi = 0.5*rho*v^3; negligible heating below this value
 
 # -------------- Optimization --------------
-ALPHA_LOWEST = -np.deg2rad(5)                  # lowest possible kick angle to be tested; [rad]
-ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
-ALPHA_STEP = np.deg2rad(0.01)                 # step size for kick angle sweep; [rad]
-MAX_ACCEPTED_BURN_TIME = 1000.                    # maximum accepted burn time of delta-v; [s]
+ALPHA_LOWEST = -np.deg2rad(4.1)                  # lowest possible kick angle to be tested; [rad]
+ALPHA_HIGHEST = -np.deg2rad(3.9)                # highest possible kick angle to be tested; [rad]~
+ALPHA_STEP = np.deg2rad(0.05)                 # step size for kick angle sweep; [rad]
+MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = True
+RUN_FAST = False
 
 # Optimal kick angles for each guidance mode (in radians)
 # These values should be updated after running optimization for each mode
@@ -257,7 +243,7 @@ OPTIMAL_KICK_ANGLES = {
     "peg": -np.deg2rad(3.0),                     # Update after optimization
     "peg_new": -np.deg2rad(3.0),                 # Update after optimization
     "exp_shooting": -np.deg2rad(3.0),            # Update after optimization
-    "indirect": -np.deg2rad(4.0),               # Update after optimization
+    "indirect": -np.deg2rad(3.0),               # Update after optimization
 }
 
 # ===================================================

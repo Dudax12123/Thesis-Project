@@ -60,24 +60,22 @@ from scipy.optimize import fsolve
 
 # ─── Drag / lift helper ───────────────────────────────────────────────────────
 
-def _compute_drag_lift(r, v, include_drag, include_lift=True):
-    """Return (F_D, F_L) [N].  Both zero when include_drag=False.
-    F_L is zero when include_lift=False (simplified mode)."""
+def _compute_drag_lift(r, v, include_drag):
+    """Return (F_D, F_L) [N].  Both zero when include_drag=False."""
     if not include_drag:
         return 0.0, 0.0
     from Auxiliary import constants as _c
     from Auxiliary import rocket_specs as _r
     rho = _c.RHO_0 * np.exp(-(r - _c.R_EARTH) / _c.H)
     q   = 0.5 * rho * v**2
-    F_L = _r.C_L * _r.A * q if include_lift else 0.0
-    return _r.C_D * _r.A * q, F_L
+    return _r.C_D * _r.A * q, _r.C_L * _r.A * q
 
 
 # ─── λ_m0 from H(t0) = 0 ─────────────────────────────────────────────────────
 
 def _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
                     r0, v0, gamma0, m0, F_T, Isp, g0, mu, include_drag,
-                    cost_mode="min_fuel", earth_rot_params=None, include_lift=True):
+                    cost_mode="min_fuel", earth_rot_params=None):
     """Compute λ_m0 analytically from H(t0) = H_target (first integral).
 
     H is constant for autonomous systems with L=0.
@@ -89,7 +87,7 @@ def _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
     → λ_m0 = (H_rest − H_target) · Isp · g0 / F_T
     """
     H_target = 0.0 if cost_mode == "min_fuel" else 1.0
-    F_D, F_L = _compute_drag_lift(r0, v0, include_drag, include_lift)
+    F_D, F_L = _compute_drag_lift(r0, v0, include_drag)
     g   = mu / r0**2
     T_m = F_T / m0
 
@@ -134,11 +132,11 @@ def _compute_thrust(lam_v, lam_gamma, lam_m, alpha, v, m, F_T_max, Isp, g0,
 # ─── 8-state combined ODE ─────────────────────────────────────────────────────
 
 def _combined_odes(y, F_T, Isp, g0, mu, include_drag, allow_throttle,
-                   earth_rot_params=None, include_lift=True):
+                   earth_rot_params=None):
     """8-state ODE: [r, v, γ, m, λ_r, λ_v, λ_γ, λ_m]."""
     r, v, gamma, m, lam_r, lam_v, lam_gamma, lam_m = y
 
-    F_D, F_L = _compute_drag_lift(r, v, include_drag, include_lift)
+    F_D, F_L = _compute_drag_lift(r, v, include_drag)
     g   = mu / r**2
 
     if abs(lam_v) < 1e-12 and abs(lam_gamma) < 1e-12:
@@ -217,8 +215,7 @@ def _compute_hamiltonian(y, F_T_eff, Isp, g0, mu, F_D, F_L):
 
 def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
                        F_T, Isp, g0, mu, include_drag, allow_throttle,
-                       earth_rot_params=None, dt=0.5, store_alpha=False,
-                       include_lift=True):
+                       earth_rot_params=None, dt=0.5, store_alpha=False):
     """Integrate the 8-state system with RK4 from t=0 to t=tf.
 
     Parameters
@@ -252,10 +249,10 @@ def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
             t_list.append(t_rel)
             alpha_list.append(alpha_now)
 
-        k1 = _combined_odes(y,                  F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-        k2 = _combined_odes(y + 0.5*dt_step*k1, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-        k3 = _combined_odes(y + 0.5*dt_step*k2, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
-        k4 = _combined_odes(y +     dt_step*k3, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params, include_lift)
+        k1 = _combined_odes(y,                  F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
+        k2 = _combined_odes(y + 0.5*dt_step*k1, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
+        k3 = _combined_odes(y + 0.5*dt_step*k2, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
+        k4 = _combined_odes(y +     dt_step*k3, F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params)
 
         y     = y + (dt_step / 6.0) * (k1 + 2*k2 + 2*k3 + k4)
         t_rel += dt_step
@@ -283,8 +280,7 @@ def _forward_integrate(lam0_3, lam_m0, r0, v0, gamma0, m0, m_dry, tf,
 # ─── Residual for fsolve (4D no-throttle / 5D bang-bang) ─────────────────────
 
 def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
-              include_drag, cost_mode, allow_throttle, earth_rot_params,
-              include_lift=True):
+              include_drag, cost_mode, allow_throttle, earth_rot_params):
     """4D residual when allow_throttle=False; 5D when allow_throttle=True.
 
     The 5D case treats lam_m0 as a free variable (the H=const analytical
@@ -302,8 +298,7 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
         lam_r0, lam_v0, lam_gamma0, tf = params
         lam_m0 = _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
                                    r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                   include_drag, cost_mode, earth_rot_params,
-                                   include_lift)
+                                   include_drag, cost_mode, earth_rot_params)
 
     penalty = [1e6] * (5 if allow_throttle else 4)
     if tf <= 0.0:
@@ -314,7 +309,7 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
         [lam_r0, lam_v0, lam_gamma0], lam_m0,
         r0, v0, gamma0, m0, m_dry, tf,
         F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params,
-        store_alpha=False, include_lift=include_lift
+        store_alpha=False
     )
 
     v_circ = np.sqrt(mu / r_T)
@@ -330,7 +325,7 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
         # Enforce H(tf) = H_target explicitly (free-time transversality eq 64b)
         y_f = np.array([r_f, v_f, gamma_f, m_dry,   # m_f ≈ m_dry at burnout
                         lam_r_f, lam_v_f, lam_gamma_f, lam_m_f])
-        F_D_f, F_L_f = _compute_drag_lift(r_f, v_f, include_drag, include_lift)
+        F_D_f, F_L_f = _compute_drag_lift(r_f, v_f, include_drag)
         if abs(lam_v_f) > 1e-12 or abs(lam_gamma_f) > 1e-12:
             alpha_f = np.arctan2(lam_gamma_f, v_f * lam_v_f)
         else:
@@ -348,9 +343,7 @@ def _residual(params, r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
 
 def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
                 include_drag=False, cost_mode="min_fuel", allow_throttle=False,
-                lat=0.0, heading=0.0, include_earth_rotation=False,
-                include_lift=True, use_de=False, de_popsize=8, de_maxiter=30,
-                alpha_search_max=20.0):
+                lat=0.0, heading=0.0, include_earth_rotation=False):
     """Solve the minimum-fuel TPBVP via single shooting (complete FONCs).
 
     Satisfies:
@@ -384,12 +377,6 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
     _, r0, v0, gamma0, m0 = (state[0], state[1], state[2],
                               state[3], state[4])
 
-    # For constant thrust (allow_throttle=False), min_fuel ≡ min_time because
-    # fuel = F_T·tf/(Isp·g0) ∝ tf.  Standardise to min_time so INDIRECT_COST_MODE
-    # only has an effect when bang-bang throttling is enabled.
-    if not allow_throttle:
-        cost_mode = "min_time"
-
     mdot  = F_T / (Isp * g0)
     tf0   = (m0 - m_dry) / mdot   # propellant-based burnout time (initial guess)
 
@@ -405,30 +392,23 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
         earth_rot_params = None
 
     args = (r0, v0, gamma0, m0, m_dry, F_T, Isp, g0, mu, r_T,
-            include_drag, cost_mode, allow_throttle, earth_rot_params,
-            include_lift)
+            include_drag, cost_mode, allow_throttle, earth_rot_params)
 
-    # ── Multi-start over the normalised 2D costate space ────────────────────────
-    # Normalisation (PMP scale invariance: fix λ_v0 = 1):
-    #   λ_γ0_n = λ_γ0/v0 = tan(α*(t=0))  ∈ [−lgn_max, lgn_max]
-    #            where lgn_max = tan(INDIRECT_ALPHA_SEARCH_MAX)
-    #   λ_r0_n = λ_r0                     ∈ [−0.1, 0.1]
-    #            (λ̇_r ~ 2.4×10⁻⁶ s⁻¹ → Δλ_r ~ 7×10⁻⁴ over 300 s; small scale)
-    # Total: 3 × 11 = 33 starting points — systematic, velocity-independent.
-    _lgn_max          = np.tan(np.deg2rad(alpha_search_max))
-    _lam_r_n_grid     = np.array([-0.1, 0.0, 0.1])
-    _lam_gamma_n_grid = np.linspace(-_lgn_max, _lgn_max, 11)
+    # Multi-start: try physically motivated λ_γ0 values to escape the trivial solution.
+    # Physical reasoning: α*(t=0) = arctan2(λ_γ0, v0·λ_v0) → λ_γ0 = v0·tan(α_init).
+    # Ascent typically requires slightly negative α (pitch toward horizontal), so we
+    # sweep from −30° to +5° and keep the converged solution with the smallest residual.
+    _alpha_inits = np.deg2rad([-30., -20., -10., -5., 0., 5.])
 
     best_sol   = None
     best_rnorm = np.inf
 
-    def _try_fsolve(lr0, lg0):
-        """Run fsolve from (lr0, lg0); update best_sol/best_rnorm if better."""
-        nonlocal best_sol, best_rnorm
-        _lm0 = _compute_lam_m0(lr0, 1.0, lg0, r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                include_drag, cost_mode, earth_rot_params, include_lift)
-        _p = (np.array([lr0, 1.0, lg0, _lm0, tf0]) if allow_throttle
-              else np.array([lr0, 1.0, lg0, tf0]))
+    for _a0 in _alpha_inits:
+        _lg0 = v0 * np.tan(_a0)
+        _lm0 = _compute_lam_m0(0.0, 1.0, _lg0, r0, v0, gamma0, m0, F_T, Isp, g0, mu,
+                                include_drag, cost_mode, earth_rot_params)
+        _p = (np.array([0.0, 1.0, _lg0, _lm0, tf0]) if allow_throttle
+              else np.array([0.0, 1.0, _lg0, tf0]))
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -436,50 +416,23 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
                                                full_output=True, xtol=1e-8)
             if _ier == 1:
                 _rn = np.linalg.norm(_info['fvec'])
-                _alpha0_deg = abs(np.rad2deg(np.arctan2(_sol[2], v0 * _sol[1])))
-                if _alpha0_deg > alpha_search_max:
-                    return
                 if _rn < best_rnorm:
                     best_rnorm = _rn
                     best_sol   = _sol
         except Exception:
             pass
 
-    # ── Optional DE pre-search (global, paper-equivalent of PSO) ────────────────
-    if use_de:
-        from scipy.optimize import differential_evolution
-
-        def _de_obj(p_norm):
-            _lr0 = p_norm[0]
-            _lg0 = v0 * p_norm[1]
-            _tf  = tf0 * (0.5 + p_norm[2])          # tf ∈ [0.5·tf0, 1.5·tf0]
-            _lm0 = _compute_lam_m0(_lr0, 1.0, _lg0, r0, v0, gamma0, m0, F_T,
-                                    Isp, g0, mu, include_drag, cost_mode,
-                                    earth_rot_params, include_lift)
-            _p = (np.array([_lr0, 1.0, _lg0, _lm0, _tf]) if allow_throttle
-                  else np.array([_lr0, 1.0, _lg0, _tf]))
-            res = _residual(_p, *args)
-            return float(np.sum(np.array(res)**2))
-
-        _de = differential_evolution(
-            _de_obj,
-            bounds=[(-0.2, 0.2), (-_lgn_max, _lgn_max), (0.0, 1.0)],
-            maxiter=de_maxiter, popsize=de_popsize,
-            seed=42, tol=1e-8, polish=False
-        )
-        # Use the DE champion as an additional fsolve starting point
-        _try_fsolve(_de.x[0], v0 * _de.x[1])
-
-    # ── Grid search ──────────────────────────────────────────────────────────────
-    for _lrn in _lam_r_n_grid:
-        for _lgn in _lam_gamma_n_grid:
-            _try_fsolve(_lrn, v0 * _lgn)
-
     if best_sol is not None:
         sol, ier = best_sol, 1
     else:
-        print("[indirect] fsolve did not converge with any initial guess. Skipping.")
-        return None, None
+        # Fallback: use α₀ = −10° — more physical than the gravity-turn (α₀=0°) guess
+        _lg0_fb = v0 * np.tan(np.deg2rad(-10.))
+        _lm0_fb = _compute_lam_m0(0.0, 1.0, _lg0_fb, r0, v0, gamma0, m0, F_T, Isp, g0, mu,
+                                   include_drag, cost_mode, earth_rot_params)
+        sol = (np.array([0.0, 1.0, _lg0_fb, _lm0_fb, tf0]) if allow_throttle
+               else np.array([0.0, 1.0, _lg0_fb, tf0]))
+        ier = 0
+        print("[indirect] fsolve did not converge with any initial guess. Using fallback.")
 
     if allow_throttle:
         lam_r0, lam_v0, lam_gamma0, lam_m0, tf = sol
@@ -487,8 +440,7 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
         lam_r0, lam_v0, lam_gamma0, tf = sol
         lam_m0 = _compute_lam_m0(lam_r0, lam_v0, lam_gamma0,
                                   r0, v0, gamma0, m0, F_T, Isp, g0, mu,
-                                  include_drag, cost_mode, earth_rot_params,
-                                  include_lift)
+                                  include_drag, cost_mode, earth_rot_params)
 
     tf = max(tf, 1.0)   # guard against non-positive tf
 
@@ -496,7 +448,7 @@ def solve_tpbvp(state, r_T, mu, F_T, Isp, m_dry, g0,
         [lam_r0, lam_v0, lam_gamma0], lam_m0,
         r0, v0, gamma0, m0, m_dry, tf,
         F_T, Isp, g0, mu, include_drag, allow_throttle, earth_rot_params,
-        store_alpha=True, include_lift=include_lift
+        store_alpha=True
     )
 
     if t_arr is None or len(t_arr) == 0:
