@@ -236,6 +236,8 @@ def execute():
     ra.SINGLE_BURN_FULL_SIMULATION = False
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
+    pso_history = None   # set only in indirect_pmp mode; passed to the plot suite
+
     # =========================================================================
     # INDIRECT PMP MODE — PSO optimisation replaces brute-force kick-angle search
     # =========================================================================
@@ -245,6 +247,7 @@ def execute():
             run_indirect_full,
             breakdown_objective,
         )
+        import Simulation.indirect_pso_solver as ips
 
         print("\n" + "="*60)
         print("INDIRECT PMP — PSO TRAJECTORY OPTIMISATION")
@@ -260,6 +263,7 @@ def execute():
         sim_params.INTERRUPTS_PRINT = False
 
         optimal_params, J_optimal = run_pso_optimization(verbose=True)
+        pso_history = ips.LAST_PSO_HISTORY   # per-generation convergence log
 
         sim_params.EVENTS_PRINT     = _events_print_saved
         sim_params.INTERRUPTS_PRINT = _interrupts_print_saved
@@ -579,6 +583,7 @@ def execute():
         theta_time_data=_theta_time,
         cross_heading_counter_force_data=_cross_force,
         cross_heading_accel_data=_cross_accel,
+        pso_history=pso_history,
     )
 
     # --- Heading comparison plot: with vs without cross-heading pseudo-force ---

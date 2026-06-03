@@ -73,6 +73,10 @@ _RTOL = 1e-9
 _ATOL = 1e-9
 _MAX_STEP = 10.0
 
+# Per-generation PSO convergence history, populated by run_pso_optimization.
+# Dict with keys 'gen' and 'gbest' (best J' so far), or None if unavailable.
+LAST_PSO_HISTORY = None
+
 
 # ===========================================================================
 # Stage-1 → Stage-2 state handoff
@@ -655,6 +659,24 @@ def run_pso_optimization(verbose=True):
 
         best_x = list(pop.champion_x)
         best_f = float(pop.champion_f[0])
+
+        # Capture the per-generation convergence log (best J' over generations).
+        # PyGMO's pso log rows are (gen, fevals, gbest, mean_vel, mean_lbest,
+        # avg_dist); only populated when verbosity was set (verbose path). The
+        # log samples every `set_verbosity` generations, so append the final
+        # (n_gen, best_f) point if it isn't already the last logged generation.
+        global LAST_PSO_HISTORY
+        uda = algo.extract(pg.pso)
+        log = uda.get_log() if uda is not None else []
+        if log:
+            gens  = [row[0] for row in log]
+            gbest = [row[2] for row in log]
+            if gens[-1] != n_gen:
+                gens.append(n_gen)
+                gbest.append(best_f)
+            LAST_PSO_HISTORY = {'gen': np.array(gens), 'gbest': np.array(gbest)}
+        else:
+            LAST_PSO_HISTORY = None
 
         if verbose:
             print(f"\n[PyGMO PSO] Finished in {time.time()-t_start:.1f}s")

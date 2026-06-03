@@ -22,6 +22,7 @@ from Plots.new_metrics.apollo_tgo_over_time import plot_apollo_tgo_over_time
 from Plots.new_metrics.pitch_angle_over_time import plot_pitch_angle_over_time
 from Plots.new_metrics.cross_heading_counter_force_over_time import plot_cross_heading_counter_force_over_time
 from Plots.new_metrics.cross_heading_accel_over_time import plot_cross_heading_accel_over_time
+from Plots.new_metrics.pso_convergence import plot_best_objective_over_generations
 
 
 def _make_path(output_dir, filename):
@@ -38,7 +39,8 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
                        tgo_time_data=None, tgo_data=None, apollo_freeze_threshold=None,
                        theta_data=None, theta_time_data=None,
                        cross_heading_counter_force_data=None,
-                       cross_heading_accel_data=None):
+                       cross_heading_accel_data=None,
+                       pso_history=None):
     """Generate all new metric plots for a run."""
     files = {
         "fpa": _make_path(output_dir, "new_01_fpa_over_time.png"),
@@ -60,6 +62,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         "pitch": _make_path(output_dir, "new_16_pitch_angle_over_time.png"),
         "cross_heading_force": _make_path(output_dir, "new_17_cross_heading_counter_force_over_time.png"),
         "cross_heading_accel": _make_path(output_dir, "new_18_cross_heading_accel_over_time.png"),
+        "pso_obj": _make_path(output_dir, "new_19_pso_best_objective.png"),
     }
 
     plot_fpa_over_time(time, data, save_path=files["fpa"], show=show)
@@ -107,6 +110,12 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         plot_cross_heading_accel_over_time(
             time_thrust, cross_heading_accel_data,
             save_path=files["cross_heading_accel"], show=show,
+        )
+
+    if pso_history is not None and len(pso_history.get('gen', [])) > 0:
+        plot_best_objective_over_generations(
+            pso_history['gen'], pso_history['gbest'],
+            save_path=files["pso_obj"], show=show,
         )
 
     if close_after:
