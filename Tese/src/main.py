@@ -149,6 +149,31 @@ def _print_inclination_analysis(i_achieved, beta_formula, best_azimuth_override,
         print("\t* Achieved inclination:\t\t\t(not available)")
 
 
+def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final):
+    """Print the FINAL ORBITAL ELEMENTS block (shared by all coast methods)."""
+    print("\n" + "="*60)
+    print("FINAL ORBITAL ELEMENTS")
+    print("="*60)
+    print(f"\t* Semi-major axis:\t\t\t{a/1000:.2f} km")
+    print(f"\t* Eccentricity:\t\t\t\t{e:.6f}")
+    print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
+    print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
+    print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
+    if sim_params.ENABLE_EARTH_ROTATION:
+        print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
+        if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
+            print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
+        print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
+
+
+def _print_propellant_losses():
+    """Print the Stage-1 Isp ratio and back-pressure thrust-loss lines (shared)."""
+    ka_kms = _back_pressure_thrust_loss_kms(r_specs.ISP_1_SL, r_specs.ISP_1_VAC)
+    isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC
+    print(f"\n\t* Stage 1 Isp ratio (SL/VAC):\t\t{isp_ratio:.4f}")
+    print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
+
+
 def execute():
     """
     Main execution function for coasting single burn optimization.
@@ -404,7 +429,9 @@ def execute():
             sim_params.EVENTS_PRINT = True
 
             (time, data, thrust_full, alpha_full,
-             _, result_opt) = run_pso_coast_full(optimal_params, verbose=True)
+             _, result_opt,
+             coriolis_mag_data, centrifugal_mag_data) = run_pso_coast_full(
+                optimal_params, verbose=True)
 
             # Unpack for the shared display / plotting block below
             delta_tc_opt, delta_tr_pct_opt, coast_start_pct_opt, gamma_p_opt = optimal_params
@@ -417,8 +444,6 @@ def execute():
             time_thrust          = time
             alpha_data           = alpha_full
             alpha_time_data      = time
-            coriolis_mag_data    = np.zeros_like(time)
-            centrifugal_mag_data = np.zeros_like(time)
 
             if _simulation_failed:
                 print("\n" + "!"*60)
@@ -427,7 +452,9 @@ def execute():
 
             # Print PSO coast results summary
             if not _simulation_failed:
-                sf  = data[:, -1]
+                # Report the orbit-INSERTION state (what the PSO targeted), not
+                # the end of the post-insertion coast that data[:, -1] now holds.
+                sf  = result_opt['state_final']
                 h_f = (sf[1] - c.R_EARTH) / 1e3
                 v_f = sf[2]
                 g_f = np.rad2deg(sf[3])
@@ -483,18 +510,38 @@ def execute():
                 if ra.time_kick_start is not None:
                     print(f"\t* T+{ra.time_kick_start:.2f}s\t\tInstantaneous pitch-over "
                           f"({np.rad2deg(kick_angle_optimal):.4f}°)")
+                if ra.time_atmosphere_exit is not None:
+                    print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
                 if ra.time_main_engine_cutoff is not None:
-                    print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 MECO")
+                    print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
                     print(f"\t* T+{ra.time_main_engine_cutoff + 3.0:.2f}s\t\tStage separation")
                     print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\tStage 2 ignition")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\t{sim_params.GUIDANCE_MODE} guidance active (Arc 1)")
                 if ra.PSO_COAST_ARC2_START_TIME is not None:
                     print(f"\t* T+{ra.PSO_COAST_ARC2_START_TIME:.2f}s\t\tCoast phase start")
                     print(f"\t* T+{ra.PSO_COAST_ARC2_START_TIME + delta_tc_opt:.2f}s"
                           f"\t\tCoast phase end / Arc-3 ignition")
                 if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
                     print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s"
-                          f"\t\tOrbit insertion (Arc-3 cutoff)")
-                print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end")
+                          f"\t\tStage 2 cutoff / orbit insertion (Arc-3 end)")
+                print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
+
+                # Final orbital elements from the orbit-insertion state (already
+                # inertial). Elements are invariant along the coast, so this is
+                # consistent with the post-insertion-coast plot data.
+                r_final, v_final, gamma_final = sf[1], sf[2], sf[3]
+                heading_final = ra.LAUNCH_AZIMUTH
+                a, e, r_apo, r_peri, T = ra.get_orbital_elements(
+                    r_final, v_final, gamma_final)
+                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final)
+
+                print("\n" + "="*60)
+                print("PROPELLANT USAGE")
+                print("="*60)
+                print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
+                print(f"\t* Total propellant consumed:\t\t{total_used:.2f} kg")
+                print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s  (direct insertion, no circularisation burn)")
+                _print_propellant_losses()
 
                 if sim_params.ENABLE_EARTH_ROTATION:
                     _print_inclination_analysis(
@@ -658,19 +705,7 @@ def execute():
 
                 print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
 
-                print("\n" + "="*60)
-                print("FINAL ORBITAL ELEMENTS")
-                print("="*60)
-                print(f"\t* Semi-major axis:\t\t\t{a/1000:.2f} km")
-                print(f"\t* Eccentricity:\t\t\t\t{e:.6f}")
-                print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
-                print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
-                print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
-                if sim_params.ENABLE_EARTH_ROTATION:
-                    print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
-                    if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
-                        print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
-                    print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
+                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final)
 
                 print("\n" + "="*60)
                 print("PROPELLANT USAGE")
@@ -678,11 +713,7 @@ def execute():
                 print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
                 print(f"\t* Total propellant consumed:\t\t{m_propellant_total:.2f} kg")
                 print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s")
-
-                ka_kms = _back_pressure_thrust_loss_kms(r_specs.ISP_1_SL, r_specs.ISP_1_VAC)
-                isp_ratio = r_specs.ISP_1_SL / r_specs.ISP_1_VAC
-                print(f"\n\t* Stage 1 Isp ratio (SL/VAC):\t\t{isp_ratio:.4f}")
-                print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
+                _print_propellant_losses()
 
                 if sim_params.ENABLE_EARTH_ROTATION:
                     _print_inclination_analysis(

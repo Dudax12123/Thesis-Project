@@ -306,12 +306,12 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                    rocket during both thrust arcs.
 #                    Has no effect when GUIDANCE_MODE = "indirect_pmp" (that
 #                    mode always uses its own PSO with costates).
-COAST_METHOD = "apogee_check"   # Options: "apogee_check", "pso_coast"
+COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast"
 
 # -------------- PSO COAST algorithm settings --------------
 # (only used when COAST_METHOD == "pso_coast")
-PSO_COAST_N_PARTICLES     = 20      # swarm size
-PSO_COAST_MAX_GENERATIONS = 30      # maximum number of generations
+PSO_COAST_N_PARTICLES     = 50      # swarm size
+PSO_COAST_MAX_GENERATIONS = 100      # maximum number of generations
 PSO_COAST_C1              = 2.05    # cognitive parameter
 PSO_COAST_C2              = 2.05    # social parameter
 PSO_COAST_OMEGA           = 0.7298  # inertia weight

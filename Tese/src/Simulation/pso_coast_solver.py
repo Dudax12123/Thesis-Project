@@ -165,6 +165,10 @@ class GuidanceState:
     alpha_log: List[float] = field(default_factory=list)
     time_log: List[float] = field(default_factory=list)
 
+    # t_go log (apollo / linear_tangent / bilinear_tangent modes)
+    tgo_log: List[float] = field(default_factory=list)
+    tgo_time_log: List[float] = field(default_factory=list)
+
 
 # ===========================================================================
 # t_go helpers (Stage-2 context — main_engine_cutoff = True always here)
@@ -348,6 +352,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.lts_previous_tgo = tgo
             else:
                 tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+            gs.tgo_log.append(tgo)
+            gs.tgo_time_log.append(t)
             alpha = lts_guidance.linear_tangent_steering(
                 t, tgo, state, gs.guidance_coefficients)
 
@@ -365,6 +371,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.lts_previous_tgo = tgo
             else:
                 tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+            gs.tgo_log.append(tgo)
+            gs.tgo_time_log.append(t)
             alpha = bts_guidance.bilinear_tangent_steering(
                 t, tgo, state, gs.guidance_coefficients)
 
@@ -374,6 +382,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             else:
                 tgo = _compute_tgo_stage2(state, F_T, Isp, gs.apollo_previous_tgo)
             gs.apollo_previous_tgo = tgo
+            gs.tgo_log.append(tgo)
+            gs.tgo_time_log.append(t)
 
             if tgo < sim_params.APOLLO_FREEZE_THRESHOLD and not gs.apollo_coefficients_frozen:
                 gs.apollo_coefficients_frozen = True
@@ -806,12 +816,19 @@ def run_pso_coast_full(optimal_params, verbose=True):
 
     Returns
     -------
-    time_full   : ndarray  Combined time array [s]
-    data_full   : ndarray  State data (5 × N)
-    thrust_full : ndarray  Thrust [N] at each time step
-    alpha_full  : ndarray  Angle of attack [rad] at each time step
-    t_ignition  : float    Stage-2 engine ignition time [s]
-    result      : dict     Same as run_pso_coast_trajectory return value
+    time_full            : ndarray  Combined time array [s]
+    data_full            : ndarray  State data (5 or 6 × N; row 5 = latitude
+                                     when Earth rotation is enabled)
+    thrust_full          : ndarray  Thrust [N] at each time step
+    alpha_full           : ndarray  Angle of attack [rad] at each time step
+    t_ignition           : float    Stage-2 engine ignition time [s]
+    result               : dict     Same keys as run_pso_coast_trajectory
+    coriolis_mag_data    : ndarray  Coriolis accel magnitude [m/s²] (Stage-1
+                                     real + Stage-2 zeros)
+    centrifugal_mag_data : ndarray  Centrifugal accel magnitude [m/s²]
+
+    Also writes ra.theta_*_history, ra.tgo_*_history, ra.cross_heading_*_history
+    so the shared plot block in main.py renders guidance/Earth-rotation plots.
     """
     delta_tc, delta_tr_pct, coast_start_pct, gamma_p = optimal_params
     kick_angle = gamma_p - np.pi / 2.0
@@ -898,8 +915,24 @@ def run_pso_coast_full(optimal_params, verbose=True):
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
             events=_event_crash,
         )
+        state_insertion = sol3.y[:5, -1].copy()
     else:
         sol3 = None
+        state_insertion = state_arc3.copy()
+
+    # ---- Post-insertion orbit coast (thrust off) ----
+    # Propagate the achieved orbit so altitude/trajectory plots show the full
+    # orbit and Final Orbital Elements are meaningful (mirrors apogee_check).
+    t_post_start = t_arc3_end
+    t_post_end   = t_post_start + sim_params.DURATION_AFTER_SIMULATION
+    sol_post = solve_ivp(
+        lambda t, y: _stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
+        t_span=(t_post_start, t_post_end),
+        y0=state_insertion,
+        t_eval=_make_teval(t_post_start, t_post_end),
+        rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
+        events=_event_crash,
+    )
 
     # ---- Assemble Stage-2 arrays ----
     sols2_list  = [sol_pre]
@@ -907,6 +940,8 @@ def run_pso_coast_full(optimal_params, verbose=True):
     if sol1 is not None: sols2_list.append(sol1); thrusts2.append(r.F_THRUST_2)
     if sol2 is not None: sols2_list.append(sol2); thrusts2.append(0.0)
     if sol3 is not None: sols2_list.append(sol3); thrusts2.append(r.F_THRUST_2)
+    if sol_post is not None and len(sol_post.t) > 0:
+        sols2_list.append(sol_post); thrusts2.append(0.0)
 
     t_s2_parts, y_s2_parts, th_s2_parts = [], [], []
     for sol, F in zip(sols2_list, thrusts2):
@@ -940,21 +975,78 @@ def run_pso_coast_full(optimal_params, verbose=True):
     thrust_full = np.concatenate([thrust_stage1, thrust_stage2])
     alpha_full  = np.concatenate([alpha_stage1,  alpha_stage2])
 
+    n_stage1 = len(t_stage1)
+    n_stage2 = len(t_stage2_full)
+
+    # ---- Latitude row (6th state row) so the latitude plot renders ----
+    # Derived from downrange via great-circle geometry (Earth rotation only).
+    if sim_params.ENABLE_EARTH_ROTATION:
+        lat_row = np.array([ra.get_latitude_from_downrange(s) for s in data_full[0]])
+        data_full = np.vstack([data_full, lat_row])   # rows: s, r, v, γ, m, lat
+
+    # ---- Assemble full-trajectory history channels for the plot suite ----
+    # The shared plot block in main.py reads these from ra.*_history globals.
+    # Stage 1 already logged real values; Stage 2 is inertial vacuum, so its
+    # pseudo-force / cross-heading contributions are zero (physically honest).
+    theta_full = alpha_full + data_full[3]            # pitch θ = α + γ
+    ra.theta_history      = list(theta_full)
+    ra.theta_time_history = list(time_full)
+
+    # t_go: guidance runs in Stage 2 only for pso_coast, so report the Stage-2
+    # guidance log directly (apollo / linear_tangent / bilinear_tangent modes).
+    if gs_full.tgo_time_log:
+        ra.tgo_time_history = list(gs_full.tgo_time_log)
+        ra.tgo_history      = list(gs_full.tgo_log)
+
+    # Pseudo-force / cross-heading: Stage-1 real (already in ra.*_history),
+    # Stage-2 zeros appended.
+    coriolis_stage1    = np.asarray(ra.coriolis_mag_history, dtype=float)
+    centrifugal_stage1 = np.asarray(ra.centrifugal_mag_history, dtype=float)
+    cor_s1  = interpolate_to_time(ra.time_history, coriolis_stage1, t_stage1) \
+        if len(coriolis_stage1) else np.zeros(n_stage1)
+    cen_s1  = interpolate_to_time(ra.time_history, centrifugal_stage1, t_stage1) \
+        if len(centrifugal_stage1) else np.zeros(n_stage1)
+    coriolis_mag_data    = np.concatenate([cor_s1, np.zeros(n_stage2)])
+    centrifugal_mag_data = np.concatenate([cen_s1, np.zeros(n_stage2)])
+
+    if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
+        chf_s1 = np.asarray(ra.cross_heading_counter_force_history, dtype=float)
+        cha_s1 = np.asarray(ra.cross_heading_accel_history, dtype=float)
+        chf_s1 = interpolate_to_time(ra.time_history, chf_s1, t_stage1) \
+            if len(chf_s1) else np.zeros(n_stage1)
+        cha_s1 = interpolate_to_time(ra.time_history, cha_s1, t_stage1) \
+            if len(cha_s1) else np.zeros(n_stage1)
+        ra.cross_heading_counter_force_history = list(
+            np.concatenate([chf_s1, np.zeros(n_stage2)]))
+        ra.cross_heading_accel_history = list(
+            np.concatenate([cha_s1, np.zeros(n_stage2)]))
+
     # ---- Set event markers used by plot_state_utils ----
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = t_arc3_end
     ra.PSO_COAST_ARC2_START_TIME              = t_arc2_start
 
     if verbose:
-        sf = y_stage2_full[:, -1]
+        sf = data_full[:, -1]
         print(f"\n[PSO coast full run] t_end={time_full[-1]:.1f}s, "
               f"h={(sf[1]-c.R_EARTH)/1e3:.1f}km, "
               f"v={sf[2]:.0f}m/s, gam={np.rad2deg(sf[3]):.2f}deg")
 
-    # Clean trajectory evaluation for the result dict
-    result = run_pso_coast_trajectory(
-        delta_tc, delta_tr_pct, coast_start_pct, gamma_p, verbose=verbose)
+    # ---- Build result dict from the dense run (no extra re-integration) ----
+    result = {
+        'crashed':        False,
+        'state_final':    state_insertion,   # state at orbit insertion (Arc-3 end)
+        't_f':            T_burn_total + delta_tc,
+        't_cf':           delta_tc,
+        't_stage2_start': t2_start,
+        't_ignition':     t_ignition,
+        't_arc2_start':   t_arc2_start,
+        't_arc3_end':     t_arc3_end,
+        't_stage1':       t_stage1,
+        'y_stage1':       y_stage1,
+    }
 
-    return time_full, data_full, thrust_full, alpha_full, t_ignition, result
+    return (time_full, data_full, thrust_full, alpha_full, t_ignition, result,
+            coriolis_mag_data, centrifugal_mag_data)
 
 
 # ===========================================================================
@@ -962,7 +1054,11 @@ def run_pso_coast_full(optimal_params, verbose=True):
 # ===========================================================================
 
 def _print_coast_solution(x, J_prime):
-    """Pretty-print the optimal PSO coast solution."""
+    """Pretty-print the optimal PSO coast parameters (compact).
+
+    The full final-state / J' breakdown is printed once by main.py's results
+    block, so this helper intentionally does NOT re-run the trajectory.
+    """
     delta_tc, delta_tr_pct, coast_start_pct, gamma_p = x
     kick_angle    = gamma_p - np.pi / 2.0
     T_burn_total  = (delta_tr_pct   / 100.0) * _T_MAX_2
@@ -975,25 +1071,3 @@ def _print_coast_solution(x, J_prime):
     print(f"  Pitch angle γ_p  = {np.rad2deg(gamma_p):.4f}°  ({gamma_p:.6f} rad)")
     print(f"  Kick angle       = {np.rad2deg(kick_angle):.4f}°")
     print(f"  J'               = {J_prime:.4f}")
-
-    result = run_pso_coast_trajectory(
-        delta_tc, delta_tr_pct, coast_start_pct, gamma_p, verbose=True)
-    if not result['crashed'] and result['state_final'] is not None:
-        sf  = result['state_final']
-        h_f = (sf[1] - c.R_EARTH) / 1e3
-        v_f = sf[2]
-        g_f = np.rad2deg(sf[3])
-        r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-        v_c = np.sqrt(c.MU_EARTH / r_t)
-        print(f"\nFinal state vs. target:")
-        print(f"  Altitude : {h_f:.2f} km  (target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km)")
-        print(f"  Velocity : {v_f:.2f} m/s  (circular {v_c:.2f} m/s)")
-        print(f"  FPA      : {g_f:.4f}°  (target 0.0°)")
-        bd     = breakdown_coast_objective(result)
-        burn_s = result['t_f'] - result['t_cf']
-        print(f"\nJ' breakdown:")
-        print(f"  J (burn frac):    {bd['J']:.4f}  ({burn_s:.1f} s of {_T_MAX_2:.1f} s max)")
-        print(f"  Altitude:         {bd['alt']:.4f}")
-        print(f"  Velocity:         {bd['vel']:.4f}")
-        print(f"  FPA:              {bd['fpa']:.4f}")
-        print(f"  Total:            {sum(bd.values()):.4f}")
