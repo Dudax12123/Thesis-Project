@@ -138,7 +138,7 @@ def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="geometric"):
     return beta_inertial, beta_inertial, v_rot_surface
 
 
-def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):
+def ecef_to_eci_velocity(v_ecef, gamma_ecef, lat_rad, r_val):
     """
     Convert local velocity magnitude/FPA from ECEF-like frame to ECI.
 
@@ -148,8 +148,6 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):
         Velocity magnitude in rotating frame [m/s]
     gamma_ecef : float
         Flight path angle in rotating frame [rad]
-    azimuth : float
-        Launch azimuth in rotating frame [rad]
     lat_rad : float
         Current latitude [rad]
     r_val : float
@@ -165,16 +163,14 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, azimuth, lat_rad, r_val):
     v_horizontal = v_ecef * np.cos(gamma_ecef)
     v_radial = v_ecef * np.sin(gamma_ecef)
 
-    v_north = v_horizontal * np.cos(azimuth)
-    v_east = v_horizontal * np.sin(azimuth)
 
     # Add Earth rotation contribution to eastward inertial component.
     v_rot = c.OMEGA_EARTH * r_val * np.cos(lat_rad)
-    v_east_eci = v_east + v_rot
+    v_horizontal_eci = v_horizontal + v_rot
 
-    v_horizontal_eci = np.sqrt(v_east_eci**2 + v_north**2)
     v_eci = np.sqrt(v_horizontal_eci**2 + v_radial**2)
-    gamma_eci = np.arctan2(v_radial, v_horizontal_eci)
+    #gamma_eci = np.arctan2(v_radial, v_horizontal_eci)
+    gamma_eci = gamma_ecef  # Approximation: FPA doesn't change much between ECEF and ECI for near-surface flight.
 
     return v_eci, gamma_eci
 

@@ -274,8 +274,7 @@ def interrupt_velocity_exceeded(t, y):
 
     if sim_params.ENABLE_EARTH_ROTATION:
         lat = get_latitude_from_downrange(y[0])
-        heading = get_heading_from_state(y, lat)
-        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, heading, lat, r_val)
+        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, lat, r_val)
         return v_inertial - v_desired
 
     return v - v_desired
@@ -320,8 +319,7 @@ def interrupt_single_burn_traj(t, y):
         return 1
     else:
         if sim_params.ENABLE_EARTH_ROTATION:
-            heading = get_heading_from_state(y, lat)
-            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, heading, lat, r_val)
+            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, lat, r_val)
 
         # Compute current orbital elements
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
@@ -557,7 +555,7 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     return a, e, r_apo, r_peri, orbit_period
 
 
-def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad, heading_rad=None):
+def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
     """
     Return velocity and flight-path angle in ECI frame.
 
@@ -571,8 +569,7 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad, heading_ra
         Flight-path angle in rotating frame [rad]
     lat_rad : float
         Current latitude [rad]
-    heading_rad : float, optional
-        Current heading/azimuth [rad]. If None, uses active launch azimuth.
+    
 
     Returns:
     --------
@@ -581,9 +578,9 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad, heading_ra
     gamma_eci : float
         Inertial flight-path angle [rad]
     """
-    if sim_params.ENABLE_EARTH_ROTATION:
-        heading = LAUNCH_AZIMUTH if heading_rad is None else heading_rad
-        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, heading, lat_rad, r_val)
+    if sim_params.ENABLE_EARTH_ROTATION==True:
+        
+        return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, lat_rad, r_val)
     return v_ecef, gamma_ecef
 
 

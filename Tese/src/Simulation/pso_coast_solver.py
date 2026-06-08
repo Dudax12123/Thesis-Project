@@ -923,6 +923,19 @@ def run_pso_coast_full(optimal_params, verbose=True):
     # ---- Post-insertion orbit coast (thrust off) ----
     # Propagate the achieved orbit so altitude/trajectory plots show the full
     # orbit and Final Orbital Elements are meaningful (mirrors apogee_check).
+    # The trajectory velocity is rotating-frame, but orbital propagation needs
+    # the INERTIAL velocity, so convert the insertion state to inertial here
+    # (diagnostic only — keeps the plotted orbit near-circular for a good
+    # solution). Expect a small ~v_rot step in the velocity-vs-time plot at
+    # insertion; altitude stays continuous.
+    post_init = state_insertion.copy()
+    if sim_params.ENABLE_EARTH_ROTATION==True:
+        lat_ins = sim_params.LAUNCH_LATITUDE  # approximation: latitude doesn't change much at insertion
+        v_in, g_in = ra.get_inertial_state_components(
+            state_insertion[1], state_insertion[2], state_insertion[3],
+            lat_ins)
+        post_init[2] = v_in
+
     t_post_start = t_arc3_end
     t_post_end   = t_post_start + sim_params.DURATION_AFTER_SIMULATION
     sol_post = solve_ivp(

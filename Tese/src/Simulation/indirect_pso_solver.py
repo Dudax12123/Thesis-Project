@@ -496,7 +496,12 @@ def _objective_terms(result):
     r_val, v_f, g_f = state[1], state[2], state[3]
 
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_rot      = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    # Rotating-frame circular target: the trajectory velocity is ground-relative,
+    # so credit Earth's surface rotation speed once here. Zero when rotation off.
+    if sim_params.ENABLE_EARTH_ROTATION:
+        v_rot = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    else:
+        v_rot = 0.0
     v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
     gamma_ref  = np.deg2rad(sim_params.GAMMA_REF_DEG)
 
