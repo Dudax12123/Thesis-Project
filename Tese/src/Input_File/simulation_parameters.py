@@ -105,7 +105,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "indirect_pmp"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -253,8 +253,8 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 250      # swarm size
-PSO_MAX_GENERATIONS = 500      # maximum number of generations
+PSO_N_PARTICLES     = 50      # swarm size
+PSO_MAX_GENERATIONS = 100      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -310,8 +310,8 @@ COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast"
 
 # -------------- PSO COAST algorithm settings --------------
 # (only used when COAST_METHOD == "pso_coast")
-PSO_COAST_N_PARTICLES     = 50      # swarm size
-PSO_COAST_MAX_GENERATIONS = 100      # maximum number of generations
+PSO_COAST_N_PARTICLES     = 100      # swarm size
+PSO_COAST_MAX_GENERATIONS = 250      # maximum number of generations
 PSO_COAST_C1              = 2.05    # cognitive parameter
 PSO_COAST_C2              = 2.05    # social parameter
 PSO_COAST_OMEGA           = 0.7298  # inertia weight

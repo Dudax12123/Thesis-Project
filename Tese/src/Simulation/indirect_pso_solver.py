@@ -499,7 +499,7 @@ def _objective_terms(result):
     # Rotating-frame circular target: the trajectory velocity is ground-relative,
     # so credit Earth's surface rotation speed once here. Zero when rotation off.
     if sim_params.ENABLE_EARTH_ROTATION:
-        v_rot = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+        v_rot = c.OMEGA_EARTH * r_target * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
     else:
         v_rot = 0.0
     v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot

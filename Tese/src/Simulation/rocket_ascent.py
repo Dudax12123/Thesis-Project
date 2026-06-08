@@ -2045,7 +2045,7 @@ def run(initial_kick_angle, azimuth_override=None):
         LAST_INCLINATION_DRIFT_DEG = LAST_ACHIEVED_INCLINATION_DEG - sim_params.TARGET_ORBIT_INCLINATION
 
     # Convert from rotating frame to inertial frame for orbital mechanics.
-    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, lat_stop, heading_stop)
+    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, LAUNCH_LATITUDE_RAD)
     
     # Calculate orbital elements at stop
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
@@ -2124,16 +2124,11 @@ def run(initial_kick_angle, azimuth_override=None):
             # propagation and circularization so post-SECO dynamics are consistent
             # with the orbital-element and delta-v calculations above.
             if sim_params.ENABLE_EARTH_ROTATION:
-                lat_state_3 = get_latitude_from_downrange(initial_state_3[0])
-                heading_state_3 = LAUNCH_AZIMUTH
-                if sim_params.TRACK_HEADING_STATE and len(initial_state_3) > 6:
-                    heading_state_3 = initial_state_3[6]
                 v_eci_3, gamma_eci_3 = get_inertial_state_components(
                     initial_state_3[1],
                     initial_state_3[2],
                     initial_state_3[3],
-                    lat_state_3,
-                    heading_state_3,
+                    LAUNCH_LATITUDE_RAD,
                 )
                 initial_state_3[2] = v_eci_3
                 initial_state_3[3] = gamma_eci_3

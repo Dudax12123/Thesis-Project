@@ -330,7 +330,7 @@ def execute():
             # The objective targets v_circular MINUS the Earth-rotation surface
             # speed credit (the same v_rot used in _objective_terms), so report
             # against that target rather than the unadjusted circular velocity.
-            v_rot = (c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+            v_rot = (c.OMEGA_EARTH * r_t * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
                      if sim_params.ENABLE_EARTH_ROTATION else 0.0)
             v_target = v_c - v_rot
             print("\n" + "="*60)
@@ -461,7 +461,7 @@ def execute():
                 v_c = np.sqrt(c.MU_EARTH / r_t)
                 # v_f is rotating-frame (ground-relative); the matching circular
                 # target credits Earth's surface rotation speed once.
-                v_rot = (c.OMEGA_EARTH * c.R_EARTH
+                v_rot = (c.OMEGA_EARTH * r_t
                          * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
                          if sim_params.ENABLE_EARTH_ROTATION else 0.0)
                 v_target = v_c - v_rot
@@ -537,7 +537,7 @@ def execute():
                 #             if sim_params.ENABLE_EARTH_ROTATION
                  #            else np.deg2rad(sim_params.LAUNCH_LATITUDE))
                 v_in, g_in = ra.get_inertial_state_components(
-                    sf[1], sf[2], sf[3], sim_params.LAUNCH_LATITUDE)
+                    sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
                 a, e, r_apo, r_peri, T = ra.get_orbital_elements(sf[1], v_in, g_in)
                 _print_final_orbital_elements(a, e, r_apo, r_peri, T, data)
 
@@ -641,14 +641,8 @@ def execute():
             if not _simulation_failed:
                 # Calculate final orbital elements
                 r_final = data[1, -1]
-                s_final = data[0, -1]
                 v_final = data[2, -1]
                 gamma_final = data[3, -1]
-                lat_final = ra.get_latitude_from_downrange(s_final) if sim_params.ENABLE_EARTH_ROTATION else np.deg2rad(sim_params.LAUNCH_LATITUDE)
-                heading_final = ra.LAUNCH_AZIMUTH
-                if sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
-                    heading_final = data[6, -1]
-
                 # In full simulation mode, post-SECO coast/circularization phases are already
                 # propagated in inertial speed/FPA when Earth rotation is enabled.
                 state_already_inertial = (
@@ -658,7 +652,7 @@ def execute():
                 )
 
                 if not state_already_inertial:
-                    v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, lat_final, heading_final)
+                    v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, np.deg2rad(sim_params.LAUNCH_LATITUDE))
 
                 a, e, r_apo, r_peri, T = ra.get_orbital_elements(r_final, v_final, gamma_final)
 

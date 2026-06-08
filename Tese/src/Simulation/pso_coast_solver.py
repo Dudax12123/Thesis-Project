@@ -660,7 +660,7 @@ def _coast_objective_terms(result):
     # Rotating-frame circular target: the trajectory velocity is ground-relative,
     # so credit Earth's surface rotation speed once here. Zero when rotation off.
     if sim_params.ENABLE_EARTH_ROTATION:
-        v_rot = (c.OMEGA_EARTH * c.R_EARTH
+        v_rot = (c.OMEGA_EARTH * r_target
                  * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
     else:
         v_rot = 0.0
@@ -930,11 +930,11 @@ def run_pso_coast_full(optimal_params, verbose=True):
     # insertion; altitude stays continuous.
     post_init = state_insertion.copy()
     if sim_params.ENABLE_EARTH_ROTATION==True:
-        lat_ins = sim_params.LAUNCH_LATITUDE  # approximation: latitude doesn't change much at insertion
+        lat_ins = np.deg2rad(sim_params.LAUNCH_LATITUDE)
         v_in, g_in = ra.get_inertial_state_components(
             state_insertion[1], state_insertion[2], state_insertion[3],
             lat_ins)
-        post_init[2] = v_in
+        post_init[2], post_init[3] = v_in, g_in
 
     t_post_start = t_arc3_end
     t_post_end   = t_post_start + sim_params.DURATION_AFTER_SIMULATION
