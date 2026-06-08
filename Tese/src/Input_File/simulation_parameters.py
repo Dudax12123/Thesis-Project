@@ -105,7 +105,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
@@ -253,8 +253,8 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 20      # swarm size
-PSO_MAX_GENERATIONS = 30      # maximum number of generations
+PSO_N_PARTICLES     = 250      # swarm size
+PSO_MAX_GENERATIONS = 500      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -323,8 +323,8 @@ PSO_COAST_SEED            = 42      # RNG seed for reproducible runs
 # gamma_p bounds are derived from ALPHA_LOWEST/ALPHA_HIGHEST (the apogee_check
 # brute-force sweep range) with a 1.5° margin on each side, so the PSO
 # searches over the same physically meaningful kick-angle space.
-PSO_COAST_LB = [  0.0,   0.0,   0.0,  1.54]
-PSO_COAST_UB = [2000.0, 100.0, 100.0,  1.57]
+PSO_COAST_LB = [  0.0,   50,   0.0,  1.54]
+PSO_COAST_UB = [1000.0, 100.0, 100.0,  1.57]
 # delta_tc          : coast phase duration                    [0, 2000] s
 # delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
 # coast_start_pct   : coast start as % of Stage-2 burn time   [0, 100] %

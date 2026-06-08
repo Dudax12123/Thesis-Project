@@ -60,20 +60,15 @@ import Guidance.exp_shooting_guidance as exp_shoot_mod
 # ---------------------------------------------------------------------------
 
 def _strip_to_pmp_state(state, lat_fallback_rad):
-    """Return [s, r, v, γ, m] for the guidance ODE.
+    """Return [s, r, v, γ, m]; velocity stays in the rotating (ground-relative)
+    frame.
 
-    Applies rotating→inertial frame transform on (v, γ) when
-    INCLUDE_PSEUDO_FORCES is enabled.  With the flag off (default) this is
-    a plain [:5] slice, same as in indirect_pso_solver.
+    Earth rotation is accounted for ONCE — in the objective velocity target
+    (``v_circular = √(μ/r) − v_rot``).  No ECEF→ECI conversion is applied here,
+    so the trajectory velocity and the objective target are both rotating-frame
+    and the rotation credit is not double-counted.  (``lat_fallback_rad`` is
+    retained for call-site compatibility.)
     """
-    if sim_params.INCLUDE_PSEUDO_FORCES:
-        lat     = state[5] if len(state) > 5 else lat_fallback_rad
-        heading = state[6] if len(state) > 6 else ra.LAUNCH_AZIMUTH
-        v_in, g_in = ra.get_inertial_state_components(
-            state[1], state[2], state[3], lat, heading)
-        out = np.array(state[:5], dtype=float).copy()
-        out[2], out[3] = v_in, g_in
-        return out
     return np.array(state[:5], dtype=float)
 
 
@@ -662,8 +657,13 @@ def _coast_objective_terms(result):
     r_val, v_f, g_f = state[1], state[2], state[3]
 
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_rot      = (c.OMEGA_EARTH * c.R_EARTH
-                  * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
+    # Rotating-frame circular target: the trajectory velocity is ground-relative,
+    # so credit Earth's surface rotation speed once here. Zero when rotation off.
+    if sim_params.ENABLE_EARTH_ROTATION:
+        v_rot = (c.OMEGA_EARTH * c.R_EARTH
+                 * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
+    else:
+        v_rot = 0.0
     v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
     gamma_ref  = np.deg2rad(sim_params.PSO_COAST_GAMMA_REF_DEG)
 
@@ -928,7 +928,7 @@ def run_pso_coast_full(optimal_params, verbose=True):
     sol_post = solve_ivp(
         lambda t, y: _stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
         t_span=(t_post_start, t_post_end),
-        y0=state_insertion,
+        y0=post_init,
         t_eval=_make_teval(t_post_start, t_post_end),
         rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
         events=_event_crash,

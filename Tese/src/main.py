@@ -149,7 +149,7 @@ def _print_inclination_analysis(i_achieved, beta_formula, best_azimuth_override,
         print("\t* Achieved inclination:\t\t\t(not available)")
 
 
-def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final):
+def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data):
     """Print the FINAL ORBITAL ELEMENTS block (shared by all coast methods)."""
     print("\n" + "="*60)
     print("FINAL ORBITAL ELEMENTS")
@@ -161,8 +161,6 @@ def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final):
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     if sim_params.ENABLE_EARTH_ROTATION:
         print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
-        if sim_params.TRACK_HEADING_STATE and data.shape[0] > 6:
-            print(f"\t* Final tracked heading:\t\t{np.rad2deg(heading_final):.4f} deg")
         print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
 
 
@@ -332,7 +330,8 @@ def execute():
             # The objective targets v_circular MINUS the Earth-rotation surface
             # speed credit (the same v_rot used in _objective_terms), so report
             # against that target rather than the unadjusted circular velocity.
-            v_rot = c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+            v_rot = (c.OMEGA_EARTH * c.R_EARTH * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+                     if sim_params.ENABLE_EARTH_ROTATION else 0.0)
             v_target = v_c - v_rot
             print("\n" + "="*60)
             print("INDIRECT PMP OPTIMISATION RESULTS")
@@ -460,8 +459,11 @@ def execute():
                 g_f = np.rad2deg(sf[3])
                 r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
                 v_c = np.sqrt(c.MU_EARTH / r_t)
+                # v_f is rotating-frame (ground-relative); the matching circular
+                # target credits Earth's surface rotation speed once.
                 v_rot = (c.OMEGA_EARTH * c.R_EARTH
-                         * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
+                         * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+                         if sim_params.ENABLE_EARTH_ROTATION else 0.0)
                 v_target = v_c - v_rot
 
                 print("\n" + "="*60)
@@ -526,14 +528,18 @@ def execute():
                           f"\t\tStage 2 cutoff / orbit insertion (Arc-3 end)")
                 print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
 
-                # Final orbital elements from the orbit-insertion state (already
-                # inertial). Elements are invariant along the coast, so this is
-                # consistent with the post-insertion-coast plot data.
-                r_final, v_final, gamma_final = sf[1], sf[2], sf[3]
-                heading_final = ra.LAUNCH_AZIMUTH
-                a, e, r_apo, r_peri, T = ra.get_orbital_elements(
-                    r_final, v_final, gamma_final)
-                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final)
+                # Final orbital elements: the insertion state velocity is
+                # rotating-frame (ground-relative), but orbital elements are
+                # inertial quantities, so convert here (diagnostic only —
+                # mirrors apogee_check). This keeps a good orbit near-circular.
+                #heading_final = ra.LAUNCH_AZIMUTH
+                #lat_final = (ra.get_latitude_from_downrange(sf[0])
+                #             if sim_params.ENABLE_EARTH_ROTATION
+                 #            else np.deg2rad(sim_params.LAUNCH_LATITUDE))
+                v_in, g_in = ra.get_inertial_state_components(
+                    sf[1], sf[2], sf[3], sim_params.LAUNCH_LATITUDE)
+                a, e, r_apo, r_peri, T = ra.get_orbital_elements(sf[1], v_in, g_in)
+                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data)
 
                 print("\n" + "="*60)
                 print("PROPELLANT USAGE")
@@ -705,7 +711,7 @@ def execute():
 
                 print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
 
-                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data, heading_final)
+                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data)
 
                 print("\n" + "="*60)
                 print("PROPELLANT USAGE")

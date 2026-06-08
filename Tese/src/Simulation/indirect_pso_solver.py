@@ -98,22 +98,15 @@ def _normalize_costates(lam_r, lam_v, lam_g):
 
 
 def _strip_to_pmp_state(state, lat_fallback_rad):
-    """Return [s, r, v, γ, m] for the PMP ODE.
+    """Return [s, r, v, γ, m]; velocity stays in the rotating (ground-relative)
+    frame.
 
-    Applies a rotating→inertial frame transform on (v, γ) when
-    INCLUDE_PSEUDO_FORCES is enabled — Stage 1 would then have been
-    integrated in the rotating frame, while _stage2_ode is inertial.
-    With the flag off (default) this is a plain [:5] slice.
+    Earth rotation is accounted for ONCE — in the objective velocity target
+    (``v_circular = √(μ/r) − v_rot``).  No ECEF→ECI conversion is applied here,
+    so the trajectory velocity and the objective target are both rotating-frame
+    and the rotation credit is not double-counted.  (``lat_fallback_rad`` is
+    retained for call-site compatibility.)
     """
-    if sim_params.INCLUDE_PSEUDO_FORCES:
-        lat = state[5] if len(state) > 5 else lat_fallback_rad
-        heading = state[6] if len(state) > 6 else ra.LAUNCH_AZIMUTH
-        v_in, g_in = ra.get_inertial_state_components(
-            state[1], state[2], state[3], lat, heading
-        )
-        out = np.array(state[:5], dtype=float).copy()
-        out[2], out[3] = v_in, g_in
-        return out
     return np.array(state[:5], dtype=float)
 
 
