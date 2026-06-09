@@ -24,7 +24,6 @@ import Plots.new_plot_runner as new_plot_runner
 # Define guidance modes and their corresponding folder names
 GUIDANCE_MODES = {
     "gravity_turn": "Gravity_Turn",
-    "simple_poly": "Simple_Polynomial",
     "linear_tangent": "Linear_Tangent_Steering",
     "bilinear_tangent": "Bilinear_Tangent_Steering",
     "apollo": "Apollo_Guidance"
@@ -49,7 +48,6 @@ def run_guidance_method(guidance_mode, save_folder):
     # Display guidance mode information
     guidance_mode_names = {
         "gravity_turn": "Pure Gravity Turn",
-        "simple_poly": "Simplified Polynomial Guidance",
         "linear_tangent": "Linear Tangent Steering",
         "bilinear_tangent": "Bilinear Tangent Steering",
         "apollo": "Apollo Polynomial Guidance"

@@ -47,7 +47,6 @@ from Auxiliary import rocket_specs as r
 from Input_File import simulation_parameters as sim_params
 import Simulation.rocket_ascent as ra
 import Guidance.apollo_guidance as apollo_guidance_module
-import Guidance.simple_polynomial as simple_poly_guidance
 import Guidance.linear_tangent_steering as lts_guidance
 import Guidance.bilinear_tangent_steering as bts_guidance
 import Guidance.cpr_guidance as cpr_guidance_module
@@ -70,6 +69,23 @@ def _strip_to_pmp_state(state, lat_fallback_rad):
     retained for call-site compatibility.)
     """
     return np.array(state[:5], dtype=float)
+
+
+def _state_with_lat(state):
+    """Append launch latitude as ``state[5]`` for guidance laws that apply the
+    Earth-rotation velocity credit.
+
+    The pso_coast physical state is 5-element ``[s, r, v, γ, m]``, but
+    ``apollo_guidance.compute_apollo_coefficients`` only credits Earth's surface
+    rotation speed (``vx_target = √(μ/r) − Ω·r·cos(lat)``, matching the
+    rotating-frame objective) when ``len(state) > 5``.  Use the launch latitude
+    only — no azimuth — consistent with the rest of the rotating-frame
+    convention.  Returns the plain 5-element state when rotation is disabled
+    (then inertial target == rotating target).
+    """
+    if sim_params.ENABLE_EARTH_ROTATION:
+        return np.append(state[:5], np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    return np.asarray(state[:5], dtype=float)
 
 
 # ---------------------------------------------------------------------------
@@ -164,19 +180,28 @@ class GuidanceState:
     tgo_log: List[float] = field(default_factory=list)
     tgo_time_log: List[float] = field(default_factory=list)
 
+    def restart_for_new_burn(self):
+        """Re-baseline guidance at the start of a new thrust arc (post-coast).
+
+        The coast is dead time, so every time-epoch reference the guidance laws
+        carry (``exp_shoot_epoch``, ``cpr_t_start``, ``peg_t_epoch``/``peg_T``,
+        ``apollo_freeze_time``) must restart at the second-burn ignition rather
+        than the first.  Clearing the ``guidance_phase_active`` latch makes
+        ``_compute_alpha_stage2`` re-run its one-time init block from the current
+        (post-coast) state; the per-mode "frozen" flags and the exp-shooting
+        coefficients are reset so that re-init actually recomputes them.
+        """
+        self.guidance_phase_active = False
+        self.peg_frozen = False
+        self.peg_new_frozen = False
+        self.apollo_coefficients_frozen = False
+        self.exp_shoot_a = None
+        self.exp_shoot_b = None
+
 
 # ===========================================================================
 # t_go helpers (Stage-2 context — main_engine_cutoff = True always here)
 # ===========================================================================
-
-def _estimate_tto_altitude(state, target_altitude):
-    """Simple altitude-based t_go: Δh / v_radial."""
-    r_val, v, gamma = state[1], state[2], state[3]
-    v_radial = v * np.sin(gamma)
-    if abs(v_radial) < 1e-6:
-        return 100.0
-    return max((target_altitude - (r_val - c.R_EARTH)) / v_radial, 0.1)
-
 
 def _compute_tgo_stage2(state, F_T, Isp, previous_tgo=None):
     """
@@ -249,23 +274,15 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.cpr_theta_dot = gs.cpr_theta_initial / max(tgo, 0.1)
             gs.cpr_t_start = t
 
-        elif mode in ("simple_poly", "linear_tangent", "bilinear_tangent", "apollo"):
-            if mode in ("linear_tangent", "bilinear_tangent") and \
-                    sim_params.LTS_TGO_METHOD == "propellant":
-                tgo = _compute_tgo_stage2(state, F_T, Isp, None)
-                gs.lts_previous_tgo = tgo
-            elif mode == "apollo" and sim_params.APOLLO_TGO_METHOD != "altitude":
-                tgo = _compute_tgo_stage2(state, F_T, Isp, None)
+        elif mode in ("linear_tangent", "bilinear_tangent", "apollo"):
+            tgo = _compute_tgo_stage2(state, F_T, Isp, None)
+            if mode == "apollo":
                 gs.apollo_previous_tgo = tgo
             else:
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+                gs.lts_previous_tgo = tgo
             gs.guidance_initial_tgo = tgo
 
-            if mode == "simple_poly":
-                gs.guidance_coefficients = \
-                    simple_poly_guidance.compute_polynomial_coefficients(
-                        state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
-            elif mode == "linear_tangent":
+            if mode == "linear_tangent":
                 gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
             elif mode == "bilinear_tangent":
@@ -274,7 +291,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             elif mode == "apollo":
                 gs.guidance_coefficients = \
                     apollo_guidance_module.compute_apollo_coefficients(
-                        state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
+                        _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
                         use_downrange_constraint=(
                             sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
                 gs.apollo_freeze_time        = t
@@ -303,6 +320,13 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.peg_new_frozen  = False
 
         elif mode == "exp_shooting":
+            # CAVEAT: exp_shooting solves a 2-point BVP that assumes a SINGLE
+            # continuous burn to propellant depletion. The pso_coast thrust-coast-
+            # thrust split structurally violates that assumption, so this mode is a
+            # weak fit here: it re-baselines at Arc-3 (restart_for_new_burn resets
+            # the epoch) but only behaves well if the PSO drives delta_tr_pct→100%
+            # with the coast at the very start. Prefer a feedback law (lts, apollo,
+            # peg, peg_new) with pso_coast.
             gs.exp_shoot_a, gs.exp_shoot_b = exp_shoot_mod.optimize_exp_pitch(
                 state[:5], r_tgt, c.MU_EARTH, F_T, Isp, r.M_STRUCTURE_2, c.G_0)
             gs.exp_shoot_epoch = t
@@ -322,31 +346,19 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 t, gs.cpr_t_start, gs.cpr_theta_initial,
                 gs.cpr_theta_dot, gamma)
 
-        elif mode == "simple_poly":
-            if (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-                gs.guidance_coefficients = \
-                    simple_poly_guidance.compute_polynomial_coefficients(
-                        state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
-                gs.last_guidance_update_time = t
-            tgo   = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-            alpha = simple_poly_guidance.polynomial_guidance(
-                t, tgo, state, gs.guidance_coefficients)
-
         elif mode == "linear_tangent":
             if (not sim_params.GUIDANCE_COEFFICIENTS_FIXED
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
+                gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
                 gs.last_guidance_update_time = t
             if sim_params.GUIDANCE_TGO_FIXED:
                 tgo = gs.guidance_initial_tgo
-            elif sim_params.LTS_TGO_METHOD == "propellant":
+            else:
                 tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
-            else:
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
             alpha = lts_guidance.linear_tangent_steering(
@@ -355,27 +367,23 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
         elif mode == "bilinear_tangent":
             if (not sim_params.GUIDANCE_COEFFICIENTS_FIXED
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
+                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
+                gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = bts_guidance.compute_bilinear_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
                 gs.last_guidance_update_time = t
             if sim_params.GUIDANCE_TGO_FIXED:
                 tgo = gs.guidance_initial_tgo
-            elif sim_params.LTS_TGO_METHOD == "propellant":
+            else:
                 tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
-            else:
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
             alpha = bts_guidance.bilinear_tangent_steering(
                 t, tgo, state, gs.guidance_coefficients)
 
         elif mode == "apollo":
-            if sim_params.APOLLO_TGO_METHOD == "altitude":
-                tgo = _estimate_tto_altitude(state, sim_params.TARGET_ORBITAL_ALTITUDE)
-            else:
-                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.apollo_previous_tgo)
+            tgo = _compute_tgo_stage2(state, F_T, Isp, gs.apollo_previous_tgo)
             gs.apollo_previous_tgo = tgo
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
@@ -388,7 +396,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
                 gs.guidance_coefficients = \
                     apollo_guidance_module.compute_apollo_coefficients(
-                        state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
+                        _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
                         use_downrange_constraint=(
                             sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
                 gs.apollo_freeze_time        = t
@@ -606,6 +614,11 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
         t_arc3_start = t_arc2_start
 
     # ---- Arc 3: Thrust (t_arc3_start → t_arc3_start + t_arc3_burn) ----
+    # After a real coast, re-baseline guidance so its time-epoch references start
+    # at Arc-3 ignition (the coast is dead time). Skipped when delta_tc ≈ 0, where
+    # Arc 1 and Arc 3 are contiguous and the burn is effectively continuous.
+    if delta_tc > 0.01:
+        gs.restart_for_new_burn()
     t_arc3_end = t_arc3_start + t_arc3_burn
     if t_arc3_burn > 0.01:
         sol_arc3 = solve_ivp(
@@ -905,6 +918,10 @@ def run_pso_coast_full(optimal_params, verbose=True):
         t_arc3_start = t_arc2_start
 
     # ---- Arc 3 (thrust, dense) ----
+    # Mirror run_pso_coast_trajectory: re-baseline guidance after a real coast so
+    # the plotting re-run reproduces the optimised trajectory exactly.
+    if delta_tc > 0.01:
+        gs_full.restart_for_new_burn()
     t_arc3_end = t_arc3_start + t_arc3_burn
     if t_arc3_burn > 0.01:
         sol3 = solve_ivp(

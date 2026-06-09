@@ -53,10 +53,6 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #   "gravity_turn": Pure gravity turn all the way (traditional method)
 #                   - Initial kick maneuver, then zero angle of attack throughout
 #                   - No active guidance after kick
-#   "simple_poly":  Simplified polynomial guidance (linear gamma transition)
-#                   - Initial kick until atmosphere exit
-#                   - Linear transition from current flight path angle to horizontal
-#                   - Simple, stable, but not optimal
 #   "linear_tangent": Linear tangent steering law (classical guidance)
 #                   - Initial kick until atmosphere exit
 #                   - tan(α + γ) varies linearly with time-to-go
@@ -69,7 +65,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Initial kick until atmosphere exit
 #                   - Polynomial acceleration profiles in x and y directions
 #                   - Enforces position and velocity terminal constraints
-#                   - Used in Apollo missions, more accurate than simple_poly
+#                   - Used in Apollo missions; enforces full terminal constraints
 #   "cpr":          Constant Pitch Rate guidance
 #                   - No kick maneuver — flies vertical, then CPR takes over immediately
 #                   - Linearly ramps pitch angle θ from 90° (vertical) to 0° (horizontal)
@@ -105,28 +101,22 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "indirect_pmp"  # Options: "gravity_turn", "simple_poly", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "linear_tangent"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Guidance Start Timing --------------
 # When should the guidance law activate after the kick maneuver?
 #   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
 #   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-GUIDANCE_START_MODE = "after_kick"   # Options: "after_atmosphere_exit", "after_kick"
+GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
-# (Only used if GUIDANCE_MODE is "simple_poly" or "apollo")
+# (Only used if GUIDANCE_MODE is "apollo")
 GUIDANCE_UPDATE_RATE = 2                      # How often to recompute guidance coefficients [s]
 APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
                                                  # (prevents numerical instability as tgo->0)
 APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
                                                  # If True: Apollo commands both thrust angle AND magnitude
                                                  # If False: Apollo only commands angle (fixed thrust)
-APOLLO_TGO_METHOD = "propellant"                # Time-to-go estimation method for Apollo guidance:
-                                                 #   "propellant": truncated rocket-equation t_go = T_BUP*(VG/Ve)*(1-0.5*VG/Ve)
-                                                 #                  (physically accurate, accounts for remaining propellant)
-                                                 #   "altitude":   simple t_go = altitude_remaining / v_radial
-                                                 #                  (legacy, unreliable when gamma is small)
-
 # -------------- Linear / Bilinear Tangent Steering Parameters --------------
 # (Only used if GUIDANCE_MODE is "linear_tangent" or "bilinear_tangent")
 GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are computed once at guidance
@@ -135,12 +125,6 @@ GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are compute
 GUIDANCE_TGO_FIXED = False                    # If True, t_go is computed once at guidance start and
                                               # held constant throughout guidance.
                                               # If False (default), recomputed every ODE step.
-LTS_TGO_METHOD = "propellant"                  # t_go estimation method for linear/bilinear tangent laws:
-                                              #   "altitude":   t_go = (target_alt - current_alt) / v_radial
-                                              #                 (simple, default)
-                                              #   "propellant": Apollo rocket-equation t_go
-                                              #                 (stage 1: T_BUP1 + coast + stage-2 burn;
-                                              #                  stage 2: T_BUP2*(1-exp(-VG/Ve)))
 
 # -------------- Constant Pitch Rate (CPR) Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "cpr")
@@ -217,7 +201,6 @@ RUN_FAST = False
 # These values should be updated after running optimization for each mode
 OPTIMAL_KICK_ANGLES = {
     "gravity_turn": -np.deg2rad(3.0),           # Update after optimization
-    "simple_poly": -np.deg2rad(3.0),            # Update after optimization
     "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
     "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
     "apollo": -np.deg2rad(4.5),                  # Update after optimization
@@ -253,8 +236,8 @@ EVENTS_PRINT = True
 # ===================================================
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 50      # swarm size
-PSO_MAX_GENERATIONS = 100      # maximum number of generations
+PSO_N_PARTICLES     = 250      # swarm size
+PSO_MAX_GENERATIONS = 500      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -306,6 +289,10 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                    rocket during both thrust arcs.
 #                    Has no effect when GUIDANCE_MODE = "indirect_pmp" (that
 #                    mode always uses its own PSO with costates).
+#                    CAVEAT: "exp_shooting" is a weak fit with "pso_coast" — its
+#                    BVP assumes one continuous burn to propellant depletion,
+#                    which the thrust-coast-thrust split forbids. Prefer a
+#                    feedback law (linear_tangent, apollo, peg, peg_new) here.
 COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast"
 
 # -------------- PSO COAST algorithm settings --------------

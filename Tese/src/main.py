@@ -186,11 +186,21 @@ def execute():
     print("="*60)
     print("COASTING SINGLE BURN TRAJECTORY OPTIMIZATION")
     print("="*60)
-    
+
+    # Validate the guidance mode early: an unknown mode otherwise falls through
+    # to alpha = 0 (silently flying as gravity_turn). "simple_poly" was removed.
+    _VALID_GUIDANCE_MODES = {
+        "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo",
+        "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp",
+    }
+    if sim_params.GUIDANCE_MODE not in _VALID_GUIDANCE_MODES:
+        raise ValueError(
+            f"Unsupported GUIDANCE_MODE {sim_params.GUIDANCE_MODE!r}. "
+            f"Valid options: {sorted(_VALID_GUIDANCE_MODES)}")
+
     # Display guidance mode
     guidance_mode_names = {
         "gravity_turn": "Pure Gravity Turn",
-        "simple_poly": "Simplified Polynomial Guidance",
         "linear_tangent": "Linear Tangent Steering",
         "bilinear_tangent": "Bilinear Tangent Steering",
         "apollo": "Apollo Polynomial Guidance"
@@ -202,10 +212,6 @@ def execute():
     if sim_params.GUIDANCE_MODE == "gravity_turn":
         print("  - Traditional gravity turn throughout flight")
         print("  - Zero angle of attack after initial kick")
-    elif sim_params.GUIDANCE_MODE == "simple_poly":
-        print("  - Gravity turn until atmosphere exit (65 km)")
-        print("  - Linear flight path angle transition to horizontal")
-        print("  - Simple and stable")
     elif sim_params.GUIDANCE_MODE == "linear_tangent":
         print("  - Gravity turn until atmosphere exit (65 km)")
         print("  - Classical linear tangent steering law")
@@ -670,7 +676,6 @@ def execute():
                     print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
                 if ra.time_guidance_start is not None and sim_params.GUIDANCE_MODE != "gravity_turn":
                     guidance_activation_msg = {
-                        "simple_poly": "Simple polynomial guidance",
                         "linear_tangent": "Linear tangent steering",
                         "bilinear_tangent": "Bilinear tangent steering",
                         "apollo": "Apollo polynomial guidance"

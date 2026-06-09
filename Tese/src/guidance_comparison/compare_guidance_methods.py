@@ -24,7 +24,6 @@ from Input_File import simulation_parameters as sim_params
 # Define guidance modes and their display names
 GUIDANCE_MODES = {
     "gravity_turn": "Gravity Turn",
-    "simple_poly": "Simple Polynomial",
     "linear_tangent": "Linear Tangent",
     "bilinear_tangent": "Bilinear Tangent",
     "apollo": "Apollo"
