@@ -103,7 +103,8 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 GUIDANCE_MODE = "linear_tangent"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Polynomial Guidance Parameters --------------
-# (Only used if GUIDANCE_MODE is "apollo")
+# (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
+#  APOLLO_FREEZE_THRESHOLD is also the freeze threshold for peg/peg_new.)
 GUIDANCE_UPDATE_RATE = 2                      # How often to recompute guidance coefficients [s]
 APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
                                                  # (prevents numerical instability as tgo->0)
@@ -183,7 +184,6 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
 # -------------- Optimization --------------
 ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
-ALPHA_STEP = np.deg2rad(0.05)                 # step size for kick angle sweep; [rad]
 MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
 
 # -------------- Fast Run Mode --------------
@@ -205,14 +205,14 @@ OPTIMAL_KICK_ANGLES = {
 # ===================================================
 # Single Run specific parameters
 # ===================================================
-SS_THROTTLE = 1.0                               # Second Stage throttle 
 INITIAL_KICK_ANGLE = - np.deg2rad(3.0)          # Initial kick angle [rad]
 
 
 # ===================================================
 # FOR SIMULATION
 # ===================================================
-TIME_STEP = 0.01                              # step size for integration; [s]
+TIME_STEP = 0.01                              # output sampling interval for t_eval; [s]
+                                              # (integration itself is adaptive, max_step=1)
 DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after reaching desired orbit; [s]
 
 
@@ -300,9 +300,8 @@ PSO_COAST_SEED            = 42      # RNG seed for reproducible runs
 
 # Decision-variable bounds for the 4-variable coast PSO:
 # x = [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
-# gamma_p bounds are derived from ALPHA_LOWEST/ALPHA_HIGHEST (the apogee_check
-# brute-force sweep range) with a 1.5° margin on each side, so the PSO
-# searches over the same physically meaningful kick-angle space.
+# gamma_p is bounded to [1.54, 1.57] rad (~88.2°–89.9°), a narrow near-vertical
+# pitch-over band — standalone constants (not derived from ALPHA_LOWEST/HIGHEST).
 PSO_COAST_LB = [  0.0,   50,   0.0,  1.54]
 PSO_COAST_UB = [1000.0, 100.0, 100.0,  1.57]
 # delta_tc          : coast phase duration                    [0, 2000] s
