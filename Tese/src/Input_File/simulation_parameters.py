@@ -90,7 +90,6 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - (a, b) solved once at guidance start via scipy.optimize.fsolve
 #                   - Terminal constraints: r(T_burnout) = r_T, γ(T_burnout) = 0
 #                   - Fixed coefficients for the entire burn (open-loop after initialization)
-#                   - Works with any GUIDANCE_START_MODE (after_kick or after_atmosphere_exit)
 #   "indirect_pmp": Indirect method via Pontryagin's Minimum Principle (PMP)
 #                   - PSO (PyGMO or scipy.differential_evolution) optimises initial
 #                     costate values plus coast/burn timing and kick angle jointly
@@ -102,12 +101,6 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
 GUIDANCE_MODE = "linear_tangent"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
-
-# -------------- Guidance Start Timing --------------
-# When should the guidance law activate after the kick maneuver?
-#   "after_atmosphere_exit": Start guidance when the atmosphere exit condition is met (current default)
-#   "after_kick": Start guidance immediately after the kick maneuver ends (earlier start)
-GUIDANCE_START_MODE = "after_atmosphere_exit"   # Options: "after_atmosphere_exit", "after_kick"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "apollo")

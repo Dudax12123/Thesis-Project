@@ -270,14 +270,16 @@ def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_cons
     #
     # Two modes are supported via use_downrange_constraint:
     #
-    # False (default — no position constraint, velocity-only):
+    # False (no position constraint, velocity-only):
     #   k1 = 0, k2 = (vx_target - vx) / t_go
     #   Equivalent to a constant-acceleration profile that exactly zeroes the
     #   horizontal velocity error.  Safe at any flight path angle.
-    #   Used when guidance starts at low altitude (after_kick) where
+    #   Appropriate when guidance starts at a steep flight-path angle, where
     #   predict_target_downrange underestimates the true insertion distance by
     #   an order of magnitude (~100 km vs ~1500 km), causing k2 to go strongly
-    #   negative and pitch the rocket backward.
+    #   negative and pitch the rocket backward.  Ascent callers pass False:
+    #   t_go-based guidance engages only at second-stage ignition, where gamma is
+    #   still steep (~50°), so the velocity-only form (safe at any gamma) is used.
     #
     # True (full 4-coefficient constraint — position + velocity):
     #   x_target = 2 * predict_target_downrange(state, target_altitude)

@@ -971,12 +971,6 @@ def rocket_dynamics(t, state):
         atmosphere_exited = True
         time_atmosphere_exit = t
 
-    # --- Determine if guidance should start (mode-dependent) ---
-    if sim_params.GUIDANCE_START_MODE == "after_kick":
-        guidance_start_ready = kick_performed
-    else:  # "after_atmosphere_exit" (default)
-        guidance_start_ready = atmosphere_exit_detected
-
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
     
@@ -1017,7 +1011,7 @@ def rocket_dynamics(t, state):
             print(f"  duration = {t_go:.2f} s,  θ_dot = {np.rad2deg(cpr_theta_dot):.4f} deg/s")
 
     elif (kick_performed and sim_params.GUIDANCE_MODE in ["linear_tangent", "bilinear_tangent", "apollo"] and
-          guidance_start_ready and (not guidance_phase_active) and F_T > 0):
+          second_engine_ignition and (not guidance_phase_active) and F_T > 0):
         # Initialize guidance (only if engines burning)
         guidance_phase_active = True
         time_guidance_start = t
@@ -1037,7 +1031,6 @@ def rocket_dynamics(t, state):
             
             if sim_params.EVENTS_PRINT:
                 print(f"\nGuidance start at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
-                print(f"  Start mode: {sim_params.GUIDANCE_START_MODE}")
                 print(f"  Switching to LINEAR TANGENT STEERING guidance mode")
                 print(f"  Initial t_go = {t_go:.2f} s")
                 print(f"  LTS coefficients: a={guidance_coefficients[0]:.6f}, b={guidance_coefficients[1]:.6f}")
@@ -1052,7 +1045,6 @@ def rocket_dynamics(t, state):
             
             if sim_params.EVENTS_PRINT:
                 print(f"\nGuidance start at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
-                print(f"  Start mode: {sim_params.GUIDANCE_START_MODE}")
                 print(f"  Switching to BILINEAR TANGENT STEERING guidance mode")
                 print(f"  Initial t_go = {t_go:.2f} s")
                 print(f"  BTS coefficients: c1={guidance_coefficients[0]:.6f}, c2={guidance_coefficients[1]:.6f}, c1'={guidance_coefficients[2]:.6f}, c2'={guidance_coefficients[3]:.6f}")
@@ -1068,14 +1060,13 @@ def rocket_dynamics(t, state):
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
-                                                               use_downrange_constraint=(sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
+                                                               use_downrange_constraint=False)
             apollo_freeze_time = t  # Initialize freeze time
             apollo_coefficients_frozen = False
             alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
             
             if sim_params.EVENTS_PRINT:
                 print(f"\nGuidance start at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
-                print(f"  Start mode: {sim_params.GUIDANCE_START_MODE}")
                 print(f"  Switching to APOLLO POLYNOMIAL guidance mode")
                 print(f"  Thrust magnitude control: {sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL}")
                 print(f"  Current downrange: {s/1000:.2f} km")
@@ -1155,7 +1146,7 @@ def rocket_dynamics(t, state):
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
-                                                               use_downrange_constraint=(sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
+                                                               use_downrange_constraint=False)
             apollo_freeze_time = t  # Update epoch time
             last_guidance_update_time = t
             # Record t_go once per guidance update cycle (not every ODE sub-step)
@@ -1180,7 +1171,7 @@ def rocket_dynamics(t, state):
         
     # --- PEG initialisation ---
     elif (kick_performed and sim_params.GUIDANCE_MODE == "peg"
-          and guidance_start_ready and second_engine_ignition
+          and second_engine_ignition
           and not guidance_phase_active and F_T > 0):
         guidance_phase_active     = True
         time_guidance_start       = t
@@ -1235,7 +1226,7 @@ def rocket_dynamics(t, state):
 
     # --- PEG_NEW initialisation ---
     elif (kick_performed and sim_params.GUIDANCE_MODE == "peg_new"
-          and guidance_start_ready and second_engine_ignition
+          and second_engine_ignition
           and not guidance_phase_active and F_T > 0):
         guidance_phase_active     = True
         time_guidance_start       = t

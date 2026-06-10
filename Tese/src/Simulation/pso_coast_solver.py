@@ -123,13 +123,8 @@ class GuidanceState:
     Created fresh per PSO particle so evaluations do not share module globals.
     The same instance is passed through Arc 1, coast, and Arc 3, so guidance
     coefficients computed before the coast are available after it.
-
-    ``atmosphere_exited`` is pre-set to True because Stage 2 always ignites
-    above the atmosphere; this ensures guidance activates immediately when
-    GUIDANCE_START_MODE == "after_atmosphere_exit".
     """
     # Common
-    atmosphere_exited: bool = True
     guidance_phase_active: bool = False
     time_guidance_start: float = 0.0
     last_guidance_update_time: float = 0.0
@@ -252,15 +247,10 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
     r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     Ve    = Isp * c.G_0
 
-    guidance_start_ready = (
-        gs.atmosphere_exited
-        or sim_params.GUIDANCE_START_MODE == "after_kick"
-    )
-
     # -----------------------------------------------------------------------
-    # Initialization — runs once when guidance becomes active
+    # Initialization — runs once when guidance becomes active (Stage-2 ignition)
     # -----------------------------------------------------------------------
-    if not gs.guidance_phase_active and F_T > 0 and guidance_start_ready:
+    if not gs.guidance_phase_active and F_T > 0:
         gs.guidance_phase_active     = True
         gs.time_guidance_start       = t
         gs.last_guidance_update_time = t
@@ -292,8 +282,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.guidance_coefficients = \
                     apollo_guidance_module.compute_apollo_coefficients(
                         _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
-                        use_downrange_constraint=(
-                            sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
+                        use_downrange_constraint=False)
                 gs.apollo_freeze_time        = t
                 gs.apollo_coefficients_frozen = False
 
@@ -397,8 +386,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.guidance_coefficients = \
                     apollo_guidance_module.compute_apollo_coefficients(
                         _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
-                        use_downrange_constraint=(
-                            sim_params.GUIDANCE_START_MODE == "after_atmosphere_exit"))
+                        use_downrange_constraint=False)
                 gs.apollo_freeze_time        = t
                 gs.last_guidance_update_time = t
 
