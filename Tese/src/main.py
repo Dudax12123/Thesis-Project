@@ -642,8 +642,13 @@ def execute():
                 print("!"*60 + "\n")
                 _simulation_failed = True
 
-            # Check for failed simulation (sentinel value means no valid trajectory was found)
-            if not _simulation_failed and m_propellant_total is not None and m_propellant_total >= 9999999.0:
+            _is_direct = getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct'
+
+            # Check for failed simulation (sentinel value means no valid trajectory was found).
+            # In direct mode a propellant-limited run still has a meaningful achieved orbit, so
+            # report it rather than aborting.
+            if (not _simulation_failed and not _is_direct
+                    and m_propellant_total is not None and m_propellant_total >= 9999999.0):
                 print("\n" + "!"*60)
                 print("OPTIMISATION FAILED — NO VALID TRAJECTORY FOUND")
                 print("!"*60)
@@ -653,6 +658,10 @@ def execute():
                 print("Expand the kick-angle range or check guidance mode / target altitude.")
                 print("!"*60 + "\n")
                 _simulation_failed = True
+            elif (_is_direct and not _simulation_failed
+                    and m_propellant_total is not None and m_propellant_total >= 9999999.0):
+                print("\n[direct] No kick angle reached the target orbit within tolerance "
+                      "(propellant-limited) — reporting the best achieved orbit below.\n")
 
             if not _simulation_failed:
                 # Calculate final orbital elements

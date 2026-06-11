@@ -11,7 +11,7 @@ DURATION_INITIAL_KICK = 45.                     # duration of the triangular alp
                                                 #  an instantaneous γ jump and ignore this value)
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = False                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
@@ -21,7 +21,7 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -100,7 +100,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "linear_tangent"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
@@ -290,7 +290,20 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                    BVP assumes one continuous burn to propellant depletion,
 #                    which the thrust-coast-thrust split forbids. Prefer a
 #                    feedback law (linear_tangent, apollo, peg, peg_new) here.
-COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast"
+#   "direct"       : Continuous single Stage-2 burn to DIRECT orbit insertion —
+#                    no coast, no circularisation burn. The selected guidance law
+#                    steers until it reaches the target orbit (inertial velocity,
+#                    FPA and altitude all within tolerance, see below); if Stage-2
+#                    propellant depletes first, the achieved orbit is reported.
+#                    Intended for the direct-insertion laws (peg, peg_new, apollo).
+COAST_METHOD = "apogee_check"   # Options: "apogee_check", "pso_coast", "direct"
+
+# -------------- Direct-insertion tolerances --------------
+# (only used when COAST_METHOD == "direct") Stage-2 burn stops when ALL three
+# terminal errors are within tolerance simultaneously.
+DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
+DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
+DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
 
 # -------------- PSO COAST algorithm settings --------------
 # (only used when COAST_METHOD == "pso_coast")
