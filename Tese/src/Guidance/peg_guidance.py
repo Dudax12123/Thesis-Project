@@ -82,8 +82,13 @@ def compute_peg_AB(state, T, v_e, F_T, r_T, r_dot_T=0.0):
     return float(A), float(B)
 
 
-def estimate_peg_T(A, B, T, state, v_e, F_T, r_T, mu):
+def estimate_peg_T(A, B, T, state, v_e, F_T, r_T, mu, v_theta_T=None):
     """Estimate step: update burn-time T from the angular-momentum gap.
+
+    ``v_theta_T`` is the target tangential (horizontal) velocity at burnout;
+    defaults to the inertial circular value ``√(μ/r_T)``.  pso_coast passes the
+    rotating-frame value ``√(μ/r_T) − v_rot`` so the angular-momentum target
+    matches the ground-relative trajectory.
 
     Parameters
     ----------
@@ -115,9 +120,11 @@ def estimate_peg_T(A, B, T, state, v_e, F_T, r_T, mu):
     tau = v_e / a0
     T   = min(max(T, 0.1), tau * 0.9999)
 
+    if v_theta_T is None:
+        v_theta_T = np.sqrt(mu / r_T)
     v_theta = v * np.cos(gamma)
     h       = r * v_theta
-    h_T     = np.sqrt(mu * r_T)
+    h_T     = r_T * v_theta_T          # = √(μ·r_T) for the inertial default
     delta_h = h_T - h
     r_bar   = (r_T + r) / 2.0
 
@@ -151,7 +158,7 @@ def estimate_peg_T(A, B, T, state, v_e, F_T, r_T, mu):
 
 
 def converge_peg(state, T_init, v_e, F_T, r_T, mu,
-                 max_iter=30, tol=0.5, damping=0.5):
+                 max_iter=30, tol=0.5, damping=0.5, v_theta_T=None):
     """Damped Guide+Estimate iteration until T converges.
 
     The undamped Guide→Estimate fixed-point iteration can exhibit a 2-point
@@ -189,7 +196,8 @@ def converge_peg(state, T_init, v_e, F_T, r_T, mu,
 
     for _ in range(max_iter):
         A_new, B_new = compute_peg_AB(state, T, v_e, F_T, r_T)
-        T_est = estimate_peg_T(A_new, B_new, T, state, v_e, F_T, r_T, mu)
+        T_est = estimate_peg_T(A_new, B_new, T, state, v_e, F_T, r_T, mu,
+                               v_theta_T=v_theta_T)
         T_next = float(np.clip(damping * T_est + (1.0 - damping) * T,
                                0.1, tau * 0.9999))
         A, B = A_new, B_new

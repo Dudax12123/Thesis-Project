@@ -198,6 +198,16 @@ def execute():
             f"Unsupported GUIDANCE_MODE {sim_params.GUIDANCE_MODE!r}. "
             f"Valid options: {sorted(_VALID_GUIDANCE_MODES)}")
 
+    # exp_shooting is an open-loop burn-to-depletion BVP — structurally
+    # incompatible with the pso_coast thrust-coast-thrust split. It remains valid
+    # for apogee_check (a single continuous burn).
+    if (sim_params.GUIDANCE_MODE == "exp_shooting"
+            and getattr(sim_params, "COAST_METHOD", "apogee_check") == "pso_coast"):
+        raise ValueError(
+            "GUIDANCE_MODE='exp_shooting' is not supported with COAST_METHOD='pso_coast' "
+            "(its single-burn-to-depletion BVP cannot honour the coast split). Use a feedback "
+            "law (linear_tangent, apollo, peg, peg_new) or set COAST_METHOD='apogee_check'.")
+
     # Display guidance mode
     guidance_mode_names = {
         "gravity_turn": "Pure Gravity Turn",

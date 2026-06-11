@@ -198,6 +198,18 @@ class GuidanceState:
 # t_go helpers (Stage-2 context — main_engine_cutoff = True always here)
 # ===========================================================================
 
+def _v_circular_rotating(r_target):
+    """Rotating-frame circular velocity ``√(μ/r) − v_rot`` (launch-latitude
+    v_rot), matching the pso_coast objective and apollo's coefficient target so
+    the guidance velocity/t_go targets stay consistent with the rotating-frame
+    trajectory.  Returns the inertial value when Earth rotation is disabled."""
+    v_circ = np.sqrt(c.MU_EARTH / r_target)
+    if sim_params.ENABLE_EARTH_ROTATION:
+        v_circ -= (c.OMEGA_EARTH * r_target
+                   * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
+    return v_circ
+
+
 def _compute_tgo_stage2(state, F_T, Isp, previous_tgo=None):
     """
     Stage-2 rocket-equation t_go.
@@ -217,7 +229,7 @@ def _compute_tgo_stage2(state, F_T, Isp, previous_tgo=None):
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     vx_current = v * np.cos(gamma)
     vy_current = v * np.sin(gamma)
-    vx_target  = np.sqrt(c.MU_EARTH / r_target)
+    vx_target  = _v_circular_rotating(r_target)   # rotating-frame circular target
     VG = np.sqrt((vx_target - vx_current) ** 2 + vy_current ** 2)
 
     if VG > 0.0:
@@ -296,7 +308,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.peg_A, gs.peg_B, gs.peg_T = peg_guidance_mod.converge_peg(
                 state[:5], T_seed, Ve, F_T, r_tgt, c.MU_EARTH,
                 max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
-                tol=_tol, damping=_damp)
+                tol=_tol, damping=_damp,
+                v_theta_T=_v_circular_rotating(r_tgt))
             gs.peg_t_epoch = t
             gs.peg_frozen  = False
 
@@ -304,7 +317,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             (gs.peg_new_vgo_r, gs.peg_new_vgo_theta,
              gs.peg_new_L0,    gs.peg_new_tgo,
              gs.peg_new_t_lambda, gs.peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
-                 state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
+                 state[:5], r_tgt, c.MU_EARTH, Ve, F_T,
+                 v_theta_T=_v_circular_rotating(r_tgt))
             gs.peg_new_t_epoch = t
             gs.peg_new_frozen  = False
 
@@ -408,7 +422,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                     gs.peg_A, gs.peg_B, gs.peg_T = peg_guidance_mod.converge_peg(
                         state[:5], gs.peg_T, Ve, F_T, r_tgt, c.MU_EARTH,
                         max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
-                        tol=_tol, damping=_damp)
+                        tol=_tol, damping=_damp,
+                        v_theta_T=_v_circular_rotating(r_tgt))
                     gs.peg_t_epoch = t
                 gs.last_guidance_update_time = t
             t_since = t - gs.peg_t_epoch if gs.peg_t_epoch is not None else 0.0
@@ -425,7 +440,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                      gs.peg_new_L0,    gs.peg_new_tgo,
                      gs.peg_new_t_lambda, gs.peg_new_lambda_r
                      ) = peg_new_mod.peg_new_major_loop(
-                         state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
+                         state[:5], r_tgt, c.MU_EARTH, Ve, F_T,
+                         v_theta_T=_v_circular_rotating(r_tgt))
                     gs.peg_new_t_epoch = t
                 gs.last_guidance_update_time = t
             t_since = t - gs.peg_new_t_epoch if gs.peg_new_t_epoch is not None else 0.0
@@ -658,14 +674,9 @@ def _coast_objective_terms(result):
     r_val, v_f, g_f = state[1], state[2], state[3]
 
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    # Rotating-frame circular target: the trajectory velocity is ground-relative,
-    # so credit Earth's surface rotation speed once here. Zero when rotation off.
-    if sim_params.ENABLE_EARTH_ROTATION:
-        v_rot = (c.OMEGA_EARTH * r_target
-                 * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
-    else:
-        v_rot = 0.0
-    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
+    # Rotating-frame circular target (ground-relative). The same helper feeds the
+    # guidance velocity/t_go targets, keeping objective and guidance in lock-step.
+    v_circular = _v_circular_rotating(r_target)
     gamma_ref  = np.deg2rad(sim_params.PSO_COAST_GAMMA_REF_DEG)
 
     J_nd  = (result['t_f'] - result['t_cf']) / _T_MAX_2

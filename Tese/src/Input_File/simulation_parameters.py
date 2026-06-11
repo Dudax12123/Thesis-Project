@@ -185,6 +185,10 @@ AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/
 ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
 ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
 MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
+# apogee_check: a kick angle is accepted only if its achieved apogee is within this
+# fraction of the target radius. Tight (0.0002 ≈ 1.4 km) now that the apogee
+# interrupt and the SECO conversion use the same (launch) latitude.
+APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fraction of r_target)
 
 # -------------- Fast Run Mode --------------
 # If True, skips optimization and uses pre-determined optimal kick angles

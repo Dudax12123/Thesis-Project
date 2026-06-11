@@ -311,7 +311,7 @@ def interrupt_single_burn_traj(t, y):
     r_val = y[1]
     v = y[2]
     gamma = y[3]
-    lat = get_latitude_from_downrange(y[0]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
+    lat = LAUNCH_LATITUDE_RAD   # launch-latitude convention, consistent with the SECO conversion
     alt = r_val - c.R_EARTH
 
     if alt < sim_params.ALT_NO_ATMOSPHERE:
@@ -1959,14 +1959,15 @@ def run(initial_kick_angle, azimuth_override=None):
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
         r_stop, v_stop, gamma_stop)
 
-    epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * 0.002
+    epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * sim_params.APOGEE_MATCH_TOL_FRAC
     diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
 
     if diff < epsilon:
         # ----- Calculate delta v -----
-        r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-        v_desired = np.sqrt(c.MU_EARTH / r_desired)
-        
+        # Circularise at the ACHIEVED apogee radius so the post-burn orbit is
+        # exactly circular at whatever apogee was reached (not the nominal target).
+        v_desired = np.sqrt(c.MU_EARTH / r_apo_stop)
+
         # Get velocity at apogee
         v_apo = np.sqrt(c.MU_EARTH * a_stop * (1 - e_stop**2)) / r_apo_stop
 
