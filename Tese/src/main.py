@@ -12,6 +12,15 @@ from pathlib import Path
 # Add current directory to path to enable imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+# Many print statements throughout this codebase use Greek letters (gamma,
+# alpha, Delta, ...) and the degree sign. On Windows the console defaults to
+# a legacy codepage (e.g. cp1252) that cannot encode those characters, which
+# crashes any print() that includes them. Force UTF-8 stdout/stderr so those
+# prints work regardless of the host console's codepage.
+if sys.stdout.encoding is not None and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
+
 import numpy as np
 import matplotlib.pyplot as plt
 from Simulation import solver
@@ -395,12 +404,16 @@ def execute():
     # =========================================================================
     if sim_params.GUIDANCE_MODE != "indirect_pmp":
 
+        _coast_method = getattr(sim_params, 'COAST_METHOD', 'apogee_check')
+        _direct_pso = (_coast_method == 'direct' and getattr(
+            sim_params, 'DIRECT_OPTIMIZATION_MODE', 'brute_force') == 'pso')
+
         # =====================================================================
         # PSO COAST PATH — PSO finds [delta_tc, delta_tr_pct, coast_start%, γ_p]
         # and executes a thrust-coast-thrust trajectory with direct insertion.
         # The selected guidance mode steers during both thrust arcs.
         # =====================================================================
-        if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'pso_coast':
+        if _coast_method == 'pso_coast':
 
             # Warn if iterative azimuth sweep was requested (incompatible)
             if (sim_params.ENABLE_EARTH_ROTATION
@@ -583,9 +596,164 @@ def execute():
             # Fall through to the shared plotting block below.
 
         # =====================================================================
-        # APOGEE-CHECK PATH — only runs when COAST_METHOD != 'pso_coast'
+        # PSO DIRECT-INSERTION PATH — PSO finds [gamma_p, t_burn_pct] for a
+        # single continuous Stage-2 burn targeting the DIRECT_INSERTION_* box.
         # =====================================================================
-        if getattr(sim_params, 'COAST_METHOD', 'apogee_check') != 'pso_coast':
+        elif _direct_pso:
+
+            from Simulation.direct_pso_solver import (
+                run_pso_direct_optimization,
+                run_pso_direct_full,
+                breakdown_direct_objective,
+            )
+            import Simulation.direct_pso_solver as dps
+
+            print("\n" + "="*60)
+            print("PSO DIRECT-INSERTION — TRAJECTORY OPTIMISATION")
+            print("="*60)
+            print(f"  Guidance mode: {sim_params.GUIDANCE_MODE}")
+            print("  Optimising 2 variables: gamma_p, t_burn%")
+            print("  (kick-angle sweep is replaced by gamma_p + burn-duration PSO)")
+            print("="*60)
+
+            # Suppress noisy event/interrupt prints during the PSO swarm evaluation
+            _events_print_saved     = sim_params.EVENTS_PRINT
+            _interrupts_print_saved = sim_params.INTERRUPTS_PRINT
+            sim_params.EVENTS_PRINT     = False
+            sim_params.INTERRUPTS_PRINT = False
+
+            optimal_params, J_optimal = run_pso_direct_optimization(verbose=True)
+            pso_history = dps.LAST_PSO_DIRECT_HISTORY
+
+            sim_params.EVENTS_PRINT     = _events_print_saved
+            sim_params.INTERRUPTS_PRINT = _interrupts_print_saved
+
+            # Full-resolution re-run for plotting
+            print("\n" + "="*60)
+            print("RUNNING FULL TRAJECTORY SIMULATION (optimal PSO params)")
+            print("="*60 + "\n")
+            sim_params.EVENTS_PRINT = True
+
+            (time, data, thrust_full, alpha_full,
+             _, result_opt,
+             coriolis_mag_data, centrifugal_mag_data) = run_pso_direct_full(
+                optimal_params, verbose=True)
+
+            # Unpack for the shared display / plotting block below
+            gamma_p_opt, t_burn_pct_opt = optimal_params
+            kick_angle_optimal    = gamma_p_opt - np.pi / 2.0
+            best_azimuth_override = None
+            delta_v               = 0.0   # direct insertion, no circularisation burn
+            _simulation_failed    = result_opt['crashed']
+
+            thrust_data     = thrust_full
+            time_thrust     = time
+            alpha_data      = alpha_full
+            alpha_time_data = time
+
+            if _simulation_failed:
+                print("\n" + "!"*60)
+                print("PSO DIRECT-INSERTION SIMULATION FAILED — trajectory crashed")
+                print("!"*60 + "\n")
+
+            # Print PSO direct results summary
+            if not _simulation_failed:
+                sf  = result_opt['state_final']
+                h_f = (sf[1] - c.R_EARTH) / 1e3
+                v_in, g_in = ra.get_inertial_state_components(
+                    sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
+                r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+                v_c = np.sqrt(c.MU_EARTH / r_t)
+
+                bd = breakdown_direct_objective(result_opt)
+
+                print("\n" + "="*60)
+                print("PSO DIRECT-INSERTION OPTIMISATION RESULTS")
+                print("="*60)
+                print(f"\t* Objective J:\t\t\t\t{J_optimal:.6f}")
+                print(f"\t* Insertion altitude:\t\t\t{h_f:.2f} km  "
+                      f"(target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km)")
+                print(f"\t* Insertion velocity (inertial):\t{v_in:.2f} m/s  "
+                      f"(circular {v_c:.2f})")
+                print(f"\t* Insertion FPA (inertial):\t\t{np.rad2deg(g_in):.4f} deg  "
+                      f"(target 0 deg)")
+                print(f"\t* Reached circular velocity (MECO):\t{ra.LAST_DIRECT_MECO}")
+                print(f"\t* Clean insertion (v,gamma,alt within tol):\t"
+                      f"{ra.LAST_DIRECT_INSERTION_REACHED}")
+                print(f"\n\t  J breakdown:")
+                print(f"\t  Box margin (<=0 is clean): {bd['box']:.4f}")
+                print(f"\t  Burn fraction:             {bd['burn']*100.0:.2f} %")
+
+                print(f"\n\t  PSO optimal parameters:")
+                print(f"\t  Pitch angle gamma_p:    {np.rad2deg(gamma_p_opt):.4f} deg")
+                print(f"\t  Kick angle (γ_p-π/2):   {np.rad2deg(kick_angle_optimal):.4f}°")
+                print(f"\t  Burn duration:          {result_opt['t_burn']:.2f} s "
+                      f"({t_burn_pct_opt:.2f} % of T_max)")
+
+                mf = data[4, -1]
+                p2_remaining = max(0.0, mf - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
+                p2_used      = r_specs.M_PROP_2 - p2_remaining
+                total_used   = r_specs.M_PROP_1 + p2_used
+                print(f"\n\t  PROPELLANT USAGE:")
+                print(f"\t  Total propellant used (S1+S2):  {total_used:.1f} kg")
+                print(f"\t  Stage-2 propellant used:        {p2_used:.1f} kg "
+                      f"({100.0 * p2_used / r_specs.M_PROP_2:.1f}% "
+                      f"of {r_specs.M_PROP_2:.0f} kg)")
+                print(f"\t  Stage-2 propellant remaining:   {p2_remaining:.1f} kg")
+
+                # Mission event timeline for PSO direct insertion
+                print("\n" + "="*60)
+                print("MISSION EVENT TIMELINE")
+                print("="*60)
+                print(f"\t* T+{0.0:.2f}s\t\t\tLiftoff")
+                if ra.time_kick_start is not None:
+                    print(f"\t* T+{ra.time_kick_start:.2f}s\t\tInstantaneous pitch-over "
+                          f"({np.rad2deg(kick_angle_optimal):.4f}°)")
+                if ra.time_atmosphere_exit is not None:
+                    print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
+                if ra.time_main_engine_cutoff is not None:
+                    print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 3.0:.2f}s\t\tStage separation")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\tStage 2 ignition")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\t{sim_params.GUIDANCE_MODE} guidance active")
+                if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+                    print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s"
+                          f"\t\tStage 2 cutoff / orbit insertion")
+                print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
+
+                a, e, r_apo, r_peri, T = ra.get_orbital_elements(sf[1], v_in, g_in)
+                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data)
+
+                print("\n" + "="*60)
+                print("PROPELLANT USAGE")
+                print("="*60)
+                print(f"\t* Optimal kick angle:\t\t\t{np.rad2deg(kick_angle_optimal):.4f} degrees")
+                print(f"\t* Total propellant consumed:\t\t{total_used:.2f} kg")
+                print(f"\t* Total delta-v:\t\t\t{delta_v:.2f} m/s  (direct insertion, no circularisation burn)")
+                _print_propellant_losses()
+
+                if sim_params.ENABLE_EARTH_ROTATION:
+                    _print_inclination_analysis(
+                        ra.LAST_ACHIEVED_INCLINATION_DEG,
+                        beta_formula,
+                        best_azimuth_override,
+                        sim_params,
+                    )
+
+                print("\n" + "="*60)
+                print("SIMULATION COMPLETE")
+                print("="*60 + "\n")
+
+            if _simulation_failed:
+                return time, data, kick_angle_optimal
+
+            # Fall through to the shared plotting block below.
+
+        # =====================================================================
+        # APOGEE-CHECK / BRUTE-FORCE DIRECT PATH — runs for every COAST_METHOD
+        # except 'pso_coast' and the direct+pso combination handled above.
+        # =====================================================================
+        else:
 
             # Determine kick angle (either from optimization or pre-set optimal value)
             if sim_params.GUIDANCE_MODE == "cpr":
@@ -658,10 +826,11 @@ def execute():
                 print("Expand the kick-angle range or check guidance mode / target altitude.")
                 print("!"*60 + "\n")
                 _simulation_failed = True
-            elif (_is_direct and not _simulation_failed
-                    and m_propellant_total is not None and m_propellant_total >= 9999999.0):
-                print("\n[direct] No kick angle reached the target orbit within tolerance "
-                      "(propellant-limited) — reporting the best achieved orbit below.\n")
+            elif _is_direct and not _simulation_failed and not ra.LAST_DIRECT_INSERTION_REACHED:
+                print("\n[direct] No kick angle achieved a clean insertion (circular velocity "
+                      "reached with γ and altitude within tolerance) — the law either fell "
+                      "short on propellant or hit circular velocity at the wrong γ/altitude. "
+                      "Reporting the best achieved orbit below.\n")
 
             if not _simulation_failed:
                 # Calculate final orbital elements

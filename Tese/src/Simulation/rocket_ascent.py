@@ -33,6 +33,10 @@ from scipy.integrate import solve_ivp
 #===================================================
 time_kick_start = None
 kick_performed = False
+# Set by _run_stage1a_with_kick while it is managing the instantaneous gamma
+# jump, so the ODE alpha dispatch (KICK_PROFILE_MODE check) doesn't ALSO
+# apply a triangular alpha kick during that window.
+_stage1_kick_handled_by_gamma_jump = False
 main_engine_cutoff = False
 second_engine_ignition = False
 stage_2_burnt = False
@@ -135,6 +139,10 @@ AZIMUTH_MODE_USED = "corrected"     # Active azimuth mode used during current ru
 # Final inclination metrics from the latest run
 LAST_ACHIEVED_INCLINATION_DEG = np.nan
 LAST_INCLINATION_DRIFT_DEG = np.nan
+
+# Direct-insertion outcome flags from the latest full-simulation run (COAST_METHOD=="direct")
+LAST_DIRECT_MECO = False              # reached circular velocity (MECO fired)
+LAST_DIRECT_INSERTION_REACHED = False # clean insertion (v, γ, alt all within tolerance)
 
 #===================================================
 # Interrupt functions for simulation
@@ -279,6 +287,31 @@ def interrupt_velocity_exceeded(t, y):
     return v - v_desired
 
 
+def interrupt_direct_meco(t, y):
+    """
+    Direct-insertion MECO trigger (COAST_METHOD == "direct").
+
+    Fires (direction=+1) the instant the inertial velocity first reaches circular
+    √(μ/r_target).  Unlike interrupt_velocity_exceeded (which uses the current
+    downrange latitude and is shared with Stage 1), this uses LAUNCH_LATITUDE_RAD
+    so the cutoff velocity is consistent with the direct-insertion box check
+    (interrupt_direct_insertion) and the SECO inertial conversion in run() — i.e.
+    at MECO the box's velocity term is satisfied by construction, leaving the
+    flight-path-angle and altitude errors to grade insertion quality.
+    """
+    r_val = y[1]
+    v = y[2]
+    gamma = y[3]
+    r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    v_desired = np.sqrt(c.MU_EARTH / r_desired)
+
+    if sim_params.ENABLE_EARTH_ROTATION:
+        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_LATITUDE_RAD, r_val)
+        return v_inertial - v_desired
+
+    return v - v_desired
+
+
 def interrupt_kick_time(t, y):
     """Terminal event that fires the instant t reaches TIME_TO_START_KICK.
 
@@ -360,16 +393,17 @@ def interrupt_horizontal_check(t, y):
 
 def interrupt_direct_insertion(t, y):
     """
-    Direct-insertion terminal event (COAST_METHOD == "direct").
+    Direct-insertion clean-insertion check (COAST_METHOD == "direct").
 
-    Fires the instant the rocket simultaneously reaches the target orbit:
-    inertial velocity within tolerance of circular √(μ/r_target), |flight-path
-    angle| within tolerance, and altitude within tolerance of the target.
-
-    Returns max of the three signed margins — strictly positive while any one
-    is violated, crossing zero downward (set direction=-1) when the trajectory
-    first enters the target box.  Earth rotation is accounted for by converting
-    the velocity to inertial (launch-latitude convention, matching SECO).
+    NOT a terminal trigger — MECO is fired by interrupt_velocity_exceeded the
+    instant inertial velocity reaches circular √(μ/r_target).  This function is
+    evaluated once in run() at that cutoff state to grade insertion quality:
+    it returns max of the three signed margins (inertial velocity vs circular,
+    |flight-path angle|, |alt − target|), which is ≤ 0 iff all three are within
+    tolerance — i.e. a clean insertion.  With the velocity-MECO trigger the
+    velocity margin is satisfied by construction, so this effectively gates on
+    the flight-path-angle and altitude errors.  Earth rotation is accounted for
+    by converting the velocity to inertial (launch-latitude convention, SECO).
     """
     r_val = y[1]
     v = y[2]
@@ -384,11 +418,15 @@ def interrupt_direct_insertion(t, y):
     else:
         v_inertial, gamma_inertial = v, gamma
 
-    v_err = abs(v_inertial - v_circular) - sim_params.DIRECT_INSERTION_VELOCITY_TOL_MS
-    g_err = abs(gamma_inertial) - np.deg2rad(sim_params.DIRECT_INSERTION_FPA_TOL_DEG)
-    a_err = abs(alt - sim_params.TARGET_ORBITAL_ALTITUDE) - sim_params.DIRECT_INSERTION_ALTITUDE_TOL_KM * 1e3
+    # Normalised errors (in units of their tolerance) so the three are comparable
+    # and the returned margin grades insertion quality smoothly: ≤ 0 ⇔ all three
+    # within tolerance (clean insertion); > 0 grows with the worst-violated term,
+    # giving the kick optimiser a gradient toward the best achievable insertion.
+    v_err = abs(v_inertial - v_circular) / sim_params.DIRECT_INSERTION_VELOCITY_TOL_MS
+    g_err = abs(gamma_inertial) / np.deg2rad(sim_params.DIRECT_INSERTION_FPA_TOL_DEG)
+    a_err = abs(alt - sim_params.TARGET_ORBITAL_ALTITUDE) / (sim_params.DIRECT_INSERTION_ALTITUDE_TOL_KM * 1e3)
 
-    return max(v_err, g_err, a_err)
+    return max(v_err, g_err, a_err) - 1.0
 
     
 #===================================================
@@ -1014,12 +1052,13 @@ def rocket_dynamics(t, state):
             kick_performed = True
             time_kick_start = t
             alpha = 0.0
-        elif getattr(sim_params, 'COAST_METHOD', 'apogee_check') in ('apogee_check', 'direct'):
-            # apogee_check: triangular alpha ramp over DURATION_INITIAL_KICK seconds.
+        elif (not _stage1_kick_handled_by_gamma_jump
+              and getattr(sim_params, 'KICK_PROFILE_MODE', 'triangular') == 'triangular'):
+            # triangular: alpha ramp over DURATION_INITIAL_KICK seconds.
             alpha = pitch_program_linear(t, current_kick_angle)
         else:
-            # pso_coast / indirect_pmp: instantaneous γ jump handled outside ODE
-            # by _run_stage1a_with_kick; α stays zero here.
+            # instantaneous: γ jump handled outside the ODE by
+            # _run_stage1a_with_kick; α stays zero here.
             alpha = 0.0
 
     elif (kick_performed and sim_params.GUIDANCE_MODE == "cpr"
@@ -1106,8 +1145,11 @@ def rocket_dynamics(t, state):
                 print(f"  Initial t_go = {t_go:.2f} s")
                 print(f"  Apollo coefficients: k1={guidance_coefficients[0]:.6f}, k2={guidance_coefficients[1]:.6f}, k3={guidance_coefficients[2]:.6f}, k4={guidance_coefficients[3]:.6f}")
                 print(f"  Initial alpha command: {np.rad2deg(alpha):.2f} deg")
-                if sim_params.APOLLO_THRUST_MAGNITUDE_CONTROL:
-                    print(f"  Commanded thrust accel: {a_thrust_cmd:.2f} m/s²")
+                thrust_angle_inertial_dbg = alpha + gamma
+                ax_thrust_dbg = a_thrust_cmd * np.cos(thrust_angle_inertial_dbg)
+                ay_thrust_dbg = a_thrust_cmd * np.sin(thrust_angle_inertial_dbg)
+                print(f"  Commanded thrust accel: {a_thrust_cmd:.2f} m/s^2 (ax={ax_thrust_dbg:.2f}, ay={ay_thrust_dbg:.2f})")
+                print(f"  Current v = {v:.2f} m/s, gamma = {np.rad2deg(gamma):.2f} deg")
         
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "linear_tangent" and F_T > 0:
         # Phase 2b: Linear tangent steering guidance (only while engines burning)
@@ -1175,6 +1217,7 @@ def rocket_dynamics(t, state):
                 print(f"\n  Apollo coefficients FROZEN at t = {t:.2f} s (t_go = {t_go:.2f} s)")
         
         # Update coefficients if not frozen and update interval reached
+        apollo_coeffs_just_updated = False
         if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
@@ -1185,10 +1228,20 @@ def rocket_dynamics(t, state):
             # Record t_go once per guidance update cycle (not every ODE sub-step)
             tgo_history.append(t_go_display)
             tgo_time_history.append(t)
-        
+            apollo_coeffs_just_updated = True
+
         # Compute guidance angle using current or frozen coefficients
         alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
-        
+
+        if apollo_coeffs_just_updated and sim_params.EVENTS_PRINT:
+            thrust_angle_inertial_dbg = alpha + gamma
+            ax_thrust_dbg = a_thrust_cmd * np.cos(thrust_angle_inertial_dbg)
+            ay_thrust_dbg = a_thrust_cmd * np.sin(thrust_angle_inertial_dbg)
+            print(f"\n  Apollo update at t = {t:.2f} s, alt = {alt/1000:.2f} km")
+            print(f"    t_go = {t_go:.2f} s, k1={guidance_coefficients[0]:.6f}, k2={guidance_coefficients[1]:.6f}, k3={guidance_coefficients[2]:.6f}, k4={guidance_coefficients[3]:.6f}")
+            print(f"    alpha = {np.rad2deg(alpha):.2f} deg, a_thrust = {a_thrust_cmd:.2f} m/s^2 (ax={ax_thrust_dbg:.2f}, ay={ay_thrust_dbg:.2f})")
+            print(f"    v = {v:.2f} m/s, gamma = {np.rad2deg(gamma):.2f} deg")
+
         # Apply thrust magnitude control if enabled.
         # The commanded thrust is capped at the nominal (maximum) available,
         # so stage 1 effectively always runs at full thrust when the guidance
@@ -1506,10 +1559,13 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
 
     elif stage_2_flag:
         if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct':
-            # Direct insertion: keep ground_collision at index 2 (downstream check),
-            # replace the apogee event with the direct-insertion box event at index 3.
+            # Direct insertion: cut the burn (MECO) the instant inertial velocity
+            # reaches circular √(μ/r_target) — the standard insertion trigger — so
+            # the engine never over-burns past insertion.  Keep ground_collision at
+            # index 2 (downstream crash check).  Whether γ and altitude also landed
+            # within tolerance is assessed afterwards in run() (the target-box check).
             interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
-                             interrupt_ground_collision, interrupt_direct_insertion]
+                             interrupt_ground_collision, interrupt_direct_meco]
         else:
             # Coasting single burn trajectory
             interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
@@ -1527,8 +1583,8 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
     # already exceeds the target apogee (direction=0 would fire on the downward crossing too).
     if stage_2_flag:
         if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct':
-            # Fire when the trajectory first enters the target box (max-margin → 0 downward).
-            interrupt_direct_insertion.direction = -1
+            # Fire MECO when inertial velocity first crosses circular upward.
+            interrupt_direct_meco.direction = 1
         else:
             interrupt_single_burn_traj.direction = 1
     
@@ -1546,13 +1602,13 @@ class _MergedSol:
 
 
 def pitch_program_linear(t, initial_kick_angle):
-    """Triangular angle-of-attack profile for the `apogee_check` kick maneuver.
+    """Triangular angle-of-attack kick profile.
 
     Alpha ramps linearly from 0 to ``initial_kick_angle`` over the first half
     of ``DURATION_INITIAL_KICK``, then ramps back to 0 over the second half.
     The resulting profile is triangular when plotted against time.  Used only
-    when ``COAST_METHOD == "apogee_check"``; PSO paths use the instantaneous
-    γ jump via ``_run_stage1a_with_kick`` instead.
+    when ``KICK_PROFILE_MODE == "triangular"``; the ``"instantaneous"`` mode
+    uses the discontinuous γ jump via ``_run_stage1a_with_kick`` instead.
     """
     global time_kick_start, kick_performed, time_raise
 
@@ -1591,37 +1647,41 @@ def _run_stage1a_with_kick(init_time, time_horizon, state_init, base_events):
     plain `simulate_trajectory(..., override_events=base_events)` call —
     the kick channel is consumed inside this helper.
     """
-    global time_kick_start, kick_performed
+    global time_kick_start, kick_performed, _stage1_kick_handled_by_gamma_jump
 
     extended_events = list(base_events) + [interrupt_kick_time]
     kick_idx = len(extended_events) - 1
 
-    sol_seg1 = simulate_trajectory(init_time, time_horizon, state_init,
-                                   False, False,
-                                   override_events=extended_events)
+    _stage1_kick_handled_by_gamma_jump = True
+    try:
+        sol_seg1 = simulate_trajectory(init_time, time_horizon, state_init,
+                                       False, False,
+                                       override_events=extended_events)
 
-    if len(sol_seg1.t_events[kick_idx]) == 0:
-        # Some other terminal event fired first (crash, fairing, separation, ...).
-        # Drop the unused kick channel so downstream indexing matches base_events.
-        sol_seg1.t_events = sol_seg1.t_events[:kick_idx]
-        return sol_seg1
+        if len(sol_seg1.t_events[kick_idx]) == 0:
+            # Some other terminal event fired first (crash, fairing, separation, ...).
+            # Drop the unused kick channel so downstream indexing matches base_events.
+            sol_seg1.t_events = sol_seg1.t_events[:kick_idx]
+            return sol_seg1
 
-    # --- Apply the instantaneous γ jump ---
-    t_kick = float(sol_seg1.t[-1])
-    state_post = sol_seg1.y[:, -1].copy()
-    state_post[3] += current_kick_angle  # state[3] = γ (flight-path angle)
+        # --- Apply the instantaneous γ jump ---
+        t_kick = float(sol_seg1.t[-1])
+        state_post = sol_seg1.y[:, -1].copy()
+        state_post[3] += current_kick_angle  # state[3] = γ (flight-path angle)
 
-    time_kick_start = t_kick
-    kick_performed = True
-    if sim_params.EVENTS_PRINT:
-        print(f"\nInstantaneous pitch-over at t = {t_kick:.4f}s "
-              f"(Δγ = {np.rad2deg(current_kick_angle):+.4f}°)")
+        time_kick_start = t_kick
+        kick_performed = True
+        if sim_params.EVENTS_PRINT:
+            print(f"\nInstantaneous pitch-over at t = {t_kick:.4f}s "
+                  f"(Δγ = {np.rad2deg(current_kick_angle):+.4f}°)")
 
-    # --- Resume Stage 1A from the post-kick state ---
-    remaining = time_horizon - (t_kick - init_time)
-    sol_seg2 = simulate_trajectory(t_kick, remaining, state_post,
-                                   False, False,
-                                   override_events=list(base_events))
+        # --- Resume Stage 1A from the post-kick state ---
+        remaining = time_horizon - (t_kick - init_time)
+        sol_seg2 = simulate_trajectory(t_kick, remaining, state_post,
+                                       False, False,
+                                       override_events=list(base_events))
+    finally:
+        _stage1_kick_handled_by_gamma_jump = False
 
     # Keep BOTH boundary samples at t_kick: sol_seg1[-1] holds the pre-kick state
     # (γ = π/2) and sol_seg2[0] holds the post-kick state (γ = π/2 + kick_angle).
@@ -1653,7 +1713,8 @@ def run(initial_kick_angle, azimuth_override=None):
     m_propellant_total_used_2nd_stage : float
         Total propellant used in 2nd stage [kg]
     """
-    global time_kick_start, kick_performed, main_engine_cutoff
+    global time_kick_start, kick_performed, _stage1_kick_handled_by_gamma_jump
+    global main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
@@ -1674,6 +1735,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
+    global LAST_DIRECT_MECO, LAST_DIRECT_INSERTION_REACHED
     global PROPAGATING_IN_INERTIAL_FRAME, TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
@@ -1684,6 +1746,7 @@ def run(initial_kick_angle, azimuth_override=None):
     #===================================================
     time_kick_start = None
     kick_performed = False
+    _stage1_kick_handled_by_gamma_jump = False
     main_engine_cutoff = False
     second_engine_ignition = False
     stage_2_burnt = False
@@ -1801,17 +1864,17 @@ def run(initial_kick_angle, azimuth_override=None):
     # the atmosphere exit (and thus fairing jettison) happens after MECO — e.g. when
     # ATMOSPHERE_EXIT_METHOD = "aerothermal_flux" with a threshold crossed at ~137 km.
     #
-    # COAST_METHOD == "apogee_check": use a plain simulate_trajectory so the kick is
+    # KICK_PROFILE_MODE == "triangular": use a plain simulate_trajectory so the kick is
     # handled continuously inside the ODE RHS via pitch_program_linear (triangular
     # alpha profile). t_events indexing: 0=fairing, 1=crash, 2=velocity, 3=stage_sep.
     #
-    # COAST_METHOD == "pso_coast" / "indirect_pmp": _run_stage1a_with_kick performs an
+    # KICK_PROFILE_MODE == "instantaneous": _run_stage1a_with_kick performs an
     # internal two-segment integration around the instantaneous pitch-over (γ jump at
     # TIME_TO_START_KICK); the kick event is consumed inside the helper so the returned
     # t_events list keeps the same 0=fairing / 1=crash / 2=velocity / 3=stage_sep indexing.
     _stage1a_events = [interrupt_fairing_jettison, interrupt_ground_collision,
                        interrupt_velocity_exceeded, interrupt_stage_separation]
-    if getattr(sim_params, 'COAST_METHOD', 'apogee_check') in ('apogee_check', 'direct'):
+    if getattr(sim_params, 'KICK_PROFILE_MODE', 'triangular') == 'triangular':
         sol_1a = simulate_trajectory(0, time_1, initial_state_1, False, False,
                                      override_events=_stage1a_events)
     else:
@@ -2002,19 +2065,44 @@ def run(initial_kick_angle, azimuth_override=None):
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(
         r_stop, v_stop, gamma_stop)
 
+    if sim_params.EVENTS_PRINT:
+        print(f"\n  [ORBIT @ MECO] alt={alt_stop/1000:.2f} km, v_inertial={v_stop:.2f} m/s, "
+              f"gamma_inertial={np.rad2deg(gamma_stop):.2f} deg")
+        print(f"    a={a_stop/1000:.2f} km, e={e_stop:.4f}, "
+              f"apo={(r_apo_stop-c.R_EARTH)/1000:.2f} km, peri={(r_peri_stop-c.R_EARTH)/1000:.2f} km")
+
     # ===================================================================
     # DIRECT INSERTION (COAST_METHOD == "direct"): the Stage-2 insertion
     # state IS the orbit — no coast-to-apogee, no circularisation burn.
     # ===================================================================
     if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct':
-        # Did the guidance reach the target box (v≈circular, γ≈0, alt≈target)?
-        insertion_reached = interrupt_direct_insertion(0.0, sol_2.y[:, -1]) <= 0.0
+        # MECO fires when inertial velocity reaches circular (interrupt index 3).
+        # If it never fired, the burn ended propellant-limited / radius-cut and the
+        # orbit is under-speed.
+        meco_reached = len(sol_2.t_events[3]) > 0
+        # Clean insertion = at cutoff, v≈circular AND γ≈0 AND alt≈target (the box).
+        # interrupt_direct_insertion returns the normalised box margin (≤ 0 ⇔ clean).
+        # With the velocity-MECO trigger the velocity term is satisfied by
+        # construction, so this effectively grades the γ and altitude errors.
+        box_margin = interrupt_direct_insertion(0.0, sol_2.y[:, -1])
+        insertion_reached = box_margin <= 0.0
         fairing_in_mass = r.M_FAIRING if not fairing_jettisoned else 0.0
         m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_in_mass)
         m_propellant_used = r.M_PROP_2 - m_propellant_left
-        # Optimiser objective: propellant used if the box was reached, else a
-        # sentinel so the kick search avoids kicks that never insert.
-        m_propellant_total_used_2nd_stage = m_propellant_used if insertion_reached else 999999999.
+
+        # Optimiser objective (only used in optimisation mode): when the insertion
+        # is clean, minimise propellant (the user's objective).  Otherwise return a
+        # value graded by how far outside the box the insertion landed, so the kick
+        # search still converges to the BEST achievable direct insertion rather than
+        # stalling on a flat sentinel.  The ranking must be
+        #   clean (= propellant, < M_PROP_2 ≈ 9.3e4)  <  non-clean flying  <  crash (9999999),
+        # so flying-but-imperfect always beats a kick that pitches into the ground.
+        # Base 1e6 sits above any clean propellant; the result is capped just below
+        # the 9999999 crash sentinel.
+        if insertion_reached:
+            objective_2nd_stage = m_propellant_used
+        else:
+            objective_2nd_stage = min(1e6 + 1e4 * max(box_margin, 0.0), 9.9e6)
 
         if not SINGLE_BURN_FULL_SIMULATION:
             thrust_data = np.array(thrust_history)
@@ -2023,23 +2111,29 @@ def run(initial_kick_angle, azimuth_override=None):
             alpha_time_data = np.array(alpha_time_history)
             coriolis_mag_data = np.array(coriolis_mag_history)
             centrifugal_mag_data = np.array(centrifugal_mag_history)
-            return time_steps_simulation, data, alt_stop, 0.0, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+            return time_steps_simulation, data, alt_stop, 0.0, objective_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
         # ----- Full simulation: report + propagate the achieved orbit -----
+        LAST_DIRECT_MECO = meco_reached
+        LAST_DIRECT_INSERTION_REACHED = insertion_reached
         TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = sol_2.t[-1]
         r.C_D = 0.
         print("\n[DIRECT INSERTION]")
+        print("\t* Reached circular velocity (MECO):\t", meco_reached)
         print("\t* Insertion altitude:\t\t\t", alt_stop / 1000.0, "km")
         print("\t* Insertion velocity (inertial):\t", v_stop, "m/s")
         print("\t* Insertion FPA (inertial):\t\t", np.rad2deg(gamma_stop), "deg")
-        print("\t* Reached target box:\t\t\t", insertion_reached)
+        print("\t* Clean insertion (v,γ,alt within tol):\t", insertion_reached)
         print("\t* Achieved orbit: e=%.6f  apo=%.2f km  peri=%.2f km"
               % (e_stop, (r_apo_stop - c.R_EARTH) / 1000.0, (r_peri_stop - c.R_EARTH) / 1000.0))
         print("\t* Propellant used (2nd stage):\t\t", m_propellant_used, "kg")
         print("\t* Propellant left:\t\t\t", m_propellant_left, "kg")
-        if not insertion_reached:
-            print("\t* NOTE: target box not reached (propellant-limited) — "
-                  "reporting the achieved orbit above.")
+        if not meco_reached:
+            print("\t* NOTE: circular velocity not reached (propellant-limited) — "
+                  "reporting the achieved under-speed orbit above.")
+        elif not insertion_reached:
+            print("\t* NOTE: reached circular velocity but γ/altitude outside tolerance "
+                  "(insertion error) — reporting the achieved orbit above.")
 
         # Propagate the achieved orbit forward (inertial) for plotting / final elements.
         second_stage_cutoff = True
@@ -2061,10 +2155,16 @@ def run(initial_kick_angle, azimuth_override=None):
         alpha_time_data = np.array(alpha_time_history)
         coriolis_mag_data = np.array(coriolis_mag_history)
         centrifugal_mag_data = np.array(centrifugal_mag_history)
-        return time_steps_simulation, data, alt_stop, 0.0, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+        # Full-sim reports the TRUE propellant actually used (the optimiser objective
+        # above is only for the kick search); clean/under-speed status is conveyed via
+        # the LAST_DIRECT_* globals and the [DIRECT INSERTION] block printed above.
+        return time_steps_simulation, data, alt_stop, 0.0, m_propellant_used, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
     epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * sim_params.APOGEE_MATCH_TOL_FRAC
     diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))
+
+    if sim_params.EVENTS_PRINT:
+        print(f"    apogee target diff = {diff/1000:.2f} km (tol = {epsilon/1000:.2f} km)")
 
     if diff < epsilon:
         # ----- Calculate delta v -----
@@ -2095,11 +2195,19 @@ def run(initial_kick_angle, azimuth_override=None):
         if burn_time_delta_v > sim_params.MAX_ACCEPTED_BURN_TIME:
             m_propellant_total_used_2nd_stage = 999999999.
 
+        if sim_params.EVENTS_PRINT:
+            print(f"    delta_v={delta_v:.2f} m/s, m_prop_required={m_propellant_required:.1f} kg, "
+                  f"m_prop_left={m_propellant_left:.1f} kg, burn_time={burn_time_delta_v:.1f} s "
+                  f"(max={sim_params.MAX_ACCEPTED_BURN_TIME:.1f} s)")
+            print(f"    -> objective = {m_propellant_total_used_2nd_stage}")
+
         if not SINGLE_BURN_FULL_SIMULATION:
             # Penalise kick angles whose coast phase would crash before reaching
             # apogee: rocket heading toward perigee (gamma < 0) that is inside Earth.
             if gamma_stop < 0 and r_peri_stop < c.R_EARTH:
                 m_propellant_total_used_2nd_stage = 9999999.0
+                if sim_params.EVENTS_PRINT:
+                    print(f"    -> overridden to 9999999.0 (gamma_stop<0 and r_peri_stop<R_EARTH)")
             thrust_data = np.array(thrust_history)
             time_thrust = np.array(time_history)
             alpha_data = np.array(alpha_history)
@@ -2277,7 +2385,8 @@ def run_stage1(initial_kick_angle):
     crashed : bool
         True if a ground collision was detected during Stage 1.
     """
-    global time_kick_start, kick_performed, main_engine_cutoff
+    global time_kick_start, kick_performed, _stage1_kick_handled_by_gamma_jump
+    global main_engine_cutoff
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
@@ -2305,6 +2414,7 @@ def run_stage1(initial_kick_angle):
     # --- Reset globals (identical to the reset block in run()) ---------------
     time_kick_start = None
     kick_performed = False
+    _stage1_kick_handled_by_gamma_jump = False
     main_engine_cutoff = False
     second_engine_ignition = False
     stage_2_burnt = False

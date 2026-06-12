@@ -53,13 +53,26 @@ def coasting_single_burn_objective(kick_angle):
 def find_initial_kick_angle_coast_single_burn():
     """
     Finds the initial kick angle for the gravity turn using brute force optimization.
-    
+
+    When ``KICK_PROFILE_MODE == "instantaneous"``, the search is performed over
+    gamma_p in [1.54, 1.57] rad (the pso_coast pitch-over convention) and the
+    result is converted back to a kick angle (kick_angle = gamma_p - pi/2)
+    before being returned, so callers (ra.run(kick_angle_optimal, ...)) need no
+    changes.
+
     Returns:
     --------
-    alpha_optimal : float
+    kick_angle_optimal : float
         Optimal initial kick angle [rad]
     """
-    bounds = [(sim_params.ALPHA_LOWEST, sim_params.ALPHA_HIGHEST)]
+    instantaneous = getattr(sim_params, 'KICK_PROFILE_MODE', 'triangular') == 'instantaneous'
+
+    if instantaneous:
+        bounds = [(1.54, 1.57)]   # gamma_p [rad]
+        objective = lambda x: abs(coasting_single_burn_objective(x[0] - np.pi / 2.0))
+    else:
+        bounds = [(sim_params.ALPHA_LOWEST, sim_params.ALPHA_HIGHEST)]
+        objective = lambda x: abs(coasting_single_burn_objective(x[0]))
 
     print("\nFinding initial kick angle for coasting single burn using Brute Force...\n")
 
@@ -68,20 +81,20 @@ def find_initial_kick_angle_coast_single_burn():
 
     # Brute force grid search
     result = brute(
-        lambda x: abs(coasting_single_burn_objective(x[0])),
+        objective,
         ranges=bounds,
         Ns=1000,
         finish=None,
         full_output=True
     )
-    alpha_optimal = result[0]
+    x_optimal = float(result[0])
 
     # Time measurement
     end_time = time.time()
     print("-----------------------------------------------------\n")
     print(f"Optimization finished after {np.round(end_time - start_time, 2)} seconds.")
 
-    return alpha_optimal
+    return (x_optimal - np.pi / 2.0) if instantaneous else x_optimal
 
 
 #===================================================

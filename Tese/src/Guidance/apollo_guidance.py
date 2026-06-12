@@ -386,25 +386,9 @@ def apollo_guidance(t, t_epoch, state, coefficients):
     # Normalize to [-pi, pi]
     alpha = np.arctan2(np.sin(alpha), np.cos(alpha))
     
-    # Store the unclamped alpha for debugging
-    alpha_unclamped = alpha
-    
     # Safety limits (prevent excessive maneuvers)
     # Justification: Physical limits of vehicle control authority
    # alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
-    
-    # Debug output on first call (only once)
-    if not hasattr(apollo_guidance, '_debug_printed'):
-        if abs(alpha_unclamped) > np.deg2rad(15):
-            print(f"\nWARNING: Apollo guidance DEBUG (first excessive command):")
-            print(f"   Time: {t:.2f}s, dt: {dt:.2f}s")
-            print(f"   Coefficients: k1={coefficients[0]:.4f}, k2={coefficients[1]:.4f}, k3={coefficients[2]:.4f}, k4={coefficients[3]:.4f}")
-            print(f"   ax_total={ax_total:.2f}, ay_total={ay_total:.2f}")
-            print(f"   ax_thrust={ax_thrust:.2f}, ay_thrust={ay_thrust:.2f}")
-            print(f"   Thrust angle: {np.rad2deg(thrust_angle_inertial):.2f} deg, Velocity angle: {np.rad2deg(velocity_angle):.2f} deg")
-            print(f"   Alpha unclamped: {np.rad2deg(alpha_unclamped):.2f} deg, clamped: {np.rad2deg(alpha):.2f} deg")
-            print(f"   Gamma: {np.rad2deg(gamma):.2f} deg, Velocity: {v:.2f} m/s")
-            apollo_guidance._debug_printed = True
     
     # Calculate required thrust magnitude
     # This is the magnitude of the thrust acceleration vector
