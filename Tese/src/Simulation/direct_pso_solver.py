@@ -13,12 +13,13 @@ t_burn -> direct orbit insertion (no coast-to-apogee, no circularisation
 burn). The selected guidance mode (simulation_parameters.GUIDANCE_MODE)
 steers the single thrust arc.
 
-Objective: grade the final state against the DIRECT_INSERTION_* box via
-rocket_ascent.interrupt_direct_insertion (<=0 <=> clean insertion). Outside
-the box the objective is the (always positive) box margin; inside the box it
-is an (always non-positive) burn-time/propellant term, so any clean insertion
-beats any non-clean one and ties among clean insertions are broken by burn
-time.
+Objective (4 terms, no transversality, no coast split — mirrors
+pso_coast_solver):
+    J = w_J * J_nd  +  w_alt * |Δh_nd|  +  w_vel * |ΔV_nd|  +  w_fpa * |Δγ_nd|
+    + CRASH_PENALTY  (if trajectory crashed)
+where J_nd = t_burn / T_MAX_2 (burn-time fraction) and Δh/ΔV/Δγ are the
+altitude/velocity/FPA errors of the final state vs. the (rotating-frame)
+circular-orbit target at TARGET_ORBITAL_ALTITUDE.
 
 PyGMO is required (same as pso_coast_solver).
 """
@@ -42,6 +43,7 @@ from Input_File import simulation_parameters as sim_params
 import Simulation.rocket_ascent as ra
 from Simulation.pso_coast_solver import (
     _strip_to_pmp_state,
+    _v_circular_rotating,
     GuidanceState,
     _stage2_ode_guidance,
     _event_crash,
@@ -151,38 +153,47 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct, verbose=False):
 # Objective function
 # ===========================================================================
 
-def compute_direct_objective(result):
+def _direct_objective_terms(result):
     """
-    Augmented objective value J for PSO minimisation.
+    4-term non-dimensional objective, mirrors pso_coast_solver
+    ._coast_objective_terms (no transversality term, no coast split).
+    """
+    state = result['state_final']
+    r_val, v_f, g_f = state[1], state[2], state[3]
 
-    box_margin = ra.interrupt_direct_insertion(0.0, state_final), <=0 <=> clean.
-      - Outside the box (box_margin > 0): J = W_BOX * box_margin > 0, driving
-        the swarm toward the box.
-      - Inside the box (box_margin <= 0): J = W_BURN * (t_burn/T_MAX_2 - 1) <= 0,
-        which is always below any non-clean value above, so clean insertions
-        always beat non-clean ones; ties among clean insertions are broken by
-        burn time (shorter burn -> more negative J -> preferred).
-    """
+    r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    v_circular = _v_circular_rotating(r_target)
+    gamma_ref  = np.deg2rad(sim_params.PSO_DIRECT_GAMMA_REF_DEG)
+
+    J_nd  = result['t_burn'] / _T_MAX_2
+    dh_nd = (r_val - r_target) / sim_params.TARGET_ORBITAL_ALTITUDE
+    dv_nd = (v_f - v_circular) / v_circular
+    dg_nd = g_f / gamma_ref
+
+    return {
+        'J'  : sim_params.PSO_DIRECT_W_J        * J_nd,
+        'alt': sim_params.PSO_DIRECT_W_ALTITUDE * abs(dh_nd),
+        'vel': sim_params.PSO_DIRECT_W_VELOCITY * abs(dv_nd),
+        'fpa': sim_params.PSO_DIRECT_W_FPA      * abs(dg_nd),
+    }
+
+
+def compute_direct_objective(result):
+    """Augmented objective value J for PSO minimisation."""
     if result['crashed'] or result['state_final'] is None:
         return CRASH_PENALTY
     state = result['state_final']
+    C = 0.0
     if (state[1] - c.R_EARTH) < 0 or state[2] < 0:
-        return CRASH_PENALTY
-
-    box_margin = ra.interrupt_direct_insertion(0.0, state)
-    burn_frac  = result['t_burn'] / _T_MAX_2
-
-    if box_margin <= 0.0:
-        return sim_params.PSO_DIRECT_W_BURN * (burn_frac - 1.0)
-    return sim_params.PSO_DIRECT_W_BOX * box_margin
+        C = CRASH_PENALTY
+    return float(sum(_direct_objective_terms(result).values()) + C)
 
 
 def breakdown_direct_objective(result):
-    """Decompose the objective into {box: box_margin, burn: burn_frac} for reporting."""
+    """Decompose J into individual (weighted, non-dimensional) terms."""
     if result['crashed'] or result['state_final'] is None:
-        return {'box': 1e20, 'burn': 1e20}
-    box_margin = ra.interrupt_direct_insertion(0.0, result['state_final'])
-    return {'box': box_margin, 'burn': result['t_burn'] / _T_MAX_2}
+        return {'J': 1e20, 'alt': 1e20, 'vel': 1e20, 'fpa': 1e20}
+    return _direct_objective_terms(result)
 
 
 # ===========================================================================

@@ -30,7 +30,7 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -335,12 +335,12 @@ DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
 #   "pso"         : 2-variable PSO (direct_pso_solver) jointly optimises
 #                    gamma_p (kick angle) AND Stage-2 burn duration, targeting
 #                    the DIRECT_INSERTION_* box directly.
-DIRECT_OPTIMIZATION_MODE = "brute_force"   # Options: "brute_force", "pso"
+DIRECT_OPTIMIZATION_MODE = "pso"   # Options: "brute_force", "pso"
 
 # -------------- PSO DIRECT algorithm settings --------------
 # (only used when COAST_METHOD == "direct" and DIRECT_OPTIMIZATION_MODE == "pso")
-PSO_DIRECT_N_PARTICLES     = 100
-PSO_DIRECT_MAX_GENERATIONS = 250
+PSO_DIRECT_N_PARTICLES     = 50
+PSO_DIRECT_MAX_GENERATIONS = 100
 PSO_DIRECT_C1              = 2.05
 PSO_DIRECT_C2              = 2.05
 PSO_DIRECT_OMEGA           = 0.7298
@@ -351,10 +351,13 @@ PSO_DIRECT_SEED            = 42
 PSO_DIRECT_LB = [1.54,  50.0]
 PSO_DIRECT_UB = [1.57, 100.0]
 
-# Objective weights: box margin (primary, drives toward the insertion box) vs.
-# burn-time/propellant (secondary, breaks ties among clean insertions).
-PSO_DIRECT_W_BOX  = 1.0
-PSO_DIRECT_W_BURN = 0.1
+# -------------- Penalty weights for direct PSO objective --------------
+# Same 4-term structure as PSO_COAST_W_* (no transversality term, no costates).
+PSO_DIRECT_W_J           = 1.0     # burn-time term (J normalised by T_MAX_2)
+PSO_DIRECT_W_ALTITUDE    = 100.0   # relative altitude error  (1% error -> 1.0)
+PSO_DIRECT_W_VELOCITY    = 100.0   # relative velocity error  (1% error -> 1.0)
+PSO_DIRECT_W_FPA         = 10.0    # FPA error in deg         (1 deg  -> 10.0)
+PSO_DIRECT_GAMMA_REF_DEG = 1.0     # FPA non-dimensionalisation reference [deg]
 
 # -------------- PSO COAST algorithm settings --------------
 # (only used when COAST_METHOD == "pso_coast")

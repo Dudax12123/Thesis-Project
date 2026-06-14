@@ -681,8 +681,10 @@ def execute():
                 print(f"\t* Clean insertion (v,gamma,alt within tol):\t"
                       f"{ra.LAST_DIRECT_INSERTION_REACHED}")
                 print(f"\n\t  J breakdown:")
-                print(f"\t  Box margin (<=0 is clean): {bd['box']:.4f}")
-                print(f"\t  Burn fraction:             {bd['burn']*100.0:.2f} %")
+                print(f"\t  J term (burn frac):     {bd['J']:.4f}  (burn {result_opt['t_burn']:.1f} s)")
+                print(f"\t  Altitude penalty:       {bd['alt']:.4f}")
+                print(f"\t  Velocity penalty:       {bd['vel']:.4f}")
+                print(f"\t  FPA penalty:            {bd['fpa']:.4f}")
 
                 print(f"\n\t  PSO optimal parameters:")
                 print(f"\t  Pitch angle gamma_p:    {np.rad2deg(gamma_p_opt):.4f} deg")
