@@ -116,7 +116,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
@@ -135,6 +135,15 @@ GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are compute
 GUIDANCE_TGO_FIXED = False                    # If True, t_go is computed once at guidance start and
                                               # held constant throughout guidance.
                                               # If False (default), recomputed every ODE step.
+
+# -------------- PSO-Planned t_go Override (PSO solvers only) --------------
+GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear_tangent/bilinear_tangent/
+                                              # cpr/peg is the PSO-planned burn-time countdown
+                                              # (planned burn-arc end time - t) instead of the
+                                              # rocket-equation estimate (_compute_tgo_stage2).
+                                              # peg_new is unaffected. Only has an effect inside
+                                              # pso_coast_solver / direct_pso_solver (no effect on
+                                              # rocket_ascent.run()).
 
 # -------------- Constant Pitch Rate (CPR) Guidance Parameters --------------
 # (Only used if GUIDANCE_MODE is "cpr")

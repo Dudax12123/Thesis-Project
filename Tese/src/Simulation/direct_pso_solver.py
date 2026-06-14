@@ -120,6 +120,7 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct, verbose=False):
     # ---- Single continuous thrust arc (t_ignition -> t_ignition + t_burn) ----
     gs = GuidanceState()
     t_burn_end = t_ignition + t_burn
+    gs.tgo_deadline = t_burn_end
     sol_burn = solve_ivp(
         lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
         t_span=(t_ignition, t_burn_end),
@@ -365,6 +366,7 @@ def run_pso_direct_full(optimal_params, verbose=True):
 
     # ---- Single thrust arc (dense) ----
     gs_full = GuidanceState()
+    gs_full.tgo_deadline = t_burn_end
     sol_burn = solve_ivp(
         lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full),
         t_span=(t_ignition, t_burn_end),

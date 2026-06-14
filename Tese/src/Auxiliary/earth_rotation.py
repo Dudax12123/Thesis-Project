@@ -175,6 +175,30 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, lat_rad, r_val):
     return v_eci, gamma_eci
 
 
+def v_circular_rotating(r_target, lat_rad, enable_rotation=True):
+    """
+    Rotating-frame circular velocity: sqrt(mu/r_target) - omega*r_target*cos(lat_rad).
+
+    Returns the inertial circular velocity unchanged when enable_rotation is
+    False.
+    """
+    v_circ = np.sqrt(c.MU_EARTH / r_target)
+    if enable_rotation:
+        v_circ -= c.OMEGA_EARTH * r_target * np.cos(lat_rad)
+    return v_circ
+
+
+def append_latitude(state, lat_rad, enable_rotation=True):
+    """
+    Append lat_rad as state[5] for guidance laws (e.g. apollo) that read it to
+    apply the rotating-frame velocity credit. Returns state[:5] unchanged when
+    enable_rotation is False.
+    """
+    if enable_rotation:
+        return np.append(np.asarray(state[:5], dtype=float), lat_rad)
+    return np.asarray(state[:5], dtype=float)
+
+
 def delta_v_gain(lat_deg, azimuth, radius):
     """
     Estimate inertial speed gain from Earth rotation projected onto launch azimuth.

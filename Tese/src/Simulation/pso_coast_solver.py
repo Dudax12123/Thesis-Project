@@ -42,6 +42,7 @@ _HERE = Path(__file__).parent
 sys.path.insert(0, str(_HERE.parent))
 
 from Auxiliary import constants as c
+from Auxiliary import earth_rotation as earth_rot
 from Auxiliary import gravity as grav
 from Auxiliary import rocket_specs as r
 from Input_File import simulation_parameters as sim_params
@@ -83,9 +84,8 @@ def _state_with_lat(state):
     convention.  Returns the plain 5-element state when rotation is disabled
     (then inertial target == rotating target).
     """
-    if sim_params.ENABLE_EARTH_ROTATION:
-        return np.append(state[:5], np.deg2rad(sim_params.LAUNCH_LATITUDE))
-    return np.asarray(state[:5], dtype=float)
+    lat_rad = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    return earth_rot.append_latitude(state, lat_rad, sim_params.ENABLE_EARTH_ROTATION)
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +175,12 @@ class GuidanceState:
     tgo_log: List[float] = field(default_factory=list)
     tgo_time_log: List[float] = field(default_factory=list)
 
+    # PSO-planned t_go override (set by run_pso_*_trajectory/_full before
+    # solve_ivp; absolute time at which the current/next thrust arc is
+    # planned to reach the target). Used by _tgo_for_guidance when
+    # sim_params.GUIDANCE_TGO_USE_PSO_PLAN is True.
+    tgo_deadline: Optional[float] = None
+
     def restart_for_new_burn(self):
         """Re-baseline guidance at the start of a new thrust arc (post-coast).
 
@@ -203,11 +209,8 @@ def _v_circular_rotating(r_target):
     v_rot), matching the pso_coast objective and apollo's coefficient target so
     the guidance velocity/t_go targets stay consistent with the rotating-frame
     trajectory.  Returns the inertial value when Earth rotation is disabled."""
-    v_circ = np.sqrt(c.MU_EARTH / r_target)
-    if sim_params.ENABLE_EARTH_ROTATION:
-        v_circ -= (c.OMEGA_EARTH * r_target
-                   * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE)))
-    return v_circ
+    lat_rad = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    return earth_rot.v_circular_rotating(r_target, lat_rad, sim_params.ENABLE_EARTH_ROTATION)
 
 
 def _compute_tgo_stage2(state, F_T, Isp, previous_tgo=None):
@@ -238,6 +241,18 @@ def _compute_tgo_stage2(state, F_T, Isp, previous_tgo=None):
         tgo = float(previous_tgo) if previous_tgo is not None else 0.0
 
     return float(np.clip(tgo, 0.1, T_BUP))
+
+
+def _tgo_for_guidance(t, state, F_T, Isp, gs, previous_tgo=None):
+    """t_go fed to apollo/linear_tangent/bilinear_tangent/cpr/peg.
+
+    Returns the PSO-planned burn-arc countdown (``gs.tgo_deadline - t``) when
+    ``sim_params.GUIDANCE_TGO_USE_PSO_PLAN`` is enabled and a deadline has been
+    set, else the rocket-equation estimate from ``_compute_tgo_stage2``.
+    """
+    if sim_params.GUIDANCE_TGO_USE_PSO_PLAN and gs.tgo_deadline is not None:
+        return max(gs.tgo_deadline - t, 0.1)
+    return _compute_tgo_stage2(state, F_T, Isp, previous_tgo)
 
 
 # ===========================================================================
@@ -272,12 +287,12 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             if sim_params.CPR_THETA_DOT_MODE == "manual":
                 gs.cpr_theta_dot = np.deg2rad(sim_params.CPR_THETA_DOT)
             else:
-                tgo = _compute_tgo_stage2(state, F_T, Isp, None)
+                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, None)
                 gs.cpr_theta_dot = gs.cpr_theta_initial / max(tgo, 0.1)
             gs.cpr_t_start = t
 
         elif mode in ("linear_tangent", "bilinear_tangent", "apollo"):
-            tgo = _compute_tgo_stage2(state, F_T, Isp, None)
+            tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, None)
             if mode == "apollo":
                 gs.apollo_previous_tgo = tgo
             else:
@@ -299,17 +314,22 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.apollo_coefficients_frozen = False
 
         elif mode == "peg":
-            dry    = _DRY_MASS_2
-            T_seed = max(m - dry, 0.1) / (F_T / Ve)
-            _damp  = (sim_params.PEG_CONVERGENCE_DAMPING
-                      if sim_params.PEG_CONVERGENCE_MODE == "damped" else 1.0)
-            _tol   = (sim_params.PEG_CONVERGENCE_TOL
-                      if sim_params.PEG_CONVERGENCE_MODE == "damped" else 0.0)
-            gs.peg_A, gs.peg_B, gs.peg_T = peg_guidance_mod.converge_peg(
-                state[:5], T_seed, Ve, F_T, r_tgt, c.MU_EARTH,
-                max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
-                tol=_tol, damping=_damp,
-                v_theta_T=_v_circular_rotating(r_tgt))
+            if sim_params.GUIDANCE_TGO_USE_PSO_PLAN and gs.tgo_deadline is not None:
+                gs.peg_T = max(gs.tgo_deadline - t, 0.1)
+                gs.peg_A, gs.peg_B = peg_guidance_mod.compute_peg_AB(
+                    state[:5], gs.peg_T, Ve, F_T, r_tgt)
+            else:
+                dry    = _DRY_MASS_2
+                T_seed = max(m - dry, 0.1) / (F_T / Ve)
+                _damp  = (sim_params.PEG_CONVERGENCE_DAMPING
+                          if sim_params.PEG_CONVERGENCE_MODE == "damped" else 1.0)
+                _tol   = (sim_params.PEG_CONVERGENCE_TOL
+                          if sim_params.PEG_CONVERGENCE_MODE == "damped" else 0.0)
+                gs.peg_A, gs.peg_B, gs.peg_T = peg_guidance_mod.converge_peg(
+                    state[:5], T_seed, Ve, F_T, r_tgt, c.MU_EARTH,
+                    max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
+                    tol=_tol, damping=_damp,
+                    v_theta_T=_v_circular_rotating(r_tgt))
             gs.peg_t_epoch = t
             gs.peg_frozen  = False
 
@@ -352,7 +372,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
         elif mode == "linear_tangent":
             if (not sim_params.GUIDANCE_COEFFICIENTS_FIXED
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
-                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
+                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
@@ -360,7 +380,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             if sim_params.GUIDANCE_TGO_FIXED:
                 tgo = gs.guidance_initial_tgo
             else:
-                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
+                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
@@ -370,7 +390,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
         elif mode == "bilinear_tangent":
             if (not sim_params.GUIDANCE_COEFFICIENTS_FIXED
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
-                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
+                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = bts_guidance.compute_bilinear_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
@@ -378,7 +398,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             if sim_params.GUIDANCE_TGO_FIXED:
                 tgo = gs.guidance_initial_tgo
             else:
-                tgo = _compute_tgo_stage2(state, F_T, Isp, gs.lts_previous_tgo)
+                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
@@ -386,7 +406,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 t, tgo, state, gs.guidance_coefficients)
 
         elif mode == "apollo":
-            tgo = _compute_tgo_stage2(state, F_T, Isp, gs.apollo_previous_tgo)
+            tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.apollo_previous_tgo)
             gs.apollo_previous_tgo = tgo
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
@@ -408,22 +428,31 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 t, gs.apollo_freeze_time, state, gs.guidance_coefficients)
 
         elif mode == "peg":
+            _use_pso_plan = (sim_params.GUIDANCE_TGO_USE_PSO_PLAN
+                              and gs.tgo_deadline is not None)
             if (not gs.peg_frozen
                     and (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
-                dt       = t - gs.last_guidance_update_time
-                gs.peg_T = max(gs.peg_T - dt, 0.1)
+                if _use_pso_plan:
+                    gs.peg_T = max(gs.tgo_deadline - t, 0.1)
+                else:
+                    dt       = t - gs.last_guidance_update_time
+                    gs.peg_T = max(gs.peg_T - dt, 0.1)
                 if gs.peg_T < sim_params.APOLLO_FREEZE_THRESHOLD:
                     gs.peg_frozen = True
                 else:
-                    _damp = (sim_params.PEG_CONVERGENCE_DAMPING
-                             if sim_params.PEG_CONVERGENCE_MODE == "damped" else 1.0)
-                    _tol  = (sim_params.PEG_CONVERGENCE_TOL
-                             if sim_params.PEG_CONVERGENCE_MODE == "damped" else 0.0)
-                    gs.peg_A, gs.peg_B, gs.peg_T = peg_guidance_mod.converge_peg(
-                        state[:5], gs.peg_T, Ve, F_T, r_tgt, c.MU_EARTH,
-                        max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
-                        tol=_tol, damping=_damp,
-                        v_theta_T=_v_circular_rotating(r_tgt))
+                    if _use_pso_plan:
+                        gs.peg_A, gs.peg_B = peg_guidance_mod.compute_peg_AB(
+                            state[:5], gs.peg_T, Ve, F_T, r_tgt)
+                    else:
+                        _damp = (sim_params.PEG_CONVERGENCE_DAMPING
+                                 if sim_params.PEG_CONVERGENCE_MODE == "damped" else 1.0)
+                        _tol  = (sim_params.PEG_CONVERGENCE_TOL
+                                 if sim_params.PEG_CONVERGENCE_MODE == "damped" else 0.0)
+                        gs.peg_A, gs.peg_B, gs.peg_T = peg_guidance_mod.converge_peg(
+                            state[:5], gs.peg_T, Ve, F_T, r_tgt, c.MU_EARTH,
+                            max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
+                            tol=_tol, damping=_damp,
+                            v_theta_T=_v_circular_rotating(r_tgt))
                     gs.peg_t_epoch = t
                 gs.last_guidance_update_time = t
             t_since = t - gs.peg_t_epoch if gs.peg_t_epoch is not None else 0.0
@@ -568,6 +597,7 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
 
     # Fresh GuidanceState: persists across Arc 1 → coast → Arc 3
     gs = GuidanceState()
+    gs.tgo_deadline = t_ignition + T_burn_total
 
     # ---- Arc 1: Thrust (t_ignition → t_ignition + t_coast_start) ----
     t_arc1_end = t_ignition + t_coast_start
@@ -624,6 +654,8 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     if delta_tc > 0.01:
         gs.restart_for_new_burn()
     t_arc3_end = t_arc3_start + t_arc3_burn
+    if delta_tc > 0.01:
+        gs.tgo_deadline = t_arc3_end
     if t_arc3_burn > 0.01:
         sol_arc3 = solve_ivp(
             lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
@@ -879,6 +911,7 @@ def run_pso_coast_full(optimal_params, verbose=True):
 
     # Single GuidanceState persists through Arc 1 → coast → Arc 3
     gs_full = GuidanceState()
+    gs_full.tgo_deadline = t_ignition + T_burn_total
 
     # ---- Arc 1 (thrust, dense) ----
     t_arc1_end = t_ignition + t_coast_start
@@ -922,6 +955,8 @@ def run_pso_coast_full(optimal_params, verbose=True):
     if delta_tc > 0.01:
         gs_full.restart_for_new_burn()
     t_arc3_end = t_arc3_start + t_arc3_burn
+    if delta_tc > 0.01:
+        gs_full.tgo_deadline = t_arc3_end
     if t_arc3_burn > 0.01:
         sol3 = solve_ivp(
             lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full),

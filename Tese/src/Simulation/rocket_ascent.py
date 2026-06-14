@@ -649,9 +649,22 @@ def get_inertial_state_components(r_val, v_ecef, gamma_ecef, lat_rad):
         Inertial flight-path angle [rad]
     """
     if sim_params.ENABLE_EARTH_ROTATION==True:
-        
+
         return earth_rot.ecef_to_eci_velocity(v_ecef, gamma_ecef, lat_rad, r_val)
     return v_ecef, gamma_ecef
+
+
+def _v_circular_rotating(r_target):
+    """Rotating-frame circular target velocity (Tactic B), matching
+    pso_coast_solver._v_circular_rotating so apollo/peg/peg_new guidance laws
+    target the same rotating-frame velocity in both run paths."""
+    return earth_rot.v_circular_rotating(r_target, LAUNCH_LATITUDE_RAD, sim_params.ENABLE_EARTH_ROTATION)
+
+
+def _state_with_lat(state):
+    """Append launch latitude as state[5] for apollo's rotating-frame target
+    velocity, matching pso_coast_solver._state_with_lat."""
+    return earth_rot.append_latitude(state, LAUNCH_LATITUDE_RAD, sim_params.ENABLE_EARTH_ROTATION)
 
 
 def _get_stage1_isp(t):
@@ -811,22 +824,15 @@ def _compute_apollo_tgo(state, F_T, Isp, target_altitude, previous_tgo):
     mdot = F_T / Ve
     T_BUP = remaining_prop / mdot
 
-    # Convert current velocity to inertial (ECI) frame if Earth rotation is enabled,
-    # so that VG is computed consistently against the inertial orbital target velocity.
-    v_inertial = v
-    gamma_inertial = gamma
-    if sim_params.ENABLE_EARTH_ROTATION:
-        lat = get_latitude_from_downrange(s)
-        v_inertial, gamma_inertial = earth_rot.ecef_to_eci_velocity(
-            v, gamma, lat, r_val
-        )
-
     # Velocity-to-be-gained in the (downrange, altitude) 2-D frame
-    # — same frame used by compute_apollo_coefficients
-    vx_current = v_inertial * np.cos(gamma_inertial)
-    vy_current = v_inertial * np.sin(gamma_inertial)
+    # — same frame used by compute_apollo_coefficients.  The rotating-frame
+    # circular target already credits Earth's surface rotation once, so
+    # vx_current/vy_current stay in the rotating (ECEF) frame -- no
+    # ECEF->ECI conversion needed here.
+    vx_current = v * np.cos(gamma)
+    vy_current = v * np.sin(gamma)
     r_target = c.R_EARTH + target_altitude
-    vx_target = np.sqrt(c.MU_EARTH / r_target)
+    vx_target = _v_circular_rotating(r_target)
     vy_target = 0.0
     VG_vec = np.array([vx_target - vx_current, vy_target - vy_current])
 
@@ -1129,7 +1135,7 @@ def rocket_dynamics(t, state):
             # Apollo polynomial: acceleration profiles with terminal constraints
             # t_go already reflects the full remaining ascent timeline (stage 1 +
             # coast + stage 2), so the polynomial plans the complete trajectory.
-            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(_state_with_lat(state),
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
                                                                use_downrange_constraint=False)
@@ -1219,7 +1225,7 @@ def rocket_dynamics(t, state):
         # Update coefficients if not frozen and update interval reached
         apollo_coeffs_just_updated = False
         if (not apollo_coefficients_frozen) and (t - last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE:
-            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(state,
+            guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(_state_with_lat(state),
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
                                                                use_downrange_constraint=False)
@@ -1277,7 +1283,8 @@ def rocket_dynamics(t, state):
         peg_A, peg_B, peg_T = peg_guidance_mod.converge_peg(
             state[:5], T_seed, Ve, F_T, r_tgt, c.MU_EARTH,
             max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
-            tol=_peg_tol, damping=_peg_damping)
+            tol=_peg_tol, damping=_peg_damping,
+            v_theta_T=_v_circular_rotating(r_tgt))
 
         alpha = peg_guidance_mod.peg_alpha(0.0, peg_A, peg_B, gamma)
 
@@ -1303,7 +1310,8 @@ def rocket_dynamics(t, state):
                 peg_A, peg_B, peg_T = peg_guidance_mod.converge_peg(
                     state[:5], peg_T, Ve, F_T, r_tgt, c.MU_EARTH,
                     max_iter=sim_params.PEG_CONVERGENCE_MAX_ITER,
-                    tol=_peg_tol, damping=_peg_damping)
+                    tol=_peg_tol, damping=_peg_damping,
+                    v_theta_T=_v_circular_rotating(r_tgt))
                 peg_t_epoch = t
             last_guidance_update_time = t
 
@@ -1325,7 +1333,8 @@ def rocket_dynamics(t, state):
         (peg_new_vgo_r, peg_new_vgo_theta,
          peg_new_L0, peg_new_tgo,
          peg_new_t_lambda, peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
-             state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
+             state[:5], r_tgt, c.MU_EARTH, Ve, F_T,
+             v_theta_T=_v_circular_rotating(r_tgt))
 
         alpha = peg_new_mod.peg_new_alpha(
             0.0, peg_new_vgo_r, peg_new_vgo_theta,
@@ -1346,7 +1355,8 @@ def rocket_dynamics(t, state):
                 (peg_new_vgo_r, peg_new_vgo_theta,
                  peg_new_L0, peg_new_tgo,
                  peg_new_t_lambda, peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
-                     state[:5], r_tgt, c.MU_EARTH, Ve, F_T)
+                     state[:5], r_tgt, c.MU_EARTH, Ve, F_T,
+                     v_theta_T=_v_circular_rotating(r_tgt))
                 peg_new_t_epoch = t
             last_guidance_update_time = t
 
