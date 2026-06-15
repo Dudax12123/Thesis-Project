@@ -45,3 +45,36 @@ launch latitude and planetary rotation.
 	algorithms for preliminary design use
 
 **Last updated:** 2025-11-10
+
+---
+
+## Implementation status (2026-06-15 addendum)
+
+The implementation has grown beyond the four original families (gravity-turn,
+polynomial, tangent, bi-tangent) named above. The simulator now supports
+**9 guidance modes**, selected via `GUIDANCE_MODE` in
+`Tese/src/Input_File/simulation_parameters.py`:
+
+- `gravity_turn`, `linear_tangent`, `bilinear_tangent` — the original three
+  families
+- `apollo` — Apollo-style polynomial acceleration-command guidance
+- `cpr` — constant pitch-rate guidance
+- `peg` and `peg_new` — Powered Explicit Guidance (classical and an
+  analytical predictor-corrector derivation from first principles)
+- `exp_shooting` — exponential pitch-law guidance via single-shot shooting
+- `indirect_pmp` — indirect optimization via Pontryagin's Minimum Principle
+  with PSO-optimised initial costates
+
+Trajectory optimization now offers **three strategies**, selected via
+`COAST_METHOD`:
+
+- `apogee_check` — the original brute-force kick-angle search with
+  apogee-match engine cutoff (Sections 1–2 of
+  `optimization_process_explanation.md`)
+- `pso_coast` — a 4-variable PyGMO PSO jointly optimising kick angle and
+  coast/burn timing for direct orbit insertion
+- `direct` — a single continuous Stage-2 burn cut at orbital insertion, with
+  the kick angle found either by brute-force grid search or a 2-variable PSO
+
+See `GUIDANCE_MODE_README.md` and `optimization_process_explanation.md` for
+details on each mode and optimization strategy.

@@ -1,5 +1,12 @@
 # Implementation Notes: Constant Pitch Rate (CPR) and Constant Flight-Path-Angle Rate (CFPAR)
 
+> **Status (2026-06-15):** CPR-kinematic (Section 5.1) is implemented as
+> `GUIDANCE_MODE = "cpr"` in `Tese/src/Guidance/cpr_guidance.py`. CPR-analytic
+> (Section 5.2) and all of CFPAR (Section 6) are **not implemented** — this
+> document remains their specification. Note also that `"cpr"` currently has a
+> known crash in Stage-1 event handling with Earth rotation enabled (see
+> project memory `cpr-stage1-brentq-crash`).
+
 This document specifies how to implement two ascent guidance modes in the simulator:
 
 1. **CPR — Constant Pitch Rate**

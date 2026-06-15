@@ -2,7 +2,19 @@
 
 ## Overview
 
-The trajectory optimization for the coasting single burn strategy employs a hybrid approach that combines explicit optimization of the initial kick angle with implicit, physics-based determination of the engine cutoff timing. This section describes the mathematical formulation, algorithmic implementation, and the relationship between the optimization process and the guidance modes.
+The trajectory optimization process depends on `COAST_METHOD`
+(`Tese/src/Input_File/simulation_parameters.py`):
+
+- **`COAST_METHOD = "apogee_check"`** (and `COAST_METHOD = "direct"` with
+  `DIRECT_OPTIMIZATION_MODE = "brute_force"`) employ the hybrid approach
+  described in Sections 1–2 below: explicit brute-force optimization of the
+  initial kick angle, combined with implicit, physics-based determination of
+  the engine cutoff timing. Section 3 explains why this optimization
+  framework is independent of the active `GUIDANCE_MODE`.
+- **`COAST_METHOD = "pso_coast"`**, **`COAST_METHOD = "direct"` with
+  `DIRECT_OPTIMIZATION_MODE = "pso"`**, and **`GUIDANCE_MODE = "indirect_pmp"`**
+  instead use PyGMO Particle Swarm Optimization over several decision
+  variables at once. These PSO-based paths are described in Section 4.
 
 ## 1. Initial Kick Angle Optimization
 
@@ -164,7 +176,7 @@ The coasting time therefore emerges naturally from the interaction between:
 
 ### 3.1 Optimization Framework
 
-A critical feature of this optimization architecture is that the **optimization algorithm is completely independent of the guidance mode**. The three guidance modes (gravity turn, simple polynomial, and Apollo) affect the trajectory evolution but do not alter the optimization methodology.
+A critical feature of this optimization architecture is that the **optimization algorithm is completely independent of the guidance mode**. The nine guidance modes — `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`, `peg_new`, `exp_shooting`, and `indirect_pmp` (see `GUIDANCE_MODE_README.md`) — affect the trajectory evolution but, for the `apogee_check` and brute-force `direct` paths, do not alter the Section 1/2 optimization methodology. (`indirect_pmp` and the PSO-based paths of Section 4 follow the same separation-of-concerns principle but with a different optimization methodology.)
 
 ### 3.2 Separation of Concerns
 
@@ -189,9 +201,15 @@ The software architecture implements a clear separation:
 While the optimization process is identical, the guidance mode affects the optimization results:
 
 **Trajectory Shape:**
-- Gravity turn: Passive guidance, α = 0° after initial kick
-- Simple polynomial: Linear transition of flight path angle to horizontal
-- Apollo: Acceleration command profiles enforcing terminal constraints
+- `gravity_turn`: passive guidance, α = 0° after the initial kick
+- `linear_tangent`: tan(α + γ) varies linearly with time-to-go
+- `bilinear_tangent`: tan(α + γ) = ratio of two linear functions of time-to-go
+- `apollo`: acceleration-command polynomial enforcing full position and velocity terminal constraints
+- `cpr`: no kick — pitch angle ramps linearly from 90° to 0° at a constant rate
+- `peg`: linear pitch program sin(pitch) = A + B·t, re-solved every major loop
+- `peg_new`: analytical predictor-corrector PEG driven by the velocity-to-be-gained vector `v_go`
+- `exp_shooting`: exponential pitch law θ(t) = a·exp(b·t), solved once via `fsolve` at guidance start
+- `indirect_pmp`: PMP costate-driven control α = atan2(−λ_γ/V, −λ_V) (uses its own PSO — see Section 4.3)
 
 **Propellant Efficiency:**
 Different guidance laws produce different trajectory shapes with varying propellant consumption for the same kick angle.
@@ -200,13 +218,13 @@ Different guidance laws produce different trajectory shapes with varying propell
 The optimal α varies between modes because each guidance law responds differently to the initial conditions set by the kick maneuver.
 
 **Computational Cost:**
-All modes use the same number of evaluations (1000), so optimization time is similar across modes, though individual trajectory simulations may have slightly different durations.
+For the `apogee_check` and brute-force `direct` paths, all modes use the same number of evaluations (1000), so optimization time is similar across modes, though individual trajectory simulations may have slightly different durations. The PSO-based paths (Section 4) instead scale with swarm size × generations, independent of `GUIDANCE_MODE`.
 
-### 3.4 Universality of Event Detection
+### 3.4 Universality of Event Detection (apogee_check)
 
-The coasting time determination is also guidance-independent:
+The coasting time determination is also guidance-independent for `COAST_METHOD = "apogee_check"`:
 
-All three guidance modes use the **identical event function** g(t, y) = r_apo - r_target. The guidance mode affects:
+All guidance modes paired with `apogee_check` use the **identical event function** g(t, y) = r_apo - r_target. The guidance mode affects:
 - How quickly the vehicle reaches the cutoff condition
 - The state (position, velocity, flight path angle) at cutoff
 - The amount of propellant consumed before cutoff
@@ -225,18 +243,124 @@ This design enables:
 
 **Maintainability:** Changes to optimization algorithm benefit all guidance modes simultaneously
 
-## 4. Summary
+## 4. PSO-Based Optimization Paths
 
-The trajectory optimization employs a two-level approach:
+Three configurations replace the Section 1/2 brute-force-plus-event-detection
+approach with a PyGMO Particle Swarm Optimization (PSO) over several decision
+variables simultaneously. All three require the `pygmo` package and raise an
+`ImportError` with installation instructions if it is missing.
 
-**Level 1 (Explicit):** Brute force grid search optimizes the initial kick angle to minimize total propellant consumption. The search evaluates 1000 uniformly distributed angles and selects the global optimum.
+### 4.1 `COAST_METHOD = "pso_coast"` — 4-variable PSO (thrust → coast → thrust)
 
-**Level 2 (Implicit):** Physics-based event detection automatically determines the optimal engine cutoff time by monitoring when the current trajectory's apogee matches the target altitude.
+Implemented in `Simulation/pso_coast_solver.py`. Optimises:
 
-This hybrid approach is:
-- **Robust:** No gradient information required, guaranteed to find global optimum
-- **Efficient:** Coasting time determined automatically without additional optimization
-- **Universal:** Applicable to all guidance modes without modification
-- **Physical:** Cutoff condition based on orbital mechanics principles
+```
+x = [delta_tc,        coast phase duration [s]
+     delta_tr_pct,    Stage-2 burn as % of T_MAX_2 [%]
+     coast_start_pct, coast start as % of Stage-2 burn time [%]
+     gamma_p]         pitch maneuver (kick) angle [rad]
+```
+
+The trajectory structure is thrust → coast → thrust with **direct orbit
+insertion** (no separate circularisation burn). During both thrust arcs, the
+steering angle α is computed by the `GUIDANCE_MODE` selected in
+`simulation_parameters.py` — this path is compatible with every mode except
+`exp_shooting` (see `GUIDANCE_MODE_README.md`) and `indirect_pmp` (which has
+its own PSO, Section 4.3).
+
+Objective (4 terms, no transversality):
+
+```
+J' = w_J · J_nd + w_alt · |Δh_nd| + w_vel · |ΔV_nd| + w_fpa · |Δγ_nd| + CRASH_PENALTY
+```
+
+### 4.2 `COAST_METHOD = "direct"` with `DIRECT_OPTIMIZATION_MODE = "pso"` — 2-variable PSO
+
+Implemented in `Simulation/direct_pso_solver.py`. Optimises:
+
+```
+x = [gamma_p,     pitch maneuver (kick) angle [rad], in [1.54, 1.57]
+     t_burn_pct]  Stage-2 continuous burn duration as % of T_MAX_2 [%]
+```
+
+The trajectory structure is: Stage 1 (instantaneous kick via
+`rocket_ascent.run_stage1`) → pre-ignition ballistic coast → **one continuous
+Stage-2 thrust arc** of duration `t_burn` → direct orbit insertion (no
+coast-to-apogee, no circularisation burn). The selected `GUIDANCE_MODE` steers
+the single thrust arc.
+
+Objective (same 4-term structure as 4.1, no coast split):
+
+```
+J = w_J · J_nd + w_alt · |Δh_nd| + w_vel · |ΔV_nd| + w_fpa · |Δγ_nd| + CRASH_PENALTY
+```
+
+where `J_nd = t_burn / T_MAX_2` (burn-time fraction) and `Δh`/`ΔV`/`Δγ` are
+the altitude/velocity/flight-path-angle errors of the final state versus the
+rotating-frame circular-orbit target at `TARGET_ORBITAL_ALTITUDE`.
+
+### 4.3 `GUIDANCE_MODE = "indirect_pmp"` — 7-variable PSO with PMP costates
+
+Implemented in `Simulation/indirect_pso_solver.py` (PSO driver) and
+`Guidance/indirect_pmp_guidance.py` (control law and costate derivatives).
+Optimises:
+
+```
+x = [lambda0_r, lambda0_v, lambda0_g,  initial costate values, each in [-1, 1]
+     delta_tc,                          coast duration [s]
+     delta_tr_pct,                      Stage-2 burn as % of T_max [%]
+     coast_start_pct,                   coast start as % of burn time [%]
+     gamma_p]                           pitch maneuver (kick) angle [rad]
+```
+
+Each PSO evaluation runs Stage 1 (gravity turn, PSO-chosen kick angle) then a
+Stage-2 thrust → coast → thrust sequence in which the augmented state
+`[s, r, v, γ, m, λ_r, λ_v, λ_γ]` is propagated together by `solve_ivp`, using
+the drag-free PMP control law α = atan2(−λ_γ/V, −λ_V) (Eq. 34) during thrust
+arcs. The objective (Eq. 39) penalises altitude, velocity, and flight-path-
+angle terminal errors, the transversality condition (Eq. 38), and trajectories
+that crash or deplete propellant before reaching orbit. `COAST_METHOD` has no
+effect on this mode — the coast/burn split is fully controlled by the PSO.
+
+### 4.4 Direct-insertion cutoff and `DIRECT_OPTIMIZATION_MODE = "brute_force"`
+
+When `COAST_METHOD = "direct"`, the Stage-2 burn is cut (MECO) the instant the
+inertial velocity reaches circular velocity `√(μ/r_target)` — a different
+cutoff condition from the apogee-match event of Section 2. Whether the
+flight-path angle and altitude *also* land within
+`DIRECT_INSERTION_FPA_TOL_DEG` / `DIRECT_INSERTION_ALTITUDE_TOL_KM` of the
+target (together with `DIRECT_INSERTION_VELOCITY_TOL_MS`) determines whether
+the insertion is graded "clean".
+
+`DIRECT_OPTIMIZATION_MODE = "brute_force"` reuses the **same 1000-point grid
+search over the kick angle** described in Section 1.3, but with a different
+objective: instead of minimising propellant mass against an apogee-match
+event, it minimises the combined (tolerance-normalised) "box margin" against
+the direct-insertion cutoff above. `DIRECT_OPTIMIZATION_MODE = "pso"` replaces
+this 1-D grid search with the 2-variable PSO of Section 4.2.
+
+## 5. Summary
+
+The trajectory optimization employs one of three approaches, selected via
+`COAST_METHOD` (and, for `COAST_METHOD = "direct"`,
+`DIRECT_OPTIMIZATION_MODE`):
+
+**1. `apogee_check` (two-level, Sections 1–2):**
+
+- **Level 1 (Explicit):** Brute force grid search optimizes the initial kick angle to minimize total propellant consumption. The search evaluates 1000 uniformly distributed angles and selects the global optimum.
+- **Level 2 (Implicit):** Physics-based event detection automatically determines the optimal engine cutoff time by monitoring when the current trajectory's apogee matches the target altitude.
+
+**2. `direct` (Section 4.4):** Either the same 1000-point kick-angle grid
+search (`brute_force`, against a direct-insertion box-margin objective and a
+circular-velocity MECO event) or the 2-variable PSO of Section 4.2 (`pso`).
+
+**3. `pso_coast` / `indirect_pmp` (Sections 4.1 and 4.3):** PyGMO PSO jointly
+optimises the kick angle together with the coast/burn timing (and, for
+`indirect_pmp`, the initial PMP costates).
+
+Across all three approaches:
+- **Robust:** brute-force search is guaranteed to find the global optimum within grid resolution; PSO is a well-established global optimizer.
+- **Physical:** cutoff conditions (apogee match, circular-velocity MECO, or PSO-planned burn end) are based on orbital mechanics principles.
+- **Universal:** Sections 1–2 and 4.1–4.3 are applicable to every compatible `GUIDANCE_MODE` without modification (see `GUIDANCE_MODE_README.md` for the few mode/`COAST_METHOD` incompatibilities).
 
 The separation between optimization framework and guidance implementation provides a flexible, maintainable architecture suitable for comparative studies of different guidance strategies.
