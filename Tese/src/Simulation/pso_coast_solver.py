@@ -309,7 +309,9 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.guidance_coefficients = \
                     apollo_guidance_module.compute_apollo_coefficients(
                         _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
-                        use_downrange_constraint=False)
+                        use_downrange_constraint=sim_params.APOLLO_USE_DOWNRANGE_CONSTRAINT,
+                        use_vertical_constraint=sim_params.APOLLO_USE_VERTICAL_CONSTRAINT,
+                        downrange_target=sim_params.APOLLO_DOWNRANGE_TARGET)
                 gs.apollo_freeze_time        = t
                 gs.apollo_coefficients_frozen = False
 
@@ -420,12 +422,15 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.guidance_coefficients = \
                     apollo_guidance_module.compute_apollo_coefficients(
                         _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
-                        use_downrange_constraint=False)
+                        use_downrange_constraint=sim_params.APOLLO_USE_DOWNRANGE_CONSTRAINT,
+                        use_vertical_constraint=sim_params.APOLLO_USE_VERTICAL_CONSTRAINT,
+                        downrange_target=sim_params.APOLLO_DOWNRANGE_TARGET)
                 gs.apollo_freeze_time        = t
                 gs.last_guidance_update_time = t
 
             alpha, _ = apollo_guidance_module.apollo_guidance(
-                t, gs.apollo_freeze_time, state, gs.guidance_coefficients)
+                t, gs.apollo_freeze_time, state, gs.guidance_coefficients,
+                alpha_max_rad=np.deg2rad(sim_params.APOLLO_ALPHA_MAX))
 
         elif mode == "peg":
             _use_pso_plan = (sim_params.GUIDANCE_TGO_USE_PSO_PLAN

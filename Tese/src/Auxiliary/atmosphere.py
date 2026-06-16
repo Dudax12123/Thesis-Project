@@ -22,26 +22,27 @@ from Auxiliary import rocket_specs as r
 from Auxiliary import constants as c
 
 
-def atmospheric_density(altitude, RHO_0=c.RHO_0, H=c.H):
+def atmospheric_density(altitude):
     """
     Calculate atmospheric density at a given altitude using exponential model.
-    
+
     Parameters:
     -----------
     altitude : float
         Altitude above sea level [m]
-    
+
     Returns:
     --------
     rho : float
         Air density at given altitude [kg/m^3]
-    
+
     Notes:
     ------
     Uses exponential atmospheric model: rho = rho_0 * exp(-h/H)
-    where H is the scale height
+    where H is the scale height. rho_0 and H are read from constants at call
+    time so that multi-planet support (c.set_planet) takes effect correctly.
     """
-    rho = RHO_0 * np.exp(-altitude / H)
+    rho = c.RHO_0 * np.exp(-altitude / c.H)
     return rho
 
 def speed_of_sound(altitude):

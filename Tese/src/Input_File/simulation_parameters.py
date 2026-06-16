@@ -17,13 +17,18 @@ DURATION_INITIAL_KICK = 45.                     # duration of the triangular alp
 #                      (same mechanism as pso_coast/indirect_pmp). Kick angle
 #                      convention becomes gamma_p in [1.54, 1.57] rad, with
 #                      kick_angle = gamma_p - pi/2 computed internally.
-KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
+KICK_PROFILE_MODE = "instantaneous"   # Options: "triangular", "instantaneous"
+
+# -------------- Planet / Body --------------
+PLANET = "moon"   # Body to simulate. Options: "earth", "moon", "mars"
+                   # Body constants (radius, mu, omega, atmosphere) are set in Auxiliary/constants.py → PLANETS dict.
 
 # -------------- Aerodynamics --------------
+INCLUDE_DRAG = False                              # if True, include aerodynamic drag force in the EOM (F_D = q * C_D * A)
 INCLUDE_LIFT = False                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
-TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
+TARGET_ORBITAL_ALTITUDE = 50e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
 ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation effects in azimuth/ECI calculations
@@ -116,7 +121,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
@@ -127,6 +132,22 @@ APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze
 APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
                                                  # If True: Apollo commands both thrust angle AND magnitude
                                                  # If False: Apollo only commands angle (fixed thrust)
+APOLLO_USE_DOWNRANGE_CONSTRAINT = False          # If True, enforce horizontal position (downrange) constraint
+                                                 # in addition to velocity targeting (k1 ≠ 0, k2 uses eq. 2.40).
+                                                 # Only reliable after atmosphere exit with small gamma.
+                                                 # False (recommended): velocity-only horizontal (k1=0).
+APOLLO_USE_VERTICAL_CONSTRAINT = False           # If True, enforce altitude position constraint in the
+                                                 # vertical channel (k3,k4 ~ altitude_error/tgo^3).
+                                                 # Demands unrealizable thrust for large altitude errors —
+                                                 # causes steering instability near insertion.
+                                                 # False (recommended): velocity-only vertical (k3=0).
+APOLLO_DOWNRANGE_TARGET = None                   # Horizontal position target for the downrange constraint [m].
+                                                 # Only used when APOLLO_USE_DOWNRANGE_CONSTRAINT = True.
+                                                 # None: use orbital-arc estimation (2 × predict_target_downrange).
+                                                 # float: use this value directly (e.g. 1_500_000 for 1500 km).
+APOLLO_ALPHA_MAX = 45.0                          # Max steering angle (angle of attack) clamp [deg].
+                                                 # Safety backstop: prevents catastrophic steering commands
+                                                 # from reaching the ODE integrator.
 # -------------- Linear / Bilinear Tangent Steering Parameters --------------
 # (Only used if GUIDANCE_MODE is "linear_tangent" or "bilinear_tangent")
 GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are computed once at guidance
@@ -137,7 +158,7 @@ GUIDANCE_TGO_FIXED = False                    # If True, t_go is computed once a
                                               # If False (default), recomputed every ODE step.
 
 # -------------- PSO-Planned t_go Override (PSO solvers only) --------------
-GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear_tangent/bilinear_tangent/
+GUIDANCE_TGO_USE_PSO_PLAN = True              # If True, t_go for apollo/linear_tangent/bilinear_tangent/
                                               # cpr/peg is the PSO-planned burn-time countdown
                                               # (planned burn-arc end time - t) instead of the
                                               # rocket-equation estimate (_compute_tgo_stage2).

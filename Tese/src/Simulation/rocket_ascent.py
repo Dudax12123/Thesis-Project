@@ -585,7 +585,7 @@ def get_heading_rate_from_latitude(lat_rad, dlatdt, heading_rad):
     return np.tan(lat_rad) * np.tan(heading_rad) * dlatdt
 
 
-def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
+def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=None):
     """
     Computes the orbital parameters given the input state.
     
@@ -616,12 +616,14 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     orbit_period : float
         Period of the orbit [s]
     """
+    if mu is None:
+        mu = c.MU_EARTH
     a = (mu * r_val) / ((2 * mu) - (r_val * v_inertial**2))
     e = (1 - (r_val * v_inertial * np.cos(gamma_inertial))**2 / (mu * a))**0.5
     r_apo = a * (1 + e)
     r_peri = a * (1 - e)
     orbit_period = 2 * np.pi * (np.pow(a, 1.5)) / (np.pow(mu, 0.5))
-    
+
     return a, e, r_apo, r_peri, orbit_period
 
 
@@ -1138,10 +1140,13 @@ def rocket_dynamics(t, state):
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(_state_with_lat(state),
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
-                                                               use_downrange_constraint=False)
+                                                               use_downrange_constraint=sim_params.APOLLO_USE_DOWNRANGE_CONSTRAINT,
+                                                               use_vertical_constraint=sim_params.APOLLO_USE_VERTICAL_CONSTRAINT,
+                                                               downrange_target=sim_params.APOLLO_DOWNRANGE_TARGET)
             apollo_freeze_time = t  # Initialize freeze time
             apollo_coefficients_frozen = False
-            alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
+            alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients,
+                                                                         alpha_max_rad=np.deg2rad(sim_params.APOLLO_ALPHA_MAX))
             
             if sim_params.EVENTS_PRINT:
                 print(f"\nGuidance start at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
@@ -1228,7 +1233,9 @@ def rocket_dynamics(t, state):
             guidance_coefficients = apollo_guidance_module.compute_apollo_coefficients(_state_with_lat(state),
                                                                sim_params.TARGET_ORBITAL_ALTITUDE,
                                                                t_go,
-                                                               use_downrange_constraint=False)
+                                                               use_downrange_constraint=sim_params.APOLLO_USE_DOWNRANGE_CONSTRAINT,
+                                                               use_vertical_constraint=sim_params.APOLLO_USE_VERTICAL_CONSTRAINT,
+                                                               downrange_target=sim_params.APOLLO_DOWNRANGE_TARGET)
             apollo_freeze_time = t  # Update epoch time
             last_guidance_update_time = t
             # Record t_go once per guidance update cycle (not every ODE sub-step)
@@ -1237,7 +1244,8 @@ def rocket_dynamics(t, state):
             apollo_coeffs_just_updated = True
 
         # Compute guidance angle using current or frozen coefficients
-        alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
+        alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients,
+                                                                     alpha_max_rad=np.deg2rad(sim_params.APOLLO_ALPHA_MAX))
 
         if apollo_coeffs_just_updated and sim_params.EVENTS_PRINT:
             thrust_angle_inertial_dbg = alpha + gamma
@@ -1404,9 +1412,12 @@ def rocket_dynamics(t, state):
     # --- Determine current accelerations and forces ---
     a_grav = grav.gravitational_acceleration(r_val)
     
-    # Calculate drag (dynamic pressure already calculated earlier)
-    F_D = atm.drag_force(q)
-    
+    # Drag force
+    if sim_params.INCLUDE_DRAG:
+        F_D = atm.drag_force(q)
+    else:
+        F_D = 0.0
+
     # Lift force
     if sim_params.INCLUDE_LIFT:
         F_L = atm.lift_force(q)

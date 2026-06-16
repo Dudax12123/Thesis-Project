@@ -168,6 +168,9 @@ def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data):
     print(f"\t* Apoapsis altitude:\t\t\t{((r_apo - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Periapsis altitude:\t\t\t{((r_peri - c.R_EARTH)/1000):.2f} km")
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
+    print(f"\t* Planet:\t\t\t\t{sim_params.PLANET}")
+    print(f"\t* Drag:\t\t\t\t\t{'ON' if sim_params.INCLUDE_DRAG else 'OFF'}"
+          f",  Lift: {'ON' if sim_params.INCLUDE_LIFT else 'OFF'}")
     if sim_params.ENABLE_EARTH_ROTATION:
         print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
         print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
@@ -195,6 +198,17 @@ def execute():
     print("="*60)
     print("COASTING SINGLE BURN TRAJECTORY OPTIMIZATION")
     print("="*60)
+
+    # Apply planet/body constants before any simulation code runs.
+    if sim_params.PLANET not in c.PLANETS:
+        raise ValueError(
+            f"Unknown PLANET '{sim_params.PLANET}'. "
+            f"Valid options: {list(c.PLANETS.keys())}"
+        )
+    c.set_planet(sim_params.PLANET)
+    if sim_params.INCLUDE_DRAG and c.RHO_0 == 0.0:
+        print(f"[WARNING] INCLUDE_DRAG=True but planet '{sim_params.PLANET}' "
+              f"has no atmosphere (RHO_0=0). Drag will be zero throughout.")
 
     # Validate the guidance mode early: an unknown mode otherwise falls through
     # to alpha = 0 (silently flying as gravity_turn). "simple_poly" was removed.
@@ -807,7 +821,8 @@ def execute():
                 print("SIMULATION FAILED — GROUND IMPACT")
                 print("!"*60)
                 print(f"\t* Ground impact at:\t\t\tT+{ra.CRASH_TIME:.2f} s")
-                print(f"\t* Earth Rotation: {'ON' if sim_params.ENABLE_EARTH_ROTATION else 'OFF'}"
+                print(f"\t* Planet: {sim_params.PLANET}"
+                      f",  Earth Rotation: {'ON' if sim_params.ENABLE_EARTH_ROTATION else 'OFF'}"
                       f",  Pseudo-forces: {'ON' if sim_params.INCLUDE_PSEUDO_FORCES else 'OFF'}")
                 print("!"*60 + "\n")
                 _simulation_failed = True

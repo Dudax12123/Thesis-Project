@@ -3,22 +3,25 @@ import numpy as np
 from Auxiliary import constants as c
 
 
-def surface_rotation_velocity(lat_deg, radius=c.R_EARTH):
+def surface_rotation_velocity(lat_deg, radius=None):
     """
-    Surface eastward velocity due to Earth rotation at latitude lat_deg.
+    Surface eastward velocity due to body rotation at latitude lat_deg.
 
     Parameters:
     -----------
     lat_deg : float
         Latitude [deg]
-    radius : float
-        Radius from Earth's center [m]
+    radius : float, optional
+        Radius from body center [m]. Defaults to c.R_EARTH (the selected body's
+        surface radius). Pass an explicit value to evaluate at orbital altitude.
 
     Returns:
     --------
     float
         Eastward rotation speed [m/s]
     """
+    if radius is None:
+        radius = c.R_EARTH
     lat_rad = np.deg2rad(lat_deg)
     return c.OMEGA_EARTH * radius * np.cos(lat_rad)
 
