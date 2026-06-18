@@ -220,11 +220,21 @@ def event_times():
 def add_event_markers(ax):
     """Draw vertical dotted lines for key flight events on a time-axis plot."""
     events = event_times()
-    markers = [
-        ("guidance_start", "Guidance Start", "cyan"),
-        ("meco", "MECO", "orange"),
-        ("seco", "SECO", "black"),
-    ]
+    if r.NUM_STAGES == 1:
+        # Single-stage: only one end-of-thrust event. MECO and SECO are
+        # two-stage globals set by different code paths (their order isn't even
+        # guaranteed for a single stage), so collapse them into one marker.
+        events["burnout"] = events.get("meco") or events.get("seco")
+        markers = [
+            ("guidance_start", "Guidance Start", "cyan"),
+            ("burnout", "Engine Cutoff", "orange"),
+        ]
+    else:
+        markers = [
+            ("guidance_start", "Guidance Start", "cyan"),
+            ("meco", "MECO", "orange"),
+            ("seco", "SECO", "black"),
+        ]
     for key, label, color in markers:
         t_evt = events.get(key)
         if t_evt is None:

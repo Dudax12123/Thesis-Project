@@ -89,14 +89,27 @@ def _state_with_lat(state):
 
 
 # ---------------------------------------------------------------------------
-# Derived Stage-2 constants (computed once at import time, same as indirect_pso_solver)
+# Derived burn-arc constants (computed once at import time, same as
+# indirect_pso_solver). Stage-aware so single-stage vehicles (NUM_STAGES == 1,
+# F_THRUST_2 = M_PROP_2 = 0) burn the continuous arc on the Stage-1 engine
+# instead of dividing by zero. set_vehicle() runs in main.py before this import,
+# so the snapshot below reflects the selected vehicle.
 # ---------------------------------------------------------------------------
-_MDOT_2 = r.F_THRUST_2 / (r.ISP_2 * c.G_0)
-_T_MAX_2 = r.M_PROP_2 / _MDOT_2
-_T_IGNITION_DELAY = r.TIME_SECOND_ENGINE_IGNITION - r.TIME_First_STAGE_SEPARATION
+_SINGLE_STAGE  = (r.NUM_STAGES == 1)
+_F_THRUST_BURN = r.F_THRUST_1 if _SINGLE_STAGE else r.F_THRUST_2
+_ISP_BURN      = r.ISP_1      if _SINGLE_STAGE else r.ISP_2
+_M_PROP_BURN   = r.M_PROP_1   if _SINGLE_STAGE else r.M_PROP_2
 
-# Dry mass threshold: thrust is cut when mass drops at or below this.
-_DRY_MASS_2 = r.M_STRUCTURE_2 + r.M_PAYLOAD
+_MDOT_2 = _F_THRUST_BURN / (_ISP_BURN * c.G_0)
+_T_MAX_2 = _M_PROP_BURN / _MDOT_2
+# Single-stage has no stage separation / second-engine ignition delay — the
+# burn arc continues straight from the pitch-over kick.
+_T_IGNITION_DELAY = 0.0 if _SINGLE_STAGE else (
+    r.TIME_SECOND_ENGINE_IGNITION - r.TIME_First_STAGE_SEPARATION)
+
+# Dry mass threshold: thrust is cut when mass drops at or below this. For a
+# single-stage vehicle the structure that stays attached is M_STRUCTURE_1.
+_DRY_MASS_2 = (r.M_STRUCTURE_1 if _SINGLE_STAGE else r.M_STRUCTURE_2) + r.M_PAYLOAD
 
 # ---------------------------------------------------------------------------
 # Integration tolerances (same as indirect_pso_solver for consistency)
