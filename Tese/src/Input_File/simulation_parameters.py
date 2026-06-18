@@ -351,39 +351,30 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                    BVP assumes one continuous burn to propellant depletion,
 #                    which the thrust-coast-thrust split forbids. Prefer a
 #                    feedback law (linear_tangent, apollo, peg, peg_new) here.
-#   "direct"       : Continuous single Stage-2 burn to DIRECT orbit insertion —
-#                    no coast, no circularisation burn. The selected guidance law
-#                    steers the burn, which is cut (MECO) the instant the inertial
-#                    velocity reaches circular √(μ/r_target) — the standard orbit-
-#                    insertion trigger, so the engine never over-burns past
-#                    insertion. Whether the flight-path angle and altitude ALSO
-#                    landed within tolerance (a "clean" insertion) is then reported
-#                    together with the achieved orbit (eccentricity, apo/peri). If
-#                    Stage-2 propellant depletes before circular velocity is
-#                    reached, the achieved under-speed orbit is reported instead.
-#                    Intended for the direct-insertion laws (peg, peg_new, apollo).
+#   "direct"       : Continuous single burn to DIRECT orbit insertion — no coast,
+#                    no circularisation burn. Always optimised by the 2-variable
+#                    PSO (direct_pso_solver), which jointly finds gamma_p (kick
+#                    angle) and the burn duration; the selected guidance law steers
+#                    the burn. The only COAST_METHOD that supports single-stage
+#                    vehicles (one engine straight to orbit). Whether the achieved
+#                    state landed within tolerance (a "clean" insertion) is reported
+#                    against the DIRECT_INSERTION_* tolerances below, together with
+#                    the achieved orbit (eccentricity, apo/peri); the tolerances are
+#                    for reporting only and do not gate the optimisation.
 COAST_METHOD = "direct"   # Options: "apogee_check", "pso_coast", "direct"
 
-# -------------- Direct-insertion tolerances --------------
-# (only used when COAST_METHOD == "direct") The Stage-2 burn is cut (MECO) when the
-# inertial velocity reaches circular √(μ/r_target). At that cutoff the insertion is
-# graded "clean" only if the velocity, flight-path-angle AND altitude errors are all
-# within the tolerances below; otherwise the achieved orbit is reported as-is and the
-# kick optimiser converges to the smallest combined (tolerance-normalised) box error.
+# -------------- Direct-insertion tolerances (reporting only) --------------
+# (only used when COAST_METHOD == "direct") After the PSO burn ends, the achieved
+# insertion is graded "clean" only if the velocity, flight-path-angle AND altitude
+# errors are all within the tolerances below; otherwise the achieved orbit is
+# reported as-is. These thresholds do not gate the PSO objective (which is the
+# smooth 4-term PSO_DIRECT_W_* cost) — they only label the reported result.
 DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
 DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
 DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
 
-# -------------- Direct-insertion optimisation mode --------------
-#   "brute_force" : existing 1-variable kick-angle sweep; burn runs until
-#                    interrupt_direct_meco fires or propellant depletes.
-#   "pso"         : 2-variable PSO (direct_pso_solver) jointly optimises
-#                    gamma_p (kick angle) AND Stage-2 burn duration, targeting
-#                    the DIRECT_INSERTION_* box directly.
-DIRECT_OPTIMIZATION_MODE = "apogee_check"   # Options: "brute_force", "pso"
-
 # -------------- PSO DIRECT algorithm settings --------------
-# (only used when COAST_METHOD == "direct" and DIRECT_OPTIMIZATION_MODE == "pso")
+# (only used when COAST_METHOD == "direct")
 PSO_DIRECT_N_PARTICLES     = 50
 PSO_DIRECT_MAX_GENERATIONS = 100
 PSO_DIRECT_C1              = 2.05

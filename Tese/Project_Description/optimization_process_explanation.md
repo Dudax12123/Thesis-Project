@@ -5,16 +5,16 @@
 The trajectory optimization process depends on `COAST_METHOD`
 (`Tese/src/Input_File/simulation_parameters.py`):
 
-- **`COAST_METHOD = "apogee_check"`** (and `COAST_METHOD = "direct"` with
-  `DIRECT_OPTIMIZATION_MODE = "brute_force"`) employ the hybrid approach
-  described in Sections 1–2 below: explicit brute-force optimization of the
-  initial kick angle, combined with implicit, physics-based determination of
-  the engine cutoff timing. Section 3 explains why this optimization
-  framework is independent of the active `GUIDANCE_MODE`.
-- **`COAST_METHOD = "pso_coast"`**, **`COAST_METHOD = "direct"` with
-  `DIRECT_OPTIMIZATION_MODE = "pso"`**, and **`GUIDANCE_MODE = "indirect_pmp"`**
-  instead use PyGMO Particle Swarm Optimization over several decision
-  variables at once. These PSO-based paths are described in Section 4.
+- **`COAST_METHOD = "apogee_check"`** employs the hybrid approach described in
+  Sections 1–2 below: explicit brute-force optimization of the initial kick
+  angle, combined with implicit, physics-based determination of the engine
+  cutoff timing. Section 3 explains why this optimization framework is
+  independent of the active `GUIDANCE_MODE`.
+- **`COAST_METHOD = "pso_coast"`**, **`COAST_METHOD = "direct"`**, and
+  **`GUIDANCE_MODE = "indirect_pmp"`** instead use PyGMO Particle Swarm
+  Optimization over several decision variables at once. These PSO-based paths
+  are described in Section 4. (`direct` is the only `COAST_METHOD` that supports
+  single-stage vehicles.)
 
 ## 1. Initial Kick Angle Optimization
 
@@ -218,7 +218,7 @@ Different guidance laws produce different trajectory shapes with varying propell
 The optimal α varies between modes because each guidance law responds differently to the initial conditions set by the kick maneuver.
 
 **Computational Cost:**
-For the `apogee_check` and brute-force `direct` paths, all modes use the same number of evaluations (1000), so optimization time is similar across modes, though individual trajectory simulations may have slightly different durations. The PSO-based paths (Section 4) instead scale with swarm size × generations, independent of `GUIDANCE_MODE`.
+For the `apogee_check` path, all modes use the same number of evaluations (1000), so optimization time is similar across modes, though individual trajectory simulations may have slightly different durations. The PSO-based paths (Section 4), including `direct`, instead scale with swarm size × generations, independent of `GUIDANCE_MODE`.
 
 ### 3.4 Universality of Event Detection (apogee_check)
 
@@ -274,20 +274,25 @@ Objective (4 terms, no transversality):
 J' = w_J · J_nd + w_alt · |Δh_nd| + w_vel · |ΔV_nd| + w_fpa · |Δγ_nd| + CRASH_PENALTY
 ```
 
-### 4.2 `COAST_METHOD = "direct"` with `DIRECT_OPTIMIZATION_MODE = "pso"` — 2-variable PSO
+### 4.2 `COAST_METHOD = "direct"` — 2-variable PSO
 
-Implemented in `Simulation/direct_pso_solver.py`. Optimises:
+Implemented in `Simulation/direct_pso_solver.py`. This is the **only** optimiser
+for `COAST_METHOD = "direct"` (the former 1-D brute-force kick sweep was removed)
+and the only `COAST_METHOD` that supports single-stage vehicles. Optimises:
 
 ```
 x = [gamma_p,     pitch maneuver (kick) angle [rad], in [1.54, 1.57]
-     t_burn_pct]  Stage-2 continuous burn duration as % of T_MAX_2 [%]
+     t_burn_pct]  continuous burn duration as % of T_MAX_2 [%]
 ```
 
 The trajectory structure is: Stage 1 (instantaneous kick via
 `rocket_ascent.run_stage1`) → pre-ignition ballistic coast → **one continuous
-Stage-2 thrust arc** of duration `t_burn` → direct orbit insertion (no
-coast-to-apogee, no circularisation burn). The selected `GUIDANCE_MODE` steers
-the single thrust arc.
+thrust arc** of duration `t_burn` → direct orbit insertion (no coast-to-apogee,
+no circularisation burn). The selected `GUIDANCE_MODE` steers the single thrust
+arc. For a **single-stage** vehicle (`NUM_STAGES == 1`) Stage 1 stops at the
+pitch-over kick (no staging, no jettison) and the thrust arc continues on the
+*same* engine (`F_THRUST_1`/`ISP_1`); the pre-ignition coast has zero length and
+is skipped.
 
 Objective (same 4-term structure as 4.1, no coast split):
 
@@ -322,37 +327,33 @@ angle terminal errors, the transversality condition (Eq. 38), and trajectories
 that crash or deplete propellant before reaching orbit. `COAST_METHOD` has no
 effect on this mode — the coast/burn split is fully controlled by the PSO.
 
-### 4.4 Direct-insertion cutoff and `DIRECT_OPTIMIZATION_MODE = "brute_force"`
+### 4.4 Direct-insertion "clean" grading (reporting only)
 
-When `COAST_METHOD = "direct"`, the Stage-2 burn is cut (MECO) the instant the
-inertial velocity reaches circular velocity `√(μ/r_target)` — a different
-cutoff condition from the apogee-match event of Section 2. Whether the
-flight-path angle and altitude *also* land within
-`DIRECT_INSERTION_FPA_TOL_DEG` / `DIRECT_INSERTION_ALTITUDE_TOL_KM` of the
-target (together with `DIRECT_INSERTION_VELOCITY_TOL_MS`) determines whether
-the insertion is graded "clean".
-
-`DIRECT_OPTIMIZATION_MODE = "brute_force"` reuses the **same 1000-point grid
-search over the kick angle** described in Section 1.3, but with a different
-objective: instead of minimising propellant mass against an apogee-match
-event, it minimises the combined (tolerance-normalised) "box margin" against
-the direct-insertion cutoff above. `DIRECT_OPTIMIZATION_MODE = "pso"` replaces
-this 1-D grid search with the 2-variable PSO of Section 4.2.
+The PSO of Section 4.2 ends the burn at the PSO-chosen `t_burn`; the achieved
+state is then graded for reporting. The insertion is labelled "clean" only when
+the velocity, flight-path angle, and altitude all land within
+`DIRECT_INSERTION_VELOCITY_TOL_MS` / `DIRECT_INSERTION_FPA_TOL_DEG` /
+`DIRECT_INSERTION_ALTITUDE_TOL_KM` of the circular-orbit target (surfaced via
+`rocket_ascent.LAST_DIRECT_MECO` and `LAST_DIRECT_INSERTION_REACHED`). These
+tolerances are a **reporting label only** — they do not gate the PSO objective,
+which is the smooth 4-term `PSO_DIRECT_W_*` cost of Section 4.2. (A single
+continuous burn rarely closes the tight clean box; tune `PSO_DIRECT_LB/UB` and
+the weights per vehicle/body to improve insertion quality.)
 
 ## 5. Summary
 
 The trajectory optimization employs one of three approaches, selected via
-`COAST_METHOD` (and, for `COAST_METHOD = "direct"`,
-`DIRECT_OPTIMIZATION_MODE`):
+`COAST_METHOD`:
 
 **1. `apogee_check` (two-level, Sections 1–2):**
 
 - **Level 1 (Explicit):** Brute force grid search optimizes the initial kick angle to minimize total propellant consumption. The search evaluates 1000 uniformly distributed angles and selects the global optimum.
 - **Level 2 (Implicit):** Physics-based event detection automatically determines the optimal engine cutoff time by monitoring when the current trajectory's apogee matches the target altitude.
 
-**2. `direct` (Section 4.4):** Either the same 1000-point kick-angle grid
-search (`brute_force`, against a direct-insertion box-margin objective and a
-circular-velocity MECO event) or the 2-variable PSO of Section 4.2 (`pso`).
+**2. `direct` (Sections 4.2 and 4.4):** A 2-variable PyGMO PSO jointly optimises
+the kick angle (`gamma_p`) and burn duration for a single continuous burn to
+direct insertion; achieved "clean" status is graded for reporting only. The only
+`COAST_METHOD` that supports single-stage vehicles.
 
 **3. `pso_coast` / `indirect_pmp` (Sections 4.1 and 4.3):** PyGMO PSO jointly
 optimises the kick angle together with the coast/burn timing (and, for
