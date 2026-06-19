@@ -151,11 +151,14 @@ APOLLO_USE_DOWNRANGE_CONSTRAINT = False          # If True, enforce horizontal p
                                                  # in addition to velocity targeting (k1 ≠ 0, k2 uses eq. 2.40).
                                                  # Only reliable after atmosphere exit with small gamma.
                                                  # False (recommended): velocity-only horizontal (k1=0).
-APOLLO_USE_VERTICAL_CONSTRAINT = False           # If True, enforce altitude position constraint in the
+APOLLO_USE_VERTICAL_CONSTRAINT = True            # If True, enforce altitude position constraint in the
                                                  # vertical channel (k3,k4 ~ altitude_error/tgo^3).
-                                                 # Demands unrealizable thrust for large altitude errors —
-                                                 # causes steering instability near insertion.
-                                                 # False (recommended): velocity-only vertical (k3=0).
+                                                 # Required for direct insertion to actually reach the
+                                                 # TARGET_ORBITAL_ALTITUDE: with it OFF the law only nulls the
+                                                 # velocity vector and levels off wherever it hits orbital
+                                                 # speed (low + eccentric). Validated stable & strictly better
+                                                 # for apollo direct (Moon LM e0.0006, Earth e0.001) and
+                                                 # pso_coast (Earth e0.048->0.003); apogee_check unaffected.
 APOLLO_DOWNRANGE_TARGET = None                   # Horizontal position target for the downrange constraint [m].
                                                  # Only used when APOLLO_USE_DOWNRANGE_CONSTRAINT = True.
                                                  # None: use orbital-arc estimation (2 × predict_target_downrange).
@@ -384,8 +387,12 @@ PSO_DIRECT_VMAX            = 0.5
 PSO_DIRECT_SEED            = 42
 
 # x = [gamma_p (rad), t_burn_pct (% of T_MAX_2)]
-PSO_DIRECT_LB = [1.54,  50.0]
-PSO_DIRECT_UB = [1.57, 100.0]
+# Bounds bracket the clean-insertion region for both the lunar LM (optimum
+# gamma_p~1.549, t_burn~93%) and Earth two-stage (gamma_p~1.540, t_burn~84%):
+# a small pitch-over kick + a burn cut just before propellant depletion. The
+# upper t_burn cap (<100%) keeps the search off full-depletion / overshoot.
+PSO_DIRECT_LB = [1.535, 60.0]
+PSO_DIRECT_UB = [1.560, 98.0]
 
 # -------------- Penalty weights for direct PSO objective --------------
 # Same 4-term structure as PSO_COAST_W_* (no transversality term, no costates).

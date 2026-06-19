@@ -767,6 +767,7 @@ def execute():
                     # Single stage: one engine, one propellant load (M_PROP_1).
                     p_remaining = max(0.0, mf - (r_specs.M_STRUCTURE_1 + r_specs.M_PAYLOAD))
                     p_used      = r_specs.M_PROP_1 - p_remaining
+                    total_used  = p_used   # only one stage; used later for the summary
                     print(f"\n\t  PROPELLANT USAGE:")
                     print(f"\t  Propellant used:                {p_used:.1f} kg "
                           f"({100.0 * p_used / r_specs.M_PROP_1:.1f}% "
