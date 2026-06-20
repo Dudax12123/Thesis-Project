@@ -20,7 +20,7 @@ DURATION_INITIAL_KICK = 45.                     # duration of the triangular alp
 KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
 
 # -------------- Launch Vehicle --------------
-VEHICLE = "falcon9"   # Launch vehicle. Options: "falcon9", "apollo_lm_ascent", "saturn_v", "electron".
+VEHICLE = "apollo_lm_ascent"   # Launch vehicle. Options: "falcon9", "apollo_lm_ascent", "saturn_v", "electron".
                       # Vehicle specs live in Auxiliary/rocket_specs.py (VEHICLES dict).
                       # Single-stage vehicles (e.g. "apollo_lm_ascent") require
                       # COAST_METHOD = "direct": guidance activates right after the
@@ -28,7 +28,7 @@ VEHICLE = "falcon9"   # Launch vehicle. Options: "falcon9", "apollo_lm_ascent", 
                       # there is no separate circularisation burn.
 
 # -------------- Planet / Body --------------
-PLANET = "earth"   # Body to simulate. Options: "earth", "moon", "mars"
+PLANET = "moon"   # Body to simulate. Options: "earth", "moon", "mars"
                    # Body constants (radius, mu, omega, atmosphere) are set in Auxiliary/constants.py → PLANETS dict.
 # NOTE — guidance on low-gravity bodies with Earth-class rockets:
 #   A Falcon-9-scale Stage 1 produces far more delta-v than needed for a low Moon
@@ -39,18 +39,18 @@ PLANET = "earth"   # Body to simulate. Options: "earth", "moon", "mars"
 #   rocket_specs.py or set GUIDANCE_MODE = "gravity_turn" to acknowledge it.
 
 # -------------- Aerodynamics --------------
-INCLUDE_DRAG = True                              # if True, include aerodynamic drag force in the EOM (F_D = q * C_D * A)
-INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_DRAG = False                              # if True, include aerodynamic drag force in the EOM (F_D = q * C_D * A)
+INCLUDE_LIFT = False                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
-TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
+TARGET_ORBITAL_ALTITUDE = 50e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = False                # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -136,7 +136,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "indirect_pmp"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "apollo"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
