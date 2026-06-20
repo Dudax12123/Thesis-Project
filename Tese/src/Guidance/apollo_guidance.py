@@ -199,8 +199,7 @@ def predict_target_downrange(state, target_altitude):
     return downrange_target
 
 
-def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_constraint=False,
-                                use_vertical_constraint=False, downrange_target=None):
+def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_constraint=False):
     """
     Compute Apollo polynomial guidance coefficients (classical formulation).
     
@@ -230,22 +229,10 @@ def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_cons
     t_go : float
         Time-to-go [s]
     use_downrange_constraint : bool, optional
-        If True, enforce a downrange position constraint in the horizontal channel.
-        Suitable when guidance starts after atmosphere exit (gamma is small).
-        If False (default), k1=0 and only orbital velocity is targeted.
-    downrange_target : float or None, optional
-        Explicit horizontal position target [m] for the downrange constraint.
-        Only used when use_downrange_constraint=True.
-        None (default): use the orbital-arc estimation (2 × predict_target_downrange).
-        float: use this value directly as x_target, skipping the estimation.
-    use_vertical_constraint : bool, optional
-        If True, enforce both altitude position and vertical-velocity constraints in
-        the vertical channel (k3 ~ alt_error/t_go^3, k4 ~ alt_error/t_go^2 — eqs. 2.39/2.40).
-        This demands vertical thrust proportional to altitude error divided by t_go^2; for
-        large errors the commanded acceleration exceeds physical thrust capacity, causing
-        steering instability that worsens near insertion.
-        If False (default), k3=0 and k4=(vy_target-vy)/t_go — velocity-only, symmetric
-        with the horizontal velocity-only mode and bounded near insertion.
+        If True, enforce a downrange position constraint in the horizontal channel
+        using the predicted insertion downrange (x_target = 2 * predict_target_downrange).
+        Suitable when guidance starts after atmosphere exit (gamma is small, prediction
+        is reliable).  If False (default), k1=0 and only orbital velocity is targeted.
         
     Returns:
     --------
@@ -295,40 +282,30 @@ def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_cons
     #   still steep (~50°), so the velocity-only form (safe at any gamma) is used.
     #
     # True (full 4-coefficient constraint — position + velocity):
-    #   x_target from downrange_target (explicit) or 2×predict_target_downrange (estimation)
+    #   x_target = 2 * predict_target_downrange(state, target_altitude)
     #   k1 = (6*(vx_target + vx)*t_go - 12*(x_target - x)) / t_go^3  (eq. 2.39)
     #   k2 = (-2*(vx_target + 2*vx)*t_go + 6*(x_target - x)) / t_go^2 (eq. 2.40)
     #   Classical Apollo formulation.  Reliable when guidance starts after
     #   atmosphere exit where gamma is already small and the orbital-arc
     #   downrange prediction is accurate.
     if use_downrange_constraint:
-        if downrange_target is not None:
-            x_target = float(downrange_target)
-        else:
-            x_target = 2.0 * predict_target_downrange(state, target_altitude)
+        x_target = 2.0 * predict_target_downrange(state, target_altitude)
         k1 = (6.0 * (vx_target + vx) * t_go - 12.0 * (x_target - x)) / (t_go ** 3)
         k2 = (-2.0 * (vx_target + 2.0 * vx) * t_go + 6.0 * (x_target - x)) / (t_go ** 2)
     else:
         k1 = 0.0
         k2 = (vx_target - vx) / t_go
     
-    # Vertical channel coefficients
-    if use_vertical_constraint:
-        # Classical position + velocity constraint (eqs. 2.39/2.40).
-        # Coefficients scale as altitude_error/t_go^3 and altitude_error/t_go^2 — can
-        # demand unrealizable thrust for large errors; use only when altitude error is small.
-        k3 = (6 * (vy_target + vy) * t_go - 12 * (y_target - y)) / (t_go ** 3)
-        k4 = (-2 * (vy_target + 2 * vy) * t_go + 6 * (y_target - y)) / (t_go ** 2)
-    else:
-        # Velocity-only: k3=0, k4 drives vy → vy_target (=0) in t_go seconds.
-        # Near insertion vy → 0, so k4 → 0 naturally — no position-error singularity.
-        k3 = 0.0
-        k4 = (vy_target - vy) / t_go
+    # Vertical channel coefficients (enforce altitude and vertical velocity)
+    # Equation 2.39: k3 = 6*(vy_f + vy)*t_go - 12*(y_f - y) / t_go^3
+    # Equation 2.40: k4 = -2*(vy_f + 2*vy)*t_go + 6*(y_f - y) / t_go^2
+    k3 = (6 * (vy_target + vy) * t_go - 12 * (y_target - y)) / (t_go ** 3)
+    k4 = (-2 * (vy_target + 2 * vy) * t_go + 6 * (y_target - y)) / (t_go ** 2)
     
     return [k1, k2, k3, k4]
 
 
-def apollo_guidance(t, t_epoch, state, coefficients, alpha_max_rad=np.deg2rad(45.0)):
+def apollo_guidance(t, t_epoch, state, coefficients):
     """
     Apollo polynomial explicit guidance for thrust angle control.
     
@@ -359,10 +336,7 @@ def apollo_guidance(t, t_epoch, state, coefficients, alpha_max_rad=np.deg2rad(45
         - m: current mass [kg]
     coefficients : list
         Apollo coefficients [k1, k2, k3, k4]
-    alpha_max_rad : float, optional
-        Maximum allowed angle of attack magnitude [rad]. Default 45°.
-        Acts as a safety clamp; with velocity-only guidance rarely activates.
-
+        
     Returns:
     --------
     alpha : float
@@ -412,8 +386,9 @@ def apollo_guidance(t, t_epoch, state, coefficients, alpha_max_rad=np.deg2rad(45
     # Normalize to [-pi, pi]
     alpha = np.arctan2(np.sin(alpha), np.cos(alpha))
     
-    # Clamp to maximum allowed angle of attack.
-    alpha = np.clip(alpha, -alpha_max_rad, alpha_max_rad)
+    # Safety limits (prevent excessive maneuvers)
+    # Justification: Physical limits of vehicle control authority
+   # alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
     
     # Calculate required thrust magnitude
     # This is the magnitude of the thrust acceleration vector

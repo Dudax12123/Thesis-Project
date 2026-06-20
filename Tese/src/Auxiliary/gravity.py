@@ -7,14 +7,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 from Auxiliary import constants as c
 
-def gravitational_acceleration(r):
+def gravitational_acceleration(r, MU_EARTH=c.MU_EARTH):
     """
     Calculate gravitational acceleration at a given altitude using inverse-square law.
-
+    
     Parameters:
     -----------
     r : float
-        Distance from body center [m]
+        Distance from Earth's center [m]
+    MU_EARTH : float
+        Standard gravitational parameter for Earth [m^3/s^2]
 
     Returns:
     --------
@@ -23,7 +25,7 @@ def gravitational_acceleration(r):
 
     Notes:
     ------
-    Uses inverse-square law: g = MU / r^2
+    Uses inverse-square law: g = MU_EARTH / r^2
     """
-    g = c.MU_EARTH / (r**2)
+    g = MU_EARTH / ((r)**2)
     return g
