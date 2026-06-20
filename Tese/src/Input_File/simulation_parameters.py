@@ -17,26 +17,11 @@ DURATION_INITIAL_KICK = 45.                     # duration of the triangular alp
 #                      (same mechanism as pso_coast/indirect_pmp). Kick angle
 #                      convention becomes gamma_p in [1.54, 1.57] rad, with
 #                      kick_angle = gamma_p - pi/2 computed internally.
-KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
-
-# -------------- Launch Vehicle --------------
-VEHICLE = "apollo_lm_ascent"   # Launch vehicle. Options: "falcon9", "apollo_lm_ascent", "saturn_v", "electron".
-                      # Vehicle specs live in Auxiliary/rocket_specs.py (VEHICLES dict).
-                      # Single-stage vehicles (e.g. "apollo_lm_ascent") require
-                      # COAST_METHOD = "direct": guidance activates right after the
-                      # pitch-over (there is no second-stage ignition to wait for), and
-                      # there is no separate circularisation burn.
+KICK_PROFILE_MODE = "instantaneous"   # Options: "triangular", "instantaneous"
 
 # -------------- Planet / Body --------------
 PLANET = "moon"   # Body to simulate. Options: "earth", "moon", "mars"
                    # Body constants (radius, mu, omega, atmosphere) are set in Auxiliary/constants.py → PLANETS dict.
-# NOTE — guidance on low-gravity bodies with Earth-class rockets:
-#   A Falcon-9-scale Stage 1 produces far more delta-v than needed for a low Moon
-#   orbit.  The simulation may reach the target orbit while Stage 1 is still burning,
-#   so MECO never fires, Stage 2 never ignites, and GUIDANCE_MODE never activates.
-#   The rocket will fly a pure gravity-turn throughout.  A [WARNING] is printed in
-#   the results if this happens.  To force guided flight, either reduce M_PROP_1 in
-#   rocket_specs.py or set GUIDANCE_MODE = "gravity_turn" to acknowledge it.
 
 # -------------- Aerodynamics --------------
 INCLUDE_DRAG = False                              # if True, include aerodynamic drag force in the EOM (F_D = q * C_D * A)
@@ -46,7 +31,7 @@ INCLUDE_LIFT = False                             # if True, include aerodynamic 
 TARGET_ORBITAL_ALTITUDE = 50e3                             # altitude of desired orbit; [m]
 
 # -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = False                # if True, include Earth rotation effects in azimuth/ECI calculations
+ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation effects in azimuth/ECI calculations
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
@@ -380,7 +365,7 @@ DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
 #   "pso"         : 2-variable PSO (direct_pso_solver) jointly optimises
 #                    gamma_p (kick angle) AND Stage-2 burn duration, targeting
 #                    the DIRECT_INSERTION_* box directly.
-DIRECT_OPTIMIZATION_MODE = "apogee_check"   # Options: "brute_force", "pso"
+DIRECT_OPTIMIZATION_MODE = "pso"   # Options: "brute_force", "pso"
 
 # -------------- PSO DIRECT algorithm settings --------------
 # (only used when COAST_METHOD == "direct" and DIRECT_OPTIMIZATION_MODE == "pso")

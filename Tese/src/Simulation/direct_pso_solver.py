@@ -49,8 +49,6 @@ from Simulation.pso_coast_solver import (
     _event_crash,
     _T_MAX_2,
     _T_IGNITION_DELAY,
-    _F_THRUST_BURN,
-    _ISP_BURN,
     _RTOL,
     _ATOL,
     _MAX_STEP,
@@ -106,31 +104,25 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct, verbose=False):
               f"v={state2_init[2]:.0f}m/s, gam={np.rad2deg(state2_init[3]):.2f}deg")
 
     # ---- Pre-ignition ballistic coast (stage sep -> ignition) ----
-    # Single-stage has no ignition delay (_T_IGNITION_DELAY == 0): the burn arc
-    # continues straight from the pitch-over kick, so skip the zero-length coast
-    # (solve_ivp rejects a t_span with t0 == tf).
-    if _T_IGNITION_DELAY > 0.0:
-        sol_pre = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, 0.0, _ISP_BURN, None),
-            t_span=(t2_start, t_ignition),
-            y0=state2_init[:5],
-            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
-            events=_event_crash,
-        )
-        if len(sol_pre.t_events[0]) > 0:
-            return {'crashed': True, 'state_final': None,
-                    't_burn': t_burn, 't_stage2_start': t2_start, 't_ignition': t_ignition,
-                    't_stage1': t_stage1, 'y_stage1': y_stage1}
-        state_at_ign = sol_pre.y[:5, -1].copy()
-    else:
-        state_at_ign = state2_init[:5].copy()
+    sol_pre = solve_ivp(
+        lambda t, y: _stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
+        t_span=(t2_start, t_ignition),
+        y0=state2_init[:5],
+        rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
+        events=_event_crash,
+    )
+    if len(sol_pre.t_events[0]) > 0:
+        return {'crashed': True, 'state_final': None,
+                't_burn': t_burn, 't_stage2_start': t2_start, 't_ignition': t_ignition,
+                't_stage1': t_stage1, 'y_stage1': y_stage1}
+    state_at_ign = sol_pre.y[:5, -1].copy()
 
     # ---- Single continuous thrust arc (t_ignition -> t_ignition + t_burn) ----
     gs = GuidanceState()
     t_burn_end = t_ignition + t_burn
     gs.tgo_deadline = t_burn_end
     sol_burn = solve_ivp(
-        lambda t, y: _stage2_ode_guidance(t, y, _F_THRUST_BURN, _ISP_BURN, gs),
+        lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
         t_span=(t_ignition, t_burn_end),
         y0=state_at_ign,
         rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -362,26 +354,21 @@ def run_pso_direct_full(optimal_params, verbose=True):
         return pts
 
     # ---- Pre-ignition coast (dense) ----
-    # Skip the zero-length coast for single-stage (_T_IGNITION_DELAY == 0).
-    if _T_IGNITION_DELAY > 0.0:
-        sol_pre = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, 0.0, _ISP_BURN, None),
-            t_span=(t2_start, t_ignition),
-            y0=state2_init[:5],
-            t_eval=_make_teval(t2_start, t_ignition),
-            rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
-            events=_event_crash,
-        )
-        state_at_ign = sol_pre.y[:5, -1].copy()
-    else:
-        sol_pre = None
-        state_at_ign = state2_init[:5].copy()
+    sol_pre = solve_ivp(
+        lambda t, y: _stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
+        t_span=(t2_start, t_ignition),
+        y0=state2_init[:5],
+        t_eval=_make_teval(t2_start, t_ignition),
+        rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
+        events=_event_crash,
+    )
+    state_at_ign = sol_pre.y[:5, -1].copy()
 
     # ---- Single thrust arc (dense) ----
     gs_full = GuidanceState()
     gs_full.tgo_deadline = t_burn_end
     sol_burn = solve_ivp(
-        lambda t, y: _stage2_ode_guidance(t, y, _F_THRUST_BURN, _ISP_BURN, gs_full),
+        lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full),
         t_span=(t_ignition, t_burn_end),
         y0=state_at_ign,
         t_eval=_make_teval(t_ignition, t_burn_end),
@@ -405,7 +392,7 @@ def run_pso_direct_full(optimal_params, verbose=True):
     t_post_start = t_burn_end
     t_post_end   = t_post_start + sim_params.DURATION_AFTER_SIMULATION
     sol_post = solve_ivp(
-        lambda t, y: _stage2_ode_guidance(t, y, 0.0, _ISP_BURN, None),
+        lambda t, y: _stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
         t_span=(t_post_start, t_post_end),
         y0=post_init,
         t_eval=_make_teval(t_post_start, t_post_end),
@@ -414,10 +401,8 @@ def run_pso_direct_full(optimal_params, verbose=True):
     )
 
     # ---- Assemble Stage-2 arrays ----
-    # sol_pre is None for single-stage (no pre-ignition coast); the assembly loop
-    # below skips None / empty solutions.
     sols2_list = [sol_pre, sol_burn]
-    thrusts2   = [0.0, _F_THRUST_BURN]
+    thrusts2   = [0.0, r.F_THRUST_2]
     if sol_post is not None and len(sol_post.t) > 0:
         sols2_list.append(sol_post); thrusts2.append(0.0)
 

@@ -44,13 +44,7 @@ def coasting_single_burn_objective(kick_angle):
     print("Kick angle:\t\t", np.rad2deg(kick_angle))
     if ra.CRASH_DETECTED:
         print(f"  [GROUND IMPACT at T+{ra.CRASH_TIME:.1f}s — propellant set to sentinel]")
-    elif m_propellant_total_used_2nd_stage >= 1e6:
-        # Direct mode returns a penalty objective (>= 1e6) when the candidate does
-        # not achieve a clean insertion — this is a cost score, not propellant.
-        print(f"  [no clean insertion — objective is a penalty score "
-              f"{m_propellant_total_used_2nd_stage:.1f}, not propellant]")
-    else:
-        print("Propellant used:\t", m_propellant_total_used_2nd_stage, "kg")
+    print("Propellant used:\t", m_propellant_total_used_2nd_stage, "kg")
     print("\n")
 
     return m_propellant_total_used_2nd_stage

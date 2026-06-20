@@ -210,47 +210,6 @@ def execute():
         print(f"[WARNING] INCLUDE_DRAG=True but planet '{sim_params.PLANET}' "
               f"has no atmosphere (RHO_0=0). Drag will be zero throughout.")
 
-    # Apply the selected launch vehicle before any solver module is imported
-    # (the PSO solvers snapshot stage-2 engine constants at import time).
-    _vehicle = getattr(sim_params, "VEHICLE", "falcon9")
-    if _vehicle not in r_specs.VEHICLES:
-        raise ValueError(
-            f"Unknown VEHICLE {_vehicle!r}. "
-            f"Valid options: {sorted(r_specs.VEHICLES.keys())}")
-    r_specs.set_vehicle(_vehicle)
-
-    # Body-match safeguard: each vehicle declares the body it is designed for.
-    # The Moon must use a lunar ascent module; Earth vehicles cannot be flown on
-    # the Moon (and vice-versa). Future lunar modules just set BODY="moon".
-    if r_specs.BODY != sim_params.PLANET:
-        raise ValueError(
-            f"Vehicle {_vehicle!r} is designed for body {r_specs.BODY!r}, but "
-            f"PLANET={sim_params.PLANET!r}. Pick a vehicle whose BODY matches the "
-            "planet (e.g. a lunar ascent module for the Moon).")
-
-    # Single-stage vehicles (NUM_STAGES == 1) use the PSO direct-insertion path
-    # (a single continuous burn straight to orbit). The thrust-coast-thrust PSO
-    # solvers (pso_coast, indirect_pmp) assume a two-burn profile that has no
-    # single-stage interpretation, so they are rejected here.
-    _coast = getattr(sim_params, "COAST_METHOD", "apogee_check")
-    if r_specs.NUM_STAGES == 1:
-        _two_burn_pso = (
-            _coast in {"pso_coast", "indirect_pmp"}
-            or sim_params.GUIDANCE_MODE == "indirect_pmp"
-        )
-        if _two_burn_pso:
-            raise ValueError(
-                f"Single-stage vehicle {_vehicle!r} is not supported with the "
-                f"thrust-coast-thrust PSO solvers (COAST_METHOD={_coast!r}, "
-                f"GUIDANCE_MODE={sim_params.GUIDANCE_MODE!r}): they assume a two-burn "
-                "profile with no single-stage interpretation. Use "
-                "COAST_METHOD='direct' (single continuous burn to insertion).")
-        if _coast != "direct":
-            print(f"[WARNING] Single-stage vehicle {_vehicle!r} with "
-                  f"COAST_METHOD={_coast!r}: a single-stage vehicle has no second "
-                  "burn to circularise, so apogee-check cannot close the orbit. "
-                  "Set COAST_METHOD='direct' for a direct insertion at burnout.")
-
     # Validate the guidance mode early: an unknown mode otherwise falls through
     # to alpha = 0 (silently flying as gravity_turn). "simple_poly" was removed.
     _VALID_GUIDANCE_MODES = {
@@ -460,6 +419,8 @@ def execute():
     if sim_params.GUIDANCE_MODE != "indirect_pmp":
 
         _coast_method = getattr(sim_params, 'COAST_METHOD', 'apogee_check')
+        _direct_pso = (_coast_method == 'direct' and getattr(
+            sim_params, 'DIRECT_OPTIMIZATION_MODE', 'brute_force') == 'pso')
 
         # =====================================================================
         # PSO COAST PATH — PSO finds [delta_tc, delta_tr_pct, coast_start%, γ_p]
@@ -597,18 +558,15 @@ def execute():
                 if ra.time_atmosphere_exit is not None:
                     print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
                 if ra.time_main_engine_cutoff is not None:
-                    if r_specs.NUM_STAGES == 1:
-                        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tEngine cutoff (burnout / orbit insertion)")
-                    else:
-                        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
-                        print(f"\t* T+{ra.time_main_engine_cutoff + 3.0:.2f}s\t\tStage separation")
-                        print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\tStage 2 ignition")
-                        print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\t{sim_params.GUIDANCE_MODE} guidance active (Arc 1)")
-                if r_specs.NUM_STAGES != 1 and ra.PSO_COAST_ARC2_START_TIME is not None:
+                    print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 3.0:.2f}s\t\tStage separation")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\tStage 2 ignition")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\t{sim_params.GUIDANCE_MODE} guidance active (Arc 1)")
+                if ra.PSO_COAST_ARC2_START_TIME is not None:
                     print(f"\t* T+{ra.PSO_COAST_ARC2_START_TIME:.2f}s\t\tCoast phase start")
                     print(f"\t* T+{ra.PSO_COAST_ARC2_START_TIME + delta_tc_opt:.2f}s"
                           f"\t\tCoast phase end / Arc-3 ignition")
-                if r_specs.NUM_STAGES != 1 and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+                if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
                     print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s"
                           f"\t\tStage 2 cutoff / orbit insertion (Arc-3 end)")
                 print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
@@ -642,18 +600,6 @@ def execute():
                         sim_params,
                     )
 
-                if (sim_params.GUIDANCE_MODE != "gravity_turn"
-                        and ra.time_guidance_start is None):
-                    print("\n" + "!" * 60)
-                    print("[WARNING] GUIDANCE NEVER ACTIVATED")
-                    print("!" * 60)
-                    print(f"  GUIDANCE_MODE = '{sim_params.GUIDANCE_MODE}' was configured but")
-                    print( "  guidance never engaged during the simulation.  Stage 1 likely")
-                    print( "  reached the target orbit before MECO, so Stage 2 never ignited.")
-                    print( "  The rocket flew a pure gravity-turn trajectory throughout.")
-                    print( "  → See the NOTE near PLANET in simulation_parameters.py.")
-                    print("!" * 60)
-
                 print("\n" + "="*60)
                 print("SIMULATION COMPLETE")
                 print("="*60 + "\n")
@@ -664,12 +610,10 @@ def execute():
             # Fall through to the shared plotting block below.
 
         # =====================================================================
-        # DIRECT-INSERTION PATH — always PSO. PSO finds [gamma_p, t_burn_pct] for
-        # a single continuous burn straight to orbit insertion (no coast-to-apogee,
-        # no circularisation burn). The achieved insertion is graded against the
-        # DIRECT_INSERTION_* tolerances for reporting only (no hard box gating).
+        # PSO DIRECT-INSERTION PATH — PSO finds [gamma_p, t_burn_pct] for a
+        # single continuous Stage-2 burn targeting the DIRECT_INSERTION_* box.
         # =====================================================================
-        elif _coast_method == 'direct':
+        elif _direct_pso:
 
             from Simulation.direct_pso_solver import (
                 run_pso_direct_optimization,
@@ -784,14 +728,11 @@ def execute():
                 if ra.time_atmosphere_exit is not None:
                     print(f"\t* T+{ra.time_atmosphere_exit:.2f}s\t\tAtmosphere exit (65 km)")
                 if ra.time_main_engine_cutoff is not None:
-                    if r_specs.NUM_STAGES == 1:
-                        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tEngine cutoff (burnout / orbit insertion)")
-                    else:
-                        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
-                        print(f"\t* T+{ra.time_main_engine_cutoff + 3.0:.2f}s\t\tStage separation")
-                        print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\tStage 2 ignition")
-                        print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\t{sim_params.GUIDANCE_MODE} guidance active")
-                if r_specs.NUM_STAGES != 1 and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+                    print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 3.0:.2f}s\t\tStage separation")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\tStage 2 ignition")
+                    print(f"\t* T+{ra.time_main_engine_cutoff + 8.0:.2f}s\t\t{sim_params.GUIDANCE_MODE} guidance active")
+                if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
                     print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s"
                           f"\t\tStage 2 cutoff / orbit insertion")
                 print(f"\t* T+{time[-1]:.2f}s\t\t\tSimulation end (stable orbit)")
@@ -814,18 +755,6 @@ def execute():
                         best_azimuth_override,
                         sim_params,
                     )
-
-                if (sim_params.GUIDANCE_MODE != "gravity_turn"
-                        and ra.time_guidance_start is None):
-                    print("\n" + "!" * 60)
-                    print("[WARNING] GUIDANCE NEVER ACTIVATED")
-                    print("!" * 60)
-                    print(f"  GUIDANCE_MODE = '{sim_params.GUIDANCE_MODE}' was configured but")
-                    print( "  guidance never engaged during the simulation.  Stage 1 likely")
-                    print( "  reached the target orbit before MECO, so Stage 2 never ignited.")
-                    print( "  The rocket flew a pure gravity-turn trajectory throughout.")
-                    print( "  → See the NOTE near PLANET in simulation_parameters.py.")
-                    print("!" * 60)
 
                 print("\n" + "="*60)
                 print("SIMULATION COMPLETE")
@@ -959,16 +888,13 @@ def execute():
                     print(f"\t* T+{ra.time_guidance_start:.2f}s\t\t{guidance_activation_msg} activation")
 
                 if ra.time_main_engine_cutoff is not None:
-                    if r_specs.NUM_STAGES == 1:
-                        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tEngine cutoff (burnout / orbit insertion)")
-                    else:
-                        print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
-                        stage_sep_time = ra.time_main_engine_cutoff + 3.0
-                        print(f"\t* T+{stage_sep_time:.2f}s\t\tStage separation")
-                        stage2_ignition_time = ra.time_main_engine_cutoff + 8.0
-                        print(f"\t* T+{stage2_ignition_time:.2f}s\t\tStage 2 ignition")
+                    print(f"\t* T+{ra.time_main_engine_cutoff:.2f}s\t\tStage 1 engine cutoff (MECO)")
+                    stage_sep_time = ra.time_main_engine_cutoff + 3.0
+                    print(f"\t* T+{stage_sep_time:.2f}s\t\tStage separation")
+                    stage2_ignition_time = ra.time_main_engine_cutoff + 8.0
+                    print(f"\t* T+{stage2_ignition_time:.2f}s\t\tStage 2 ignition")
 
-                if r_specs.NUM_STAGES != 1 and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
+                if ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None:
                     print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tStage 2 cutoff (SECO)")
                     print(f"\t* T+{ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL:.2f}s\t\tCoast phase to apogee begins")
 
@@ -1007,22 +933,10 @@ def execute():
                         sim_params,
                     )
 
-                if (sim_params.GUIDANCE_MODE != "gravity_turn"
-                        and ra.time_guidance_start is None):
-                    print("\n" + "!" * 60)
-                    print("[WARNING] GUIDANCE NEVER ACTIVATED")
-                    print("!" * 60)
-                    print(f"  GUIDANCE_MODE = '{sim_params.GUIDANCE_MODE}' was configured but")
-                    print( "  guidance never engaged during the simulation.  Stage 1 likely")
-                    print( "  reached the target orbit before MECO, so Stage 2 never ignited.")
-                    print( "  The rocket flew a pure gravity-turn trajectory throughout.")
-                    print( "  → See the NOTE near PLANET in simulation_parameters.py.")
-                    print("!" * 60)
-
                 print("\n" + "="*60)
                 print("SIMULATION COMPLETE")
                 print("="*60 + "\n")
-
+    
     # Plot the results
     print("Generating new plot suite...")
 
