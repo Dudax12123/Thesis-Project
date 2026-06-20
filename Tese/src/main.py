@@ -763,25 +763,15 @@ def execute():
                       f"({t_burn_pct_opt:.2f} % of T_max)")
 
                 mf = data[4, -1]
-                if r_specs.NUM_STAGES == 1:
-                    # Single stage: one engine, one propellant load (M_PROP_1).
-                    p_remaining = max(0.0, mf - (r_specs.M_STRUCTURE_1 + r_specs.M_PAYLOAD))
-                    p_used      = r_specs.M_PROP_1 - p_remaining
-                    print(f"\n\t  PROPELLANT USAGE:")
-                    print(f"\t  Propellant used:                {p_used:.1f} kg "
-                          f"({100.0 * p_used / r_specs.M_PROP_1:.1f}% "
-                          f"of {r_specs.M_PROP_1:.0f} kg)")
-                    print(f"\t  Propellant remaining:           {p_remaining:.1f} kg")
-                else:
-                    p2_remaining = max(0.0, mf - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
-                    p2_used      = r_specs.M_PROP_2 - p2_remaining
-                    total_used   = r_specs.M_PROP_1 + p2_used
-                    print(f"\n\t  PROPELLANT USAGE:")
-                    print(f"\t  Total propellant used (S1+S2):  {total_used:.1f} kg")
-                    print(f"\t  Stage-2 propellant used:        {p2_used:.1f} kg "
-                          f"({100.0 * p2_used / r_specs.M_PROP_2:.1f}% "
-                          f"of {r_specs.M_PROP_2:.0f} kg)")
-                    print(f"\t  Stage-2 propellant remaining:   {p2_remaining:.1f} kg")
+                p2_remaining = max(0.0, mf - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
+                p2_used      = r_specs.M_PROP_2 - p2_remaining
+                total_used   = r_specs.M_PROP_1 + p2_used
+                print(f"\n\t  PROPELLANT USAGE:")
+                print(f"\t  Total propellant used (S1+S2):  {total_used:.1f} kg")
+                print(f"\t  Stage-2 propellant used:        {p2_used:.1f} kg "
+                      f"({100.0 * p2_used / r_specs.M_PROP_2:.1f}% "
+                      f"of {r_specs.M_PROP_2:.0f} kg)")
+                print(f"\t  Stage-2 propellant remaining:   {p2_remaining:.1f} kg")
 
                 # Mission event timeline for PSO direct insertion
                 print("\n" + "="*60)

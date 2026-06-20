@@ -1,14 +1,5 @@
 # Thesis Project — Session Handoff (2026-06-14)
 
-> **SUPERSEDED (2026-06-18):** `DIRECT_OPTIMIZATION_MODE` has been **removed** —
-> `COAST_METHOD = "direct"` is now **always** the 2-variable PSO
-> (`direct_pso_solver`), the brute-force direct path is gone, and `direct` now
-> also supports single-stage vehicles. References below to
-> `DIRECT_OPTIMIZATION_MODE`, `brute_force` direct, and `_direct_pso` are
-> historical. See `Tese/Project_Description/optimization_process_explanation.md`
-> (§4.2/§4.4) and the `direct-insertion-cutoff` / `vehicle-registry-single-stage`
-> memories for the current architecture.
-
 > This replaces the older `handoff.md`, which described an `indirect_pmp` /
 > `Final_TPBVP`-branch setup that is no longer the active configuration.
 

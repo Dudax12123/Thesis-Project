@@ -22,9 +22,10 @@ pressure, etc.) via `Plots/new_plot_runner.py`.
 
 - `numpy`, `scipy`, `matplotlib` — required for every configuration.
 - `pygmo` — required only when `COAST_METHOD = "pso_coast"`,
-  `COAST_METHOD = "direct"`, or `GUIDANCE_MODE = "indirect_pmp"`. These
-  configurations raise an `ImportError` with installation instructions
-  (`conda install -c conda-forge pygmo`) if `pygmo` is missing.
+  `COAST_METHOD = "direct"` with `DIRECT_OPTIMIZATION_MODE = "pso"`, or
+  `GUIDANCE_MODE = "indirect_pmp"`. These configurations raise an `ImportError`
+  with installation instructions (`conda install -c conda-forge pygmo`) if
+  `pygmo` is missing.
 
 ## Configuration
 
@@ -46,9 +47,10 @@ The two most important switches are:
   - `"pso_coast"` — 4-variable PyGMO PSO optimizes a
     thrust → coast → thrust profile for direct orbit insertion (requires
     `pygmo`).
-  - `"direct"` — a single continuous burn straight to orbit insertion,
-    optimized by a 2-variable PyGMO PSO (`gamma_p` + burn duration; requires
-    `pygmo`). The only `COAST_METHOD` that supports single-stage vehicles.
+  - `"direct"` — a single continuous Stage-2 burn cut at orbital insertion,
+    either via a 1-D brute-force kick-angle sweep
+    (`DIRECT_OPTIMIZATION_MODE = "brute_force"`) or a 2-variable PyGMO PSO
+    (`DIRECT_OPTIMIZATION_MODE = "pso"`, requires `pygmo`).
 
   See [`Project_Description/optimization_process_explanation.md`](Project_Description/optimization_process_explanation.md)
   for details on all three optimization paths.
