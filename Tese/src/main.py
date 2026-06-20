@@ -405,8 +405,6 @@ def execute():
     if sim_params.GUIDANCE_MODE != "indirect_pmp":
 
         _coast_method = getattr(sim_params, 'COAST_METHOD', 'apogee_check')
-        _direct_pso = (_coast_method == 'direct' and getattr(
-            sim_params, 'DIRECT_OPTIMIZATION_MODE', 'brute_force') == 'pso')
 
         # =====================================================================
         # PSO COAST PATH — PSO finds [delta_tc, delta_tr_pct, coast_start%, γ_p]
@@ -599,7 +597,7 @@ def execute():
         # PSO DIRECT-INSERTION PATH — PSO finds [gamma_p, t_burn_pct] for a
         # single continuous Stage-2 burn targeting the DIRECT_INSERTION_* box.
         # =====================================================================
-        elif _direct_pso:
+        elif _coast_method == 'direct':
 
             from Simulation.direct_pso_solver import (
                 run_pso_direct_optimization,
@@ -812,12 +810,8 @@ def execute():
                 print("!"*60 + "\n")
                 _simulation_failed = True
 
-            _is_direct = getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct'
-
             # Check for failed simulation (sentinel value means no valid trajectory was found).
-            # In direct mode a propellant-limited run still has a meaningful achieved orbit, so
-            # report it rather than aborting.
-            if (not _simulation_failed and not _is_direct
+            if (not _simulation_failed
                     and m_propellant_total is not None and m_propellant_total >= 9999999.0):
                 print("\n" + "!"*60)
                 print("OPTIMISATION FAILED — NO VALID TRAJECTORY FOUND")
@@ -828,11 +822,6 @@ def execute():
                 print("Expand the kick-angle range or check guidance mode / target altitude.")
                 print("!"*60 + "\n")
                 _simulation_failed = True
-            elif _is_direct and not _simulation_failed and not ra.LAST_DIRECT_INSERTION_REACHED:
-                print("\n[direct] No kick angle achieved a clean insertion (circular velocity "
-                      "reached with γ and altitude within tolerance) — the law either fell "
-                      "short on propellant or hit circular velocity at the wrong γ/altitude. "
-                      "Reporting the best achieved orbit below.\n")
 
             if not _simulation_failed:
                 # Calculate final orbital elements

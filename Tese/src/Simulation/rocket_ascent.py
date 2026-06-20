@@ -140,7 +140,7 @@ AZIMUTH_MODE_USED = "corrected"     # Active azimuth mode used during current ru
 LAST_ACHIEVED_INCLINATION_DEG = np.nan
 LAST_INCLINATION_DRIFT_DEG = np.nan
 
-# Direct-insertion outcome flags from the latest full-simulation run (COAST_METHOD=="direct")
+# Direct-insertion outcome flags, set by direct_pso_solver (COAST_METHOD=="direct", PSO)
 LAST_DIRECT_MECO = False              # reached circular velocity (MECO fired)
 LAST_DIRECT_INSERTION_REACHED = False # clean insertion (v, γ, alt all within tolerance)
 
@@ -282,31 +282,6 @@ def interrupt_velocity_exceeded(t, y):
     if sim_params.ENABLE_EARTH_ROTATION:
         lat = get_latitude_from_downrange(y[0])
         v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, lat, r_val)
-        return v_inertial - v_desired
-
-    return v - v_desired
-
-
-def interrupt_direct_meco(t, y):
-    """
-    Direct-insertion MECO trigger (COAST_METHOD == "direct").
-
-    Fires (direction=+1) the instant the inertial velocity first reaches circular
-    √(μ/r_target).  Unlike interrupt_velocity_exceeded (which uses the current
-    downrange latitude and is shared with Stage 1), this uses LAUNCH_LATITUDE_RAD
-    so the cutoff velocity is consistent with the direct-insertion box check
-    (interrupt_direct_insertion) and the SECO inertial conversion in run() — i.e.
-    at MECO the box's velocity term is satisfied by construction, leaving the
-    flight-path-angle and altitude errors to grade insertion quality.
-    """
-    r_val = y[1]
-    v = y[2]
-    gamma = y[3]
-    r_desired = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    v_desired = np.sqrt(c.MU_EARTH / r_desired)
-
-    if sim_params.ENABLE_EARTH_ROTATION:
-        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_LATITUDE_RAD, r_val)
         return v_inertial - v_desired
 
     return v - v_desired
@@ -1568,19 +1543,10 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
                          interrupt_velocity_exceeded]
 
     elif stage_2_flag:
-        if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct':
-            # Direct insertion: cut the burn (MECO) the instant inertial velocity
-            # reaches circular √(μ/r_target) — the standard insertion trigger — so
-            # the engine never over-burns past insertion.  Keep ground_collision at
-            # index 2 (downstream crash check).  Whether γ and altitude also landed
-            # within tolerance is assessed afterwards in run() (the target-box check).
-            interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
-                             interrupt_ground_collision, interrupt_direct_meco]
-        else:
-            # Coasting single burn trajectory
-            interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
-                             interrupt_ground_collision, interrupt_single_burn_traj,
-                             interrupt_horizontal_check]
+        # Coasting single burn trajectory
+        interrupt_list = [interrupt_radius_check, interrupt_stage_2_burnt,
+                         interrupt_ground_collision, interrupt_single_burn_traj,
+                         interrupt_horizontal_check]
     else:
         interrupt_list = [interrupt_ground_collision]
 
@@ -1592,11 +1558,7 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
     # This prevents spurious re-triggers caused by numerical fluctuations once the orbit
     # already exceeds the target apogee (direction=0 would fire on the downward crossing too).
     if stage_2_flag:
-        if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct':
-            # Fire MECO when inertial velocity first crosses circular upward.
-            interrupt_direct_meco.direction = 1
-        else:
-            interrupt_single_burn_traj.direction = 1
+        interrupt_single_burn_traj.direction = 1
     
     return solve_ivp(rocket_dynamics, y0=state_init, t_span=t_span, t_eval=t_eval,
                     max_step=1, events=interrupt_list, atol=1e-8)
@@ -2080,95 +2042,6 @@ def run(initial_kick_angle, azimuth_override=None):
               f"gamma_inertial={np.rad2deg(gamma_stop):.2f} deg")
         print(f"    a={a_stop/1000:.2f} km, e={e_stop:.4f}, "
               f"apo={(r_apo_stop-c.R_EARTH)/1000:.2f} km, peri={(r_peri_stop-c.R_EARTH)/1000:.2f} km")
-
-    # ===================================================================
-    # DIRECT INSERTION (COAST_METHOD == "direct"): the Stage-2 insertion
-    # state IS the orbit — no coast-to-apogee, no circularisation burn.
-    # ===================================================================
-    if getattr(sim_params, 'COAST_METHOD', 'apogee_check') == 'direct':
-        # MECO fires when inertial velocity reaches circular (interrupt index 3).
-        # If it never fired, the burn ended propellant-limited / radius-cut and the
-        # orbit is under-speed.
-        meco_reached = len(sol_2.t_events[3]) > 0
-        # Clean insertion = at cutoff, v≈circular AND γ≈0 AND alt≈target (the box).
-        # interrupt_direct_insertion returns the normalised box margin (≤ 0 ⇔ clean).
-        # With the velocity-MECO trigger the velocity term is satisfied by
-        # construction, so this effectively grades the γ and altitude errors.
-        box_margin = interrupt_direct_insertion(0.0, sol_2.y[:, -1])
-        insertion_reached = box_margin <= 0.0
-        fairing_in_mass = r.M_FAIRING if not fairing_jettisoned else 0.0
-        m_propellant_left = sol_2.y[4, -1] - (r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_in_mass)
-        m_propellant_used = r.M_PROP_2 - m_propellant_left
-
-        # Optimiser objective (only used in optimisation mode): when the insertion
-        # is clean, minimise propellant (the user's objective).  Otherwise return a
-        # value graded by how far outside the box the insertion landed, so the kick
-        # search still converges to the BEST achievable direct insertion rather than
-        # stalling on a flat sentinel.  The ranking must be
-        #   clean (= propellant, < M_PROP_2 ≈ 9.3e4)  <  non-clean flying  <  crash (9999999),
-        # so flying-but-imperfect always beats a kick that pitches into the ground.
-        # Base 1e6 sits above any clean propellant; the result is capped just below
-        # the 9999999 crash sentinel.
-        if insertion_reached:
-            objective_2nd_stage = m_propellant_used
-        else:
-            objective_2nd_stage = min(1e6 + 1e4 * max(box_margin, 0.0), 9.9e6)
-
-        if not SINGLE_BURN_FULL_SIMULATION:
-            thrust_data = np.array(thrust_history)
-            time_thrust = np.array(time_history)
-            alpha_data = np.array(alpha_history)
-            alpha_time_data = np.array(alpha_time_history)
-            coriolis_mag_data = np.array(coriolis_mag_history)
-            centrifugal_mag_data = np.array(centrifugal_mag_history)
-            return time_steps_simulation, data, alt_stop, 0.0, objective_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
-
-        # ----- Full simulation: report + propagate the achieved orbit -----
-        LAST_DIRECT_MECO = meco_reached
-        LAST_DIRECT_INSERTION_REACHED = insertion_reached
-        TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = sol_2.t[-1]
-        r.C_D = 0.
-        print("\n[DIRECT INSERTION]")
-        print("\t* Reached circular velocity (MECO):\t", meco_reached)
-        print("\t* Insertion altitude:\t\t\t", alt_stop / 1000.0, "km")
-        print("\t* Insertion velocity (inertial):\t", v_stop, "m/s")
-        print("\t* Insertion FPA (inertial):\t\t", np.rad2deg(gamma_stop), "deg")
-        print("\t* Clean insertion (v,γ,alt within tol):\t", insertion_reached)
-        print("\t* Achieved orbit: e=%.6f  apo=%.2f km  peri=%.2f km"
-              % (e_stop, (r_apo_stop - c.R_EARTH) / 1000.0, (r_peri_stop - c.R_EARTH) / 1000.0))
-        print("\t* Propellant used (2nd stage):\t\t", m_propellant_used, "kg")
-        print("\t* Propellant left:\t\t\t", m_propellant_left, "kg")
-        if not meco_reached:
-            print("\t* NOTE: circular velocity not reached (propellant-limited) — "
-                  "reporting the achieved under-speed orbit above.")
-        elif not insertion_reached:
-            print("\t* NOTE: reached circular velocity but γ/altitude outside tolerance "
-                  "(insertion error) — reporting the achieved orbit above.")
-
-        # Propagate the achieved orbit forward (inertial) for plotting / final elements.
-        second_stage_cutoff = True
-        PROPAGATING_IN_INERTIAL_FRAME = True
-        initial_state_post = sol_2.y[:, -1].copy()
-        if sim_params.ENABLE_EARTH_ROTATION:
-            v_eci, gamma_eci = get_inertial_state_components(
-                initial_state_post[1], initial_state_post[2], initial_state_post[3],
-                LAUNCH_LATITUDE_RAD)
-            initial_state_post[2] = v_eci
-            initial_state_post[3] = gamma_eci
-        sol_post = simulate_trajectory(sol_2.t[-1], sim_params.DURATION_AFTER_SIMULATION,
-                                       initial_state_post, False, False)
-        data = np.concatenate((sol_1.y, sol_2.y, sol_post.y), axis=1)
-        time_steps_simulation = np.concatenate((sol_1.t, sol_2.t, sol_post.t))
-        thrust_data = np.array(thrust_history)
-        time_thrust = np.array(time_history)
-        alpha_data = np.array(alpha_history)
-        alpha_time_data = np.array(alpha_time_history)
-        coriolis_mag_data = np.array(coriolis_mag_history)
-        centrifugal_mag_data = np.array(centrifugal_mag_history)
-        # Full-sim reports the TRUE propellant actually used (the optimiser objective
-        # above is only for the kick search); clean/under-speed status is conveyed via
-        # the LAST_DIRECT_* globals and the [DIRECT INSERTION] block printed above.
-        return time_steps_simulation, data, alt_stop, 0.0, m_propellant_used, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
     epsilon = (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE) * sim_params.APOGEE_MATCH_TOL_FRAC
     diff = abs(r_apo_stop - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE))

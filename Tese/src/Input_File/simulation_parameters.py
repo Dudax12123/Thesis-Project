@@ -20,7 +20,7 @@ DURATION_INITIAL_KICK = 45.                     # duration of the triangular alp
 KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
 
 # -------------- Aerodynamics --------------
-INCLUDE_LIFT = False                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
 
 # -------------- Desired Orbit --------------
 TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
@@ -30,7 +30,7 @@ ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation ef
 LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
 TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = False                # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+INCLUDE_PSEUDO_FORCES = True               # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
 INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
 TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
@@ -116,7 +116,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
-GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- Polynomial Guidance Parameters --------------
 # (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
@@ -316,38 +316,29 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                    which the thrust-coast-thrust split forbids. Prefer a
 #                    feedback law (linear_tangent, apollo, peg, peg_new) here.
 #   "direct"       : Continuous single Stage-2 burn to DIRECT orbit insertion —
-#                    no coast, no circularisation burn. The selected guidance law
-#                    steers the burn, which is cut (MECO) the instant the inertial
-#                    velocity reaches circular √(μ/r_target) — the standard orbit-
-#                    insertion trigger, so the engine never over-burns past
-#                    insertion. Whether the flight-path angle and altitude ALSO
-#                    landed within tolerance (a "clean" insertion) is then reported
-#                    together with the achieved orbit (eccentricity, apo/peri). If
-#                    Stage-2 propellant depletes before circular velocity is
-#                    reached, the achieved under-speed orbit is reported instead.
+#                    no coast, no circularisation burn. Always PSO: a 2-variable
+#                    PSO (direct_pso_solver) optimises gamma_p (kick angle) AND the
+#                    Stage-2 burn duration so the insertion lands in the
+#                    DIRECT_INSERTION_* box — inertial velocity = circular
+#                    √(μ/r_target), flight-path angle ≈ 0, altitude ≈ target.
+#                    The achieved orbit (eccentricity, apo/peri) and whether the
+#                    insertion was "clean" (all three within tolerance) are
+#                    reported. Requires PyGMO. Has no effect when
+#                    GUIDANCE_MODE = "indirect_pmp" (that mode runs its own PSO).
 #                    Intended for the direct-insertion laws (peg, peg_new, apollo).
-COAST_METHOD = "direct"   # Options: "apogee_check", "pso_coast", "direct"
+COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct"
 
 # -------------- Direct-insertion tolerances --------------
-# (only used when COAST_METHOD == "direct") The Stage-2 burn is cut (MECO) when the
-# inertial velocity reaches circular √(μ/r_target). At that cutoff the insertion is
-# graded "clean" only if the velocity, flight-path-angle AND altitude errors are all
-# within the tolerances below; otherwise the achieved orbit is reported as-is and the
-# kick optimiser converges to the smallest combined (tolerance-normalised) box error.
+# (only used when COAST_METHOD == "direct") The insertion is graded "clean" only if
+# the velocity, flight-path-angle AND altitude errors are all within the tolerances
+# below; otherwise the achieved orbit is reported as-is and the PSO objective grades
+# how far outside the box the insertion landed.
 DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
 DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
 DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
 
-# -------------- Direct-insertion optimisation mode --------------
-#   "brute_force" : existing 1-variable kick-angle sweep; burn runs until
-#                    interrupt_direct_meco fires or propellant depletes.
-#   "pso"         : 2-variable PSO (direct_pso_solver) jointly optimises
-#                    gamma_p (kick angle) AND Stage-2 burn duration, targeting
-#                    the DIRECT_INSERTION_* box directly.
-DIRECT_OPTIMIZATION_MODE = "pso"   # Options: "brute_force", "pso"
-
 # -------------- PSO DIRECT algorithm settings --------------
-# (only used when COAST_METHOD == "direct" and DIRECT_OPTIMIZATION_MODE == "pso")
+# (only used when COAST_METHOD == "direct")
 PSO_DIRECT_N_PARTICLES     = 50
 PSO_DIRECT_MAX_GENERATIONS = 100
 PSO_DIRECT_C1              = 2.05
