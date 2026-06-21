@@ -62,13 +62,17 @@ no-ops. Walk them top-to-bottom.
 └─────────────────────────────────────────────────────────────────────────────┘
         │
 ┌─ STEP 3 ── GUIDANCE_MODE × COAST_METHOD compatibility ──────────────────────┐
-│  exp_shooting + pso_coast      → FORBIDDEN, raises ValueError (main.py:213). │
+│  exp_shooting + pso_coast      → SUPPORTED: PSO optimises the pitch-law       │
+│                                  coeffs (a, b) as 2 extra decision vars,     │
+│                                  re-epoched per arc (no per-arc fsolve).      │
 │  apollo + apogee_check         → documented unworkable pairing (cut on the   │
 │                                  wrong condition); use peg_new or "direct".  │
 │  cpr + apogee_check            → kick forced to 0, no kick optimisation      │
 │                                  (main.py:761). cpr flies vertical first.    │
-│  cpr + pso_coast/direct        → steered by gamma_p like every other mode    │
-│                                  AND uses a different initial theta (see §4). │
+│  cpr + pso_coast/direct        → flies the gamma_p kick like every mode;     │
+│                                  PSO optimises theta_dot (1 extra var). The  │
+│                                  legacy Stage-1 cpr branch is gated off here │
+│                                  (_IN_PSO_STAGE1) so it no longer crashes.   │
 └─────────────────────────────────────────────────────────────────────────────┘
         │
 ┌─ STEP 4 ── KICK_PROFILE_MODE ("triangular" | "instantaneous") ──────────────┐
@@ -117,15 +121,14 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `GUIDANCE_MODE` (L119) | `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`, `peg_new`, `exp_shooting`, `indirect_pmp` | `indirect_pmp` | The ascent steering law (post-kick / Stage-2). | Drives **everything**: `indirect_pmp` overrides `COAST_METHOD`; `exp_shooting` **forbids** `pso_coast`; `apollo` poor with `apogee_check`; `cpr` skips the kick. Invalid value **raises** (`main.py:201`). |
+| `GUIDANCE_MODE` (L119) | `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`, `peg_new`, `exp_shooting`, `indirect_pmp` | `indirect_pmp` | The ascent steering law (post-kick / Stage-2). | Drives **everything**: `indirect_pmp` overrides `COAST_METHOD`; `cpr`/`exp_shooting` add extra PSO vars under `pso_coast`; `apollo` poor with `apogee_check`; `cpr` skips the kick under apogee_check. Invalid value **raises** (`main.py:201`). |
 | `GUIDANCE_UPDATE_RATE` (L124) | float s | `2` | Recompute interval for apollo/linear/bilinear coefficients. | Only matters if `GUIDANCE_COEFFICIENTS_FIXED=False`. |
 | `APOLLO_FREEZE_THRESHOLD` (L125) | float s | `10.0` | t_go below which apollo/peg coefficients freeze (stability). | apollo, peg, peg_new only. |
 | `APOLLO_THRUST_MAGNITUDE_CONTROL` (L127) | `True`/`False` | `False` | If True, apollo also commands thrust magnitude. | apollo only. |
-| `GUIDANCE_COEFFICIENTS_FIXED` (L132) | `True`/`False` | `True` | Compute linear/bilinear coeffs once vs. every update. | linear/bilinear tangent only; gates `GUIDANCE_UPDATE_RATE`. |
-| `GUIDANCE_TGO_FIXED` (L135) | `True`/`False` | `False` | Freeze t_go at guidance start vs. recompute each step. | linear/bilinear tangent only. |
+| `GUIDANCE_COEFFICIENTS_FIXED` (L132) | `True`/`False` | `True` | Compute linear/bilinear coeffs once vs. every update; `t_go` always recomputed each step. | linear/bilinear tangent only; gates `GUIDANCE_UPDATE_RATE`. |
 | `GUIDANCE_TGO_USE_PSO_PLAN` (L140) | `True`/`False` | `False` | Use PSO-planned burn countdown for t_go instead of rocket-equation estimate. | **silently ignored** outside `pso_coast`/`direct(pso)`; excludes `peg_new`; affects apollo/linear/bilinear/cpr/peg. |
-| `CPR_THETA_DOT_MODE` (L150) | `tgo`, `manual` | `manual` | How CPR's constant pitch rate is set. | cpr only; `manual` activates `CPR_THETA_DOT`. |
-| `CPR_THETA_DOT` (L154) | float deg/s (rec. 0.1–0.5) | `0.4` | Manual CPR pitch rate (duration = 90°/rate). | cpr + `CPR_THETA_DOT_MODE="manual"` only. |
+| `CPR_THETA_DOT_MODE` (L150) | `tgo`, `manual` | `manual` | How CPR's constant pitch rate is set. | cpr + **`apogee_check` only**; `manual` activates `CPR_THETA_DOT`. Under `pso_coast` the rate is the PSO var `PSO_COAST_CPR_THETA_DOT_*`. |
+| `CPR_THETA_DOT` (L154) | float deg/s (rec. 0.1–0.5) | `0.4` | Manual CPR pitch rate (duration = 90°/rate). | cpr + `apogee_check` + `manual` only. |
 | `PEG_MAJOR_LOOP_RATE` (L159) | float s | `2.0` | PEG major-loop A,B,T recompute period. | peg only. |
 | `PEG_CONVERGENCE_MODE` (L161) | `damped`, `fixed_iter` | `damped` | PEG Guide+Estimate convergence method. | peg only; `damped` activates damping/tol. |
 | `PEG_CONVERGENCE_DAMPING` (L167) | float ∈ (0,1] | `0.5` | Damping factor. | peg + `damped` only. |
@@ -150,7 +153,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` **forbids** `exp_shooting`. |
+| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`. |
 | `DIRECT_INSERTION_VELOCITY_TOL_MS` (L337) | float m/s | `10.0` | "Clean insertion" velocity tolerance. | `COAST_METHOD="direct"` only (else unused). |
 | `DIRECT_INSERTION_FPA_TOL_DEG` (L338) | float deg | `0.5` | "Clean insertion" FPA tolerance. | `COAST_METHOD="direct"` only. |
 | `DIRECT_INSERTION_ALTITUDE_TOL_KM` (L339) | float km | `5.0` | "Clean insertion" altitude tolerance. | `COAST_METHOD="direct"` only. |
@@ -297,10 +300,10 @@ note the governing `file:line`.
 | `linear_tangent` | OK | OK | OK |
 | `bilinear_tangent` | OK | OK | OK |
 | `apollo` | ⚠ unworkable pairing — cuts on wrong condition (`simulation_parameters.py:78-84`); use `peg_new`/`direct` | OK | OK |
-| `cpr` | OK — kick forced to 0 (`main.py:761`) | OK — different initial θ (see §4) | OK — steered by gamma_p |
+| `cpr` | OK — kick forced to 0 (`main.py:761`) | OK — gamma_p kick + PSO `θ_dot` (5th var); Stage-1 branch gated off (`_IN_PSO_STAGE1`) | OK — steered by gamma_p |
 | `peg` | OK | OK | OK |
 | `peg_new` | OK | OK | OK |
-| `exp_shooting` | OK | ❌ **raises ValueError** (`main.py:213`) | OK (best structural fit — single continuous arc) |
+| `exp_shooting` | OK | OK — PSO optimises `a, b` (5th/6th vars), re-epoched per arc | OK (best structural fit — single continuous arc) |
 
 `indirect_pmp`: ✅ only via its own branch (`main.py:292`); `COAST_METHOD` has **no effect**.
 Requires PyGMO.
@@ -321,9 +324,11 @@ Each is legal to set but does something other than what you'd expect. With `file
   `indirect_pmp` the triangular ramp never happens — it only matters for `apogee_check`.
 
 - **`cpr` is physically different depending on `COAST_METHOD`.** The initial pitch angle θ₀ is
-  hardcoded to π/2 (vertical) in the legacy path (`rocket_ascent.py:1076`) but set to the *current*
-  flight-path angle γ at guidance start in the PSO path (`pso_coast_solver.py:286`). Same
-  `GUIDANCE_MODE="cpr"`, different θ₀ → different θ_dot → different trajectory.
+  hardcoded to π/2 (vertical) in the legacy `apogee_check` path (`rocket_ascent.py:1076`) but set to
+  the *current* flight-path angle γ at guidance start in the PSO path (`pso_coast_solver.py`). Under
+  `pso_coast`, θ_dot is a PSO decision variable (not `CPR_THETA_DOT`), and the legacy Stage-1 cpr
+  branch is gated off (`_IN_PSO_STAGE1`) so cpr flies the normal gamma_p kick — this fixed the former
+  `brentq` Stage-1 crash. Same `GUIDANCE_MODE="cpr"`, different θ₀ → different trajectory per path.
 
 - **`GUIDANCE_TGO_USE_PSO_PLAN` only affects the PSO solvers and skips `peg_new`.** It has no effect
   in the legacy `run()` (always uses the rocket-equation t_go estimate); inside the PSO solvers it

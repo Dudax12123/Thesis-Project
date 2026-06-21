@@ -207,15 +207,10 @@ def execute():
             f"Unsupported GUIDANCE_MODE {sim_params.GUIDANCE_MODE!r}. "
             f"Valid options: {sorted(_VALID_GUIDANCE_MODES)}")
 
-    # exp_shooting is an open-loop burn-to-depletion BVP — structurally
-    # incompatible with the pso_coast thrust-coast-thrust split. It remains valid
-    # for apogee_check (a single continuous burn).
-    if (sim_params.GUIDANCE_MODE == "exp_shooting"
-            and getattr(sim_params, "COAST_METHOD", "apogee_check") == "pso_coast"):
-        raise ValueError(
-            "GUIDANCE_MODE='exp_shooting' is not supported with COAST_METHOD='pso_coast' "
-            "(its single-burn-to-depletion BVP cannot honour the coast split). Use a feedback "
-            "law (linear_tangent, apollo, peg, peg_new) or set COAST_METHOD='apogee_check'.")
+    # NOTE: exp_shooting + pso_coast is now supported — under pso_coast the (a, b)
+    # pitch-law coefficients are PSO decision variables (re-epoched per arc), so
+    # the open-loop law is fitted by the swarm rather than a single burn-to-
+    # depletion shooting solve. (apogee_check still uses the fsolve shooting law.)
 
     # Display guidance mode
     guidance_mode_names = {
@@ -432,7 +427,10 @@ def execute():
             print("PSO COAST — TRAJECTORY OPTIMISATION")
             print("="*60)
             print(f"  Guidance mode: {sim_params.GUIDANCE_MODE}")
-            print("  Optimising 4 variables: Δt_c, Δt_r%, coast_start%, γ_p")
+            _extra = {"cpr": " + θ_dot (pitch rate)",
+                      "exp_shooting": " + a, b (pitch-law coeffs)"}.get(
+                          sim_params.GUIDANCE_MODE, "")
+            print(f"  Base PSO variables: Δt_c, Δt_r%, coast_start%, γ_p{_extra}")
             print("  (kick-angle sweep is replaced by γ_p in the PSO)")
             print("="*60)
 
@@ -459,8 +457,9 @@ def execute():
              coriolis_mag_data, centrifugal_mag_data) = run_pso_coast_full(
                 optimal_params, verbose=True)
 
-            # Unpack for the shared display / plotting block below
-            delta_tc_opt, delta_tr_pct_opt, coast_start_pct_opt, gamma_p_opt = optimal_params
+            # Unpack for the shared display / plotting block below (cpr/exp_shooting
+            # append extra decision variables after the base 4 — slice defensively).
+            delta_tc_opt, delta_tr_pct_opt, coast_start_pct_opt, gamma_p_opt = optimal_params[:4]
             kick_angle_optimal     = gamma_p_opt - np.pi / 2.0
             best_azimuth_override  = None
             delta_v                = 0.0   # no separate circularisation burn

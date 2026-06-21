@@ -130,11 +130,9 @@ APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude contr
 # -------------- Linear / Bilinear Tangent Steering Parameters --------------
 # (Only used if GUIDANCE_MODE is "linear_tangent" or "bilinear_tangent")
 GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are computed once at guidance
-                                              # start and held constant; only t_go varies each step.
+                                              # start and held constant; only t_go varies each step
+                                              # (t_go is always recomputed each step).
                                               # If False (default), recomputed every GUIDANCE_UPDATE_RATE s.
-GUIDANCE_TGO_FIXED = False                    # If True, t_go is computed once at guidance start and
-                                              # held constant throughout guidance.
-                                              # If False (default), recomputed every ODE step.
 
 # -------------- PSO-Planned t_go Override (PSO solvers only) --------------
 GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear_tangent/bilinear_tangent/
@@ -146,7 +144,9 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
                                               # rocket_ascent.run()).
 
 # -------------- Constant Pitch Rate (CPR) Guidance Parameters --------------
-# (Only used if GUIDANCE_MODE is "cpr")
+# (Only used by COAST_METHOD="apogee_check". Under "pso_coast" the constant
+#  pitch rate is a PSO decision variable — see PSO_COAST_CPR_THETA_DOT_* below —
+#  so these two are ignored there.)
 CPR_THETA_DOT_MODE = "manual"       # How to determine the constant pitch rate:
                                   #   "tgo":    θ_dot = (90°) / t_go  where t_go is from the
                                   #             Apollo propellant-based rocket-equation estimate
@@ -387,3 +387,19 @@ PSO_COAST_W_ALTITUDE  = 100.0   # relative altitude error  (1% error → 1.0)
 PSO_COAST_W_VELOCITY  = 100.0   # relative velocity error  (1% error → 1.0)
 PSO_COAST_W_FPA       = 10.0    # FPA error in deg         (1 deg  → 10.0)
 PSO_COAST_GAMMA_REF_DEG = 1.0   # FPA non-dimensionalisation reference [deg]
+
+# -------------- Per-guidance EXTRA pso_coast decision variables --------------
+# Under COAST_METHOD="pso_coast", cpr and exp_shooting expose extra decision
+# variables appended after the 4 base vars [delta_tc, delta_tr_pct,
+# coast_start_pct, gamma_p]:
+#   cpr          -> + theta_dot  (constant pitch rate, rad/s, optimised by PSO;
+#                                  initial pitch is set by gamma_p via the kick)
+#   exp_shooting -> + a, b        (open-loop pitch law θ = a·exp(b·t_rel),
+#                                  α = θ − γ; coefficients optimised by the PSO
+#                                  instead of the per-arc fsolve shooting solve)
+PSO_COAST_CPR_THETA_DOT_LB_DEG = 0.02   # [deg/s] lower bound for cpr pitch rate
+PSO_COAST_CPR_THETA_DOT_UB_DEG = 1.0    # [deg/s] upper bound for cpr pitch rate
+PSO_COAST_EXP_A_LB = 0.0     # exp_shooting a (initial commanded pitch ≈ [rad])
+PSO_COAST_EXP_A_UB = 1.6
+PSO_COAST_EXP_B_LB = -0.05   # exp_shooting b (pitch decay rate [1/s])
+PSO_COAST_EXP_B_UB = 0.005

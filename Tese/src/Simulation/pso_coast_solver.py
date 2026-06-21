@@ -128,7 +128,6 @@ class GuidanceState:
     guidance_phase_active: bool = False
     time_guidance_start: float = 0.0
     last_guidance_update_time: float = 0.0
-    guidance_initial_tgo: Optional[float] = None
     guidance_coefficients: List[float] = field(
         default_factory=lambda: [0.0, 0.0, 0.0, 0.0])
 
@@ -166,6 +165,16 @@ class GuidanceState:
     cpr_theta_initial: Optional[float] = None
     cpr_theta_dot: Optional[float] = None
     cpr_t_start: Optional[float] = None
+
+    # PSO-provided extra decision variables (pso_coast). When set (not None) they
+    # override the per-mode default: cpr uses pso_cpr_theta_dot (the PSO-optimised
+    # constant pitch rate) instead of CPR_THETA_DOT/tgo; exp_shooting uses
+    # (pso_exp_a, pso_exp_b) instead of the per-arc fsolve shooting solve. These
+    # are constant for the whole trajectory and are NOT reset by
+    # restart_for_new_burn (only the working copies are).
+    pso_cpr_theta_dot: Optional[float] = None
+    pso_exp_a: Optional[float] = None
+    pso_exp_b: Optional[float] = None
 
     # Alpha / time log for dense-output post-processing
     alpha_log: List[float] = field(default_factory=list)
@@ -283,8 +292,14 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
         gs.last_guidance_update_time = t
 
         if mode == "cpr":
+            # Initial pitch = current FPA (set by the PSO gamma_p kick), so alpha
+            # is continuous (0) at ignition. The constant pitch rate is the PSO
+            # decision variable pso_cpr_theta_dot; CPR_THETA_DOT/MODE are only the
+            # fallback used by the apogee_check path (not reached here).
             gs.cpr_theta_initial = gamma
-            if sim_params.CPR_THETA_DOT_MODE == "manual":
+            if gs.pso_cpr_theta_dot is not None:
+                gs.cpr_theta_dot = gs.pso_cpr_theta_dot
+            elif sim_params.CPR_THETA_DOT_MODE == "manual":
                 gs.cpr_theta_dot = np.deg2rad(sim_params.CPR_THETA_DOT)
             else:
                 tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, None)
@@ -297,7 +312,6 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.apollo_previous_tgo = tgo
             else:
                 gs.lts_previous_tgo = tgo
-            gs.guidance_initial_tgo = tgo
 
             if mode == "linear_tangent":
                 gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
@@ -343,15 +357,18 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.peg_new_frozen  = False
 
         elif mode == "exp_shooting":
-            # CAVEAT: exp_shooting solves a 2-point BVP that assumes a SINGLE
-            # continuous burn to propellant depletion. The pso_coast thrust-coast-
-            # thrust split structurally violates that assumption, so this mode is a
-            # weak fit here: it re-baselines at Arc-3 (restart_for_new_burn resets
-            # the epoch) but only behaves well if the PSO drives delta_tr_pct→100%
-            # with the coast at the very start. Prefer a feedback law (lts, apollo,
-            # peg, peg_new) with pso_coast.
-            gs.exp_shoot_a, gs.exp_shoot_b = exp_shoot_mod.optimize_exp_pitch(
-                state[:5], r_tgt, c.MU_EARTH, F_T, Isp, r.M_STRUCTURE_2, c.G_0)
+            # Under pso_coast the (a, b) pitch-law coefficients are PSO decision
+            # variables (pso_exp_a/pso_exp_b), so the open-loop law θ = a·exp(b·t_rel)
+            # is re-epoched at each thrust arc (restart_for_new_burn nulls the
+            # working copies) but uses the same PSO-optimised (a, b) — the coast is
+            # handled like the feedback laws (epoch reset), not via a per-arc
+            # shooting solve. Falls back to the fsolve shooting solve only if no PSO
+            # values were supplied (e.g. a direct apogee_check-style call).
+            if gs.pso_exp_a is not None:
+                gs.exp_shoot_a, gs.exp_shoot_b = gs.pso_exp_a, gs.pso_exp_b
+            else:
+                gs.exp_shoot_a, gs.exp_shoot_b = exp_shoot_mod.optimize_exp_pitch(
+                    state[:5], r_tgt, c.MU_EARTH, F_T, Isp, r.M_STRUCTURE_2, c.G_0)
             gs.exp_shoot_epoch = t
 
     # -----------------------------------------------------------------------
@@ -377,11 +394,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
                 gs.last_guidance_update_time = t
-            if sim_params.GUIDANCE_TGO_FIXED:
-                tgo = gs.guidance_initial_tgo
-            else:
-                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
-                gs.lts_previous_tgo = tgo
+            tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
+            gs.lts_previous_tgo = tgo
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
             alpha = lts_guidance.linear_tangent_steering(
@@ -395,11 +409,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.guidance_coefficients = bts_guidance.compute_bilinear_coefficients(
                     state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
                 gs.last_guidance_update_time = t
-            if sim_params.GUIDANCE_TGO_FIXED:
-                tgo = gs.guidance_initial_tgo
-            else:
-                tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
-                gs.lts_previous_tgo = tgo
+            tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
+            gs.lts_previous_tgo = tgo
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
             alpha = bts_guidance.bilinear_tangent_steering(
@@ -482,9 +493,12 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
         elif mode == "exp_shooting":
             if gs.exp_shoot_a is None:
-                gs.exp_shoot_a, gs.exp_shoot_b = exp_shoot_mod.optimize_exp_pitch(
-                    state[:5], r_tgt, c.MU_EARTH, F_T, Isp,
-                    r.M_STRUCTURE_2, c.G_0)
+                if gs.pso_exp_a is not None:
+                    gs.exp_shoot_a, gs.exp_shoot_b = gs.pso_exp_a, gs.pso_exp_b
+                else:
+                    gs.exp_shoot_a, gs.exp_shoot_b = exp_shoot_mod.optimize_exp_pitch(
+                        state[:5], r_tgt, c.MU_EARTH, F_T, Isp,
+                        r.M_STRUCTURE_2, c.G_0)
                 gs.exp_shoot_epoch = t
             alpha = exp_shoot_mod.exp_pitch_alpha(
                 t - gs.exp_shoot_epoch,
@@ -532,6 +546,7 @@ _event_crash.direction = -1
 # ===========================================================================
 
 def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
+                              cpr_theta_dot=None, exp_a=None, exp_b=None,
                               verbose=False):
     """
     Simulate a thrust–coast–thrust Stage-2 trajectory for one PSO particle.
@@ -598,6 +613,9 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     # Fresh GuidanceState: persists across Arc 1 → coast → Arc 3
     gs = GuidanceState()
     gs.tgo_deadline = t_ignition + T_burn_total
+    gs.pso_cpr_theta_dot = cpr_theta_dot   # cpr: PSO-optimised pitch rate
+    gs.pso_exp_a = exp_a                    # exp_shooting: PSO-optimised coeffs
+    gs.pso_exp_b = exp_b
 
     # ---- Arc 1: Thrust (t_ignition → t_ignition + t_coast_start) ----
     t_arc1_end = t_ignition + t_coast_start
@@ -743,6 +761,39 @@ def breakdown_coast_objective(result):
 
 
 # ===========================================================================
+# Decision-vector helpers (mode-dependent length)
+# ===========================================================================
+# Base decision vector (all modes): [delta_tc, delta_tr_pct, coast_start_pct,
+# gamma_p]. cpr appends [theta_dot]; exp_shooting appends [a, b].
+
+def _coast_bounds():
+    """(lb, ub) for the current guidance mode's pso_coast decision vector."""
+    lb = list(sim_params.PSO_COAST_LB)
+    ub = list(sim_params.PSO_COAST_UB)
+    mode = sim_params.GUIDANCE_MODE
+    if mode == "cpr":
+        lb.append(np.deg2rad(sim_params.PSO_COAST_CPR_THETA_DOT_LB_DEG))
+        ub.append(np.deg2rad(sim_params.PSO_COAST_CPR_THETA_DOT_UB_DEG))
+    elif mode == "exp_shooting":
+        lb += [sim_params.PSO_COAST_EXP_A_LB, sim_params.PSO_COAST_EXP_B_LB]
+        ub += [sim_params.PSO_COAST_EXP_A_UB, sim_params.PSO_COAST_EXP_B_UB]
+    return lb, ub
+
+
+def _unpack_coast_x(x):
+    """Split a decision vector into the 4 base vars + a dict of mode extras."""
+    delta_tc, delta_tr_pct, coast_start_pct, gamma_p = x[:4]
+    extras = {}
+    mode = sim_params.GUIDANCE_MODE
+    if mode == "cpr" and len(x) >= 5:
+        extras["cpr_theta_dot"] = float(x[4])
+    elif mode == "exp_shooting" and len(x) >= 6:
+        extras["exp_a"] = float(x[4])
+        extras["exp_b"] = float(x[5])
+    return delta_tc, delta_tr_pct, coast_start_pct, gamma_p, extras
+
+
+# ===========================================================================
 # PyGMO-compatible problem class
 # ===========================================================================
 
@@ -750,16 +801,25 @@ class CoastPSOProblem:
     """
     UDP for PyGMO's PSO algorithm.
     Decision vector: [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
+    (+ [theta_dot] for cpr, + [a, b] for exp_shooting).
     """
 
     def fitness(self, x):
-        delta_tc, delta_tr_pct, coast_start_pct, gamma_p = x
-        result = run_pso_coast_trajectory(
-            delta_tc, delta_tr_pct, coast_start_pct, gamma_p)
-        return [compute_coast_objective(result)]
+        # A raised exception (e.g. a Stage-1 brentq event-bracketing failure for
+        # an unlucky particle) must penalise only THAT particle, not abort the
+        # whole swarm — so any failure maps to CRASH_PENALTY.
+        try:
+            dtc, dtr, cs, gp, extras = _unpack_coast_x(x)
+            result = run_pso_coast_trajectory(
+                dtc, dtr, cs, gp,
+                cpr_theta_dot=extras.get("cpr_theta_dot"),
+                exp_a=extras.get("exp_a"), exp_b=extras.get("exp_b"))
+            return [compute_coast_objective(result)]
+        except Exception:
+            return [CRASH_PENALTY]
 
     def get_bounds(self):
-        return (sim_params.PSO_COAST_LB, sim_params.PSO_COAST_UB)
+        return tuple(_coast_bounds())
 
     def get_nobj(self):
         return 1
@@ -783,14 +843,16 @@ def run_pso_coast_optimization(verbose=True):
 
     n_particles = sim_params.PSO_COAST_N_PARTICLES
     n_gen       = sim_params.PSO_COAST_MAX_GENERATIONS
-    lb          = sim_params.PSO_COAST_LB
-    ub          = sim_params.PSO_COAST_UB
+    lb, ub      = _coast_bounds()
+    _extra_desc = {"cpr": " + θ_dot",
+                   "exp_shooting": " + a, b"}.get(sim_params.GUIDANCE_MODE, "")
 
     if verbose:
         print("\n" + "=" * 60)
         print(f"PSO COAST OPTIMISATION — {sim_params.GUIDANCE_MODE.upper()}")
         print("=" * 60)
-        print("  Optimising 4 variables: Δt_c, Δt_r%, coast_start%, γ_p")
+        print(f"  Optimising {len(lb)} variables: "
+              f"Δt_c, Δt_r%, coast_start%, γ_p{_extra_desc}")
         print(f"  Particles : {n_particles}")
         print(f"  Max gen.  : {n_gen}")
         print(f"  Bounds    : {list(zip(lb, ub))}")
@@ -874,7 +936,8 @@ def run_pso_coast_full(optimal_params, verbose=True):
     Also writes ra.theta_*_history, ra.tgo_*_history, ra.cross_heading_*_history
     so the shared plot block in main.py renders guidance/Earth-rotation plots.
     """
-    delta_tc, delta_tr_pct, coast_start_pct, gamma_p = optimal_params
+    (delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
+     _extras) = _unpack_coast_x(optimal_params)
     kick_angle = gamma_p - np.pi / 2.0
 
     # ---- Stage 1 ----
@@ -912,6 +975,9 @@ def run_pso_coast_full(optimal_params, verbose=True):
     # Single GuidanceState persists through Arc 1 → coast → Arc 3
     gs_full = GuidanceState()
     gs_full.tgo_deadline = t_ignition + T_burn_total
+    gs_full.pso_cpr_theta_dot = _extras.get("cpr_theta_dot")
+    gs_full.pso_exp_a = _extras.get("exp_a")
+    gs_full.pso_exp_b = _extras.get("exp_b")
 
     # ---- Arc 1 (thrust, dense) ----
     t_arc1_end = t_ignition + t_coast_start
@@ -1123,7 +1189,7 @@ def _print_coast_solution(x, J_prime):
     The full final-state / J' breakdown is printed once by main.py's results
     block, so this helper intentionally does NOT re-run the trajectory.
     """
-    delta_tc, delta_tr_pct, coast_start_pct, gamma_p = x
+    delta_tc, delta_tr_pct, coast_start_pct, gamma_p, extras = _unpack_coast_x(x)
     kick_angle    = gamma_p - np.pi / 2.0
     T_burn_total  = (delta_tr_pct   / 100.0) * _T_MAX_2
     t_coast_start = (coast_start_pct / 100.0) * T_burn_total
@@ -1134,4 +1200,8 @@ def _print_coast_solution(x, J_prime):
     print(f"  Coast start      = {coast_start_pct:.2f} %  (= {t_coast_start:.1f} s into burn)")
     print(f"  Pitch angle γ_p  = {np.rad2deg(gamma_p):.4f}°  ({gamma_p:.6f} rad)")
     print(f"  Kick angle       = {np.rad2deg(kick_angle):.4f}°")
+    if "cpr_theta_dot" in extras:
+        print(f"  CPR pitch rate   = {np.rad2deg(extras['cpr_theta_dot']):.4f}°/s")
+    if "exp_a" in extras:
+        print(f"  exp-shoot a, b   = {extras['exp_a']:.4f}, {extras['exp_b']:.6f}")
     print(f"  J'               = {J_prime:.4f}")

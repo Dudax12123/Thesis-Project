@@ -37,6 +37,13 @@ kick_performed = False
 # jump, so the ODE alpha dispatch (KICK_PROFILE_MODE check) doesn't ALSO
 # apply a triangular alpha kick during that window.
 _stage1_kick_handled_by_gamma_jump = False
+# True while run_stage1() (the PSO-solver Stage-1 runner: pso_coast / direct /
+# indirect_pmp) is integrating. CPR's legacy Stage-1 behaviour (no kick, fly
+# vertical, then self-activate guidance) is suppressed in this context so CPR
+# flies the normal gamma_p kick in Stage 1 and is steered only by the solver in
+# Stage 2. Leaving it active here drives a pitch-down during Stage 1 that fights
+# the gamma-jump kick and crashes solve_ivp's event bracketing (brentq).
+_IN_PSO_STAGE1 = False
 main_engine_cutoff = False
 second_engine_ignition = False
 stage_2_burnt = False
@@ -64,7 +71,6 @@ guidance_phase_active = False
 time_atmosphere_exit = None
 time_guidance_start = None
 last_guidance_update_time = 0.0
-guidance_initial_tgo = None   # t_go stored at guidance start (used when GUIDANCE_TGO_FIXED)
 guidance_coefficients = [0.0, 0.0, 0.0, 0.0]  # For apollo: [k1, k2, k3, k4]
 cpr_theta_dot = None    # [rad/s] constant pitch rate, computed at CPR guidance start
 cpr_t_start = None      # [s] time when CPR guidance began
@@ -966,7 +972,7 @@ def rocket_dynamics(t, state):
     global time_kick_start, kick_performed, main_engine_cutoff, flag_falling_single_burn
     global current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
-    global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
+    global last_guidance_update_time, guidance_coefficients
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global cpr_theta_dot, cpr_t_start
     global peg_A, peg_B, peg_T, peg_t_epoch, peg_frozen
@@ -1027,9 +1033,11 @@ def rocket_dynamics(t, state):
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
     
     if t >= sim_params.TIME_TO_START_KICK and (not kick_performed):
-        if sim_params.GUIDANCE_MODE == "cpr":
+        if sim_params.GUIDANCE_MODE == "cpr" and not _IN_PSO_STAGE1:
             # CPR has no kick maneuver — vertical phase ends immediately.
             # Set time_kick_start to release the dgammadt=0 guard (line ~1285).
+            # (apogee_check path only; under run_stage1/pso_coast CPR flies the
+            #  normal gamma_p kick like every other mode.)
             kick_performed = True
             time_kick_start = t
             alpha = 0.0
@@ -1043,8 +1051,11 @@ def rocket_dynamics(t, state):
             alpha = 0.0
 
     elif (kick_performed and sim_params.GUIDANCE_MODE == "cpr"
+          and not _IN_PSO_STAGE1
           and not guidance_phase_active and F_T > 0):
-        # CPR guidance initialisation
+        # CPR guidance initialisation (apogee_check path only — under pso_coast
+        # the solver drives CPR in Stage 2; activating it here in Stage 1 fights
+        # the gamma-jump kick and crashes brentq event bracketing).
         guidance_phase_active = True
         cpr_t_start = t
         time_guidance_start = t
@@ -1073,7 +1084,6 @@ def rocket_dynamics(t, state):
         # Initialize t_go with the propellant rocket-equation estimate
         t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
         lts_previous_tgo = t_go
-        guidance_initial_tgo = t_go   # Store for GUIDANCE_TGO_FIXED mode
 
         if sim_params.GUIDANCE_MODE == "linear_tangent":
             # Linear tangent steering: tan(α + γ) varies linearly with time
@@ -1146,11 +1156,8 @@ def rocket_dynamics(t, state):
             last_guidance_update_time = t
 
         # Compute guidance angle
-        if sim_params.GUIDANCE_TGO_FIXED:
-            t_go = guidance_initial_tgo
-        else:
-            t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
-            lts_previous_tgo = t_go
+        t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
+        lts_previous_tgo = t_go
         tgo_history.append(t_go)
         tgo_time_history.append(t)
         alpha = lts_guidance.linear_tangent_steering(t, t_go, state, guidance_coefficients)
@@ -1169,11 +1176,8 @@ def rocket_dynamics(t, state):
             last_guidance_update_time = t
 
         # Compute guidance angle
-        if sim_params.GUIDANCE_TGO_FIXED:
-            t_go = guidance_initial_tgo
-        else:
-            t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
-            lts_previous_tgo = t_go
+        t_go, _ = _compute_apollo_tgo(state, F_T, Isp, sim_params.TARGET_ORBITAL_ALTITUDE, lts_previous_tgo)
+        lts_previous_tgo = t_go
         tgo_history.append(t_go)
         tgo_time_history.append(t)
         alpha = bts_guidance.bilinear_tangent_steering(t, t_go, state, guidance_coefficients)
@@ -1690,7 +1694,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit
-    global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
+    global last_guidance_update_time, guidance_coefficients
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global cpr_theta_dot, cpr_t_start
     global thrust_history, time_history
@@ -1712,10 +1716,12 @@ def run(initial_kick_angle, azimuth_override=None):
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
     global time_raise
+    global _IN_PSO_STAGE1
 
     #===================================================
     # Reset global variables
     #===================================================
+    _IN_PSO_STAGE1 = False   # legacy run() path: CPR Stage-1 behaviour is active
     time_kick_start = None
     kick_performed = False
     _stage1_kick_handled_by_gamma_jump = False
@@ -1757,7 +1763,6 @@ def run(initial_kick_angle, azimuth_override=None):
     time_atmosphere_exit = None
     time_guidance_start = None
     last_guidance_update_time = 0.0
-    guidance_initial_tgo = None
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
     apollo_coefficients_frozen = False
     apollo_freeze_time = None
@@ -2273,7 +2278,7 @@ def run_stage1(initial_kick_angle):
     global second_engine_ignition, stage_2_burnt, time_main_engine_cutoff
     global second_stage_cutoff, flag_falling_single_burn, current_kick_angle
     global atmosphere_exited, guidance_phase_active, time_atmosphere_exit, time_guidance_start
-    global last_guidance_update_time, guidance_initial_tgo, guidance_coefficients
+    global last_guidance_update_time, guidance_coefficients
     global apollo_coefficients_frozen, apollo_freeze_time, apollo_previous_tgo, lts_previous_tgo
     global cpr_theta_dot, cpr_t_start
     global thrust_history, time_history
@@ -2293,8 +2298,10 @@ def run_stage1(initial_kick_angle):
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
     global time_raise
+    global _IN_PSO_STAGE1
 
     # --- Reset globals (identical to the reset block in run()) ---------------
+    _IN_PSO_STAGE1 = True   # suppress legacy CPR Stage-1 behaviour (see flag def)
     time_kick_start = None
     kick_performed = False
     _stage1_kick_handled_by_gamma_jump = False
@@ -2330,7 +2337,6 @@ def run_stage1(initial_kick_angle):
     time_atmosphere_exit = None
     time_guidance_start = None
     last_guidance_update_time = 0.0
-    guidance_initial_tgo = None
     guidance_coefficients = [0.0, 0.0, 0.0, 0.0]
     apollo_coefficients_frozen = False
     apollo_freeze_time = None

@@ -56,8 +56,7 @@ flight at `t_f`).
   - `GUIDANCE_UPDATE_RATE` — how often (in seconds) the coefficients and `t_go`
     are recomputed (unless held fixed below).
   - `GUIDANCE_COEFFICIENTS_FIXED` — if `True`, `a, b` are computed once at
-    guidance start and held constant; only `t_go` is updated each cycle.
-  - `GUIDANCE_TGO_FIXED` — if `True`, `t_go` is also frozen at guidance start.
+    guidance start and held constant; `t_go` is always recomputed each cycle.
   - `GUIDANCE_TGO_USE_PSO_PLAN` — inside `pso_coast_solver`/`direct_pso_solver`
     only, replaces the rocket-equation `t_go` estimate with the PSO-planned
     burn-arc countdown.
@@ -72,7 +71,7 @@ that control both the value and the derivative at the boundary conditions.
 - **Activation:** identical to `linear_tangent` (after kick, atmosphere exit,
   Stage-2 ignition).
 - **Key tunables:** same as `linear_tangent`
-  (`GUIDANCE_UPDATE_RATE`, `GUIDANCE_COEFFICIENTS_FIXED`, `GUIDANCE_TGO_FIXED`,
+  (`GUIDANCE_UPDATE_RATE`, `GUIDANCE_COEFFICIENTS_FIXED`,
   `GUIDANCE_TGO_USE_PSO_PLAN`).
 - Implementation: `Guidance/bilinear_tangent_steering.py`.
 
