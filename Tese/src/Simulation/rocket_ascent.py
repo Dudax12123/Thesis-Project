@@ -135,6 +135,22 @@ _isp1_current = r.ISP_1_SL    # Current Isp value used by the ramp
 _thrust1_last_update_time = 0.0   # Last time thrust was stepped
 _thrust1_current = r.F_THRUST_1_SL  # Current thrust value used by the ramp
 
+
+def reset_stage1_ramp_state():
+    """Reset the Stage-1 linear-ramp state to ignition (sea-level) values.
+
+    Must run at the start of every trajectory. The ramp caches its progress in
+    module globals; without this reset they persist across trajectories (PSO
+    particle evals, the apogee_check kick search) so the ramp sticks at the
+    previous run's near-vacuum end value instead of restarting from sea level.
+    Only affects ISP_1_MODE / THRUST_1_MODE == "linear"."""
+    global _isp1_last_update_time, _isp1_current
+    global _thrust1_last_update_time, _thrust1_current
+    _isp1_last_update_time = 0.0
+    _isp1_current = r.ISP_1_SL
+    _thrust1_last_update_time = 0.0
+    _thrust1_current = r.F_THRUST_1_SL
+
 # Earth rotation launch geometry (set in run())
 LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Active azimuth in rotating frame [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
@@ -1729,6 +1745,7 @@ def run(initial_kick_angle, azimuth_override=None):
     #===================================================
     # Reset global variables
     #===================================================
+    reset_stage1_ramp_state()   # restart the Stage-1 Isp/thrust ramp from sea level
     _IN_PSO_STAGE1 = False   # legacy run() path: CPR Stage-1 behaviour is active
     time_kick_start = None
     kick_performed = False
@@ -2309,6 +2326,7 @@ def run_stage1(initial_kick_angle):
     global _IN_PSO_STAGE1
 
     # --- Reset globals (identical to the reset block in run()) ---------------
+    reset_stage1_ramp_state()   # restart the Stage-1 Isp/thrust ramp from sea level
     _IN_PSO_STAGE1 = True   # suppress legacy CPR Stage-1 behaviour (see flag def)
     time_kick_start = None
     kick_performed = False

@@ -199,6 +199,9 @@ ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear r
 #   "average":    Use the mean of sea-level and vacuum thrust — simple middle ground
 #   "linear":     Linearly ramp from F_THRUST_1_SL at ignition to F_THRUST_1_VAC at stage-1 burnout,
 #                 updating every THRUST_1_LINEAR_UPDATE_RATE seconds (discrete steps)
+# CAVEAT: "vacuum" over-performs Stage 1 so much that COAST_METHOD="apogee_check"
+# can no longer land the apogee on target for any kick — the kick search raises a
+# ValueError (use COAST_METHOD="pso_coast"/"direct", or "sea_level"/"average" here).
 THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear"
 THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
 

@@ -88,6 +88,20 @@ def find_initial_kick_angle_coast_single_burn():
         full_output=True
     )
     x_optimal = float(result[0])
+    best_obj  = float(result[1])
+
+    # When Stage-1 over-performs (commonly THRUST_1_MODE="vacuum"), the osculating
+    # apogee never falls to the target for ANY kick, so every grid point returns
+    # the apogee-match propellant sentinel (9.999e6). brute then hands back a
+    # meaningless boundary kick and the full run circularizes mid-ascent into a
+    # near-escape orbit. Fail fast instead. (Same infeasible-apogee-match class as
+    # the apollo + apogee_check guard; real Stage-2 propellant is a few 1e3 kg, so
+    # the 1e6 threshold cannot false-trigger.)
+    if best_obj >= 1.0e6:
+        raise ValueError(
+            "apogee_check found no kick that reaches the target apogee — Stage-1 "
+            "over-performs (commonly THRUST_1_MODE='vacuum'). Use COAST_METHOD="
+            "'pso_coast' or 'direct', or set THRUST_1_MODE to 'sea_level'/'average'.")
 
     # Time measurement
     end_time = time.time()
