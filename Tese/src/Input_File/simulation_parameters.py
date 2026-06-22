@@ -82,6 +82,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                     totally different mid-flight condition (osculating apogee
 #                     reaching y_target while vy is still large) and is NOT a
 #                     workable pairing with apollo — use "peg_new" for that.
+#                     (main.py raises ValueError for apollo + apogee_check.)
 #   "cpr":          Constant Pitch Rate guidance
 #                   - No kick maneuver — flies vertical, then CPR takes over immediately
 #                   - Linearly ramps pitch angle θ from 90° (vertical) to 0° (horizontal)
@@ -133,6 +134,16 @@ GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are compute
                                               # start and held constant; only t_go varies each step
                                               # (t_go is always recomputed each step).
                                               # If False (default), recomputed every GUIDANCE_UPDATE_RATE s.
+
+# -------------- Time-to-go estimator (apollo / linear_tangent / bilinear_tangent / cpr-"tgo") --------------
+# Selects how t_go is estimated for the modes that consume it as a scalar:
+#   "rocket_equation": gravity-blind  T_BUP·(1−exp(−VG/Ve))   (current default)
+#   "peg_new":         peg_new's gravity-aware estimate  τ·(1−exp(−‖v_go‖/Ve))
+#                      with the radial gravity loss folded in (predictor-corrector).
+# Affects apollo / linear_tangent / bilinear_tangent and cpr in "tgo" mode (cpr
+# under pso_coast uses the PSO-optimised θ_dot, so it is unaffected there). peg has
+# its own internal T solver and is NOT affected; peg_new is the source.
+TGO_ESTIMATOR = "rocket_equation"   # Options: "rocket_equation", "peg_new"
 
 # -------------- PSO-Planned t_go Override (PSO solvers only) --------------
 GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear_tangent/bilinear_tangent/
@@ -326,6 +337,12 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                    reported. Requires PyGMO. Has no effect when
 #                    GUIDANCE_MODE = "indirect_pmp" (that mode runs its own PSO).
 #                    Intended for the direct-insertion laws (peg, peg_new, apollo).
+#                    CAVEAT: a single continuous burn (no coast) is delta-v-marginal,
+#                    so ONLY {apollo, peg, peg_new} reach the target circular orbit.
+#                    gravity_turn/linear_tangent/bilinear_tangent/cpr/exp_shooting
+#                    converge (budget-independently) to a SUBORBITAL insertion here —
+#                    use "pso_coast"/"apogee_check" (which have a coast) for those.
+#                    direct_pso_solver prints a warning for those pairings.
 COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct"
 
 # -------------- Direct-insertion tolerances --------------

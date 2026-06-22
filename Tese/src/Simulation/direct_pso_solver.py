@@ -239,6 +239,23 @@ def run_pso_direct_optimization(verbose=True):
     lb          = sim_params.PSO_DIRECT_LB
     ub          = sim_params.PSO_DIRECT_UB
 
+    # A single continuous burn (no coast) is delta-v-marginal to reach the target
+    # circular orbit, so only the explicit terminal-constraint laws close it.
+    # Empirically (PSO converges to the SAME optimum at 900 and 5000 evals, i.e.
+    # budget-independently), the other laws settle on a SUBORBITAL insertion under
+    # "direct" — warn so the result is not mistaken for a convergence failure.
+    # Use "pso_coast"/"apogee_check" (which have a coast) for those laws instead.
+    if verbose and sim_params.GUIDANCE_MODE not in ("apollo", "peg", "peg_new"):
+        print("\n" + "!" * 60)
+        print(f"WARNING: COAST_METHOD='direct' with GUIDANCE_MODE="
+              f"'{sim_params.GUIDANCE_MODE}' is not a reliable pairing.")
+        print("  'direct' is one continuous Stage-2 burn with no coast; only")
+        print("  {apollo, peg, peg_new} fly the near-optimal lofting steering that")
+        print("  reaches the target circular orbit. Other laws converge to a")
+        print("  SUBORBITAL insertion here (more PSO budget does NOT help).")
+        print("  Use COAST_METHOD='pso_coast' or 'apogee_check' for this mode.")
+        print("!" * 60)
+
     if verbose:
         print("\n" + "=" * 60)
         print(f"PSO DIRECT-INSERTION OPTIMISATION — {sim_params.GUIDANCE_MODE.upper()}")

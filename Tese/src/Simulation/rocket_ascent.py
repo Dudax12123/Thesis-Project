@@ -852,6 +852,14 @@ def _compute_apollo_tgo(state, F_T, Isp, target_altitude, previous_tgo):
         guidance_tgo = max(guidance_tgo, 0.1)
 
     else:
+        # Optional: peg_new's gravity-aware estimate instead of the rocket-equation
+        # one (same rotating-frame target). Stage-2 only; the Stage-1 branch above
+        # keeps the legacy total-remaining-time estimate.
+        if getattr(sim_params, "TGO_ESTIMATOR", "rocket_equation") == "peg_new":
+            tgo_pn = max(peg_new_mod.peg_new_tgo(
+                state, r_target, c.MU_EARTH, Isp * c.G_0, F_T,
+                v_theta_T=_v_circular_rotating(r_target)), 0.1)
+            return tgo_pn, tgo_pn
         # ---------------------------------------------------------------
         # STAGE 2: use exact rocket-equation burn time for remaining VG.
         # ---------------------------------------------------------------

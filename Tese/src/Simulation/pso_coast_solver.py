@@ -224,9 +224,16 @@ def _v_circular_rotating(r_target):
 
 def _compute_tgo_stage2(state, F_T, Isp, previous_tgo=None):
     """
-    Stage-2 rocket-equation t_go.
+    Stage-2 t_go. Default = rocket-equation estimate; if TGO_ESTIMATOR=="peg_new",
+    use peg_new's gravity-aware estimate instead (same rotating-frame target).
     Mirrors the Stage-2 branch of rocket_ascent._compute_apollo_tgo.
     """
+    if getattr(sim_params, "TGO_ESTIMATOR", "rocket_equation") == "peg_new" and F_T > 0.0:
+        r_target = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+        return max(peg_new_mod.peg_new_tgo(
+            state, r_target, c.MU_EARTH, Isp * c.G_0, F_T,
+            v_theta_T=_v_circular_rotating(r_target)), 0.1)
+
     r_val, v, gamma, m = state[1], state[2], state[3], state[4]
     remaining_prop = m - _DRY_MASS_2
     if remaining_prop <= 0.0:

@@ -214,6 +214,19 @@ def peg_new_major_loop(state, r_T, mu, ve, F_T, n_pred_iter=3, v_theta_T=None):
     return vgo_r, vgo_theta, L0, t_go, t_lambda, lambda_r_prime
 
 
+def peg_new_tgo(state, r_T, mu, ve, F_T, v_theta_T=None):
+    """Gravity-aware time-to-go only (for reuse by other guidance modes).
+
+    Runs the same v_go convergence + predictor-corrector gravity averaging as the
+    full major loop and returns just ``t_go`` (the steering costates λ'_r, t_λ and
+    the thrust integrals are computed but discarded — negligible extra cost). This
+    is the physically-correct PEG burn-time estimate ``τ·(1−exp(−‖v_go‖/c))`` with
+    the radial gravity loss folded into ‖v_go‖, unlike the gravity-blind
+    rocket-equation estimate the other modes use by default.
+    """
+    return peg_new_major_loop(state, r_T, mu, ve, F_T, v_theta_T=v_theta_T)[3]
+
+
 def peg_new_alpha(t_since_epoch, vgo_r, vgo_theta, L0, lambda_r_prime, t_lambda, gamma):
     """Minor loop: steering angle α from the analytical PEG thrust direction.
 

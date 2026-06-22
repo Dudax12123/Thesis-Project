@@ -60,6 +60,10 @@ flight at `t_f`).
   - `GUIDANCE_TGO_USE_PSO_PLAN` — inside `pso_coast_solver`/`direct_pso_solver`
     only, replaces the rocket-equation `t_go` estimate with the PSO-planned
     burn-arc countdown.
+  - `TGO_ESTIMATOR` — `"rocket_equation"` (default) or `"peg_new"`. Selects the
+    `t_go` estimator shared by apollo/linear_tangent/bilinear_tangent/cpr(`"tgo"`):
+    the gravity-blind rocket equation, or `peg_new`'s gravity-aware estimate.
+    `peg` (own T solver) and `peg_new` (the source) are unaffected.
 - Implementation: `Guidance/linear_tangent_steering.py`.
 
 ### `bilinear_tangent` — Bilinear Tangent Steering
@@ -96,8 +100,9 @@ orbit-insertion endpoint, not just an apogee match.
   the full insertion endpoint, pair it with `COAST_METHOD = "direct"`.
   `COAST_METHOD = "apogee_check"` cuts the burn on an unrelated mid-flight
   condition (osculating apogee reaching the target altitude while `vy` is
-  still large) and is **not** a workable pairing with `apollo` — use
-  `peg_new` if you need `apogee_check`.
+  still large) and is **not** a workable pairing with `apollo` — `main.py`
+  raises a `ValueError` for `apollo` + `apogee_check`; use `peg_new` if you
+  need `apogee_check`.
 - Implementation: `Guidance/apollo_guidance.py`.
 
 ### `cpr` — Constant Pitch Rate
@@ -190,10 +195,13 @@ burn.
   (post-kick, post-atmosphere-exit, Stage-2 ignition, `F_T > 0`).
 - **Key tunables:** none — `(a, b)` are solved automatically from the current
   state and `TARGET_ORBITAL_ALTITUDE`.
-- **Coast-method compatibility:** **not supported** with
-  `COAST_METHOD = "pso_coast"` — `main.py` raises a `ValueError` at startup,
-  because the single-burn-to-depletion BVP cannot honour a thrust-coast-thrust
-  split. Use `COAST_METHOD = "apogee_check"` or `"direct"` instead.
+- **Coast-method compatibility:** works with `COAST_METHOD = "apogee_check"`
+  (per-arc fsolve shooting) and `"pso_coast"` — under `pso_coast` the `(a, b)`
+  pitch-law coefficients become PSO decision variables (re-epoched per arc), so
+  the swarm fits the open-loop law instead of a single burn-to-depletion shooting
+  solve. Under `COAST_METHOD = "direct"`, a single continuous burn (no coast) is
+  delta-v-marginal and the open-loop law converges to a **suborbital** insertion —
+  prefer `pso_coast`/`apogee_check`.
 - Implementation: `Guidance/exp_shooting_guidance.py`.
 
 ### `indirect_pmp` — Indirect Method via Pontryagin's Minimum Principle

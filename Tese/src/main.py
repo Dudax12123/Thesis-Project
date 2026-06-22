@@ -754,6 +754,20 @@ def execute():
         # =====================================================================
         else:
 
+            # apollo enforces vy=0 AND altitude=target AT burnout (t_go->0, a full
+            # orbit-insertion endpoint); apogee_check instead cuts the burn at the
+            # osculating apogee mid-ascent while vy is still large, so no kick angle
+            # produces a valid apogee match (every grid point returns the propellant
+            # sentinel). Fail fast with guidance instead of a doomed 1000-pt search.
+            if sim_params.GUIDANCE_MODE == "apollo":
+                raise ValueError(
+                    "GUIDANCE_MODE='apollo' is incompatible with COAST_METHOD="
+                    "'apogee_check': apollo enforces vy=0 and altitude=target at "
+                    "burnout (full orbit insertion), but apogee_check cuts the burn "
+                    "at the osculating apogee mid-ascent. Use COAST_METHOD='direct' "
+                    "or 'pso_coast' with apollo, or GUIDANCE_MODE='peg_new' with "
+                    "apogee_check.")
+
             # Determine kick angle (either from optimization or pre-set optimal value)
             if sim_params.GUIDANCE_MODE == "cpr":
                 # CPR has no kick maneuver — no optimisation needed
