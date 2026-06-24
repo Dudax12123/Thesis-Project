@@ -14,8 +14,8 @@ def plot_aero_forces_over_time(time_steps, data, save_path=None, show=False):
     channels = psu.extract_state_channels(data)
     q = psu.compute_dynamic_pressure(channels['v'], channels['alt'])
 
-    F_D = q * _C_D_ASCENT * _A_REF
-    F_L = q * _C_L_ASCENT * _A_REF if sim_params.INCLUDE_LIFT else q * 0.0
+    F_D = q * _C_D_ASCENT * _A_REF if sim_params.INCLUDE_DRAG else q * 0.0
+    F_L = q * _C_L_ASCENT * _A_REF if (sim_params.INCLUDE_LIFT and sim_params.INCLUDE_DRAG) else q * 0.0
 
     # Truncate at SECO — aero forces are negligible in vacuum coast
     idx = psu.cutoff_index(time_steps, psu.event_times().get('seco'))
@@ -24,8 +24,9 @@ def plot_aero_forces_over_time(time_steps, data, save_path=None, show=False):
     F_L_plot = F_L[:idx]
 
     fig, ax = plt.subplots(figsize=(11, 6))
-    ax.plot(t_plot, F_D_plot / 1000.0, linewidth=2.0, color='tab:red', label='Drag')
-    if sim_params.INCLUDE_LIFT:
+    if sim_params.INCLUDE_DRAG:
+        ax.plot(t_plot, F_D_plot / 1000.0, linewidth=2.0, color='tab:red', label='Drag')
+    if sim_params.INCLUDE_LIFT and sim_params.INCLUDE_DRAG:
         ax.plot(t_plot, F_L_plot / 1000.0, linewidth=2.0, color='tab:blue', label='Lift')
     ax.set_title('Aerodynamic Forces Over Time')
     ax.set_xlabel('Time [s]')

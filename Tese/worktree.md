@@ -100,8 +100,7 @@ no-ops. Walk them top-to-bottom.
         │
 ┌─ STEP 6 ── Environment / orbit (applies in every path) ─────────────────────┐
 │  ENABLE_EARTH_ROTATION gates the whole pseudo-force/azimuth family:         │
-│    INCLUDE_CROSS_HEADING_PSEUDO_FORCE  requires INCLUDE_PSEUDO_FORCES        │
-│                                        AND TRACK_HEADING_STATE.             │
+│    COMPUTE_CROSS_HEADING_COUNTER_FORCE requires INCLUDE_PSEUDO_FORCES        │
 │    AZIMUTH_INCLINATION_MODE=="iterative" is force-overwritten to            │
 │                                        "formula_compare" under pso_coast     │
 │                                        (main.py:424).                        │
@@ -185,7 +184,8 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `INCLUDE_LIFT` (L23) | `True`/`False` | `True` | Include aerodynamic lift (F_L = q·C_L·A) in the EOM. | Reads `C_L` from `rocket_specs.py` (else `C_L` is inert). |
+| `INCLUDE_DRAG` (L51) | `True`/`False` | `True` | Include aerodynamic drag (F_D = q·C_D·A) in the EOM. **Master no-atmosphere switch.** | `False` ⇒ no-atmosphere mode: lift also forced off, fairing **not carried** (launched without it, `M_FAIRING` dropped from launch mass), atmosphere exit forced to the **altitude** method. No guidance depends on atmosphere exit, so nothing else changes. |
+| `INCLUDE_LIFT` (L55) | `True`/`False` | `True` | Include aerodynamic lift (F_L = q·C_L·A) in the EOM. | Reads `C_L` from `rocket_specs.py` (else `C_L` is inert). Only effective while `INCLUDE_DRAG=True`. |
 
 ### 2.7 Earth rotation / azimuth
 
@@ -195,10 +195,8 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `LAUNCH_LATITUDE` (L30) | float deg | `28.5` | Launch site latitude. | Feeds azimuth formula `sin(β)=cos(i)/cos(φ)`. |
 | `LAUNCH_LONGITUDE` (L31) | float deg | `-80.5` | Launch site longitude (reserved; not yet used). | none currently. |
 | `TARGET_ORBIT_INCLINATION` (L32) | float deg | `51.6` | Desired orbit inclination. | azimuth derivation + `AZIMUTH_INCLINATION_MODE`. |
-| `INCLUDE_PSEUDO_FORCES` (L33) | `True`/`False` | `True` | Coriolis/centrifugal in rotating-frame EOM. | **requires** `ENABLE_EARTH_ROTATION`; required by the two flags below. |
-| `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` (L34) | `True`/`False` | `False` | Cross-heading Coriolis/centrifugal term in heading rate. | **requires** `INCLUDE_PSEUDO_FORCES` **and** `TRACK_HEADING_STATE` (else silent no-op). |
-| `COMPUTE_CROSS_HEADING_COUNTER_FORCE` (L35) | `True`/`False` | `False` | Store lateral counter-force [N] to cancel drift. | nominally requires `INCLUDE_PSEUDO_FORCES`; actually gated only at the **plotting** stage (`main.py`). |
-| `TRACK_HEADING_STATE` (L36) | `True`/`False` | `False` | Propagate heading as an extra ODE state. | **requires** `ENABLE_EARTH_ROTATION`; adds a state dimension; enables cross-heading term. |
+| `INCLUDE_PSEUDO_FORCES` (L61) | `True`/`False` | `True` | Coriolis/centrifugal in rotating-frame EOM. | **requires** `ENABLE_EARTH_ROTATION`; required by the counter-force flag below. |
+| `COMPUTE_CROSS_HEADING_COUNTER_FORCE` (L68) | `True`/`False` | `False` | Cross-heading actuator counter-force: heading held at the launch azimuth (assumed actuator-counteracted), so **no trajectory effect**; computes/stores/plots the per-step force `m·|a_cross|` [N]. | **requires** `ENABLE_EARTH_ROTATION` **and** `INCLUDE_PSEUDO_FORCES`. Single flag for the whole feature (former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` merged in; `TRACK_HEADING_STATE` removed). |
 | `AZIMUTH_INCLINATION_MODE` (L55) | `formula_compare`, `formula_back_compare`, `iterative` | `formula_compare` | How launch azimuth is derived/analyzed. | `iterative` **force-overwritten** to `formula_compare` under `pso_coast` (`main.py:424`); only exercised in the legacy path otherwise. |
 | `AZIMUTH_ITER_STEP_DEG` (L56) | float deg | `0.1` | Azimuth sweep step. | `iterative` only. |
 | `AZIMUTH_ITER_RANGE_DEG` (L57) | float deg | `10.0` | Azimuth sweep half-width. | `iterative` only. |
@@ -368,10 +366,12 @@ Each is legal to set but does something other than what you'd expect. With `file
   `pso_coast`** (re-running the full PSO per azimuth is too costly) — the config object is mutated at
   runtime (`main.py:424`). Under other PSO paths it is simply never exercised.
 
-- **Cross-heading flags are quietly conditional.** `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` does nothing
-  unless `INCLUDE_PSEUDO_FORCES` **and** `TRACK_HEADING_STATE` are both True;
-  `COMPUTE_CROSS_HEADING_COUNTER_FORCE` is actually computed every step but only surfaced at the
-  plotting stage.
+- **Cross-heading counter-force is a pure diagnostic.** With the heading held at the launch azimuth
+  (the actuator is assumed to cancel the lateral cross-heading pseudo-force), it has **no effect on the
+  trajectory**. `COMPUTE_CROSS_HEADING_COUNTER_FORCE` is the single flag governing it: when True the
+  per-step counter-force `m·|a_cross|` [N] is computed, stored and plotted; when False nothing is
+  computed. (The former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` and `TRACK_HEADING_STATE` flags were
+  removed — heading is no longer propagated as an ODE state.)
 
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,
   `COAST_METHOD="direct"`, `KICK_PROFILE_MODE`, `RUN_FAST`, and the `DIRECT_*` settings are ignored

@@ -1,43 +1,90 @@
+"""
+================================================================================
+ SIMULATION PARAMETERS  —  ascent-trajectory simulator control panel
+================================================================================
+
+Single hand-edited control panel for the whole ascent simulator. Every constant
+here is read by the consumers via
+``from Input_File import simulation_parameters as sim_params`` and accessed by
+name (``sim_params.NAME``); definition order is irrelevant to every consumer, so
+the sections below are grouped purely for readability. Frequently-edited knobs
+(mission, engine modes, guidance/coast selection) come first; fine-tuning
+constants (PSO settings, penalty weights) are grouped near the end.
+
+Table of contents
+------------------
+  1.  MISSION & TARGET ORBIT
+  2.  LAUNCH SITE & EARTH ROTATION
+  3.  AERODYNAMICS / PHYSICS TOGGLES
+  4.  AZIMUTH / INCLINATION TARGETING
+  5.  STAGE-1 ENGINE MODEL          (Isp / thrust modes)
+  6.  ATMOSPHERE-EXIT MARKER        (guidance-start trigger)
+  7.  KICK MANEUVER & ASCENT PROFILE
+  8.  GUIDANCE MODE SELECTION
+        8a. shared guidance parameters
+        8b. Apollo / polynomial guidance
+        8c. linear & bilinear tangent steering
+        8d. constant pitch rate (CPR)
+        8e. PEG / PEG-new
+  9.  COAST METHOD SELECTION        (+ direct-insertion tolerances)
+  10. OPTIMIZATION                  (apogee_check brute search)
+  11. PSO OPTIMIZERS
+        11a. indirect-PMP PSO       (GUIDANCE_MODE   = "indirect_pmp")
+        11b. coast PSO              (COAST_METHOD    = "pso_coast")
+        11c. direct PSO             (COAST_METHOD    = "direct")
+  12. FAST-RUN MODE
+  13. SIMULATION OUTPUT & TIMING
+  14. DEBUGGING FLAGS
+================================================================================
+"""
+
 import numpy as np
 
-# ===================================================
-# General parameters
-# ===================================================
 
-# -------------- Gravity Turn --------------
-TIME_TO_START_KICK = 7.5                        # time at which the kick maneuver begins; [s]
-DURATION_INITIAL_KICK = 45.                     # duration of the triangular alpha kick profile [s]
-                                                # (only used when KICK_PROFILE_MODE == "triangular")
+# ===================================================================
+# 1. MISSION & TARGET ORBIT
+# ===================================================================
+# The orbit being targeted. Inclination pairs with the launch-site latitude
+# (§2) to set the launch azimuth — see §4 Azimuth / Inclination targeting.
+TARGET_ORBITAL_ALTITUDE = 500e3                 # altitude of desired orbit; [m]
+TARGET_ORBIT_INCLINATION = 51.6                 # desired final orbit inclination; [deg]
 
-# Kick-maneuver PROFILE for run()'s Stage-1A:
-#   "triangular"    : ramped alpha-kick via pitch_program_linear over
-#                      DURATION_INITIAL_KICK seconds. Kick angle is searched
-#                      directly over [ALPHA_LOWEST, ALPHA_HIGHEST] rad.
-#   "instantaneous" : discontinuous gamma jump via _run_stage1a_with_kick
-#                      (same mechanism as pso_coast/indirect_pmp). Kick angle
-#                      convention becomes gamma_p in [1.54, 1.57] rad, with
-#                      kick_angle = gamma_p - pi/2 computed internally.
-KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
 
-# -------------- Aerodynamics --------------
-INCLUDE_LIFT = True                             # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A)
+# ===================================================================
+# 2. LAUNCH SITE & EARTH ROTATION
+# ===================================================================
+ENABLE_EARTH_ROTATION = True                    # if True, include Earth rotation effects in azimuth/ECI calculations
+LAUNCH_LATITUDE = 28.5                           # launch site latitude; [deg]
+LAUNCH_LONGITUDE = -80.5                          # launch site longitude; [deg] (reserved for future launch window modeling)
 
-# -------------- Desired Orbit --------------
-TARGET_ORBITAL_ALTITUDE = 500e3                             # altitude of desired orbit; [m]
+# -------------- Rotating-frame pseudo-forces (require Earth rotation) --------------
+INCLUDE_PSEUDO_FORCES = True                     # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
+# Cross-heading actuator counter-force. The heading is held fixed at the launch
+# azimuth — we assume the launcher's actuator cancels the lateral (cross-heading)
+# pseudo-force rather than letting it turn the vehicle — so this has no effect on the
+# in-plane trajectory. When True, the per-step counter-force the actuator must supply,
+# m*|a_cross| [N], is computed, stored and plotted (as kN vs time). Requires
+# ENABLE_EARTH_ROTATION and INCLUDE_PSEUDO_FORCES.
+COMPUTE_CROSS_HEADING_COUNTER_FORCE = False
 
-# -------------- Earth Rotation (Optional) --------------
-ENABLE_EARTH_ROTATION = True                # if True, include Earth rotation effects in azimuth/ECI calculations
-LAUNCH_LATITUDE = 28.5                        # launch site latitude; [deg]
-LAUNCH_LONGITUDE = -80.5                      # launch site longitude; [deg] (reserved for future launch window modeling)
-TARGET_ORBIT_INCLINATION = 51.6               # desired final orbit inclination; [deg]
-INCLUDE_PSEUDO_FORCES = True               # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False    # if True, include cross-heading Coriolis/centrifugal component in heading rate (requires INCLUDE_PSEUDO_FORCES and TRACK_HEADING_STATE)
-COMPUTE_CROSS_HEADING_COUNTER_FORCE = False  # if True, compute & store the lateral force [N] needed to cancel the cross-heading drift (requires INCLUDE_PSEUDO_FORCES); plotted as kN vs time
-TRACK_HEADING_STATE = False                    # if True, propagate heading as an additional state when Earth rotation is enabled
 
-# -------------- Azimuth / Inclination Mode --------------
+# ===================================================================
+# 3. AERODYNAMICS / PHYSICS TOGGLES
+# ===================================================================
+INCLUDE_DRAG = True                              # if True, include aerodynamic drag force in the EOM (F_D = q * C_D * A).
+                                                 # Setting this False is the master NO-ATMOSPHERE switch: lift is also
+                                                 # forced off, the fairing is not carried (launched without it), and the
+                                                 # atmosphere-exit marker uses the altitude method.
+INCLUDE_LIFT = True                              # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A).
+                                                 # Only effective while INCLUDE_DRAG is True (no lift without atmosphere).
+
+
+# ===================================================================
+# 4. AZIMUTH / INCLINATION TARGETING
+# ===================================================================
 # All three modes derive the initial launch azimuth from the spherical-geometry formula:
 #   sin(beta) = cos(i_target) / cos(phi_launch)
+# (i_target = TARGET_ORBIT_INCLINATION [§1], phi_launch = LAUNCH_LATITUDE [§2].)
 # They differ in how they analyse the gap between that formula and the real achieved inclination.
 #
 #   "formula_compare":      Fly with the formula azimuth.
@@ -57,7 +104,80 @@ AZIMUTH_ITER_STEP_DEG  = 0.1                  # [deg] azimuth step size for iter
 AZIMUTH_ITER_RANGE_DEG = 10.0                 # [deg] sweep half-width around formula azimuth (only used when mode = "iterative")
 AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — warns and falls back if no solution found within this bound
 
-# -------------- Guidance Mode Selection --------------
+
+# ===================================================================
+# 5. STAGE-1 ENGINE MODEL  (Isp / thrust modes)
+# ===================================================================
+# Isp and thrust feed the shared Stage-1 EOM (rocket_ascent._get_stage1_isp /
+# _get_stage1_thrust), so these knobs are honored identically by every backend.
+
+# -------------- Stage 1 Specific Impulse Mode --------------
+# Select which Isp value to use for the first stage engine:
+#   "sea_level":  Use sea-level Isp (ISP_1_SL) throughout stage 1 — most conservative
+#   "vacuum":     Use vacuum Isp (ISP_1_VAC) throughout stage 1 — best-case efficiency
+#   "average":    Use the mean of sea-level and vacuum Isp — simple middle ground
+#   "linear":     Linearly ramp from ISP_1_SL at ignition to ISP_1_VAC at stage-1 burnout,
+#                 updating every ISP_1_LINEAR_UPDATE_RATE seconds (discrete steps)
+ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear"
+ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear ramp (only used when ISP_1_MODE = "linear")
+
+# -------------- Stage 1 Thrust Mode --------------
+# Select which thrust value to use for the first stage engine:
+#   "sea_level":  Use sea-level thrust (F_THRUST_1_SL) throughout stage 1 — most conservative
+#   "vacuum":     Use vacuum thrust (F_THRUST_1_VAC) throughout stage 1 — best-case performance
+#   "average":    Use the mean of sea-level and vacuum thrust — simple middle ground
+#   "linear":     Linearly ramp from F_THRUST_1_SL at ignition to F_THRUST_1_VAC at stage-1 burnout,
+#                 updating every THRUST_1_LINEAR_UPDATE_RATE seconds (discrete steps)
+# CAVEAT: "vacuum" over-performs Stage 1 so much that COAST_METHOD="apogee_check"
+# can no longer land the apogee on target for any kick — the kick search raises a
+# ValueError (use COAST_METHOD="pso_coast"/"direct", or "sea_level"/"average" here).
+THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear"
+THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
+
+
+# ===================================================================
+# 6. ATMOSPHERE-EXIT MARKER  (guidance-start trigger)
+# ===================================================================
+# Choose how to detect when the rocket exits the atmosphere and guidance should start:
+#   "altitude":         Use altitude threshold (traditional method)
+#   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
+#   "aerothermal_flux": Use aerothermal flux threshold (Phi = 0.5*rho*v^3)
+ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"     # Options: "altitude", "dynamic_pressure", "aerothermal_flux"
+ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
+                                                #   (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
+DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
+                                                #   (only used if ATMOSPHERE_EXIT_METHOD = "dynamic_pressure")
+                                                #   Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
+AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/m^2]
+                                                #   (only used if ATMOSPHERE_EXIT_METHOD = "aerothermal_flux")
+                                                #   Phi = 0.5*rho*v^3; negligible heating below this value
+
+
+# ===================================================================
+# 7. KICK MANEUVER & ASCENT PROFILE
+# ===================================================================
+TIME_TO_START_KICK = 7.5                        # time at which the kick maneuver begins; [s]
+DURATION_INITIAL_KICK = 45.                     # duration of the triangular alpha kick profile [s]
+                                                # (only used when KICK_PROFILE_MODE == "triangular")
+
+# Kick-maneuver PROFILE for run()'s Stage-1A:
+#   "triangular"    : ramped alpha-kick via pitch_program_linear over
+#                      DURATION_INITIAL_KICK seconds. Kick angle is searched
+#                      directly over [ALPHA_LOWEST, ALPHA_HIGHEST] rad.
+#   "instantaneous" : discontinuous gamma jump via _run_stage1a_with_kick
+#                      (same mechanism as pso_coast/indirect_pmp). Kick angle
+#                      convention becomes gamma_p in [1.54, 1.57] rad, with
+#                      kick_angle = gamma_p - pi/2 computed internally.
+KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
+
+# Initial kick angle used for single (non-optimised) runs. The apogee_check
+# brute search over the kick angle uses ALPHA_LOWEST/ALPHA_HIGHEST — see §10.
+INITIAL_KICK_ANGLE = - np.deg2rad(3.0)          # Initial kick angle [rad]
+
+
+# ===================================================================
+# 8. GUIDANCE MODE SELECTION
+# ===================================================================
 # Choose the guidance strategy for the trajectory:
 #   "gravity_turn": Pure gravity turn all the way (traditional method)
 #                   - Initial kick maneuver, then zero angle of attack throughout
@@ -117,23 +237,13 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                   - Coast phase timing fully controlled by PSO (apogee trigger NOT used)
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
+#                   - PSO tuning for this mode lives in §11a (PSO_* constants).
 GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
-# -------------- Polynomial Guidance Parameters --------------
-# (GUIDANCE_UPDATE_RATE is also used by linear_tangent/bilinear_tangent;
-#  APOLLO_FREEZE_THRESHOLD is also the freeze threshold for peg/peg_new.)
-GUIDANCE_UPDATE_RATE = 2                      # How often to recompute guidance coefficients [s]
-APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
-                                                 # (prevents numerical instability as tgo->0)
-APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
-                                                 # If True: Apollo commands both thrust angle AND magnitude
-                                                 # If False: Apollo only commands angle (fixed thrust)
-# -------------- Linear / Bilinear Tangent Steering Parameters --------------
-# (Only used if GUIDANCE_MODE is "linear_tangent" or "bilinear_tangent")
-GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are computed once at guidance
-                                              # start and held constant; only t_go varies each step
-                                              # (t_go is always recomputed each step).
-                                              # If False (default), recomputed every GUIDANCE_UPDATE_RATE s.
+# -------------- 8a. Shared guidance parameters --------------
+# (GUIDANCE_UPDATE_RATE is used by apollo and linear_tangent/bilinear_tangent;
+#  see §8b/§8c. TGO_ESTIMATOR / GUIDANCE_TGO_USE_PSO_PLAN feed the scalar-t_go modes.)
+GUIDANCE_UPDATE_RATE = 2                       # How often to recompute guidance coefficients [s]
 
 # -------------- Time-to-go estimator (apollo / linear_tangent / bilinear_tangent / cpr-"tgo") --------------
 # Selects how t_go is estimated for the modes that consume it as a scalar:
@@ -154,9 +264,25 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
                                               # pso_coast_solver / direct_pso_solver (no effect on
                                               # rocket_ascent.run()).
 
-# -------------- Constant Pitch Rate (CPR) Guidance Parameters --------------
+# -------------- 8b. Apollo / polynomial guidance --------------
+# (Only used if GUIDANCE_MODE is "apollo". APOLLO_FREEZE_THRESHOLD is also the
+#  freeze threshold for peg/peg_new — see §8e.)
+APOLLO_FREEZE_THRESHOLD = 10.0                  # Time-to-go threshold to freeze Apollo coefficients [s]
+                                                 # (prevents numerical instability as tgo->0)
+APOLLO_THRUST_MAGNITUDE_CONTROL = False          # Enable thrust magnitude control for Apollo guidance
+                                                 # If True: Apollo commands both thrust angle AND magnitude
+                                                 # If False: Apollo only commands angle (fixed thrust)
+
+# -------------- 8c. Linear / bilinear tangent steering --------------
+# (Only used if GUIDANCE_MODE is "linear_tangent" or "bilinear_tangent")
+GUIDANCE_COEFFICIENTS_FIXED = True           # If True, coefficients are computed once at guidance
+                                              # start and held constant; only t_go varies each step
+                                              # (t_go is always recomputed each step).
+                                              # If False (default), recomputed every GUIDANCE_UPDATE_RATE s.
+
+# -------------- 8d. Constant Pitch Rate (CPR) guidance --------------
 # (Only used by COAST_METHOD="apogee_check". Under "pso_coast" the constant
-#  pitch rate is a PSO decision variable — see PSO_COAST_CPR_THETA_DOT_* below —
+#  pitch rate is a PSO decision variable — see PSO_COAST_CPR_THETA_DOT_* in §11b —
 #  so these two are ignored there.)
 CPR_THETA_DOT_MODE = "manual"       # How to determine the constant pitch rate:
                                   #   "tgo":    θ_dot = (90°) / t_go  where t_go is from the
@@ -165,7 +291,7 @@ CPR_THETA_DOT_MODE = "manual"       # How to determine the constant pitch rate:
 CPR_THETA_DOT = 0.4              # Between {0.1, 0.5}[deg/s] manual pitch rate (only used when CPR_THETA_DOT_MODE = "manual")
                                   # Guidance duration = 90° / CPR_THETA_DOT
 
-# -------------- PEG Guidance Parameters --------------
+# -------------- 8e. PEG / PEG-new guidance --------------
 # (Only used if GUIDANCE_MODE is "peg")
 PEG_MAJOR_LOOP_RATE = 2.0           # Major-loop update period [s] — how often A, B, T are recomputed
 
@@ -182,94 +308,83 @@ PEG_CONVERGENCE_MAX_ITER = 30       # Max iterations for both modes
                                      # "fixed_iter": runs exactly this many iterations
                                      # "damped":     upper bound (usually converges in < 10)
 
-# -------------- Stage 1 Specific Impulse Mode --------------
-# Select which Isp value to use for the first stage engine:
-#   "sea_level":  Use sea-level Isp (ISP_1_SL) throughout stage 1 — most conservative
-#   "vacuum":     Use vacuum Isp (ISP_1_VAC) throughout stage 1 — best-case efficiency
-#   "average":    Use the mean of sea-level and vacuum Isp — simple middle ground
-#   "linear":     Linearly ramp from ISP_1_SL at ignition to ISP_1_VAC at stage-1 burnout,
-#                 updating every ISP_1_LINEAR_UPDATE_RATE seconds (discrete steps)
-ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear"
-ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear ramp (only used when ISP_1_MODE = "linear")
 
-# -------------- Stage 1 Thrust Mode --------------
-# Select which thrust value to use for the first stage engine:
-#   "sea_level":  Use sea-level thrust (F_THRUST_1_SL) throughout stage 1 — most conservative
-#   "vacuum":     Use vacuum thrust (F_THRUST_1_VAC) throughout stage 1 — best-case performance
-#   "average":    Use the mean of sea-level and vacuum thrust — simple middle ground
-#   "linear":     Linearly ramp from F_THRUST_1_SL at ignition to F_THRUST_1_VAC at stage-1 burnout,
-#                 updating every THRUST_1_LINEAR_UPDATE_RATE seconds (discrete steps)
-# CAVEAT: "vacuum" over-performs Stage 1 so much that COAST_METHOD="apogee_check"
-# can no longer land the apogee on target for any kick — the kick search raises a
-# ValueError (use COAST_METHOD="pso_coast"/"direct", or "sea_level"/"average" here).
-THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear"
-THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
+# ===================================================================
+# 9. COAST METHOD SELECTION
+# (applies to all guidance modes except "indirect_pmp")
+# ===================================================================
+# Choose how the coast start is determined during Stage 2:
+#   "apogee_check" : current method (unchanged).
+#                    interrupt_single_burn_traj fires when the rocket's
+#                    instantaneous apogee equals the target altitude.
+#                    The rocket then coasts ballistically to apogee and an
+#                    impulsive circularisation burn is applied.
+#   "pso_coast"    : PSO simultaneously optimises kick angle (gamma_p),
+#                    total Stage-2 burn fraction (delta_tr_pct), coast-start
+#                    fraction (coast_start_pct), and coast duration (delta_tc).
+#                    The trajectory is Thrust → Coast → Thrust with direct
+#                    orbit insertion — no separate circularisation burn.
+#                    The selected guidance law (apollo, peg, …) steers the
+#                    rocket during both thrust arcs.
+#                    Has no effect when GUIDANCE_MODE = "indirect_pmp" (that
+#                    mode always uses its own PSO with costates).
+#                    CAVEAT: "exp_shooting" is a weak fit with "pso_coast" — its
+#                    BVP assumes one continuous burn to propellant depletion,
+#                    which the thrust-coast-thrust split forbids. Prefer a
+#                    feedback law (linear_tangent, apollo, peg, peg_new) here.
+#                    PSO tuning for this method lives in §11b (PSO_COAST_*).
+#   "direct"       : Continuous single Stage-2 burn to DIRECT orbit insertion —
+#                    no coast, no circularisation burn. Always PSO: a 2-variable
+#                    PSO (direct_pso_solver) optimises gamma_p (kick angle) AND the
+#                    Stage-2 burn duration so the insertion lands in the
+#                    DIRECT_INSERTION_* box — inertial velocity = circular
+#                    √(μ/r_target), flight-path angle ≈ 0, altitude ≈ target.
+#                    The achieved orbit (eccentricity, apo/peri) and whether the
+#                    insertion was "clean" (all three within tolerance) are
+#                    reported. Requires PyGMO. Has no effect when
+#                    GUIDANCE_MODE = "indirect_pmp" (that mode runs its own PSO).
+#                    Intended for the direct-insertion laws (peg, peg_new, apollo).
+#                    CAVEAT: a single continuous burn (no coast) is delta-v-marginal,
+#                    so ONLY {apollo, peg, peg_new} reach the target circular orbit.
+#                    gravity_turn/linear_tangent/bilinear_tangent/cpr/exp_shooting
+#                    converge (budget-independently) to a SUBORBITAL insertion here —
+#                    use "pso_coast"/"apogee_check" (which have a coast) for those.
+#                    direct_pso_solver prints a warning for those pairings.
+#                    PSO tuning for this method lives in §11c (PSO_DIRECT_*).
+COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct"
 
-# -------------- Atmosphere Exit / Guidance Start Marker --------------
-# Choose how to detect when the rocket exits the atmosphere and guidance should start:
-#   "altitude":         Use altitude threshold (traditional method)
-#   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
-#   "aerothermal_flux": Use aerothermal flux threshold (Phi = 0.5*rho*v^3)
-ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"             # Options: "altitude", "dynamic_pressure", "aerothermal_flux"
-ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
-                                                 # (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
-DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
-                                                 # (only used if ATMOSPHERE_EXIT_METHOD = "dynamic_pressure")
-                                                 # Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
-AEROTHERMAL_FLUX_THRESHOLD = 1135.0             # aerothermal flux threshold [W/m^2]
-                                                 # (only used if ATMOSPHERE_EXIT_METHOD = "aerothermal_flux")
-                                                 # Phi = 0.5*rho*v^3; negligible heating below this value
+# -------------- Direct-insertion tolerances --------------
+# (only used when COAST_METHOD == "direct") The insertion is graded "clean" only if
+# the velocity, flight-path-angle AND altitude errors are all within the tolerances
+# below; otherwise the achieved orbit is reported as-is and the PSO objective grades
+# how far outside the box the insertion landed.
+DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
+DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
+DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
 
-# -------------- Optimization --------------
+
+# ===================================================================
+# 10. OPTIMIZATION  (apogee_check brute search)
+# ===================================================================
+# ALPHA_LOWEST/ALPHA_HIGHEST are the kick-angle brute-search bounds used by the
+# apogee_check solver (solver.find_initial_kick_angle_coast_single_burn). The
+# single-run kick angle is INITIAL_KICK_ANGLE (§7).
 ALPHA_LOWEST = -np.deg2rad(5.5)                  # lowest possible kick angle to be tested; [rad]
-ALPHA_HIGHEST = -np.deg2rad(2.5)                # highest possible kick angle to be tested; [rad]~
+ALPHA_HIGHEST = -np.deg2rad(2.5)                 # highest possible kick angle to be tested; [rad]
 MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of delta-v; [s]
 # apogee_check: a kick angle is accepted only if its achieved apogee is within this
 # fraction of the target radius. Tight (0.0002 ≈ 1.4 km) now that the apogee
 # interrupt and the SECO conversion use the same (launch) latitude.
 APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fraction of r_target)
 
-# -------------- Fast Run Mode --------------
-# If True, skips optimization and uses pre-determined optimal kick angles
-RUN_FAST = False
 
-# Optimal kick angles for each guidance mode (in radians)
-# These values should be updated after running optimization for each mode
-OPTIMAL_KICK_ANGLES = {
-    "gravity_turn": -np.deg2rad(3.0),           # Update after optimization
-    "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
-    "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
-    "apollo": -np.deg2rad(4.5),                  # Update after optimization
-    "peg": -np.deg2rad(3.0),                     # Update after optimization
-    "peg_new": -np.deg2rad(3.0),                 # Update after optimization
-    "exp_shooting": -np.deg2rad(3.0),            # Update after optimization
-}
+# ===================================================================
+# 11. PSO OPTIMIZERS
+# ===================================================================
 
-# ===================================================
-# Single Run specific parameters
-# ===================================================
-INITIAL_KICK_ANGLE = - np.deg2rad(3.0)          # Initial kick angle [rad]
-
-
-# ===================================================
-# FOR SIMULATION
-# ===================================================
-TIME_STEP = 0.01                              # output sampling interval for t_eval; [s]
-                                              # (integration itself is adaptive, max_step=1)
-DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after reaching desired orbit; [s]
-
-
-# ===================================================
-# FOR DEBUGGING
-# ===================================================
-INTERRUPTS_PRINT = False
-EVENTS_PRINT = True
-
-
-# ===================================================
-# INDIRECT PMP / PSO PARAMETERS
-# (only used when GUIDANCE_MODE = "indirect_pmp")
-# ===================================================
+# -------------------------------------------------------------------
+# 11a. Indirect-PMP PSO   (only used when GUIDANCE_MODE = "indirect_pmp")
+# -------------------------------------------------------------------
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
 PSO_N_PARTICLES     = 250      # swarm size
@@ -304,83 +419,11 @@ PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
 PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
 GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 
-
-# ===================================================
-# COAST METHOD SELECTION
-# (applies to all guidance modes except "indirect_pmp")
-# ===================================================
-
-# Choose how the coast start is determined during Stage 2:
-#   "apogee_check" : current method (unchanged).
-#                    interrupt_single_burn_traj fires when the rocket's
-#                    instantaneous apogee equals the target altitude.
-#                    The rocket then coasts ballistically to apogee and an
-#                    impulsive circularisation burn is applied.
-#   "pso_coast"    : PSO simultaneously optimises kick angle (gamma_p),
-#                    total Stage-2 burn fraction (delta_tr_pct), coast-start
-#                    fraction (coast_start_pct), and coast duration (delta_tc).
-#                    The trajectory is Thrust → Coast → Thrust with direct
-#                    orbit insertion — no separate circularisation burn.
-#                    The selected guidance law (apollo, peg, …) steers the
-#                    rocket during both thrust arcs.
-#                    Has no effect when GUIDANCE_MODE = "indirect_pmp" (that
-#                    mode always uses its own PSO with costates).
-#                    CAVEAT: "exp_shooting" is a weak fit with "pso_coast" — its
-#                    BVP assumes one continuous burn to propellant depletion,
-#                    which the thrust-coast-thrust split forbids. Prefer a
-#                    feedback law (linear_tangent, apollo, peg, peg_new) here.
-#   "direct"       : Continuous single Stage-2 burn to DIRECT orbit insertion —
-#                    no coast, no circularisation burn. Always PSO: a 2-variable
-#                    PSO (direct_pso_solver) optimises gamma_p (kick angle) AND the
-#                    Stage-2 burn duration so the insertion lands in the
-#                    DIRECT_INSERTION_* box — inertial velocity = circular
-#                    √(μ/r_target), flight-path angle ≈ 0, altitude ≈ target.
-#                    The achieved orbit (eccentricity, apo/peri) and whether the
-#                    insertion was "clean" (all three within tolerance) are
-#                    reported. Requires PyGMO. Has no effect when
-#                    GUIDANCE_MODE = "indirect_pmp" (that mode runs its own PSO).
-#                    Intended for the direct-insertion laws (peg, peg_new, apollo).
-#                    CAVEAT: a single continuous burn (no coast) is delta-v-marginal,
-#                    so ONLY {apollo, peg, peg_new} reach the target circular orbit.
-#                    gravity_turn/linear_tangent/bilinear_tangent/cpr/exp_shooting
-#                    converge (budget-independently) to a SUBORBITAL insertion here —
-#                    use "pso_coast"/"apogee_check" (which have a coast) for those.
-#                    direct_pso_solver prints a warning for those pairings.
-COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct"
-
-# -------------- Direct-insertion tolerances --------------
-# (only used when COAST_METHOD == "direct") The insertion is graded "clean" only if
-# the velocity, flight-path-angle AND altitude errors are all within the tolerances
-# below; otherwise the achieved orbit is reported as-is and the PSO objective grades
-# how far outside the box the insertion landed.
-DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
-DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
-DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
-
-# -------------- PSO DIRECT algorithm settings --------------
-# (only used when COAST_METHOD == "direct")
-PSO_DIRECT_N_PARTICLES     = 50
-PSO_DIRECT_MAX_GENERATIONS = 100
-PSO_DIRECT_C1              = 2.05
-PSO_DIRECT_C2              = 2.05
-PSO_DIRECT_OMEGA           = 0.7298
-PSO_DIRECT_VMAX            = 0.5
-PSO_DIRECT_SEED            = 42
-
-# x = [gamma_p (rad), t_burn_pct (% of T_MAX_2)]
-PSO_DIRECT_LB = [1.54,  50.0]
-PSO_DIRECT_UB = [1.57, 100.0]
-
-# -------------- Penalty weights for direct PSO objective --------------
-# Same 4-term structure as PSO_COAST_W_* (no transversality term, no costates).
-PSO_DIRECT_W_J           = 1.0     # burn-time term (J normalised by T_MAX_2)
-PSO_DIRECT_W_ALTITUDE    = 100.0   # relative altitude error  (1% error -> 1.0)
-PSO_DIRECT_W_VELOCITY    = 100.0   # relative velocity error  (1% error -> 1.0)
-PSO_DIRECT_W_FPA         = 10.0    # FPA error in deg         (1 deg  -> 10.0)
-PSO_DIRECT_GAMMA_REF_DEG = 1.0     # FPA non-dimensionalisation reference [deg]
+# -------------------------------------------------------------------
+# 11b. Coast PSO   (only used when COAST_METHOD == "pso_coast")
+# -------------------------------------------------------------------
 
 # -------------- PSO COAST algorithm settings --------------
-# (only used when COAST_METHOD == "pso_coast")
 PSO_COAST_N_PARTICLES     = 100      # swarm size
 PSO_COAST_MAX_GENERATIONS = 250      # maximum number of generations
 PSO_COAST_C1              = 2.05    # cognitive parameter
@@ -423,3 +466,62 @@ PSO_COAST_EXP_A_LB = 0.0     # exp_shooting a (initial commanded pitch ≈ [rad]
 PSO_COAST_EXP_A_UB = 1.6
 PSO_COAST_EXP_B_LB = -0.05   # exp_shooting b (pitch decay rate [1/s])
 PSO_COAST_EXP_B_UB = 0.005
+
+# -------------------------------------------------------------------
+# 11c. Direct PSO   (only used when COAST_METHOD == "direct")
+# -------------------------------------------------------------------
+
+# -------------- PSO DIRECT algorithm settings --------------
+PSO_DIRECT_N_PARTICLES     = 50
+PSO_DIRECT_MAX_GENERATIONS = 100
+PSO_DIRECT_C1              = 2.05
+PSO_DIRECT_C2              = 2.05
+PSO_DIRECT_OMEGA           = 0.7298
+PSO_DIRECT_VMAX            = 0.5
+PSO_DIRECT_SEED            = 42
+
+# x = [gamma_p (rad), t_burn_pct (% of T_MAX_2)]
+PSO_DIRECT_LB = [1.54,  50.0]
+PSO_DIRECT_UB = [1.57, 100.0]
+
+# -------------- Penalty weights for direct PSO objective --------------
+# Same 4-term structure as PSO_COAST_W_* (no transversality term, no costates).
+PSO_DIRECT_W_J           = 1.0     # burn-time term (J normalised by T_MAX_2)
+PSO_DIRECT_W_ALTITUDE    = 100.0   # relative altitude error  (1% error -> 1.0)
+PSO_DIRECT_W_VELOCITY    = 100.0   # relative velocity error  (1% error -> 1.0)
+PSO_DIRECT_W_FPA         = 10.0    # FPA error in deg         (1 deg  -> 10.0)
+PSO_DIRECT_GAMMA_REF_DEG = 1.0     # FPA non-dimensionalisation reference [deg]
+
+
+# ===================================================================
+# 12. FAST-RUN MODE
+# ===================================================================
+# If True, skips optimization and uses pre-determined optimal kick angles
+RUN_FAST = False
+
+# Optimal kick angles for each guidance mode (in radians)
+# These values should be updated after running optimization for each mode
+OPTIMAL_KICK_ANGLES = {
+    "gravity_turn": -np.deg2rad(3.0),           # Update after optimization
+    "linear_tangent": -np.deg2rad(3.0),         # Update after optimization
+    "bilinear_tangent": -np.deg2rad(3.0),       # Update after optimization
+    "apollo": -np.deg2rad(4.5),                  # Update after optimization
+    "peg": -np.deg2rad(3.0),                     # Update after optimization
+    "peg_new": -np.deg2rad(3.0),                 # Update after optimization
+    "exp_shooting": -np.deg2rad(3.0),            # Update after optimization
+}
+
+
+# ===================================================================
+# 13. SIMULATION OUTPUT & TIMING
+# ===================================================================
+TIME_STEP = 0.01                              # output sampling interval for t_eval; [s]
+                                              # (integration itself is adaptive, max_step=1)
+DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after reaching desired orbit; [s]
+
+
+# ===================================================================
+# 14. DEBUGGING FLAGS
+# ===================================================================
+INTERRUPTS_PRINT = False
+EVENTS_PRINT = True

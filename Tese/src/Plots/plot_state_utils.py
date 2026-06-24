@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from Auxiliary import constants as c
 from Auxiliary import atmosphere as atm
 from Auxiliary import rocket_specs as r
+from Input_File import simulation_parameters as sim_params
 
 
 def reduce_data(time_steps, data, reduction_factor=10):
@@ -61,7 +62,6 @@ def extract_state_channels(data):
         "gamma": data[3],
         "m": data[4],
         "lat": data[5] if data.shape[0] > 5 else None,
-        "heading": data[6] if data.shape[0] > 6 else None,
     }
 
     channels["alt"] = channels["r"] - c.R_EARTH
@@ -177,7 +177,7 @@ def compute_acceleration_components(time_steps, channels, thrust_data=None, time
     alt = np.asarray(channels["alt"])
 
     q = compute_dynamic_pressure(v, alt)
-    drag_force = atm.drag_force(q)
+    drag_force = atm.drag_force(q) if sim_params.INCLUDE_DRAG else np.zeros_like(q)
     drag_accel = drag_force / np.maximum(m_arr, 1e-6)
 
     grav_accel = np.array([c.MU_EARTH / max(r_i**2, 1e-6) for r_i in r_arr])

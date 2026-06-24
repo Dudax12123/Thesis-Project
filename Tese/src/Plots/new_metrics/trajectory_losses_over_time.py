@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 
 from Plots import plot_state_utils as psu
 from Auxiliary import gravity as grav
+from Input_File import simulation_parameters as sim_params
 
 _C_D_ASCENT = 0.3
 _A_REF = 10.52
@@ -32,7 +33,7 @@ def plot_trajectory_losses_over_time(time_steps, data, thrust_data, time_thrust,
         m = channels['m'][i]
 
         g = grav.gravitational_acceleration(r_val)
-        drag_accel = (q[i] * _C_D_ASCENT * _A_REF) / m
+        drag_accel = (q[i] * _C_D_ASCENT * _A_REF) / m if sim_params.INCLUDE_DRAG else 0.0
         thrust_accel = thrust_interp[i] / m
         steer_accel = thrust_accel * (1.0 - np.cos(alpha_interp[i]))
 

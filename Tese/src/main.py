@@ -170,7 +170,7 @@ def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data):
     print(f"\t* Orbital period:\t\t\t{T/60:.2f} minutes")
     if sim_params.ENABLE_EARTH_ROTATION:
         print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
-        print(f"\t* Cross-heading pseudo-forces:\t\t{'ON' if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE else 'OFF'}")
+        print(f"\t* Cross-heading counter-force:\t\t{'ON' if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE else 'OFF'}")
 
 
 def _print_propellant_losses():
@@ -260,7 +260,6 @@ def execute():
         print("="*60)
         print(f"Azimuth/inclination mode: {sim_params.AZIMUTH_INCLINATION_MODE}")
         print(f"Pseudo-forces in EOM:     {sim_params.INCLUDE_PSEUDO_FORCES}")
-        print(f"Heading state tracking:   {sim_params.TRACK_HEADING_STATE}")
         print(f"Launch site latitude:     {sim_params.LAUNCH_LATITUDE:.4f} deg")
         print(f"Launch site longitude:    {sim_params.LAUNCH_LONGITUDE:.4f} deg")
         print(f"Target inclination:       {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
@@ -977,66 +976,8 @@ def execute():
         pso_history=pso_history,
     )
 
-    # --- Heading comparison plot: with vs without cross-heading pseudo-force ---
-    if (sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE
-            and data.shape[0] > 6):
-        print("\nRunning heading comparison (cross-heading pseudo-force ON vs OFF)...")
-        heading_comparison_plot(time, data, kick_angle_optimal,
-                                ra.LAST_ACHIEVED_INCLINATION_DEG)
-
     print("\nAll plots generated.")
     return time, data, kick_angle_optimal
-
-
-def heading_comparison_plot(time_ref, data_ref, kick_angle, inc_on):
-    """
-    Run a second simulation with cross-heading pseudo-force disabled and
-    plot heading vs time for both cases on the same axes.
-    """
-    heading_on = np.rad2deg(data_ref[6, :])
-
-    # Re-run with cross-heading pseudo-force disabled
-    _saved_cross = sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE
-    sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE = False
-    ra.SINGLE_BURN_FULL_SIMULATION = True
-    _, data_off, _, _, _, _, _, _, _, _, _ = ra.run(kick_angle)
-    sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE = _saved_cross
-
-    if data_off.shape[0] <= 6:
-        print("  Heading state not available in comparison run — skipping plot.")
-        return
-
-    heading_off = np.rad2deg(data_off[6, :])
-    n = min(len(time_ref), data_off.shape[1])
-
-    # Truncate at SECO — heading is not propagated after ECI transition
-    from Plots.plot_state_utils import event_times, cutoff_index
-    idx = cutoff_index(time_ref[:n], event_times().get('seco'))
-
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(time_ref[:idx], heading_on[:idx],
-            label="With cross-heading pseudo-force", linewidth=1.2)
-    ax.plot(time_ref[:idx], heading_off[:idx],
-            label="Without cross-heading pseudo-force", linewidth=1.2,
-            linestyle="--")
-    from Plots.plot_state_utils import add_event_markers
-    add_event_markers(ax)
-    ax.set_xlabel("Time [s]")
-    ax.set_ylabel("Heading [deg]")
-    ax.set_title("Heading Evolution: Effect of Cross-Heading Pseudo-Force")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-
-    # Inclination comparison
-    lat_off = ra.get_latitude_from_downrange(data_off[0, -1])
-    heading_off_final = data_off[6, -1]
-    inc_off = earth_rot.achieved_inclination_from_local_state(
-        data_off[2, -1], data_off[3, -1], heading_off_final,
-        lat_off, data_off[1, -1])
-    print(f"\n  Inclination WITH cross-heading pseudo-force:    {inc_on:.4f} deg")
-    print(f"  Inclination WITHOUT cross-heading pseudo-force: {inc_off:.4f} deg")
-    print(f"  Difference: {inc_on - inc_off:+.4f} deg")
 
 
 if __name__ == "__main__":

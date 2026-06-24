@@ -553,35 +553,6 @@ def get_latitude_rate_from_downrange(s, dsdt):
     return dlat_dsigma * dsigma_dt
 
 
-def get_heading_from_state(state, lat_rad=None):
-    """
-    Return heading (azimuth) used for Earth-rotation contributions.
-
-    If heading propagation is enabled and available in the state vector,
-    use that tracked value. Otherwise fall back to the active launch azimuth.
-    """
-    if not sim_params.ENABLE_EARTH_ROTATION:
-        return LAUNCH_AZIMUTH
-
-    if sim_params.TRACK_HEADING_STATE and len(state) > 6:
-        return state[6]
-
-    return LAUNCH_AZIMUTH
-
-
-def get_heading_rate_from_latitude(lat_rad, dlatdt, heading_rad):
-    """
-    Compute d(heading)/dt from great-circle geometry and latitude rate.
-
-    This keeps heading consistent with the same spherical-geometry assumption
-    used for latitude propagation in the 2D ascent model.
-    """
-    if not sim_params.ENABLE_EARTH_ROTATION:
-        return 0.0
-
-    return np.tan(lat_rad) * np.tan(heading_rad) * dlatdt
-
-
 def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     """
     Computes the orbital parameters given the input state.
@@ -1020,9 +991,6 @@ def rocket_dynamics(t, state):
         else:
             lat = get_latitude_from_downrange(s)
 
-        if sim_params.TRACK_HEADING_STATE and len(state) > 6:
-            heading = state[6]
-
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
 
@@ -1038,12 +1006,15 @@ def rocket_dynamics(t, state):
     q = atm.dynamic_pressure(v, alt)
 
     # --- Check atmosphere exit condition based on selected method ---
+    # No-atmosphere mode (INCLUDE_DRAG=False) forces the deterministic altitude
+    # marker — the q / aerothermal methods are physically meaningless without air.
     atmosphere_exit_detected = False
-    if sim_params.ATMOSPHERE_EXIT_METHOD == "altitude":
+    _exit_method = "altitude" if not sim_params.INCLUDE_DRAG else sim_params.ATMOSPHERE_EXIT_METHOD
+    if _exit_method == "altitude":
         atmosphere_exit_detected = (alt > sim_params.ALT_NO_ATMOSPHERE)
-    elif sim_params.ATMOSPHERE_EXIT_METHOD == "dynamic_pressure":
+    elif _exit_method == "dynamic_pressure":
         atmosphere_exit_detected = (q < sim_params.DYNAMIC_PRESSURE_THRESHOLD)
-    elif sim_params.ATMOSPHERE_EXIT_METHOD == "aerothermal_flux":
+    elif _exit_method == "aerothermal_flux":
         phi = atm.aerothermal_flux(v, alt)
         atmosphere_exit_detected = (phi < sim_params.AEROTHERMAL_FLUX_THRESHOLD)
 
@@ -1407,11 +1378,14 @@ def rocket_dynamics(t, state):
     # --- Determine current accelerations and forces ---
     a_grav = grav.gravitational_acceleration(r_val)
     
-    # Calculate drag (dynamic pressure already calculated earlier)
-    F_D = atm.drag_force(q)
-    
-    # Lift force
-    if sim_params.INCLUDE_LIFT:
+    # Drag force (INCLUDE_DRAG=False ⇒ no atmosphere ⇒ drag and lift both off)
+    if sim_params.INCLUDE_DRAG:
+        F_D = atm.drag_force(q)
+    else:
+        F_D = 0.0
+
+    # Lift force (only effective while there is an atmosphere, i.e. drag enabled)
+    if sim_params.INCLUDE_LIFT and sim_params.INCLUDE_DRAG:
         F_L = atm.lift_force(q)
     else:
         F_L = 0.0
@@ -1419,12 +1393,11 @@ def rocket_dynamics(t, state):
     state_differentiated = diff_eom_base(s, r_val, v, gamma, m, F_L, F_D, F_T, 
                                          a_grav, alpha, Isp)
 
-    delta_dheadingdt_pseudo = 0.0
     a_cross_heading_pseudo = 0.0
     coriolis_mag_val = 0.0
     centrifugal_mag_val = 0.0
     if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES and not PROPAGATING_IN_INERTIAL_FRAME:
-        delta_dvdt, delta_dgammadt, delta_dheadingdt_pseudo, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
+        delta_dvdt, delta_dgammadt, _, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
             v,
             gamma,
             heading,
@@ -1434,22 +1407,16 @@ def rocket_dynamics(t, state):
         state_differentiated[2] += delta_dvdt
         state_differentiated[3] += delta_dgammadt
 
-    cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
-    cross_heading_accel_history.append(abs(a_cross_heading_pseudo))
+    # Cross-heading actuator counter-force (heading held at launch azimuth; no
+    # trajectory effect — see COMPUTE_CROSS_HEADING_COUNTER_FORCE).
+    if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
+        cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
+        cross_heading_accel_history.append(abs(a_cross_heading_pseudo))
 
     if sim_params.ENABLE_EARTH_ROTATION:
         dsdt = state_differentiated[0]
         dlatdt = get_latitude_rate_from_downrange(s, dsdt)
         state_differentiated.append(dlatdt)
-
-        if sim_params.TRACK_HEADING_STATE:
-            if PROPAGATING_IN_INERTIAL_FRAME:
-                dheadingdt = 0.0
-            else:
-                dheadingdt = get_heading_rate_from_latitude(lat, dlatdt, heading)
-                if sim_params.INCLUDE_CROSS_HEADING_PSEUDO_FORCE:
-                    dheadingdt += delta_dheadingdt_pseudo
-            state_differentiated.append(dheadingdt)
 
     if time_kick_start == None:
         state_differentiated[3] = 0.0
@@ -1850,13 +1817,16 @@ def run(initial_kick_angle, azimuth_override=None):
     #===================================================
 
     # Define initial state
-    initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 + 
+    initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 +
                    r.M_PROP_2 + r.M_PAYLOAD)
+    if not sim_params.INCLUDE_DRAG:
+        # No atmosphere ⇒ launch without the fairing (it is never carried). Pre-
+        # jettison it and drop M_FAIRING (a subset of M_STRUCTURE_1) from launch mass.
+        fairing_jettisoned = True
+        initial_mass -= r.M_FAIRING
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
     if sim_params.ENABLE_EARTH_ROTATION:
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
-        if sim_params.TRACK_HEADING_STATE:
-            initial_state_1.append(LAUNCH_AZIMUTH)
 
     # Define time of simulation 1
     time_1 = 500.
@@ -2044,8 +2014,6 @@ def run(initial_kick_angle, azimuth_override=None):
     gamma_stop = sol_2.y[3, -1]
     lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
     heading_stop = LAUNCH_AZIMUTH
-    if sim_params.ENABLE_EARTH_ROTATION and sim_params.TRACK_HEADING_STATE and sol_2.y.shape[0] > 6:
-        heading_stop = sol_2.y[6, -1]
 
     # Calculate altitude to stop burning
     alt_stop = r_stop - c.R_EARTH
@@ -2407,11 +2375,13 @@ def run_stage1(initial_kick_angle):
     # --- Initial conditions ---------------------------------------------------
     initial_mass = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2 +
                     r.M_PROP_2 + r.M_PAYLOAD)
+    if not sim_params.INCLUDE_DRAG:
+        # No atmosphere ⇒ launch without the fairing (see run()).
+        fairing_jettisoned = True
+        initial_mass -= r.M_FAIRING
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
     if sim_params.ENABLE_EARTH_ROTATION:
         initial_state_1.append(LAUNCH_LATITUDE_RAD)
-        if sim_params.TRACK_HEADING_STATE:
-            initial_state_1.append(LAUNCH_AZIMUTH)
 
     time_1 = 500.
 
