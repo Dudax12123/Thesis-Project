@@ -353,11 +353,16 @@ PEG_CONVERGENCE_MAX_ITER = 30       # Max iterations for both modes
 #                    PSO tuning for this method lives in §11c (PSO_DIRECT_*).
 COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct"
 
-# -------------- Direct-insertion tolerances --------------
-# (only used when COAST_METHOD == "direct") The insertion is graded "clean" only if
-# the velocity, flight-path-angle AND altitude errors are all within the tolerances
-# below; otherwise the achieved orbit is reported as-is and the PSO objective grades
-# how far outside the box the insertion landed.
+# -------------- Direct-insertion REPORTING tolerances --------------
+# Diagnostic only (COAST_METHOD == "direct"): these do NOT affect the PSO solve, the
+# optimization objective, or the engine cutoff. MECO fires at circular velocity
+# (interrupt_velocity_exceeded); the PSO drives insertion accuracy through the
+# PSO_DIRECT_W_* weights in §11c, not through these thresholds.
+# After the solve, the achieved insertion is graded "clean" only if the velocity,
+# flight-path-angle AND altitude errors are ALL within the tolerances below; this sets
+# the printed "Clean insertion (within tol)" verdict (see interrupt_direct_insertion
+# in rocket_ascent.py and the report in main.py). Otherwise the achieved orbit is
+# reported as-is.
 DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
 DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
 DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]
