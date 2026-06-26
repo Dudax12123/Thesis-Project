@@ -1,0 +1,929 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%                                                                      %
+%     File: Thesis_Background.tex                                      %
+%     Tex Master: Thesis.tex                                           %
+%                                                                      %
+%     Author: Andre C. Marta                                           %
+%     Last modified :  4 Mar 2024                                      %
+%                                                                      %
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\chapter{Background}
+\label{chapter:theoretical_background} 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Equations of Motion (3DOF)}
+\label{sec:EOM}
+
+In the context of this work a simplified model for the vehicle dynamics and kinematics is sufficient for trajectory design, however it relays on a set of assumptions, therefore their limitations must be clearly understood. The motion is restricted to a vertical plane, so that the trajectory can be described with three degrees of freedom: two translational and one rotational (pitch), as illustrated in Fig.~\ref{fig:ref_frame_ed}.
+
+In the simplified scenario of a planar trajectory over a non-rotating spherical planet (Fig.~\ref{fig:ref_frame_ed}), the following assumptions are adopted: the atmosphere is fixed with the planet (no wind); The launch vehicle is a rigid body; The vehicle tracks the required orientation, so that rotational dynamics are encapsulated in the prescribed pitch history, $\theta(t)$; The thrust vector is aligned with the vehicle longitudinal axis (control deflections are neglected).
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.75\linewidth]{Figures/Reference_Frame.png}
+    \caption{Reference Frame~\cite{Edberg}.}
+    \label{fig:ref_frame_ed}
+\end{figure}
+
+Given these assumptions, the equations of motion can be written as~\cite{griffin2004space}:
+
+\begin{subequations}\label{eq:planar_eom}
+\begin{align}
+  \dot{v} &= \frac{T\cos(\alpha)-D}{m} - g\sin(\gamma) \ , \label{eq:planar_eom_a}\\
+  v\dot{\gamma} &= \frac{T\sin(\alpha)+L}{m} - \left(g-\frac{v^{2}}{r}\right)\cos(\gamma) \ , \label{eq:planar_eom_b}\\
+  \dot{s} &= \frac{R}{r}\,v\cos(\gamma) \ , \label{eq:planar_eom_c}\\
+  \dot{r} &= \dot{h} = v\sin(\gamma) \ , \label{eq:planar_eom_d}\\
+  \dot{m} &= -\dot{m}_{p} \ , \label{eq:planar_eom_e}\\
+  \alpha &= \theta(t)-\gamma \ , \label{eq:planar_eom_f}
+\end{align}
+\end{subequations}
+where $v$ is the inertial speed magnitude, $\alpha$ is the angle of attack (the angle between the relative velocity vector, equivalently the inertial velocity vector for a fixed atmosphere, and the vehicle longitudinal axis), $\gamma$ is the flight-path angle; $\theta$ is the pitch angle (treated as a control variable in \eqref{eq:planar_eom_f}), $s$ is the down-range distance over the non-rotating planet; and $r=R+h$ is the radial distance from the planetary centre, given by the sum of the planet radius $R$ and the altitude $h$
+
+%In the case of velocity and position, they should be expressed with respect to the ECI (Earth Centred Inertial) reference frame~\cite{relativityframes}, from which the following equations are derived:
+
+%\begin{equation}
+%\left\{
+%\begin{aligned}
+%\nu &= \frac{s}{R} \ , \\
+%x &= \frac{h + R}{\sin(\nu)} \ , \\
+%y &= \frac{h + R}{\cos(\nu)} \ .
+%\end{aligned}
+%\right.
+%\end{equation}
+%where $\nu$ denotes the true anomaly, $x$ points to the vernal equinox axis and $y$ is perpendicular to the $x$ axis, pointing to the longitude east of the vernal equinox~\cite{relativityframes}. 
+
+\subsection{Reference Frames: Rotating Earth Frame and Inertial Frame}
+
+The ascent analysis relies on two complementary Earth-centered reference frames.  
+The first is a rotating Earth frame (ECEF-type), whose origin is at Earth’s center and whose axes rotate with Earth at angular rate $\omega_E$. This frame is convenient for describing launch-site-relative motion, including altitude, downrange progression, local flight-path angle, and velocity relative to the rotating planet. It is especially practical for representing early ascent and atmospheric flight, since geographic quantities and air-relative effects are naturally interpreted in this frame~\cite{relativityframes}.
+
+The second is the Earth-centered inertial frame (ECI), which has the same origin but non-rotating axes (to first order). This frame is required for orbital mechanics calculations, because two-body energy and angular-momentum relations are formulated in inertial coordinates. Therefore, inertial velocity and inertial flight-path angle are used to determine orbital quantities such as semi-major axis, eccentricity, apoapsis, periapsis, and insertion quality~\cite{relativityframes}.
+
+In summary, the rotating frame is preferred for the ascent description, while the inertial frame is required for physically consistent orbital parameters determination. The conversion of the velocity between them is essential, and can be expressed as
+\[
+\mathbf{v}_{\mathrm{ECI}}=\mathbf{v}_{\mathrm{rot}}+\boldsymbol{\omega}_E\times\mathbf{r},
+\]
+which shows that inertial velocity is the rotating-frame velocity plus the contribution from Earth’s rotation~\cite{relativityframes}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Atmospheric Models}
+\label{sec:atm_models}
+
+Talk about atmospheric models that will be used.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{External Forces and Moments}
+\label{sec:External_Forces_Moments}
+
+To evaluate the equations of motion for rocket flight, the external forces and moments acting on the vehicle must be modelled. This section presents the adopted modelling approach for thrust, weight, and aerodynamic loads, together with the key assumptions underlying these formulations.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Gravity}
+
+The launch vehicle is subject to the planet's gravitational attraction, which can be modelled as an external force acting approximately at the vehicle centre of mass and directed toward the planet's centre~\cite{curtis2020orbital}.
+
+Because gravity follows an inverse-square law, its magnitude decreases as the separation between the two masses increases. Let $h$ denote the altitude above Earth's surface, so that the distance from Earth's centre is $r = R_E + h$ where $R_E$ is Earth's mean radius, we get the following relation between altitude and gravitational acceleration~\cite{curtis2020orbital}:
+
+\begin{equation}
+g = \frac{g_0}{\left(1 + h/R_E\right)^2} \ ,
+\end{equation}
+where $g_0$ denotes the standard gravitational acceleration at sea level and its value is $g_0 = 9.807\,\mathrm{m/s^2}$.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Thrust}
+
+Thrust is generated by the high-speed exhaust gases expanding through the engine nozzle. When the ideal expansion assumption cannot be used, the instantaneous thrust can be written as the sum of the thrust under that assumption ($T = \dot m_p v_e$) and a pressure-correction term~\cite{Edberg}: 
+\begin{equation}
+T = \dot m_p v_e + \left(p_e - p_a\right)A_e \ ,
+\end{equation}
+where $\dot m_p$ is the mass flow rate of propellants, $v_e$ is the exit velocity of the combusted propellants, $p_e$ is the nozzle exit pressure, $p_a$ is the ambient pressure, and $A_e$ is the nozzle exit area~\cite{Edberg, sutton2017rocket}.
+
+A standard performance metric for a propulsion system is the specific impulse, $I_{sp}$, defined as the total impulse delivered per unit weight of propellant consumed~\cite{sutton2017rocket}:
+
+\begin{equation}
+I_{sp} = \frac{T}{\dot{m}_p g_0} \ .
+\end{equation}
+with $g_0$ denoting the gravitational acceleration at sea level and both thrust and propellant mass flow rate are approximately constant during the burn~\cite{sutton2017rocket}.
+
+The same relation can be used to obtain a simple approximation for the vehicle mass depletion rate~\cite{sutton2017rocket}. Introducing the vacuum specific impulse $I_{sp0}$ (computed for $p_a=0$) and assuming the nozzle remains choked over the admissible throttle range, the mass rate can be modelled as~\cite{sutton2017rocket}:
+\begin{equation}
+\dot{m} = -\dot{m}_p \approx -\frac{T + p_a A_e}{I_{sp0} g_0} \ .
+\end{equation}
+
+\subsection{Thrust Vector Controls}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.8\linewidth]{Figures/TVC.png}
+    \caption{Thrust Vector Control Visualization. Source:~\cite{Edberg}}
+    \label{fig:TVC}
+\end{figure}
+
+The engine thrust vector can be gimballed~\cite{Edberg}, i.e., rotated by a control angle $\delta$ about the vehicle centreline. This deliberate misalignment generates a lateral (side) component of thrust that acts as a control effector in a thrust-vector-control (TVC) system~\cite{Edberg}. Through the moment arm between the thrust line of action and the vehicle center of mass, this side force produces a control torque (moment) vector $\mathbf{M}$, typically expressed as
+\begin{equation}
+\mathbf{M} = \mathbf{r}_T \times \mathbf{T} \ ,
+\end{equation}
+where $\mathbf{r}_T$ is the position vector from the centre of mass to the point of application of the thrust.
+
+Let $\delta$ denote the thrust-vector angle measured relative to the launch vehicle centreline, and let $\alpha$ be the angle of attack. Decomposing the thrust vector into tangential and normal components along the local unit directions $\mathbf{u}_t$ and $\mathbf{u}_n$ (see Figure~\ref{fig:TVC}), one obtains~\cite{Edberg}:
+\begin{equation}
+\begin{aligned}
+\mathbf{T} &= T_t\,\mathbf{u}_t + T_n\,\mathbf{u}_n\ ,\\
+T_t &= T\cos\!\left(\alpha+\delta\right)\ ,\\
+T_n &= T\sin\!\left(\alpha+\delta\right)\ ,
+\end{aligned}
+\end{equation}
+where $T$ is the thrust magnitude.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Aerodynamic Forces}
+
+The atmosphere affects ascent, orbital motion, and reentry through aerodynamic forces at low altitudes and residual drag in low Earth orbit, motivating the need to quantify these this atmospheric effects on the launcher~\cite{Ulrich}.
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.5\linewidth]{Figures/Aerodynamic_Forces.png}
+    \caption{Aerodynamic Forces acting on a Rocket~\cite{Turner}.}
+    \label{fig:Aerodynamic_Forces}
+\end{figure}
+
+The motion of a rocket through the atmosphere generates aerodynamic forces that influence both its trajectory and its structural loads~\cite{Turner}. These forces affect the achievable velocity and the vehicle's structural integrity, and they depend strongly on the instantaneous velocity and on the local atmospheric density~\cite{Turner}.
+
+The aerodynamic forces can be decomposed into two orthogonal components~\cite{Edberg}: the lift $L$, which acts perpendicular to the velocity vector $\mathbf{v}$, and the drag $D$, which acts opposite to $\mathbf{v}$. Lift is produced by airflow over the rocket surface and drag arises from several physical effects and acts parallel to the flight path, opposite to the velocity vector~\cite{Turner}.
+
+Resolving lift and drag into body-axis components yields the transverse force $T$ and the axial retarding force $R$ (See Fig.~\ref{fig:Aerodynamic_Forces}). Defining the angle of attack as $\alpha$, these components are~\cite{Turner}:
+\begin{equation}
+\begin{aligned}
+T &= L\cos\alpha + D\sin\alpha \ , \\
+R &= -L\sin\alpha + D\cos\alpha \ ,
+\end{aligned}
+\end{equation}
+The negative sign in the expression for $R$ indicates that the lift component contributes in the accelerating direction~\cite{Turner}. Drag is always retarding and exists for any angle of attack, including $\alpha=0$, while lift is present only when $\alpha \neq 0$. The magnitudes of both lift and drag depend strongly on the vehicle velocity~\cite{Ulrich}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection{Dynamic Pressure}
+
+In the launch-vehicle equations of motion, aerodynamic forces are often expressed via non dimensional force coefficients. For a generic aerodynamic force $F$,
+\begin{equation}
+C_F = \frac{F}{q\,S_{\mathrm{ref}}} \ ,
+\end{equation}
+where $q$ is the dynamic pressure and $S_{\mathrm{ref}}$ is a reference area typically chosen as the maximum cross-sectional area of the vehicle~\cite{Edberg}.
+
+Aerodynamic lift and drag are commonly written as functions of the vehicle speed $V$, the local atmospheric density $\rho$, and a reference area $A$ which generally increases with angle of attack~\cite{Turner}. The Lift and Drag are expressed as follows:
+
+\begin{equation}
+\begin{aligned}
+C_L &=\frac{L}{qA} \ , &
+C_D &=\frac{D}{qA} \ .
+\end{aligned}
+\label{eq:cd}
+\end{equation}
+with the dynamic pressure, $q$, being
+\begin{equation}
+q = \frac{1}{2}\rho V^2 \ ,
+\label{eq:q_dyn_press}
+\end{equation}
+which typically reaches its maximum value ($q_{\max}$, or \emph{max-q}) at intermediate altitudes. As altitude increases further, $q$ decreases due to the rapid reduction of atmospheric density, while elevated values of $q$ are associated not only with increased drag losses but also with significant structural loads~\cite{Ulrich}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Performance (Losses and Gains)}
+
+During the rocket's ascent, from equations~\ref{eq:planar_eom} and taking into account a thrust angle, $\delta$, the equations for each one of the losses become~\cite{Edberg}:
+
+\begin{equation}
+\label{eq:dv_losses}
+\Delta V
+=
+\underbrace{v_e \ln\!\left(\frac{m_0}{m_f}\right)}_{\Delta V_{\text{ideal}}}
+-
+\underbrace{\int_{0}^{t_f}\frac{2T}{m}\,\sin^2\!\left(\frac{\alpha+\delta}{2}\right)\,dt}_{\Delta V_{\text{steering loss}}}
+-
+\underbrace{\int_{0}^{t_f}\frac{D}{m}\,dt}_{\Delta V_{\text{drag loss}}}
+-
+\underbrace{\int_{0}^{t_f} g\,\sin\gamma\,dt}_{\Delta V_{\text{gravity loss}}}
++
+\Delta V_{\text{gain}} \ .
+\end{equation}
+
+Equation~\eqref{eq:dv_losses} defines the total velocity increment as a budget: the ideal $\Delta V$ predicted by the rocket equation, reduced by the various loss terms.
+
+%Among the individual contributions, the steering loss arises whenever the thrust direction is not collinear with the velocity vector, i.e., when the vehicle must actively steer ($\delta \neq -\alpha$)~\cite{Edberg}. In addition, drag losses can be mitigated by clearing the dense atmosphere rapidly, which motivates a more vertical early ascent to limit aerodynamic drag~\cite{Edberg}. In contrast, gravity losses are reduced by pitching over promptly toward a near-horizontal flight path, driving the flight-path angle toward zero ($\gamma \to 0$)~\cite{Edberg}. These two goals—minimizing drag by staying vertical versus minimizing gravity losses by turning earlier—are inherently competing~\cite{Edberg}.
+
+Because steering losses typically account for only about 3\% of the total ascent losses~\cite{Edberg}, the optimal-ascent problem is largely governed by the trade-off between aerodynamic drag losses and gravity losses~\cite{Ulrich}. Since these two effects favour opposing flight profiles, there exists a broad family of feasible ascent trajectories that satisfy the competing requirements~\cite{Ulrich}.
+
+The gains arise from the launch-site location and the launch process itself. The magnitude of these gains can be computed using the following expression~\cite{Edberg}:
+
+\begin{equation}
+\Delta V_{\text{gain}} = \Delta V_{\text{launch\ site}} + \Delta V_{\text{shaping}} = V_{\text{equator}} \cos (\lambda_l) \ + \Delta v_{\text{shaping}} \ .
+\end{equation}
+
+The first term, $\Delta V_{\text{launch site}}$, represents the contribution of the launch-site velocity due to the Earth's rotation (positive for eastward launches)~\cite{Edberg} and the term $\Delta V_{\text{shaping}}$ accounts for the performance gain due to trajectory optimization, which seeks to minimize $\Delta V$ losses and, consequently, maximize the available payload~\cite{Edberg}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{comment}
+\subsection{Launch Azimuth and Orbit Inclination}
+
+%A space rocket must be launched toward a clear area to ensure the safe fall of spent stages, which may impact thousands of kilometres downrange. Consequently, many launch sites are located along coastlines facing the ocean~\cite{teofilatto2025trajectories}. For example, the Kennedy Space Center allows launch azimuths of approximately $35^\circ$ to $120^\circ$ to avoid overflight of populated areas, as can be seen in Figure~\ref{fig:KSC}.
+
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.4\linewidth]{Figures/KSC.png}
+    \caption{Kennedy Space Center allowable launch azimuth range. Source:~\cite{AerospaceCorp2002CompleteRangeLaunchActivities}.}
+    \label{fig:KSC}
+\end{figure}
+
+The launch azimuth, $A$, will be determined the the inclination, $i$, of the target orbital plane as well as the launch pad latitude, $\lambda$~\cite{teofilatto2025trajectories}:
+
+\begin{equation}
+\label{eq:azimuth}
+\sin A = \frac{\cos i}{\cos \lambda} \ .
+\end{equation}
+From equation~\ref{eq:azimuth} the following is implied:
+
+\begin{equation}
+\sin A = \frac{\cos i}{\cos \lambda} < 1 \;\implies\; \cos i < \cos \lambda \;\implies\; i > \lambda \ .
+\end{equation}
+This means that an azimuth angle, $A$, can only be selected if the launch-site latitude, $\lambda$, is smaller than the required orbital inclination $i$. Otherwise, reaching the target orbital plane requires an expensive out-of-plane manoeuvre~\cite{teofilatto2025trajectories}.
+\end{comment}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{comment}
+\subsection{Mass Ratios}
+
+The dimensionless mass ratio $\mu$ is defined as the ratio between the initial, $m_0$, and final vehicle masses, $m_f$~\cite{Edberg}:
+\begin{equation}
+\mu = \frac{\text{initial mass}}{\text{final mass}}
+= \frac{m_0}{m_f}
+= \frac{m_0}{m_0 - m_p}
+= \frac{m_s + m_p + m_{PL}}{m_s + m_{PL}} \, .
+\end{equation}
+where $m_p$ is the propellant mass and $m_{PL}$ is the payload mass.
+
+A convenient measure of the non-payload inert fraction is the structural factor $\sigma$, which quantifies the fraction of the vehicle, excluding payload that is structural mass~\cite{Edberg}:
+\begin{equation}
+\sigma = \frac{m_s}{m_s + m_p}
+= \frac{m_s}{m_0 - m_{PL}} \, .
+\end{equation}
+
+Finally, the payload ratio $\pi$ indicates the portion of the initial mass associated with payload~\cite{Edberg}:
+\begin{equation}
+\pi = \frac{m_{PL}}{m_s + m_p + m_{PL}}
+= \frac{m_{PL}}{m_0} \, .
+\end{equation}
+
+It is possible to relate this ratios to the rocket equation as follows~\cite{Ulrich}:
+
+\begin{equation}
+\pi \;=\; \frac{e^{-\Delta v / v_e} - \sigma}{1 - e^{-\Delta v / v_e}} \, .
+\end{equation}
+
+This expression links the payload fraction to the attainable propulsion requirement for a fixed structural ratio and a given exhaust velocity. Consequently, since the structural mass is not negligible, the vehicle cannot meet arbitrarily large propulsion demands~\cite{Ulrich}.
+
+Assuming a minimum feasible structural fraction of $\varepsilon = 0.05$~\cite{Ulrich}, the maximum achievable propulsion requirement becomes bounded. In particular, for a payload ratio of $\lambda = 3\%$, one obtains the limit $\Delta v < 2.5\,v_e \, $~\cite{Ulrich}.
+
+For chemical launch vehicles operating through Earth's atmosphere, the effective exhaust velocity is typically bounded by $v_* \le 4~\mathrm{km/s}$, which in turn restricts the attainable propulsion requirement to approximately $\Delta v < 10~\mathrm{km/s} \, $~\cite{Ulrich}. This implies that, to deliver a larger payload to orbit, the use of staging becomes necessary~\cite{Ulrich}.
+\end{comment}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{comment}
+\subsection{Staging}
+
+The vehicle's burnout speed for a rocket is governed by the rocket equation. When staging is considered, the overall velocity increment can be obtained by summing the contributions of each stage, noting that the lower stages must accelerate not only their own mass but also all upper stages, which act as a payload. This method enables a larger attainable $\Delta v$~\cite{Edberg}. Neglecting losses, the payload's final ideal velocity is simply the sum of the burnout velocities of each individual stage~\cite{Ulrich}:
+\begin{equation}
+\Delta v=\sum_{i=1}^{N} v_{e,i}\,\ln \mu_i
+=\sum_{i=1}^{N} g_0\,I_{sp,i}\,\ln \mu_i \, .
+\end{equation}
+
+
+
+\begin{figure}[h!]
+    \centering    \includegraphics[width=0.5\linewidth]{Figures/StagingUlrich.png}
+    \caption{Four types of rocket staging. Stages that are jettisoned during ascent are marked in gray. Source:~\cite{Ulrich}}
+    \label{fig:Staging}
+\end{figure}
+
+The main four methods of staging are schematized in Figure~\ref{fig:Staging} and are described as follows~\cite{Edberg}:
+
+\begin{itemize}
+    \item \textbf{Series staging:} The lowest stage burns first; it is then detached, and the next stage ignites and continues the burn.
+    \item \textbf{Parallel staging:} Side boosters burn simultaneously (typically with the core stage) and are jettisoned once depleted.
+    \item \textbf{Engine staging:} A subset of engines is operated initially and later shut down and/or jettisoned, while the remaining engines continue firing.
+    \item \textbf{Tank staging:} External tanks feed propellant to the vehicle through cross-feed lines and valves and are discarded once empty.
+\end{itemize}
+
+Within the scope of this work, the focus will be placed on serial staging and, possibly, on parallel staging, since these are the most common and the most relevant staging concepts for the present analysis.
+\end{comment}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{comment}
+\subsection{Trajectories of Launch Vehicles}
+
+\begin{figure}[h!]
+    \centering
+    
+    \begin{minipage}[b]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{Figures/AscentPhasesUlrich.png}
+        \caption{The three ascent phases. Source:~\cite{Ulrich}.}
+        \label{fig:AscentPhasesUlrich}
+    \end{minipage}
+    \hfill
+    \begin{minipage}[b]{0.48\linewidth}
+        \centering
+        \includegraphics[width=\linewidth]{Figures/TypicalAscentTrajectory.png}
+        \caption{Typical ascent trajectory. Source:~\cite{Edberg}.}
+        \label{fig:TypicalAscentTrajectory}
+    \end{minipage}
+ 
+\end{figure}
+
+
+A launch-vehicle ascent is typically divided in three main phases as is described in Fig.~\ref{fig:AscentPhasesUlrich}: powered flight, coasting, and orbital injection (or apogee boost)~\cite{Ulrich}. For guidance and control purposes, the powered-flight segment (see Fig.~\ref{fig:TypicalAscentTrajectory}) is commonly separated into two distinct regimes: an initial endo-atmospheric arc, during which the vehicle is subject to significant aerodynamic effects, followed by an exo-atmospheric arc, where the air density is sufficiently low that the vehicle can be treated as operating outside the atmosphere~\cite{teofilatto2025trajectories}.
+
+In the endo-atmospheric arc, trajectory guidance is generally implemented in an open-loop manner~\cite{Ulrich}. The vehicle tracks a pre-programmed attitude schedule, often based on a gravity turn, while aiming to maintain a small (ideally near-zero) angle of attack to limit aerodynamic loads~\cite{Edberg}. This constraint becomes particularly important near max-q, the point of maximum dynamic pressure, where aerodynamic forces and the associated structural loads reach their peak~\cite{Ulrich}.
+
+As the vehicle climbs and aerodynamic effects diminish, the guidance strategy transitions to a closed-loop mode appropriate for the exo-atmospheric arc~\cite{Ulrich}. In this phase, the onboard navigation system continuously estimates the vehicle state, and the guidance law computes steering commands in real time to drive the trajectory toward the conditions required for orbital insertion~\cite{Edberg}. Closed-loop guidance thus compensates for dispersions accumulated during the earlier open-loop atmospheric ascent and enables precise targeting of the desired injection trajectory~\cite{Edberg}.
+
+
+
+The sequence of events during the typical rocket ascent trajectories is~\cite{Edberg, Turner}:
+
+\begin{itemize}
+    \item \textbf{Lift-off and Vertical climb:} The flight begins with a vertical ascent to clear the launch tower and nearby structures with no significant trajectory steering applied.
+ 
+    \item \textbf{Yaw maneuver:} A small yaw maneuver is used, for low thrust-to-weight ratio launch vehicles, shortly after lift-off to increase clearance from nearby structures.
+
+    \item \textbf{Roll maneuver:} The vehicle rolls about its longitudinal axis to place its pitch heading on the correct azimuth for insertion into the target orbital plane.
+
+    \item \textbf{Pitch maneuver or program:} The LV's attitude control system applies a small deflection from the vertical to start a smooth, gradual turn onto the desired trajectory.
+ 
+    \item \textbf{Max-q, max-qa:} Max-q is the point of maximum dynamic pressure along the trajectory. During this interval, the LV is subjected to its highest aerodynamic loads, so the angle of attack and thrust level must be carefully managed to reduce structural stress and prevent damage.
+
+    \item \textbf{Staging events:} After completing its boost phase, the first stage shuts down at main engine cut-off (MECO). The first stage then separates, and the second stage ignites to continue the ascent.
+
+    \item \textbf{Ascent guidance:} As the vehicle climbs into thinner layers of the atmosphere and aerodynamic effects diminish, closed-loop guidance is enabled, providing real-time trajectory corrections to steer the vehicle toward the desired orbital conditions.
+
+    \item \textbf{Second Engine Cutoff (SECO):} The second stage shuts down once the target orbit or transfer trajectory is achieved, bringing the powered ascent phase to an end.
+
+    \item \textbf{Coasting phase:} The vehicle subsequently coasts without propulsion along a ballistic path until the vehicle arrives at the transfer ellipse apogee.
+
+    \item \textbf{Burnout or shutdown:} At apogee, a final burn is performed to circularize the orbit or to refine its parameters as needed. This maneuver delivers the payload, or the upper stage carrying it, into the intended mission orbit.
+
+\end{itemize}
+\end{comment}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{comment}
+\subsection{Getting to Orbit}
+
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=0.75\linewidth]{Figures/EdbergWaysToGetIntoOrbit.png}
+    \caption{Ways to launch to the desired orbit using the minimum possible energy. Source:~\cite{Edberg}.}
+    \label{fig:EdbergWaysToGetIntoOrbit}
+\end{figure}
+
+To minimize propellant use and launcher mass, ascent should minimize the required $\Delta v$ by injecting into the lowest feasible initial orbit. Since higher-altitude orbits cannot be reached efficiently by direct ascent, the recommended strategy is to shut down in a low orbit with enough velocity to coast to a higher altitude and then perform an additional burn to circularize. For very high orbits, the vehicle injects into an elliptical (Hohmann-type) transfer orbit with apoapsis at the target altitude, followed by a kick burn at apoapsis to circularize. Lower orbits can be reached by direct injection, while medium and high orbits generally require a coast phase and a second burn (See Fig.~\ref{fig:EdbergWaysToGetIntoOrbit})~\cite{Edberg}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{General Ascent Problem}
+
+The objective of a launch-vehicle ascent trajectory is to deliver the payload to a specified target orbit. With this goal in mind, the ascent problem can be posed as follows: given a set of initial conditions, determine how the vehicle state (position, velocity, and attitude) should evolve so that a specified set of terminal conditions is satisfied, placing the vehicle (and payload) on the required orbit or onto a prescribed transfer trajectory~\cite{Edberg}.
+
+This can be cast as an optimization problem, in which the resulting trajectory is optimal with respect to a chosen performance metric. The ascent motion initial conditions are~\cite{Ulrich}:
+
+\begin{equation}
+v_0 = 0 \ ,\quad \gamma_0 = 90^\circ \ ,\quad h_0 \approx 0 \ .
+\label{eq:initial_conditions}
+\end{equation}
+
+The burnout (shutdown) conditions at the final time $t_f$ are defined by the target orbit requirements: the orbital speed $v_f$, the flight-path angle $\gamma_f$, and the altitude $h_f$~\cite{Edberg}:
+
+\begin{equation}
+\begin{aligned}
+v(t_f) &= v_f = \sqrt{\frac{\mu\left(1+2e_f\cos\theta_f+e_f^2\right)}{a_f\left(1-e_f^2\right)}} \ ,\\
+\cos\gamma(t_f) &= \cos\gamma_f = \frac{1+e_f\cos\theta_f}{\sqrt{1+2e_f\cos\theta_f+e_f^2}} \ ,\\
+h(t_f) &= h_f = r_f - R_p \ ,\qquad \text{where}\quad r_f=\frac{a_f\left(1-e_f^2\right)}{1+e_f\cos\theta_f} \ ,
+\end{aligned}
+\end{equation}
+where $a_f$, $e_f$, and $\theta_f$ denote the target orbit semimajor axis, eccentricity, and true anomaly, respectively~\cite{Edberg}. Because $a_f$ and $e_f$ are fixed by the mission orbit, the remaining quantities that shape the ascent are the thrust magnitude $T(t)$, the vehicle mass $m(t)$, the flight-path angle $\gamma(t)$, and the terminal anomaly $\theta_f$. In practice, however, both $T(t)$ and the associated mass-flow rate are typically prescribed by the propulsion system and by the need to keep ascent time short in order to limit gravitational losses~\cite{Ulrich}. Consequently, the ascent optimization reduces to two decision variables: the flight-path angle history $\gamma(t)$ and the terminal true anomaly $\theta_f$~\cite{Ulrich}.
+
+An optimal ascent trajectory is one that minimizes a chosen performance index (cost functional) $J$, here taken to represent fuel demand. Since fuel consumption increases monotonically with time and is influenced by gravitational losses, the optimal-ascent problem is formulated as~\cite{Ulrich}:
+
+\begin{equation}
+\label{eq:optimal_ascent_problem}
+\begin{aligned}
+\text{Determine} \quad & \theta_f \ \text{and the functional relationship } \alpha(t) \\
+\text{To minimize} \quad & J = m_p(t_f) \\
+\text{Subject to} \quad
+& \text{(1) differential equations of ascent motion } \\
+& \text{(2) path constraints} \\
+& \text{(3) initial and final conditions}
+\end{aligned}
+\end{equation}
+
+When a coasting phase is included, $a_f$, $e_f$, and $\theta_f$ are replaced by $a_T$, $e_T$, and $\theta_T$, which denote the semimajor axis, eccentricity, and true anomaly of the transfer orbit at the transition from the powered phase to the coasting phase (see Fig.~\ref{fig:AscentPhasesUlrich}), respectively~\cite{Ulrich}. Accordingly, $t_f$ refers to the time at which this transition occurs.
+\end{comment}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Guidance and Steering Laws}
+
+Ascent-trajectory design is closely tied to the selection of guidance laws, which shape the trajectory in real time by commanding the vehicle attitude, typically expressed through the flight-path angle $\gamma(t)$ or the pitch angle $\theta(t)$~\cite{suresh2015integrated}.
+
+In broad terms, guidance approaches can be classified as either open-loop or closed-loop. Open-loop guidance follows a precomputed nominal trajectory and its associated attitude profile that the control system tracks. Closed-loop guidance, by contrast, uses position and velocity feedback to compute real-time attitude corrections, steering the vehicle along the desired path~\cite{suresh2015integrated}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Steering Laws during Atmospheric Arc}
+
+Steering laws define the time history of the vehicle flight-path angle and can be adapted to the objectives and constraints of each ascent segment~\cite{Ulrich}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Pitch Manoeuvrer}
+
+When a pitch command is applied, the vehicle attitude no longer coincides with the velocity direction, producing a transient misalignment and therefore a non-zero angle of attack, $\alpha \neq 0$. The manoeuvrer is considered complete once $\alpha$ returns to zero under the combined influence of thrust and gravity (often referred to as \emph{pitch-over}). The angle between the velocity vector and the local vertical at the end of this manoeuvrer is commonly termed the kick angle and is an important trajectory parameter~\cite{teofilatto2025trajectories}.
+
+A simple representation of the pitch manoeuvrer prescribes a commanded pitch angle $\theta(t)$ using two consecutive segments~\cite{teofilatto2025trajectories}:
+\begin{enumerate}
+  \item For $t \in [t_v,\, t_v+t_p]$, where $t_v$ denotes the end time of the vertical-rise segment and $t_p$ the duration of the first pitch segment, the pitch angle is linearly reduced: 
+  \begin{equation}
+  \theta(t)=\theta_0-\dot{\theta}\,(t-t_v) \ .
+  \end{equation}
+
+  \item For $t \in [t_v+t_p,\, t_v+t_p+t_{po}]$, where $t_{po}$ is the duration of the second segment, the pitch angle is held constant:
+  \begin{equation}
+  \theta(t)=\theta_0-\dot{\theta}\,t_p \ .
+  \end{equation}
+\end{enumerate}
+
+The first segment establishes the intended offset between the vehicle axis and the velocity direction and steers the vehicle toward the target orbital plane. At the end of the second segment, $t=t_v+t_p+t_{po}$, the angle of attack returns to zero, providing the initial condition for the next phase of the ascent~\cite{teofilatto2025trajectories}.
+In this formulation, the manoeuvrer can be parametrized by a single quantity if the angular rate $\dot{\theta}_0$ is treated as fixed for a given launcher, so that the guidance depends primarily on the duration $t_p$. Alternatively, one may select the terminal pitch angle as~\cite{teofilatto2025trajectories} 
+\begin{equation}
+\theta_p = \theta_0-\dot{\theta}_0\,t_p \ ,
+\end{equation}
+and compute the corresponding duration as
+\begin{equation}
+t_p=\frac{\theta_0-\theta_p}{\dot{\theta}_0} \ .
+\end{equation}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Gravity Turn}
+
+After completion of the pitch manoeuvrer, the launcher must continue climbing through the atmosphere while progressively transitioning from near-vertical ascent to near-horizontal flight. A widely used way to achieve this smooth reorientation is to follow a \emph{gravity-turn} trajectory: once the initial tilt has been established, the angle of attack is kept close to zero and the vehicle is allowed to rotate naturally under gravity, reducing aerodynamic loading while still producing an efficient turn toward orbital flight~\cite{Ulrich, teofilatto2025trajectories}.
+
+To highlight the underlying mechanism, consider the flight-path angle rate relation and assume $\alpha \approx 0$. Under this condition, the normal components of thrust and lift can be taken as negligible, and the pitch-rate dynamics reduce to~\cite{Ulrich}:
+\begin{equation}
+\dot{\gamma}=\left(\frac{g}{v}-\frac{v}{r}\right)\cos\gamma \ ,
+\label{eq:gravity_turn_gammadot}
+\end{equation}
+where $v$ is the speed, $r$ is the distance from the planet centre, and $g$ is the local gravitational acceleration.
+Equation~\eqref{eq:gravity_turn_gammadot} shows that $\dot{\gamma}=0$ only when $\gamma=90^\circ$ (purely vertical flight), therefore, once the pitch manoeuvrer ends and $\alpha$ is maintained near zero, the gravity turn initiates and the vehicle continues to rotate on its own~\cite{Ulrich}.
+
+As the vehicle accelerates, the factor $\left((\frac{g}{v})-(\frac{v}{r})\right)$ decreases in magnitude, so the rate of change of the flight-path angle tends toward zero as orbital conditions are approached. In particular, for circular-orbit conditions ($v^2/r \approx g$), $\dot{\gamma}$ becomes zero, which is desirable because near-orbital injection requires the vehicle to be close to horizontal ($\gamma \approx 0^\circ$) at orbital speed~\cite{Edberg}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Constant Pitch Rate (CPR) and Constant Flight Path Angle Rate (CFPAR)}
+
+Although the gravity turn provides a simple and effective way to transition from near-vertical ascent to near-horizontal flight while maintaining a small angle of attack, it is not the only available option. In practice, alternative steering laws are often adopted to better trade drag losses, structural loads, and operational constraints. Two commonly used families are the \emph{constant pitch rate} (CPR) and the \emph{constant flight-path angle rate} (CPFAR) approaches~\cite{Ulrich}.
+
+In a CPR maneuver, the vehicle is commanded to rotate at an approximately constant pitch rate, yielding a predictable and easily implementable attitude program. This strategy is frequently used as a practical alternative to a pure gravity turn, particularly when it is desirable to shape the atmospheric segment to reduce drag losses and to impose a controlled, smooth reorientation rather than relying solely on gravity-driven turning~\cite{Ulrich}.
+
+The CPFAR family instead focuses on prescribing how the \emph{flight-path angle} evolves, typically enforcing an approximately constant rate of change during the early ascent. This is especially useful shortly after lift-off, when the vehicle speed is low and simplified force balances can be used to obtain guidance relationships that are straightforward to tune. In this sense, CPFAR can serve as an intermediate step between purely open-loop attitude programming and a more physics-driven steering law, and it can also be used as a building block to derive CPR-type profiles under suitable assumptions~\cite{Ulrich}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Exoatmospheric arc and closed-loop guidance}
+
+Once the vehicle has cleared the dense layers of the atmosphere, the air loads induced by the flight path angle become negligible and the steering program can shift from load alleviation to precise orbital injection~\cite{Edberg}. In this phase, closed-loop guidance is typically employed: onboard navigation data are used as the starting point to re-optimize the remaining trajectory, generate the required attitude commands, and determine real-time engine events (e.g., ignition and cutoff) so that the prescribed orbital conditions are met accurately~\cite{tewari2011advanced}.
+Because it continuously adapts to the actual vehicle state and performance, closed-loop guidance can accommodate dispersions in propulsion and aerodynamics and can significantly improve injection accuracy relative to purely precomputed profiles~\cite{SongZhaoTheil2023AutonomousTrajectory}.
+
+%At its core, closed-loop guidance aims to compute an (approximately) optimal attitude history in real time, depending on the mission objective (e.g., maximizing delivered payload or minimizing propellant consumption). This requirement is naturally posed as an optimal control problem with specified initial conditions and terminal constraints---often referred to as a terminal state control problem~\cite{Ulrich}.
+%In this setting, the vehicle state is known at the current time, while the desired final state is defined by the target orbit conditions; the guidance law must therefore determine the instantaneous control that drives the trajectory toward the required terminal state~\cite{Ulrich}.
+%Mathematically, this class of problems is commonly cast as a two-point boundary value problem (TPBVP)~\cite{BettsSurvey1998}.
+
+In practice, onboard computational limits generally preclude solving full nonlinear optimization problems at guidance rates. For this reason, many closed-loop schemes rely on simplified analytical or semi-analytical solutions derived under suitable assumptions, chosen to be robust and fast enough for real-time implementation. Additional correction terms are often included to compensate for modelling approximations~\cite{BettsSurvey1998}.
+
+Guidance methods are frequently categorized as follows~\cite{suresh2015integrated}:
+\begin{itemize}
+  \item \textbf{Explicit guidance:} the remaining trajectory is computed onboard in real time, typically using analytical relationships derived from the equations of motion, producing an optimal or near-optimal steering command with minimal reliance on a stored nominal profile.
+  \item \textbf{Implicit guidance:} one or more reference trajectories are precomputed on the ground, and onboard computations focus on tracking and correcting deviations from this nominal solution through appropriate guidance corrections.
+\end{itemize}
+
+To leverage the strengths of both approaches, \emph{dual-mode} strategies are also common: an explicit scheme may run less frequently to update the reference and key steering parameters, while an implicit tracker operates at a higher rate between updates to correct the trajectory more continuously~\cite{suresh2015integrated}.
+
+In this work the focus will be on the explicit guidance laws and in comparing the trajectories generated by those laws.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Explicit Guidance Schemes}
+
+In explicit guidance, the steering command is expressed in a parametrized form,
+either from empirical rules or from optimal control applied to simplified dynamics. Using
+this parametrization together with mission boundary conditions and real-time navigation
+measurements, the onboard algorithm propagates (and, if needed, updates) the state
+equations to determine the attitude-steering parameters required to reach the target~\cite{teofilatto2025trajectories}.
+
+A classical example is the tangent steering law, obtained by applying optimal control
+theory to a simplified powered-flight model. Neglecting aerodynamic forces (appropriate
+for exoatmospheric conditions) and assuming constant gravitational acceleration~\cite{Edberg}, the
+propellant-optimal thrust-direction profile can be expressed as a linear variation of the
+tangent of the thrust-direction angle~\cite{Edberg}.
+In particular, once an optimization procedure provides an approximate optimal solution
+(characterized, e.g., by the flight-path angle history $\gamma(t)$ and the burn duration $t_f$
+that maximize final mass at the target), variational arguments lead to the following
+bilinear tangent steering form~\cite{Ulrich}:
+\begin{equation}
+\tan\!\big(\alpha(t)+\gamma(t)\big)
+=
+\frac{c_1\,(t_f-t)+c_2}{c_1'\,(t_f-t)+c_2'} \ .
+\end{equation}
+The constants are determined by enforcing the prescribed initial and terminal boundary
+conditions. A notable feature of this structure is that the bilinear tangent form does not
+depend on the specific performance index chosen~\cite{Ulrich}; the objective and constraints enter
+through the boundary conditions used to determine the constants.
+
+In many ascent problems targeting Earth orbit, the terminal downrange is not explicitly
+constrained. In that case, one can show that $c_1'=0$, and the bilinear form reduces to
+the linear tangent steering law~\cite{Ulrich}:
+\begin{equation}
+\tan\!\big(\alpha(t)+\gamma(t)\big)
+=
+a\,(t_f-t)+b \ .
+\end{equation}
+
+It is important to emphasize that the tangent steering law, by itself, does not solve the
+optimization problem. Rather, a separate numerical optimization (subject to the initial and
+terminal constraints) determines the optimal $\gamma(t)$ and the corresponding $t_f$; the
+linear or bilinear tangent law then provides the steering history $\alpha(t)$ consistent with
+that optimal trajectory~\cite{Ulrich}. Two practical implications for terminal-state guidance are~\cite{Ulrich}: (i) the
+resulting command is linear in time in the tangent domain, and (ii) the steering at any
+instant depends on the current time and boundary conditions, not on the past history of
+the thrust acceleration during the burn.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Polynomial Guidance Law}
+\label{sec:polynomial}
+
+Polynomial guidance was first applied during the Apollo missions~\cite{bennett1970lunar}. Despite its conceptual simplicity, it can achieve the required terminal conditions with acceptable accuracy for many applications. In its classical derivation, the vehicle acceleration expressed in the ECI frame is assumed to be a prescribed function of time. Following the Apollo implementation, the acceleration components are taken to vary linearly with time~\cite{Mooij_lunar_ascent},
+\begin{equation}
+\begin{aligned}
+\dot{v}_x &= a_x = k_1 t + k_2 \ , &
+\dot{v}_y = a_y = k_3 t + k_4 \ ,
+\end{aligned}
+\end{equation}
+where $\{k_i\}$ are guidance parameters selected to satisfy the desired boundary conditions. 
+
+Closed-form expressions for the velocity and position can be obtained by integrating the assumed acceleration profiles. Let $t_{go}$ denote the remaining time from the current state to the desired terminal state and let $(x,v_x)$ and $(y,v_y)$ be the current downrange/vertical positions and velocities,
+with $(x_f,v_{xf})$ and $(y_f,v_{yf})$ their corresponding target values, enforcing the boundary conditions. The resulting relations for the horizontal velocity and downrange position may then be written as~\cite{sostaric2005powered}:
+\begin{equation}
+v_{x_f}-v_x = \frac{1}{2}k_1 t_{go}^2 + k_2 t_{go} \ ,
+\end{equation}
+\begin{equation}
+x_f-x = \frac{1}{6}k_1 t_{go}^3 + \frac{1}{2}k_2 t_{go}^2 + \nu_x t_{go} \ .
+\end{equation}
+
+These relations can be solved for the coefficients $k_1$ and $k_2$ in terms of the known current position and velocity, the desired terminal position, velocity, and acceleration, and the remaining $t_{go}$~\cite{Mooij_lunar_ascent}:
+
+\begin{equation}
+\begin{aligned}
+k_1 &= \frac{6\left(v_{xf}+v_x\right)t_{go}-12\left(x_f-x\right)}{t_{go}^3} \ ,\\[4pt]
+k_2 &= \frac{-2\left(v_{xf}+2v_x\right)t_{go}+6\left(x_f-x\right)}{t_{go}^2} \ ,
+\end{aligned}
+\end{equation}
+and, analogously, for the vertical channel~\cite{Mooij_lunar_ascent},
+\begin{equation}
+\begin{aligned}
+k_3 &= \frac{6\left(v_{yf}+v_y\right)t_{go}-12\left(y_f-y\right)}{t_{go}^3} \ ,\\[4pt]
+k_4 &= \frac{-2\left(v_{yf}+2v_y\right)t_{go}+6\left(y_f-y\right)}{t_{go}^2} \ .
+\end{aligned}
+\end{equation}
+
+In a guidance implementation, these coefficients are typically recomputed at each guidance cycle as
+$t_{go}$ decreases~\cite{Mooij_lunar_ascent}. However, the expressions above reveal a numerical sensitivity as $t_{go}\to 0$ the
+coefficients grow without bound~\cite{Mooij_lunar_ascent}. A common practical remedy is to stop updating the coefficients once
+$t_{go}$ drops below a prescribed threshold $t_{\mathrm{epoch}}$, and to propagate the commanded
+accelerations from that point on using the frozen coefficients~\cite{wong2006hazard_avoidance_mars, sostaric2005powered}:
+\begin{equation}
+\begin{aligned}
+a_x(t) &= k_1\bigl(t-t_{\mathrm{epoch}}\bigr)+k_2 \ ,\\
+a_y(t) &= k_3\bigl(t-t_{\mathrm{epoch}}\bigr)+k_4 \ .
+\end{aligned}
+\end{equation}
+
+Finally, note that $a_x$ and $a_y$ represent total commanded accelerations in the horizontal and
+vertical directions. To obtain the acceleration that must be produced by thrust, the contributions of
+gravity (and any additional modelled perturbations) must be removed from these totals~\cite{Mooij_lunar_ascent}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\subsection{Iterative Guidance Mode}
+
+Most explicit ascent guidance laws can be expressed in closed form by starting from a propellant-minimizing (near-optimal) trajectory. In Iterative Guidance Mode (IGM), the key assumption is that, under a flat-Earth uniform-gravity model, the optimal thrust-direction angles are well approximated by linear functions of time~\cite{ChandlerSmith1967IterativeGuidanceMode}. Using the guidance reference frame $G$ (defined in the target-orbit plane with origin at Earth’s centre), the pitch and yaw commands are written as~\cite{SONG2015463}:
+\begin{align}
+\theta_G(t) &= \theta_{Gv} - \bigl(\theta_{Gp} - \dot{\theta}_G\,t\bigr),
+\label{eq:igm_theta}\\
+\psi_G(t)   &= \psi_{Gv} - \bigl(\psi_{Gp} - \dot{\psi}_G\,t\bigr),
+\label{eq:igm_psi}
+\end{align}
+where the current time is set to $t=0$ and $t\in[0,t_{go}]$, with $t_{go}$ the remaining time-to-go to the target injection point (engine shutdown)~\cite{SONG2015463}.
+The $x$-axis of $G$ points from the origin toward the predicted injection point, the $y$-axis is normal to the target-orbit plane, and the $z$-axis completes a right-handed frame~\cite{SONG2015463}. The parameters
+$\theta_{Gv},\theta_{Gp},\dot{\theta}_G,\psi_{Gv},\psi_{Gp},\dot{\psi}_G$
+shape the commanded thrust direction, while $\xi_{go}$ (range-angle-to-go, between the current position and the predicted injection point) is used to define the geometry of the $G$ frame~\cite{SONG2015463}.
+
+Assuming point-mass motion in vacuum, the equations of motion in $G$ are~\cite{SONG2015463}:
+\begin{align}
+\ddot{x}^{G} &= a\,\sin\theta_G\cos\psi_G + g_x^{G},
+\label{eq:igm_eom_x}\\
+\ddot{y}^{G} &= a\,\sin\psi_G            + g_y^{G},
+\label{eq:igm_eom_y}\\
+\ddot{z}^{G} &= a\,\cos\theta_G\cos\psi_G + g_z^{G},
+\label{eq:igm_eom_z}
+\end{align}
+where the thrust-acceleration contribution (terms with $a$) and the gravity contribution (terms with $g^G_\cdot$) are treated separately in the analytic integration~\cite{SONG2015463}.
+
+In the original IGM procedure~\cite{ChandlerSmith1967IterativeGuidanceMode}, $\theta_{Gv}$ and $\psi_{Gv}$ are first chosen to satisfy the terminal-velocity constraints, assuming the thrust direction is effectively invariant over the remaining burn. Integrating \eqref{eq:igm_eom_x}--\eqref{eq:igm_eom_z} over $[0,t_{go}]$ yields~\cite{SONG2015463}:
+\begin{align}
+\dot{x}_f^{G} &= \dot{x}_0^{G} + \sin\theta_{Gv}\cos\psi_{Gv}\int_{0}^{t_{go}} a\,dt + v_{\mathrm{grav}x}^{G},
+\label{eq:igm_vf_x}\\
+\dot{y}_f^{G} &= \dot{y}_0^{G} + \sin\psi_{Gv}\int_{0}^{t_{go}} a\,dt + v_{\mathrm{grav}y}^{G},
+\label{eq:igm_vf_y}\\
+\dot{z}_f^{G} &= \dot{z}_0^{G} + \cos\theta_{Gv}\cos\psi_{Gv}\int_{0}^{t_{go}} a\,dt + v_{\mathrm{grav}z}^{G}.
+\label{eq:igm_vf_z}
+\end{align}
+Defining the required velocity-to-go (after removing the gravity contribution) as~\cite{SONG2015463}
+\begin{equation}
+\Delta\mathbf{v}^{G} \;=\; \mathbf{v}_f^{G} - \mathbf{v}_0^{G} - \mathbf{v}_{\mathrm{grav}}^{G},
+\label{eq:igm_dv}
+\end{equation}
+the angles that satisfy the terminal-velocity direction follow from the components of $\Delta\mathbf{v}^{G}$~\cite{SONG2015463}:
+\begin{equation}
+\theta_{Gv}=\tan^{-1}\!\left(\frac{\Delta v_x^{G}}{\Delta v_z^{G}}\right),
+\qquad
+\psi_{Gv}=\tan^{-1}\!\left(\frac{\Delta v_y^{G}}{\sqrt{\Delta v_x^{G2}+\Delta v_z^{G2}}}\right).
+\label{eq:igm_angles_v}
+\end{equation}
+The time-to-go is obtained from the magnitude condition~\cite{SONG2015463}:
+\begin{equation}
+\left\lVert \Delta\mathbf{v}^{G} \right\rVert \;=\; \int_{0}^{t_{go}} a\,dt.
+\label{eq:igm_tgo}
+\end{equation}
+
+The remaining attitude-shaping parameters ($\theta_{Gp},\dot{\theta}_G,\psi_{Gp},\dot{\psi}_G$) are then selected to satisfy terminal-position constraints (typically along the $x$ and $y$ directions)~\cite{SONG2015463}. To keep the thrust integrals analytic, the original IGM assumes $(\theta_{Gp}-\dot{\theta}_G t)$ and $(\psi_{Gp}-\dot{\psi}_G t)$ are small enough to use series expansions~\cite{SONG2015463}:
+\begin{align}
+\sin(\theta_{Gp}-\dot{\theta}_G t) &\approx (\theta_{Gp}-\dot{\theta}_G t) - \frac{(\theta_{Gp}-\dot{\theta}_G t)^3}{3!} + \cdots,
+\label{eq:igm_sin_theta_series}\\
+\cos(\theta_{Gp}-\dot{\theta}_G t) &\approx 1 - \frac{(\theta_{Gp}-\dot{\theta}_G t)^2}{2!} + \frac{(\theta_{Gp}-\dot{\theta}_G t)^4}{4!} + \cdots,
+\label{eq:igm_cos_theta_series}\\
+\sin(\psi_{Gp}-\dot{\psi}_G t) &\approx (\psi_{Gp}-\dot{\psi}_G t) - \frac{(\psi_{Gp}-\dot{\psi}_G t)^3}{3!} + \cdots,
+\label{eq:igm_sin_psi_series}\\
+\cos(\psi_{Gp}-\dot{\psi}_G t) &\approx 1 - \frac{(\psi_{Gp}-\dot{\psi}_G t)^2}{2!} + \frac{(\psi_{Gp}-\dot{\psi}_G t)^4}{4!} + \cdots.
+\label{eq:igm_cos_psi_series}
+\end{align}
+The original algorithm retains only the leading (first-order) terms in
+\eqref{eq:igm_sin_theta_series}--\eqref{eq:igm_cos_psi_series}, which is accurate mainly when $t_{go}$ is sufficiently small; modified IGM versions include additional higher-order terms to improve long-range performance~\cite{SONG2015463}.
+
+With the first-order truncation, the thrust-direction factors used in \eqref{eq:igm_eom_x} can be approximated as~\cite{SONG2015463}:
+\begin{align}
+\sin\theta_G
+&=\sin\!\Bigl(\theta_{Gv}-(\theta_{Gp}-\dot{\theta}_G t)\Bigr)
+\approx \sin\theta_{Gv}-(\theta_{Gp}-\dot{\theta}_G t)\cos\theta_{Gv},
+\label{eq:igm_sintheta_approx}\\[4pt]
+\cos\psi_G
+&=\cos\!\Bigl(\psi_{Gv}-(\psi_{Gp}-\dot{\psi}_G t)\Bigr)
+\approx \cos\psi_{Gv}+(\psi_{Gp}-\dot{\psi}_G t)\sin\psi_{Gv},
+\label{eq:igm_cospsi_approx}\\[4pt]
+\sin\theta_G\cos\psi_G
+&\approx \sin\theta_{Gv}\cos\psi_{Gv}
+-(\theta_{Gp}-\dot{\theta}_G t)\cos\theta_{Gv}\cos\psi_{Gv}
++(\psi_{Gp}-\dot{\psi}_G t)\sin\theta_{Gv}\sin\psi_{Gv} \nonumber\\
+&\quad
+-(\theta_{Gp}-\dot{\theta}_G t)(\psi_{Gp}-\dot{\psi}_G t)\cos\theta_{Gv}\sin\psi_{Gv}.
+\label{eq:igm_sin_cos_approx}
+\end{align}
+
+For the original IGM implementation, neglecting higher-order terms allows the terminal-position constraints to be written as approximate linear equations in the four manoeuvrer-related parameters
+$\theta_{Gp}$, $\dot{\theta}_G$, $\psi_{Gp}$, and $\dot{\psi}_G$~\cite{SONG2015463}.
+A $z$-axis position equation can be derived in the same manner; however, its constraint value is zero by construction of the $G$ frame. Although $\xi_{go}$ can in principle be obtained from this $z$-axis position relation, Chandler and Smith~\cite{ChandlerSmith1967IterativeGuidanceMode} introduced a mission-dependent constant $K_g$ so that $\xi_{go}$ can be estimated without explicitly solving the $z$-axis position equation:
+\begin{equation}
+\xi_{go}=\frac{1}{r_f}\left(v\,t_{go}+S+K_g\,t_{go}^2\right),
+\label{eq:igm_xigo}
+\end{equation}
+where $K_g$ is determined prior to flight via computer simulations of representative trajectories.
+
+Overall, the guidance procedure solves for the set of unknowns
+$\{\theta_{Gv},\theta_{Gp},\dot{\theta}_G,\psi_{Gv},\psi_{Gp},\dot{\psi}_G,t_{go},\xi_{go}\}$~\cite{SONG2015463}.
+These parameters are required to satisfy the target terminal position and velocity constraints, together with additional velocity-related constraints introduced to simplify the solution process~\cite{ChandlerSmith1967IterativeGuidanceMode}. In this formulation, once an estimate of $t_{go}$ is available, $\xi_{go}$ can be updated using \eqref{eq:igm_xigo}, and the remaining guidance equations—composed of first-order and selected second-order terms associated with manoeuvring—can be solved analytically. Consequently, the onboard iteration is typically confined to updating $t_{go}$ (and, through \eqref{eq:igm_xigo}, $\xi_{go}$), while the remaining parameters follow from closed-form expressions~\cite{SONG2015463}.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Power Explicit Law}
+
+The method relies on a linear tangent law to parametrize the thrust-direction history and yields a guidance profile that is close to fuel-optimal for a nominal rocket ascent. Owing to its effectiveness and onboard practicality, PEG later became a widely adopted ascent-guidance approach and is most notably associated with the Space Shuttle guidance system.
+
+The classical PEG formulation is derived under the following simplifying assumptions~\cite{mchenry1979shuttle_ascent_gnc}:
+\begin{itemize}
+  \item an inverse-square gravitational field about a spherical planet (constant-density approximation);
+  \item vacuum flight (no atmospheric forces);
+  \item no third-body perturbations;
+  \item constant thrust and constant specific impulse.
+\end{itemize}
+
+The thrust-direction unit vector is expressed through a simplified linear tangent form~\cite{mchenry1979shuttle_ascent_gnc}. In contrast to IGM, PEG parametrizes the commanded thrust direction directly in vector form as~\cite{SONG2015463}:
+\begin{equation}
+\vec u_F(t)=
+\frac{\vec\lambda_v+\dot{\vec\lambda}\,(t-t_\lambda)}
+{\sqrt{1+\dot{\lambda}^2\,(t-t_\lambda)^2}}
+\;\approx\;
+\vec\lambda_v\!\left(1-\frac{1}{2}\dot{\lambda}^2\,(t-t_\lambda)^2\right)
++\dot{\vec\lambda}\,(t-t_\lambda) \ ,
+\label{eq:peg_uF}
+\end{equation}
+subject to the normalization and orthogonality constraints~\cite{SONG2015463},
+\begin{equation}
+\|\vec\lambda_v\|=1 \ ,
+\qquad
+\vec\lambda_v\cdot\dot{\vec\lambda}=0 \ .
+\label{eq:peg_constraints}
+\end{equation}
+The unknown guidance parameters in the original PEG are the seven quantities
+$\{\vec\lambda_v,\dot{\vec\lambda},t_{go}\}$, two vectorial, $\vec\lambda_v$ and $\dot{\vec\lambda}$ and one scalar $t_{go}$, which must satisfy the desired cut-off injection constraints~\cite{SONG2015463}.
+
+To obtain analytic relations between the guidance parameters and the cut-off conditions, PEG introduces a set of thrust-acceleration integrals over the remaining burn time $t\in[0,t_{go}]$~\cite{SONG2015463}:
+\begin{align}
+L &= \int_{0}^{t_{go}} a\,dt \ ,
+&
+J &= \int_{0}^{t_{go}} a\,t\,dt \ ,
+&
+H &= \int_{0}^{t_{go}} a\,t^{2}\,dt \ ,
+\label{eq:peg_LJH}
+\\[2pt]
+S &= \int_{0}^{t_{go}} \int_{0}^{t} a\,ds\,dt \ ,
+&
+Q &= \int_{0}^{t_{go}} \int_{0}^{t} a\,s\,ds\,dt \ ,
+&
+P &= \int_{0}^{t_{go}} \int_{0}^{t} a\,s^{2}\,ds\,dt \ ,
+\label{eq:peg_SQP}
+\end{align}
+where $a(t)$ denotes the thrust acceleration magnitude. The single integrals $(L,J,H)$ and double integrals $(S,Q,P)$ naturally arise from the first and second time integrations of the point-mass equations of motion~\cite{SONG2015463}.
+
+The original PEG adopts a predictor-corrector computational sequence to determine the guidance parameters that satisfy the cut-off constraints~\cite{SONG2015463}. The iteration uses the velocity-to-go vector $\vec v_{go}$ as a running variable and updates it as~\cite{SONG2015463}:
+\begin{equation}
+\vec v_{go}(n)=\vec v_{go}(n-1)-\Delta\vec v \ ,
+\label{eq:peg_vgo_update}
+\end{equation}
+where $\Delta\vec v$ is the measured velocity change over the previous iteration cycle. For a given $\vec v_{go}$, the prediction step evaluates $t_{go}$ and the thrust integrals \eqref{eq:peg_LJH}--\eqref{eq:peg_SQP}, and then obtains linear relations for the steering parameters~\cite{SONG2015463}:
+\begin{align}
+\vec\lambda_v &= \frac{\vec v_{go}}{L} \ ,
+\label{eq:peg_lambdav}
+\\
+\dot{\vec\lambda} &= \frac{\vec r_{go}-S\vec\lambda_v}{(Q-St_\lambda)} \ ,
+\label{eq:peg_lambdadot}
+\\
+t_\lambda &= \frac{J}{L} \ .
+\label{eq:peg_tlambda}
+\end{align}
+Here, the position-to-go used in the predictor is formed as~\cite{SONG2015463}:
+\begin{equation}
+\vec r_{go}=\vec r_d-\vec r-\vec v\,t_{go}-\vec r_{grav}+\vec r_{bias} \ ,
+\label{eq:peg_rgo}
+\end{equation}
+with $\vec r_d$ the desired cutoff position, $(\vec r,\vec v)$ the current state, and $\vec r_{grav}$ the gravity contribution accumulated over the remaining burn~\cite{SONG2015463}. In the original predictor, second- and higher-order non-linear terms associated with the steering-law approximation are incorporated via a bias term $\vec r_{bias}$ computed from the guidance parameters of the previous iteration step~\cite{SONG2015463}.
+
+The predicted cut-off states are then written as~\cite{SONG2015463}:
+\begin{align}
+\vec v_p &= \vec v+\vec v_{thrust}+\vec v_{grav} \ ,
+\label{eq:peg_vpred}
+\\
+\vec r_p &= \vec r+\vec v\,t_{go}+\vec r_{thrust}+\vec r_{grav} \ .
+\label{eq:peg_rpred}
+\end{align}
+Where the thrust contributions are approximated by~\cite{SONG2015463}:
+\begin{align}
+\vec v_{thrust} &\approx \vec\lambda_v\left\{L-\frac{1}{2}\dot{\lambda}^{2}\bigl(H-Jt_\lambda\bigr)\right\} \ ,
+\label{eq:peg_vthrust}
+\\
+\vec r_{thrust} &\approx
+\vec\lambda_v\left\{S-\frac{1}{2}\dot{\lambda}^{2}\bigl(P-2Qt_\lambda+St_\lambda^{2}\bigr)\right\}
++(Q-St_\lambda)\dot{\vec\lambda} \ .
+\label{eq:peg_rthrust}
+\end{align}
+In the correction step, the desired cut-off condition and the updated $\vec v_{go}$ are recomputed using the predicted states and the target-orbit information, and the predictor-corrector loop is repeated~\cite{SONG2015463}. Convergence is typically assessed by requiring that the updated time-to-go $t_{go}$ does not change significantly between successive iterations~\cite{SONG2015463}.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Optimal Trajectory Design Methods}
+
+During the 1960's, in~\cite{bryson1958optimum} and~\cite{Lawden} the Pontryagin’s maximum principle and calculus of variations were studied in order to optimize the launch into orbit as well as the transfer trajectories with references noting their use in large rockets during the 1960's era with he Atlas, Titan, and Saturn rockets~\cite{brusch1976trajectory}.
+
+As requirements became more complex, optimization remained critical as is demonstrated by the Space Shuttle's operational constraints, particularly the need to design a demanding entry trajectory to a horizontal landing which reinforced the role of systematic optimal trajectory design~\cite{BollinoNavalOptim}. 
+
+More recently, reusable launch vehicle operations have renewed the emphasis on advanced trajectory optimization, with examples such as autonomous recovery and landing illustrating the operational payoff~\cite{Edberg}, and with convexification-based numerical optimization often cited as a key enabler for recovery and landing trajectories~\cite{Convex}.
+
+Given this breadth, several surveys structure the field: comprehensive reviews motivate modern numerical spacecraft trajectory optimization methods including multi-objective and stochastic planning~\cite{Optimization_Review}, while additional surveys focus on numerical optimization for continuous dynamical systems~\cite{BettsSurvey1998}, pseudo spectral techniques~\cite{RaoPseudo}, recent advances in space vehicle trajectory optimization for control~\cite{MALYUTA2021282}, and convex optimization approaches for guidance and control of vehicles~\cite{WANG2024100957}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Problem Formulation}
+
+Let $x(t)$ denote the state vector of the vehicle, i.e., the collection of variables that fully describe its dynamics and kinematics, and let $u(t)$ denote the control-input vector. With these definitions, a standard optimal control problem can be posed in Bolza form as~\cite{Optimization_Review}:
+\begin{subequations}\label{eq:ocp}
+\begin{align}
+\text{minimize} \quad 
+& J \;=\; \Phi\!\bigl(x_0,t_0,x_f,t_f\bigr)
++ \int_{t_0}^{t_f} L\!\bigl(x(t),u(t),t\bigr)\,dt \ ,
+\label{eq:ocp_obj} \\[2mm]
+\text{subject to}\quad 
+& \dot{x}(t) \;=\; f\!\bigl(x(t),u(t),t\bigr) \ ,
+\label{eq:ocp_dyn} \\
+& b_L \;\le\; b\!\bigl(x_0,t_0,x_f,t_f\bigr) \;\le\; b_U \ ,
+\label{eq:ocp_bnd} \\
+& g_L \;\le\; g\!\bigl(x(t),u(t),t\bigr) \;\le\; g_U \ .
+\label{eq:ocp_path}
+\end{align}
+\end{subequations}
+
+The problem above consists of determining the time history of the control $u(t)$ and, implicitly, the corresponding state trajectory $x(t)$ that minimizes the performance index $J$ while satisfying the imposed constraints. The objective functional is typically decomposed into a Mayer term $\Phi$, which depends on the boundary values (initial and/or terminal states and times), and a Lagrange term $L$, which represents a running cost accumulated over the interval $[t_0,t_f]$. By selecting $\Phi$ and $L$, a variety of mission objectives can be captured, such as minimizing propellant consumption, reducing total aerodynamic heating, or maximizing delivered payload~\cite{300years}.
+
+The constraints may be grouped into three classes. First, the dynamic constraints(~\ref{eq:ocp_dyn}) enforce the vehicle equations of motion, so the optimal solution depends on the adopted dynamical and kinematical model and its underlying assumptions. Second, boundary conditions(~\ref{eq:ocp_bnd}) restrict the initial and terminal conditions; for instance, the launch site is usually fixed and the vehicle is required to reach a prescribed target orbit with specified terminal velocity and orientation. Third, path constraints(~\ref{eq:ocp_path}) impose bounds on quantities expressed as functions of states and controls throughout the trajectory, often reflecting vehicle limits and mission requirements. Typical examples include constraints on aerodynamic heating, angle of attack, dynamic pressure, and load factor~\cite{Cremaschi2013TrajectoryOptimization}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{Addressing the Optimization Problem}
+
+Two main families of approaches are commonly used to solve the optimal problem \cite{Optimization_Review}: indirect methods and direct methods. Indirect methods follow a ``first optimize, then discretize'' philosophy. They apply calculus of variations to derive the first-order necessary conditions (FONCs) for optimality, which typically reduces the problem to a Hamiltonian two-point boundary value problem (TPBVP). The resulting state and control histories may then be obtained analytically in special cases, but are most often computed numerically.
+
+In contrast, direct methods adopt a ``first discretize, then optimize'' strategy. The continuous-time optimal control problem is discretized from the outset, transforming the problem into a finite-dimensional non-linear programming problem (NLP). In this form, the trajectory optimization becomes a parameter optimization problem that can be tackled using standard numerical optimization algorithms~\cite{Optimization_Review}.
+
+An intuitive way to distinguish these approaches is to consider how one would minimize a scalar function of $n$ variables: one option is to derive the gradient analytically and set it to zero, analogous to forming and solving the optimality conditions in an indirect method and another is to evaluate the function at successive trial points while moving in directions that reduce its value, analogous to solving the resulting NLP in a direct method~\cite{Optimization_Review}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsection{The Indirect Approach}
+
+In an indirect formulation, the calculus of variations is used to derive the first-order necessary conditions (FONCs) for optimality. The first step consists of constructing an augmented cost functional by embedding the constraints of the optimal problem through complementary vectors, i.e., Lagrange multipliers. For the simplified case with no path constraints, fixed initial time $t_0$ and state $x_0$, fixed final state $x_f$, and free final time $t_f$, the augmented functional can be written as~\cite{BettsSurvey1998}:
+\begin{equation}
+\label{eq:cost_func}
+\mathcal{J}
+=
+\Phi \;+\; \nu^{T} b \;+\; \int_{t_0}^{t_f} \Bigl( L + \lambda^{T}\bigl(f-\dot{x}\bigr) \Bigr)\,dt ,
+\end{equation}
+where, for compactness, the explicit dependence of each quantity on $(x,u,t)$ has been omitted. In~\ref{eq:cost_func}, $\lambda$ denotes the Lagrange multiplier, often called the co-state vector, associated with the dynamic constraints, while $\nu$ is the endpoint Lagrange multiplier (the endpoint co-vector) enforcing the boundary conditions. The FONCs are obtained by computing the first variation $\delta \mathcal{J}$ of the augmented functional and imposing stationarity, i.e., setting $\delta \mathcal{J}=0$~\cite{Liberzon2012CalculusVariationsOptimalControl}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection{Pontryagin's Maximum Principle}
+
+To compute the first variation $\delta\mathcal{J}$, it is convenient to introduce the Hamiltonian~\cite{Optimization_Review}:
+\begin{equation}
+H(x,u,\lambda) \;=\; L \;+\; \lambda^{T} f ,
+\tag{60}
+\end{equation}
+together with the auxiliary (endpoint) function
+\begin{equation}
+\Phi \;=\; \Phi \;+\; \nu^{T} b .
+\tag{61}
+\end{equation}
+Setting $\delta\mathcal{J}=0$ yields the first-order necessary conditions, commonly written as the Euler-Lagrange equations~\cite{Optimization_Review}. In particular, the co-state adjoint dynamics are:
+\begin{equation}
+\dot{\lambda}^{T} \;=\; -H_{x},
+\label{eq:62}
+\end{equation}
+and the stationarity condition for the optimal control is
+\begin{equation}
+H_{u}^{T} \;=\; 0 .
+\label{eq:63}
+\end{equation}
+The associated transversality conditions for the simplified case read
+\begin{equation}
+\label{eq:transversality_conditions}
+\begin{aligned}
+\lambda^{T}(t_f) &= \left.\Phi_{x}\right|_{t=t_f}, \\
+\left.(\Phi_{t}+H)\right|_{t=t_f} &= 0, \\
+\lambda(t_0) &= 0. 
+\end{aligned}
+\end{equation}
+Here, subscripts denote partial derivatives with respect to the corresponding variables and are taken as row vectors. The stationarity condition~\ref{eq:63} is an expression of Pontryagin's Maximum Principle: the optimal control history $u^{*}(t)$ maximizes the Hamiltonian $H$ at every time instant, and the corresponding optimal state $x^{*}(t)$ follows from the dynamic constraints driven by $u^{*}(t)$~\cite{BettsSurvey1998}. Since the maximum principle is naturally stated for a maximization problem, a minimization objective can be handled by changing the sign of the cost function (i.e., minimizing $J$ is equivalent to maximizing $-J$).
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\subsubsection{Solving the Hamiltonian two-point boundary value problem}
+The optimal control problem, together with the first-order necessary conditions~\ref{eq:transversality_conditions}, yields a Hamiltonian two-point boundary value problem (TPBVP). This arises because boundary conditions are imposed on the state vector $x$ at both the initial and final times, while the co-state vector $\lambda$ is constrained at the final time. For most practical applications, obtaining an analytic solution of the resulting TPBVP is difficult, particularly in the presence of nonlinear dynamics and path constraints, and numerical solution techniques are therefore typically required~\cite{Conway2012SurveyMethodsContinuousDynamicSystems}. Consequently, indirect approaches commonly discretize the TPBVP and solve the resulting finite-dimensional problem numerically.
