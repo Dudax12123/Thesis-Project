@@ -190,6 +190,19 @@ class GuidanceState:
     # sim_params.GUIDANCE_TGO_USE_PSO_PLAN is True.
     tgo_deadline: Optional[float] = None
 
+    # --- Segmented (multi-law) guidance — all default-inert ---------------
+    # Set per-segment by segmented_guidance_solver. The single-law path leaves
+    # these unset, so behaviour is byte-identical to before:
+    #   target            : SegmentTarget aiming this segment at a PMP waypoint
+    #                       (None ⇒ original circular-orbit terminal target)
+    #   mode_override     : guidance law for this segment
+    #                       (None ⇒ sim_params.GUIDANCE_MODE)
+    #   force_planned_tgo : use the planned-deadline countdown (tgo_deadline − t)
+    #                       regardless of GUIDANCE_TGO_USE_PSO_PLAN (False ⇒ unchanged)
+    target: Optional[object] = None
+    mode_override: Optional[str] = None
+    force_planned_tgo: bool = False
+
     def restart_for_new_burn(self):
         """Re-baseline guidance at the start of a new thrust arc (post-coast).
 
@@ -207,6 +220,39 @@ class GuidanceState:
         self.apollo_coefficients_frozen = False
         self.exp_shoot_a = None
         self.exp_shoot_b = None
+
+
+@dataclass
+class SegmentTarget:
+    """Terminal target for one guidance segment (rotating, ground-relative frame).
+
+    Built by the segmented driver from a PMP-reference waypoint so an intermediate
+    segment can aim at an (altitude, speed, flight-path-angle) point with a
+    possibly NON-ZERO terminal gamma — unlike the circular-orbit target
+    (gamma_T = 0) used by the single-law path. ``v`` is already in the rotating
+    frame (it comes straight from the PMP reference), so no Earth-rotation credit
+    is applied to it.
+    """
+    r: float                              # target radius from Earth centre [m]
+    alt: float                            # target altitude [m]
+    v: float                              # target speed (rotating frame) [m/s]
+    gamma: float                          # target flight-path angle [rad]
+    freeze_threshold: Optional[float] = None   # per-segment APOLLO_FREEZE_THRESHOLD override
+
+    @property
+    def v_theta_T(self):
+        return self.v * np.cos(self.gamma)
+
+    @property
+    def v_r_T(self):
+        return self.v * np.sin(self.gamma)
+
+    @classmethod
+    def from_waypoint(cls, wp, freeze_threshold=None):
+        """Build from a waypoint dict {r, v, gamma, ...} (see segment_reference)."""
+        return cls(r=float(wp["r"]), alt=float(wp["r"]) - c.R_EARTH,
+                   v=float(wp["v"]), gamma=float(wp["gamma"]),
+                   freeze_threshold=freeze_threshold)
 
 
 # ===========================================================================
@@ -265,7 +311,13 @@ def _tgo_for_guidance(t, state, F_T, Isp, gs, previous_tgo=None):
     Returns the PSO-planned burn-arc countdown (``gs.tgo_deadline - t``) when
     ``sim_params.GUIDANCE_TGO_USE_PSO_PLAN`` is enabled and a deadline has been
     set, else the rocket-equation estimate from ``_compute_tgo_stage2``.
+
+    In segmented mode the driver sets ``gs.force_planned_tgo`` so the
+    planned-deadline countdown is used unconditionally (this is the anti-collapse
+    fix: a wall-clock countdown never saturates across the stage boundary).
     """
+    if getattr(gs, "force_planned_tgo", False) and gs.tgo_deadline is not None:
+        return max(gs.tgo_deadline - t, 0.1)
     if sim_params.GUIDANCE_TGO_USE_PSO_PLAN and gs.tgo_deadline is not None:
         return max(gs.tgo_deadline - t, 0.1)
     return _compute_tgo_stage2(state, F_T, Isp, previous_tgo)
@@ -286,9 +338,45 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
     Returns alpha [rad].
     """
     s, r_val, v, gamma, m = state[:5]
-    mode  = sim_params.GUIDANCE_MODE
+    mode  = (gs.mode_override if getattr(gs, "mode_override", None) is not None
+             else sim_params.GUIDANCE_MODE)
     r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     Ve    = Isp * c.G_0
+
+    # --- Resolve the per-segment terminal target ---------------------------
+    # The segmented driver sets gs.target (a SegmentTarget) to aim this segment at
+    # a PMP-reference waypoint with a possibly non-zero terminal flight-path angle.
+    # When gs.target is None (single-law path) every resolved value below
+    # reproduces the original circular-orbit targeting exactly.
+    target = getattr(gs, "target", None)
+    if target is not None:
+        r_tgt          = target.r
+        seg_alt        = target.alt
+        seg_v_theta_T  = target.v_theta_T
+        seg_v_r_T      = target.v_r_T
+        seg_term_gamma = target.gamma
+        seg_term_v     = target.v
+        freeze_thr     = (target.freeze_threshold if target.freeze_threshold is not None
+                          else sim_params.APOLLO_FREEZE_THRESHOLD)
+    else:
+        seg_alt        = sim_params.TARGET_ORBITAL_ALTITUDE
+        seg_v_theta_T  = _v_circular_rotating(r_tgt)
+        seg_v_r_T      = 0.0
+        seg_term_gamma = None
+        seg_term_v     = None
+        freeze_thr     = sim_params.APOLLO_FREEZE_THRESHOLD
+
+    def _lts_coeffs(st, tg):
+        if seg_term_gamma is None:
+            return lts_guidance.compute_lts_coefficients(st, seg_alt, tg)
+        return lts_guidance.compute_lts_coefficients_advanced(
+            st, seg_alt, tg, terminal_gamma=seg_term_gamma)
+
+    def _apollo_coeffs(st, tg):
+        return apollo_guidance_module.compute_apollo_coefficients(
+            _state_with_lat(st), seg_alt, tg, use_downrange_constraint=False,
+            terminal_velocity=seg_term_v, terminal_gamma=seg_term_gamma,
+            terminal_altitude=(seg_alt if target is not None else None))
 
     # -----------------------------------------------------------------------
     # Initialization — runs once when guidance becomes active (Stage-2 ignition)
@@ -321,16 +409,12 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.lts_previous_tgo = tgo
 
             if mode == "linear_tangent":
-                gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
-                    state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
+                gs.guidance_coefficients = _lts_coeffs(state, tgo)
             elif mode == "bilinear_tangent":
                 gs.guidance_coefficients = bts_guidance.compute_bilinear_coefficients(
-                    state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
+                    state, seg_alt, tgo, terminal_gamma=seg_term_gamma)
             elif mode == "apollo":
-                gs.guidance_coefficients = \
-                    apollo_guidance_module.compute_apollo_coefficients(
-                        _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
-                        use_downrange_constraint=False)
+                gs.guidance_coefficients = _apollo_coeffs(state, tgo)
                 gs.apollo_freeze_time        = t
                 gs.apollo_coefficients_frozen = False
 
@@ -359,7 +443,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
              gs.peg_new_L0,    gs.peg_new_tgo,
              gs.peg_new_t_lambda, gs.peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
                  state[:5], r_tgt, c.MU_EARTH, Ve, F_T,
-                 v_theta_T=_v_circular_rotating(r_tgt))
+                 v_theta_T=seg_v_theta_T, v_r_T=seg_v_r_T)
             gs.peg_new_t_epoch = t
             gs.peg_new_frozen  = False
 
@@ -398,8 +482,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
                 tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
-                gs.guidance_coefficients = lts_guidance.compute_lts_coefficients(
-                    state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
+                gs.guidance_coefficients = _lts_coeffs(state, tgo)
                 gs.last_guidance_update_time = t
             tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
             gs.lts_previous_tgo = tgo
@@ -414,7 +497,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = bts_guidance.compute_bilinear_coefficients(
-                    state, sim_params.TARGET_ORBITAL_ALTITUDE, tgo)
+                    state, seg_alt, tgo, terminal_gamma=seg_term_gamma)
                 gs.last_guidance_update_time = t
             tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
             gs.lts_previous_tgo = tgo
@@ -429,16 +512,13 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
 
-            if tgo < sim_params.APOLLO_FREEZE_THRESHOLD and not gs.apollo_coefficients_frozen:
+            if tgo < freeze_thr and not gs.apollo_coefficients_frozen:
                 gs.apollo_coefficients_frozen = True
                 gs.apollo_freeze_time         = t
 
             if (not gs.apollo_coefficients_frozen
                     and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
-                gs.guidance_coefficients = \
-                    apollo_guidance_module.compute_apollo_coefficients(
-                        _state_with_lat(state), sim_params.TARGET_ORBITAL_ALTITUDE, tgo,
-                        use_downrange_constraint=False)
+                gs.guidance_coefficients = _apollo_coeffs(state, tgo)
                 gs.apollo_freeze_time        = t
                 gs.last_guidance_update_time = t
 
@@ -480,7 +560,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             if (not gs.peg_new_frozen
                     and (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
                 if (gs.peg_new_tgo is not None
-                        and gs.peg_new_tgo < sim_params.APOLLO_FREEZE_THRESHOLD):
+                        and gs.peg_new_tgo < freeze_thr):
                     gs.peg_new_frozen = True
                 else:
                     (gs.peg_new_vgo_r, gs.peg_new_vgo_theta,
@@ -488,7 +568,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                      gs.peg_new_t_lambda, gs.peg_new_lambda_r
                      ) = peg_new_mod.peg_new_major_loop(
                          state[:5], r_tgt, c.MU_EARTH, Ve, F_T,
-                         v_theta_T=_v_circular_rotating(r_tgt))
+                         v_theta_T=seg_v_theta_T, v_r_T=seg_v_r_T)
                     gs.peg_new_t_epoch = t
                 gs.last_guidance_update_time = t
             t_since = t - gs.peg_new_t_epoch if gs.peg_new_t_epoch is not None else 0.0

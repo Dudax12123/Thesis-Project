@@ -199,7 +199,9 @@ def predict_target_downrange(state, target_altitude):
     return downrange_target
 
 
-def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_constraint=False):
+def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_constraint=False,
+                                terminal_velocity=None, terminal_gamma=None,
+                                terminal_altitude=None):
     """
     Compute Apollo polynomial guidance coefficients (classical formulation).
     
@@ -249,22 +251,34 @@ def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_cons
     vy = v * np.sin(gamma)
     
     # Define target conditions
-    y_target = target_altitude
-    
-    # Terminal velocity components (horizontal for circular orbit)
-    vy_target = 0.0  # Horizontal flight (gamma = 0)
-    
-    # Estimate target horizontal velocity.
-    # Guidance works in the rotating frame, so target the surface-relative
-    # velocity: Earth's rotation already supplies omega*r*cos(lat) of the
-    # inertial orbital speed, so the rocket only needs to provide the rest.
-    r_target = c.R_EARTH + target_altitude
-    v_inertial_target = np.sqrt(c.MU_EARTH / r_target)
-    if len(state) > 5:      # Earth rotation enabled: state[5] = latitude
-        lat = state[5]
-        vx_target = v_inertial_target - c.OMEGA_EARTH * r_target * np.cos(lat)
+    if terminal_gamma is not None:
+        # --- Waypoint targeting (arbitrary terminal flight-path angle) ---
+        # Aim at an (altitude, speed, gamma) point from a reference trajectory
+        # instead of the horizontal circular-orbit condition. terminal_velocity is
+        # the rotating-frame speed at the waypoint, so NO Earth-rotation credit is
+        # applied here (that credit is only for the circular target, below).
+        y_target  = terminal_altitude if terminal_altitude is not None else target_altitude
+        v_term    = terminal_velocity if terminal_velocity is not None else v
+        vx_target = v_term * np.cos(terminal_gamma)
+        vy_target = v_term * np.sin(terminal_gamma)
     else:
-        vx_target = v_inertial_target
+        # --- Circular-orbit insertion (original behaviour, gamma_T = 0) ---
+        y_target = target_altitude
+
+        # Terminal velocity components (horizontal for circular orbit)
+        vy_target = 0.0  # Horizontal flight (gamma = 0)
+
+        # Estimate target horizontal velocity.
+        # Guidance works in the rotating frame, so target the surface-relative
+        # velocity: Earth's rotation already supplies omega*r*cos(lat) of the
+        # inertial orbital speed, so the rocket only needs to provide the rest.
+        r_target = c.R_EARTH + target_altitude
+        v_inertial_target = np.sqrt(c.MU_EARTH / r_target)
+        if len(state) > 5:      # Earth rotation enabled: state[5] = latitude
+            lat = state[5]
+            vx_target = v_inertial_target - c.OMEGA_EARTH * r_target * np.cos(lat)
+        else:
+            vx_target = v_inertial_target
     
     # Horizontal channel
     #

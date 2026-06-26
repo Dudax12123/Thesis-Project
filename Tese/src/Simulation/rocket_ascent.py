@@ -44,6 +44,12 @@ _stage1_kick_handled_by_gamma_jump = False
 # Stage 2. Leaving it active here drives a pitch-down during Stage 1 that fights
 # the gamma-jump kick and crashes solve_ivp's event bracketing (brentq).
 _IN_PSO_STAGE1 = False
+# Optional Stage-1 guidance override for segmented (multi-law) guidance. When the
+# segmented_guidance_solver sets this to a callable f(t, state, F_T, Isp) -> alpha
+# [rad], rocket_dynamics uses it for the steering angle once the kick is complete
+# (so a chosen guidance law can fly DURING Stage 1). None for every existing run,
+# so single-law / non-segmented behaviour is completely unchanged.
+_SEGMENTED_ALPHA_HOOK = None
 main_engine_cutoff = False
 second_engine_ignition = False
 stage_2_burnt = False
@@ -1044,6 +1050,12 @@ def rocket_dynamics(t, state):
             # instantaneous: γ jump handled outside the ODE by
             # _run_stage1a_with_kick; α stays zero here.
             alpha = 0.0
+
+    elif (_SEGMENTED_ALPHA_HOOK is not None and kick_performed and F_T > 0):
+        # Segmented (multi-law) guidance — Stage-1 steering override. Set only by
+        # segmented_guidance_solver while MULTI_GUIDANCE_ENABLED; None (skipped)
+        # for every existing run, so single-law behaviour is byte-identical.
+        alpha = _SEGMENTED_ALPHA_HOOK(t, state, F_T, Isp)
 
     elif (kick_performed and sim_params.GUIDANCE_MODE == "cpr"
           and not _IN_PSO_STAGE1

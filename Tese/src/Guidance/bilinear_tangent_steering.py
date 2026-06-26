@@ -28,7 +28,7 @@ import numpy as np
 from Auxiliary import constants as c
 
 
-def compute_bilinear_coefficients(current_state, target_altitude, t_go):
+def compute_bilinear_coefficients(current_state, target_altitude, t_go, terminal_gamma=None):
     """
     Compute bilinear tangent steering coefficients from boundary conditions.
     
@@ -62,7 +62,26 @@ def compute_bilinear_coefficients(current_state, target_altitude, t_go):
         where tan(α + γ) = (c1*τ + c2) / (c1'*τ + c2'), τ = t_f - t
     """
     s, r_val, v, gamma, m = current_state[:5]
-    
+
+    if terminal_gamma is not None:
+        # --- Waypoint-targeting branch (clean, well-posed two-point bilinear) ---
+        # The legacy branch below hardcodes a horizontal terminal (tan_terminal=0)
+        # via a tangled, partly dead derivation. This branch instead fits a proper
+        # bilinear  tan(α+γ) = (c1·τ + c2)/(c1'·τ + c2')  that matches the CURRENT
+        # angle at τ = t_go and the DESIRED terminal angle tan(terminal_gamma) at
+        # τ = 0, with a mild fixed denominator curvature (c1' = 1/t_go). This is an
+        # angle-only law (it shapes tan(α+γ), not altitude/velocity), used by the
+        # segmented driver to track a reference waypoint's flight-path angle.
+        if t_go < 0.1:
+            return [0.0, 0.0, 0.0, 1.0]
+        tan_terminal = np.tan(terminal_gamma)
+        tan_initial  = np.tan(gamma)
+        c2_prime = 1.0
+        c1_prime = 1.0 / t_go                       # denom: 2 at τ=t_go → 1 at τ=0
+        c2 = tan_terminal                            # f(0) = c2/c2' = tan_terminal
+        c1 = (tan_initial * (c1_prime * t_go + c2_prime) - c2) / t_go  # f(t_go)=tan_initial
+        return [c1, c2, c1_prime, c2_prime]
+
     # Boundary conditions
     # Terminal (at t = t_f, τ = 0):
     tan_terminal = 0.0  # Horizontal flight

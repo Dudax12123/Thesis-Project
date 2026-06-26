@@ -264,6 +264,42 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
                                               # pso_coast_solver / direct_pso_solver (no effect on
                                               # rocket_ascent.run()).
 
+# ===================================================================
+# 8a-bis. SEGMENTED (multi-law, altitude-triggered) GUIDANCE
+# ===================================================================
+# When MULTI_GUIDANCE_ENABLED is True the single GUIDANCE_MODE law is ignored and
+# the rocket flies the ordered GUIDANCE_SEGMENTS schedule instead: a passive
+# gravity turn from launch until the FIRST entry's altitude, then each chosen law
+# in turn. Each non-final segment aims at the indirect-PMP optimal (alt, v, γ)
+# waypoint at the NEXT entry's altitude; the LAST entry aims at orbit insertion.
+# t_go is the planned-deadline countdown (deadline − t), NOT the rocket-equation
+# estimate, so it never collapses across the stage boundary.
+#
+# NOTE: When MULTI_GUIDANCE_ENABLED is False (default) NONE of this has any effect
+# — every existing mode/path behaves exactly as before.
+MULTI_GUIDANCE_ENABLED = False
+
+# Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be
+# strictly increasing. Supported laws this iteration:
+#   "apollo", "peg_new", "linear_tangent", "bilinear_tangent".
+# (linear_tangent / bilinear_tangent are angle-only: they match the waypoint's
+#  flight-path angle but not its altitude/velocity, so their tracking is weaker.)
+GUIDANCE_SEGMENTS = [
+    ("apollo",  40_000.0),     # Apollo takes over at 40 km, aims at PMP(120 km)
+    ("peg_new", 120_000.0),    # peg_new takes over at 120 km, aims at orbit insertion
+]
+
+# Per-segment coefficient-freeze time-to-go [s] for the intermediate (non-final)
+# segments. Smaller than APOLLO_FREEZE_THRESHOLD so short shaping segments are not
+# frozen the instant they start. The final segment uses APOLLO_FREEZE_THRESHOLD.
+SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD = 2.0
+
+# --- Indirect-PMP reference trajectory (supplies the segment waypoints) ---
+SEGMENT_TARGET_SOURCE     = "pmp"   # "pmp" (interpolate the PMP reference) — only option for now
+PMP_REFERENCE_CACHE       = "Tese/src/Output/pmp_reference.npz"  # cache file path
+PMP_REFERENCE_USE_CACHE   = True    # load the cache if present and inputs unchanged
+PMP_REFERENCE_FORCE_RERUN = False   # recompute the PMP reference even if a valid cache exists
+
 # -------------- 8b. Apollo / polynomial guidance --------------
 # (Only used if GUIDANCE_MODE is "apollo". APOLLO_FREEZE_THRESHOLD is also the
 #  freeze threshold for peg/peg_new — see §8e.)

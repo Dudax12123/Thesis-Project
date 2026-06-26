@@ -38,13 +38,17 @@ import numpy as np
 
 
 def compute_vgo_with_gr(v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r,
-                        max_iter=15, tol=0.01, v_theta_T=None):
+                        max_iter=15, tol=0.01, v_theta_T=None, v_r_T=0.0):
     """Converge v_go and t_go for a given net radial gravity g_r.
 
     Inner loop of the PEG major cycle (Algorithm 1 steps 4–14).
     v_go_θ = v_θ_T − v_θ (tangential, constant — no tangential gravity term).
     v_go_r is iterated until the gravity velocity integral self-consistently
     determines t_go.
+
+    ``v_r_T`` is the target radial velocity at burnout (default 0.0 ⇒ horizontal
+    insertion, γ_T = 0, identical to the original behaviour). Pass
+    ``v_r_T = v_wp·sin(γ_wp)`` to aim at a waypoint with non-zero flight-path angle.
 
     Parameters
     ----------
@@ -66,12 +70,12 @@ def compute_vgo_with_gr(v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r,
     # the rotating-frame value √(μ/r_T) − v_rot to match the ground-relative frame.
     v_T       = np.sqrt(mu / r_T) if v_theta_T is None else v_theta_T
     vgo_theta = v_T - v_theta       # tangential deficit (constant)
-    vgo_r     = -v_r                # initial guess (no gravity correction)
+    vgo_r     = v_r_T - v_r         # initial guess (radial deficit; no gravity correction)
 
     for _ in range(max_iter):
         L0    = max(np.sqrt(vgo_r**2 + vgo_theta**2), 1.0)
         t_go  = tau * (1.0 - np.exp(-L0 / ve))
-        vgo_r_new = -v_r - g_r * t_go
+        vgo_r_new = (v_r_T - v_r) - g_r * t_go
         if abs(vgo_r_new - vgo_r) < tol:
             vgo_r = vgo_r_new
             break
@@ -83,14 +87,14 @@ def compute_vgo_with_gr(v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r,
 
 
 def compute_vgo(v_r, v_theta, r, m, r_T, mu, ve, F_T, max_iter=15, tol=0.01,
-                v_theta_T=None):
+                v_theta_T=None, v_r_T=0.0):
     """Backward-compatible wrapper: converge v_go using g_r at current position.
 
     Delegates to compute_vgo_with_gr after computing g_r internally.
     """
     g_r = -mu / r**2 + v_theta**2 / r
     return compute_vgo_with_gr(v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r,
-                               max_iter, tol, v_theta_T=v_theta_T)
+                               max_iter, tol, v_theta_T=v_theta_T, v_r_T=v_r_T)
 
 
 def compute_thrust_integrals(L0, t_go, tau, ve):
@@ -146,7 +150,8 @@ def compute_lambda_r(r, v_r, r_T, vgo_r, L0, t_go, t_lambda, S0, S1, g_r):
     return float((L0 * rgo_r - S0 * vgo_r) / denom)
 
 
-def peg_new_major_loop(state, r_T, mu, ve, F_T, n_pred_iter=3, v_theta_T=None):
+def peg_new_major_loop(state, r_T, mu, ve, F_T, n_pred_iter=3, v_theta_T=None,
+                       v_r_T=0.0):
     """Full major-loop step with predictor-corrector (Algorithm 1 steps 4–20).
 
     The outer loop refines the gravity integral v_G = g_r·t_go by evaluating
@@ -182,7 +187,8 @@ def peg_new_major_loop(state, r_T, mu, ve, F_T, n_pred_iter=3, v_theta_T=None):
     for _ in range(n_pred_iter):
         # Inner: converge v_go with current g_r (steps 4–14)
         vgo_r, vgo_theta, L0, t_go = compute_vgo_with_gr(
-            v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r, v_theta_T=v_theta_T)
+            v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r,
+            v_theta_T=v_theta_T, v_r_T=v_r_T)
 
         # Predictor: estimate burnout position and velocity (step 15)
         r_end       = r + v_r * t_go + 0.5 * g_r * t_go**2
@@ -204,7 +210,8 @@ def peg_new_major_loop(state, r_T, mu, ve, F_T, n_pred_iter=3, v_theta_T=None):
 
     # Final inner convergence with settled g_r
     vgo_r, vgo_theta, L0, t_go = compute_vgo_with_gr(
-        v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r, v_theta_T=v_theta_T)
+        v_r, v_theta, r, m, r_T, mu, ve, F_T, g_r,
+        v_theta_T=v_theta_T, v_r_T=v_r_T)
 
     S0, L1, S1, t_lambda = compute_thrust_integrals(L0, t_go, tau, ve)
 
@@ -214,7 +221,7 @@ def peg_new_major_loop(state, r_T, mu, ve, F_T, n_pred_iter=3, v_theta_T=None):
     return vgo_r, vgo_theta, L0, t_go, t_lambda, lambda_r_prime
 
 
-def peg_new_tgo(state, r_T, mu, ve, F_T, v_theta_T=None):
+def peg_new_tgo(state, r_T, mu, ve, F_T, v_theta_T=None, v_r_T=0.0):
     """Gravity-aware time-to-go only (for reuse by other guidance modes).
 
     Runs the same v_go convergence + predictor-corrector gravity averaging as the
@@ -224,7 +231,8 @@ def peg_new_tgo(state, r_T, mu, ve, F_T, v_theta_T=None):
     the radial gravity loss folded into ‖v_go‖, unlike the gravity-blind
     rocket-equation estimate the other modes use by default.
     """
-    return peg_new_major_loop(state, r_T, mu, ve, F_T, v_theta_T=v_theta_T)[3]
+    return peg_new_major_loop(state, r_T, mu, ve, F_T,
+                              v_theta_T=v_theta_T, v_r_T=v_r_T)[3]
 
 
 def peg_new_alpha(t_since_epoch, vgo_r, vgo_theta, L0, lambda_r_prime, t_lambda, gamma):

@@ -181,6 +181,60 @@ def _print_propellant_losses():
     print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
 
 
+def _report_segmented(result, segs, best_x, best_f, data_full):
+    """Print the segmented-guidance results: insertion state, per-segment waypoint
+    tracking (achieved vs PMP reference) and the achieved orbit."""
+    print("\n" + "=" * 60)
+    print("SEGMENTED GUIDANCE — RESULTS")
+    print("=" * 60)
+    if result['crashed'] or result['state_final'] is None:
+        print("  TRAJECTORY CRASHED — no insertion state.")
+        print("=" * 60)
+        return
+    sf = result['state_final']
+    h_f = (sf[1] - c.R_EARTH) / 1e3
+    v_f = sf[2]
+    g_f = np.rad2deg(sf[3])
+    r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    v_c = np.sqrt(c.MU_EARTH / r_t)
+    v_rot = (c.OMEGA_EARTH * r_t * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
+             if sim_params.ENABLE_EARTH_ROTATION else 0.0)
+
+    print(f"  Best J':            {best_f:.4f}")
+    print(f"  Kick angle (gamma_p-pi/2): {np.rad2deg(best_x[3] - np.pi/2.0):.4f} deg")
+    print(f"  PSO [dtc, dtr%, cs%, gamma_p]: "
+          f"[{best_x[0]:.2f}, {best_x[1]:.2f}, {best_x[2]:.2f}, {np.rad2deg(best_x[3]):.3f}deg]")
+    print(f"  Insertion altitude: {h_f:.2f} km  (target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km)")
+    print(f"  Insertion velocity: {v_f:.2f} m/s  (target {v_c - v_rot:.2f} m/s)")
+    print(f"  Insertion FPA:      {g_f:.4f} deg  (target 0)")
+
+    alt_row = data_full[1] - c.R_EARTH
+    itop = int(np.argmax(alt_row))
+    x = alt_row[: itop + 1]
+    print("\n  Per-segment waypoint tracking (achieved vs PMP reference):")
+    for i in range(segs.n - 1):
+        tgt = segs.target[i]
+        a = segs.target_alt[i]
+        if tgt is None or a > x[-1]:
+            continue
+        v_ach = np.interp(a, x, data_full[2, : itop + 1])
+        g_ach = np.interp(a, x, data_full[3, : itop + 1])
+        print(f"   @ {a/1e3:6.1f} km ({segs.mode(i)}->{segs.mode(i+1)}): "
+              f"v {v_ach:7.1f} vs {tgt.v:7.1f} m/s | "
+              f"gamma {np.rad2deg(g_ach):6.2f} vs {np.rad2deg(tgt.gamma):6.2f} deg")
+
+    try:
+        v_in, g_in = ra.get_inertial_state_components(
+            sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
+        a, e, r_apo, r_peri, T = ra.get_orbital_elements(sf[1], v_in, g_in)
+        print(f"\n  Achieved orbit: a={a/1e3:.1f} km, e={e:.4f}, "
+              f"apoapsis={(r_apo - c.R_EARTH)/1e3:.1f} km, "
+              f"periapsis={(r_peri - c.R_EARTH)/1e3:.1f} km")
+    except Exception as exc:
+        print(f"  (orbital elements unavailable: {exc})")
+    print("=" * 60)
+
+
 def execute():
     """
     Main execution function for coasting single burn optimization.
@@ -279,6 +333,39 @@ def execute():
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
     pso_history = None   # set only in indirect_pmp mode; passed to the plot suite
+
+    # =========================================================================
+    # SEGMENTED (multi-law, altitude-triggered) GUIDANCE
+    # Flies GUIDANCE_SEGMENTS instead of the single GUIDANCE_MODE. Only entered
+    # when MULTI_GUIDANCE_ENABLED — every existing path is untouched otherwise.
+    # =========================================================================
+    if getattr(sim_params, "MULTI_GUIDANCE_ENABLED", False):
+        from Simulation import segmented_guidance_solver as seg
+
+        print("\n" + "=" * 60)
+        print("SEGMENTED (MULTI-LAW) GUIDANCE — altitude-triggered schedule")
+        print("=" * 60)
+        _sched = " -> ".join(f"{m}@{a/1e3:.0f}km" for m, a in sim_params.GUIDANCE_SEGMENTS)
+        print(f"  gravity_turn -> {_sched}")
+        print("  Stage-2 method: pso_coast (direct insertion); planned-deadline t_go")
+        print("=" * 60)
+
+        # Suppress noisy per-step prints during the swarm evaluation
+        _ev_saved, _iv_saved = sim_params.EVENTS_PRINT, sim_params.INTERRUPTS_PRINT
+        sim_params.EVENTS_PRINT = False
+        sim_params.INTERRUPTS_PRINT = False
+        try:
+            time, data, result_seg, best_x, best_f, segs = seg.run_segmented(verbose=True)
+        finally:
+            sim_params.EVENTS_PRINT = _ev_saved
+            sim_params.INTERRUPTS_PRINT = _iv_saved
+
+        kick_angle_optimal = best_x[3] - np.pi / 2.0
+        _report_segmented(result_seg, segs, best_x, best_f, data)
+        print("\n" + "=" * 60)
+        print("SEGMENTED SIMULATION COMPLETE")
+        print("=" * 60 + "\n")
+        return time, data, kick_angle_optimal
 
     # =========================================================================
     # INDIRECT PMP MODE — PSO optimisation replaces brute-force kick-angle search
