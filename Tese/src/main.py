@@ -355,13 +355,57 @@ def execute():
         sim_params.EVENTS_PRINT = False
         sim_params.INTERRUPTS_PRINT = False
         try:
-            time, data, result_seg, best_x, best_f, segs = seg.run_segmented(verbose=True)
+            seg_out = seg.run_segmented(verbose=True)
         finally:
             sim_params.EVENTS_PRINT = _ev_saved
             sim_params.INTERRUPTS_PRINT = _iv_saved
 
+        time       = seg_out['time']
+        data       = seg_out['data']
+        result_seg = seg_out['result']
+        best_x     = seg_out['best_x']
+        best_f     = seg_out['best_f']
+        segs       = seg_out['segs']
         kick_angle_optimal = best_x[3] - np.pi / 2.0
         _report_segmented(result_seg, segs, best_x, best_f, data)
+
+        # ---- Plot suite (same as the single-law modes) -------------------
+        # run_segmented_full already populated ra.theta_*/tgo_* histories and the
+        # full-flight thrust/alpha/pseudo-force channels; feed them to the suite.
+        if not result_seg['crashed']:
+            print("\nGenerating new plot suite (segmented)...")
+            _tgo_time = (np.array(ra.tgo_time_history)
+                         if len(ra.tgo_time_history) > 0 else None)
+            _tgo      = (np.array(ra.tgo_history)
+                         if len(ra.tgo_history) > 0 else None)
+            _theta_time = (np.array(ra.theta_time_history)
+                           if len(ra.theta_time_history) > 0 else None)
+            _theta      = (np.array(ra.theta_history)
+                           if len(ra.theta_history) > 0 else None)
+            _cross_force = (np.array(ra.cross_heading_counter_force_history)
+                            if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
+                               and len(ra.cross_heading_counter_force_history) > 0
+                            else None)
+            _cross_accel = (np.array(ra.cross_heading_accel_history)
+                            if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
+                               and len(ra.cross_heading_accel_history) > 0
+                            else None)
+            new_plot_runner.run_new_plot_suite(
+                time, data,
+                seg_out['thrust'], time,        # thrust_data, time_thrust (on `time` grid)
+                seg_out['alpha'],  time,        # alpha_data, alpha_time_data
+                output_dir=None, show=False, close_after=False,
+                coriolis_mag_data=seg_out['coriolis'],
+                centrifugal_mag_data=seg_out['centrifugal'],
+                tgo_time_data=_tgo_time, tgo_data=_tgo,
+                apollo_freeze_threshold=getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None),
+                theta_data=_theta, theta_time_data=_theta_time,
+                cross_heading_counter_force_data=_cross_force,
+                cross_heading_accel_data=_cross_accel,
+                pso_history=None,
+            )
+            print("All plots generated.")
+
         print("\n" + "=" * 60)
         print("SEGMENTED SIMULATION COMPLETE")
         print("=" * 60 + "\n")

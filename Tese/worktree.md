@@ -42,6 +42,16 @@ definite order; setting a downstream choice without respecting an upstream one i
 no-ops. Walk them top-to-bottom.
 
 ```
+┌─ STEP 0 ── MULTI_GUIDANCE_ENABLED ? ────────────────────────────────────────┐
+│  True  → SEGMENTED (multi-law) world. Ignores the single GUIDANCE_MODE and   │
+│          flies the GUIDANCE_SEGMENTS schedule (gravity turn → law@alt → … →   │
+│          orbit), each non-final law aiming at an indirect-PMP waypoint, the   │
+│          last law inserting to orbit. Built on pso_coast; needs PyGMO + a     │
+│          cached PMP reference. STEPS 1–5 then describe the SINGLE-law modes   │
+│          only. → see "§1b. Segmented guidance" below.                        │
+│  False → continue to STEP 1 (single-law modes).                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+        │
 ┌─ STEP 1 ── GUIDANCE_MODE == "indirect_pmp" ? ───────────────────────────────┐
 │  YES → dedicated branch (main.py:292). It runs its OWN 7-variable PSO        │
 │        (costates + timing + kick) and IGNORES COAST_METHOD / KICK_PROFILE_   │
@@ -109,9 +119,67 @@ no-ops. Walk them top-to-bottom.
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Shortcut intuition.** `GUIDANCE_MODE="indirect_pmp"` is a world of its own (ignore everything in
-steps 2–4). Otherwise `COAST_METHOD` decides which solver runs, and *that* decides whether
-`KICK_PROFILE_MODE` / `RUN_FAST` / the `DIRECT_*` tolerances mean anything at all.
+**Shortcut intuition.** `MULTI_GUIDANCE_ENABLED=True` (§1b) and `GUIDANCE_MODE="indirect_pmp"` are
+each a world of their own (ignore steps 1–5 / 2–4 respectively). Otherwise `COAST_METHOD` decides
+which solver runs, and *that* decides whether `KICK_PROFILE_MODE` / `RUN_FAST` / the `DIRECT_*`
+tolerances mean anything at all.
+
+---
+
+## 1b. Segmented (multi-law) guidance — the `MULTI_GUIDANCE_ENABLED` world
+
+A separate top-level mode (like `indirect_pmp`): when `MULTI_GUIDANCE_ENABLED = True`
+(`simulation_parameters.py` §8a-bis) the single `GUIDANCE_MODE` is ignored and the rocket flies an
+ordered schedule of guidance laws, each starting at a chosen altitude. Dispatched from `main.py`
+(segmented branch) → `Simulation/segmented_guidance_solver.py`. Requires PyGMO.
+
+**What it does.** Gravity turn flies from launch until the first activation altitude; then each law
+in `GUIDANCE_SEGMENTS` takes over in turn. Every non-final segment aims at the indirect-PMP optimal
+`(alt, v, γ)` waypoint at the NEXT activation altitude; the LAST segment aims at orbit insertion. A
+guidance law can therefore fly DURING Stage 1 (e.g. apollo activating at 40 km, sub-MECO) — the
+thing the single-law modes can't do (they gate guidance on Stage-2 ignition).
+
+**Anti-collapse t_go.** In segmented mode t_go is the planned-deadline countdown `deadline − t`
+(NOT the rocket-equation estimate that saturates at the stage boundary), deadlines sourced from the
+PMP reference timing. So the t_go-dependent laws (apollo, linear/bilinear tangent) count down
+monotonically across staging instead of pinning at a constant. This is what lets them fly Stage 1.
+
+**Insertion.** Same as `pso_coast`: a thrust→coast→thrust Stage-2 profile with DIRECT orbit
+insertion by the final law (no impulsive circularisation). The PSO (4-var
+`[Δt_c, Δt_r%, coast_start%, γ_p]`, reusing the `PSO_COAST_*` settings) tunes the kick + burn/coast
+timing; the activation altitudes are user-fixed (PSO-optimising them is future work). The single
+coast typically lands inside the final segment — handled by the per-arc guidance re-init
+(`restart_for_new_burn`), the same mechanism single-law pso_coast uses.
+
+| Variable (§8a-bis) | Allowed | Default | Controls / tangles |
+|---|---|---|---|
+| `MULTI_GUIDANCE_ENABLED` | bool | `False` | Master switch. **False ⇒ NOTHING here applies; every single-law path is byte-identical.** True ⇒ ignores `GUIDANCE_MODE`, `COAST_METHOD`, `KICK_PROFILE_MODE`, `RUN_FAST`, `DIRECT_*`, `TGO_ESTIMATOR`, `GUIDANCE_TGO_USE_PSO_PLAN`. |
+| `GUIDANCE_SEGMENTS` | list[(law, alt_m)] | `[("apollo",40e3),("peg_new",120e3)]` | Ordered schedule; altitudes strictly increasing (raises otherwise). Gravity turn is the implicit prefix. Last entry inserts to orbit. 3+ entries work unchanged. |
+| `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD` | float s | `2.0` | Coefficient-freeze t_go for intermediate (non-final) segments; final segment uses `APOLLO_FREEZE_THRESHOLD`. |
+| `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. |
+| `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
+| `PMP_REFERENCE_FORCE_RERUN` | bool | `False` | Rebuild the reference even if a valid cache exists. |
+
+**Supported laws** in `GUIDANCE_SEGMENTS`: `apollo`, `peg_new`, `linear_tangent`,
+`bilinear_tangent` (classic `peg` deferred). The two tangent laws are **angle-only** — they match a
+waypoint's flight-path angle but not its altitude/velocity, so their waypoint tracking is weaker
+than apollo/peg_new (they still reach orbit because the final segment does the insertion).
+
+**PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at the
+configured `PSO_N_PARTICLES × PSO_MAX_GENERATIONS` (250×500 ≈ 1 h) and caches it
+(key = target orbit + vehicle + indirect-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so
+different schedules and coast budgets reuse the same reference). Later runs load the cache and only
+pay the ~31-min coast PSO. PyGMO is needed only for the build.
+
+**Plots.** Renders the SAME 17-plot suite as the single-law modes (channels assembled in
+`run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`, nothing saved). The
+apollo/θ steering plots show a brief transient at each intermediate handoff (the law's t_go → 0
+right at the waypoint) — harmless to the flight (altitude/γ/orbit stay smooth).
+
+**Validated** end-to-end at full production: headline `[apollo@40km, peg_new@120km]` inserts at
+500.2 km / 7176 m/s / −0.004° (orbit e=0.0011), J' = 0.839 ≈ the PMP-optimal cost; robustness
+matrix (peg_new chains, angle-only intermediates, post-MECO activation, 3-segment) all reach
+~500 km, e ≤ 0.002; single-law regression (flag off) unchanged.
 
 ---
 
@@ -121,6 +189,9 @@ Tables grouped by area. Columns: **Variable · Allowed values · Default · Cont
 Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 ### 2.1 Guidance law
+
+> `MULTI_GUIDANCE_ENABLED` (§1b) overrides `GUIDANCE_MODE` entirely: when True the table below is
+> moot and the ordered `GUIDANCE_SEGMENTS` schedule flies instead.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
@@ -295,7 +366,8 @@ no planet selector.
 ## 3. Master compatibility matrix — `GUIDANCE_MODE` × `COAST_METHOD`
 
 `indirect_pmp` is a separate world (it ignores `COAST_METHOD`), so it occupies its own column. Cells
-note the governing `file:line`.
+note the governing `file:line`. **Segmented mode (`MULTI_GUIDANCE_ENABLED`, §1b) ignores this matrix
+entirely** — it overrides `GUIDANCE_MODE` and always uses the pso_coast-style direct insertion.
 
 **Verdicts below are empirical** — confirmed by a full (guidance × coast) sweep, with under-converged
 cells re-run at higher PSO budget to separate "needs more budget" from "structurally can't get there."

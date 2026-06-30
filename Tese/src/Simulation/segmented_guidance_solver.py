@@ -272,7 +272,7 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
 
     # ---- Pre-ignition ballistic coast (stage sep -> ignition) ----
     sol_pre = _ballistic(t2_start, t_ignition, state2_init[:5], teval_fn)
-    s2_pieces.append(sol_pre)
+    s2_pieces.append((sol_pre, 0.0))
     if len(sol_pre.t_events[0]) > 0:
         return crashed_result(t_stage2_start=t2_start, t_ignition=t_ignition,
                               t_stage1=t_stage1, y_stage1=y_stage1)
@@ -282,7 +282,7 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     if t_coast_start > 0.01:
         t_a2, state_arc2, crashed, p = _thrust_phase(
             t_ignition, t_coast_start, state_at_ign, gs, segs, mgr, teval_fn)
-        s2_pieces += p
+        s2_pieces += [(s, r.F_THRUST_2) for s in p]
         if crashed:
             return crashed_result(t_stage2_start=t2_start, t_ignition=t_ignition,
                                   t_stage1=t_stage1, y_stage1=y_stage1)
@@ -294,7 +294,7 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     # ---- Arc 2 (coast) ----
     if delta_tc > 0.01:
         sol_c = _ballistic(t_arc2_start, t_arc2_start + delta_tc, state_arc2, teval_fn)
-        s2_pieces.append(sol_c)
+        s2_pieces.append((sol_c, 0.0))
         if len(sol_c.t_events[0]) > 0:
             return crashed_result(t_stage2_start=t2_start, t_ignition=t_ignition,
                                   t_arc2_start=t_arc2_start,
@@ -309,13 +309,15 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     if t_arc3_burn > 0.01:
         t_end, state_final, crashed, p = _thrust_phase(
             t_arc3_start, t_arc3_burn, state_arc3, gs, segs, mgr, teval_fn)
-        s2_pieces += p
+        s2_pieces += [(s, r.F_THRUST_2) for s in p]
         if crashed:
             return crashed_result(t_stage2_start=t2_start, t_ignition=t_ignition,
                                   t_arc2_start=t_arc2_start,
                                   t_stage1=t_stage1, y_stage1=y_stage1)
+        t_insertion = t_end
     else:
         state_final = state_arc3.copy()
+        t_insertion = t_arc3_start
 
     result = {
         'crashed':        False,
@@ -325,14 +327,15 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
         't_stage2_start': t2_start,
         't_ignition':     t_ignition,
         't_arc2_start':   t_arc2_start,
-        't_arc3_end':     t_ignition + T_burn_total + delta_tc,
+        't_arc3_end':     t_insertion,
         't_stage1':       t_stage1,
         'y_stage1':       y_stage1,
         'final_seg_idx':  mgr["idx"],
     }
     if collect:
         result['stage1'] = (t_stage1, y_stage1)
-        result['s2_pieces'] = s2_pieces
+        result['s2_pieces'] = s2_pieces        # list of (sol, thrust_value)
+        result['gs'] = gs
     if verbose and not result['crashed']:
         sf = state_final
         print(f"  insertion: h={(sf[1]-c.R_EARTH)/1e3:.1f} km  v={sf[2]:.1f} m/s  "
@@ -407,39 +410,139 @@ def run_segmented_optimization(segs, verbose=True):
 # Dense full re-run (for the report + a basic trajectory array)
 # ---------------------------------------------------------------------------
 
+def _teval_half_sec(t0, t1):
+    pts = np.arange(t0, t1, 0.5)
+    if len(pts) == 0 or pts[-1] < t1:
+        pts = np.append(pts, t1)
+    return pts
+
+
 def run_segmented_full(optimal_params, segs, verbose=True):
-    """Dense re-run of the optimum. Returns (time_full, data_full, result)."""
+    """Dense re-run of the optimum with full plot-suite assembly.
+
+    Mirrors ``pso_coast_solver.run_pso_coast_full``: returns
+    ``(time_full, data_full, thrust_full, alpha_full, t_ignition, result,
+    coriolis_mag_data, centrifugal_mag_data)`` and writes the full-flight history
+    channels (``ra.theta_*_history``, ``ra.tgo_*_history``, pseudo-force
+    histories) + event markers so the shared plot suite in main.py renders the
+    same plots as the single-law modes.
+    """
+    from Plots.plot_state_utils import interpolate_to_time
+
     dtc, dtr, cs, gp = (float(optimal_params[0]), float(optimal_params[1]),
                         float(optimal_params[2]), float(optimal_params[3]))
 
-    def _teval(t0, t1):
-        pts = np.arange(t0, t1, 0.5)
-        if len(pts) == 0 or pts[-1] < t1:
-            pts = np.append(pts, t1)
-        return pts
-
     result = run_segmented_trajectory(dtc, dtr, cs, gp, segs,
-                                      teval_fn=_teval, collect=True, verbose=verbose)
+                                      teval_fn=_teval_half_sec, collect=True,
+                                      verbose=verbose)
 
-    # Stitch Stage-1 + Stage-2 dense pieces into (time_full, data_full[5xN]).
-    t_list, y_list = [], []
-    if 'stage1' in result and result['stage1'][0] is not None:
-        t1, y1 = result['stage1']
-        t_list.append(np.asarray(t1, dtype=float))
-        y_list.append(np.asarray(y1, dtype=float)[:5])
-    for sol in result.get('s2_pieces', []):
+    # Crashed optimum: the 'stage1'/'s2_pieces'/'gs' collect keys are absent, so
+    # return a degenerate payload (main.py detects the crash via result['crashed']).
+    if result.get('crashed'):
+        t1 = np.asarray(result.get('t_stage1', [0.0]), dtype=float)
+        y1 = np.asarray(result.get('y_stage1', np.zeros((5, 1))), dtype=float)[:5]
+        z = np.zeros(len(t1))
+        return (t1, y1, z, z, result.get('t_ignition', 0.0), result, z, z)
+
+    t_stage1, y_stage1 = result['stage1']
+    t_stage1 = np.asarray(t_stage1, dtype=float)
+    t_ignition = result['t_ignition']
+    gs = result.get('gs')
+    pieces = list(result.get('s2_pieces', []))           # [(sol, thrust_value), ...]
+
+    # ---- Post-insertion orbit coast (thrust off) so plots show the full orbit ----
+    # Orbital propagation needs the INERTIAL velocity, so convert the insertion
+    # state (rotating-frame) here — diagnostic only (mirrors pso_coast). Expect a
+    # small ~v_rot step in the velocity-vs-time plot at insertion.
+    state_final = result.get('state_final')
+    if state_final is not None:
+        post_init = np.asarray(state_final[:5], dtype=float).copy()
+        if sim_params.ENABLE_EARTH_ROTATION:
+            v_in, g_in = ra.get_inertial_state_components(
+                state_final[1], state_final[2], state_final[3],
+                np.deg2rad(sim_params.LAUNCH_LATITUDE))
+            post_init[2], post_init[3] = v_in, g_in
+        t_post0 = result['t_arc3_end']
+        sol_post = _ballistic(t_post0, t_post0 + sim_params.DURATION_AFTER_SIMULATION,
+                              post_init, _teval_half_sec)
+        if sol_post is not None and len(sol_post.t) > 0:
+            pieces.append((sol_post, 0.0))
+
+    # ---- Assemble Stage-2 arrays from the labeled pieces ----
+    t_s2, y_s2, th_s2 = [], [], []
+    for sol, F in pieces:
         if sol is None or len(sol.t) == 0:
             continue
-        t_list.append(np.asarray(sol.t, dtype=float))
-        y_list.append(np.asarray(sol.y, dtype=float)[:5])
+        t_s2.append(np.asarray(sol.t, dtype=float))
+        y_s2.append(np.asarray(sol.y, dtype=float)[:5, :])
+        th_s2.append(np.full(len(sol.t), F))
+    t_stage2_full = np.concatenate(t_s2)
+    y_stage2_full = np.concatenate(y_s2, axis=1)
+    thrust_stage2 = np.concatenate(th_s2)
 
-    if t_list:
-        time_full = np.concatenate(t_list)
-        data_full = np.concatenate(y_list, axis=1)
+    # Alpha: interpolate the gs log onto the Stage-2 output grid (samples the
+    # accepted points, smoothing out RK trial-eval noise — same as pso_coast).
+    if gs is not None and gs.time_log:
+        alpha_stage2 = interpolate_to_time(gs.time_log, gs.alpha_log, t_stage2_full)
     else:
-        time_full = np.array([0.0])
-        data_full = np.zeros((5, 1))
-    return time_full, data_full, result
+        alpha_stage2 = np.zeros(len(t_stage2_full))
+
+    # ---- Stage 1 (from this run's ra.*_history; run_stage1 was called once) ----
+    y1 = np.asarray(y_stage1, dtype=float)[:5, :]
+    thrust_stage1 = interpolate_to_time(ra.time_history, ra.thrust_history, t_stage1)
+    alpha_stage1  = interpolate_to_time(ra.alpha_time_history, ra.alpha_history, t_stage1)
+
+    # ---- Combine Stage 1 + Stage 2 ----
+    time_full   = np.concatenate([t_stage1, t_stage2_full])
+    data_full   = np.concatenate([y1, y_stage2_full], axis=1)
+    thrust_full = np.concatenate([thrust_stage1, thrust_stage2])
+    alpha_full  = np.concatenate([alpha_stage1, alpha_stage2])
+    n_stage1, n_stage2 = len(t_stage1), len(t_stage2_full)
+
+    # ---- Latitude row (Earth rotation) so the latitude plot renders ----
+    if sim_params.ENABLE_EARTH_ROTATION:
+        lat_row = np.array([ra.get_latitude_from_downrange(s) for s in data_full[0]])
+        data_full = np.vstack([data_full, lat_row])      # rows: s, r, v, gamma, m, lat
+
+    # ---- Full-flight history channels for the plot suite (ra.*_history) ----
+    theta_full = alpha_full + data_full[3]               # pitch theta = alpha + gamma
+    ra.theta_history      = list(theta_full)
+    ra.theta_time_history = list(time_full)
+    if gs is not None and gs.tgo_time_log:
+        ra.tgo_time_history = list(gs.tgo_time_log)       # apollo/lts/bilinear segments
+        ra.tgo_history      = list(gs.tgo_log)
+    else:
+        ra.tgo_time_history = []
+        ra.tgo_history      = []
+
+    # Pseudo-forces: Stage-1 real (interpolated), Stage-2 inertial vacuum -> zeros.
+    cor1 = np.asarray(ra.coriolis_mag_history, dtype=float)
+    cen1 = np.asarray(ra.centrifugal_mag_history, dtype=float)
+    cor_s1 = interpolate_to_time(ra.time_history, cor1, t_stage1) if len(cor1) else np.zeros(n_stage1)
+    cen_s1 = interpolate_to_time(ra.time_history, cen1, t_stage1) if len(cen1) else np.zeros(n_stage1)
+    coriolis_mag_data    = np.concatenate([cor_s1, np.zeros(n_stage2)])
+    centrifugal_mag_data = np.concatenate([cen_s1, np.zeros(n_stage2)])
+
+    if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
+        chf = np.asarray(ra.cross_heading_counter_force_history, dtype=float)
+        cha = np.asarray(ra.cross_heading_accel_history, dtype=float)
+        chf = interpolate_to_time(ra.time_history, chf, t_stage1) if len(chf) else np.zeros(n_stage1)
+        cha = interpolate_to_time(ra.time_history, cha, t_stage1) if len(cha) else np.zeros(n_stage1)
+        ra.cross_heading_counter_force_history = list(np.concatenate([chf, np.zeros(n_stage2)]))
+        ra.cross_heading_accel_history = list(np.concatenate([cha, np.zeros(n_stage2)]))
+
+    # ---- Event markers used by plot_state_utils ----
+    ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = result['t_arc3_end']
+    ra.PSO_COAST_ARC2_START_TIME              = result['t_arc2_start']
+
+    if verbose:
+        sf = data_full[:, -1]
+        print(f"\n[segmented full run] t_end={time_full[-1]:.1f}s, "
+              f"h={(sf[1]-c.R_EARTH)/1e3:.1f}km, v={sf[2]:.0f}m/s, "
+              f"gam={np.rad2deg(sf[3]):.2f}deg")
+
+    return (time_full, data_full, thrust_full, alpha_full, t_ignition, result,
+            coriolis_mag_data, centrifugal_mag_data)
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +566,12 @@ def validate_schedule():
 
 
 def run_segmented(verbose=True):
-    """Build the PMP reference, optimise, and return (time_full, data_full, result, best_x, segs)."""
+    """Build the PMP reference, optimise, and run the full dense trajectory.
+
+    Returns a dict with everything main.py needs for the report and the shared
+    plot suite: time, data, thrust, alpha, coriolis, centrifugal, t_ignition,
+    result, best_x, best_f, segs.
+    """
     validate_schedule()
     time_ref, data_ref = segref.get_pmp_reference(verbose=verbose)
     segs = _Segments(time_ref, data_ref)
@@ -482,5 +590,13 @@ def run_segmented(verbose=True):
                       f"gam={np.rad2deg(tgt.gamma):.2f} deg")
 
     best_x, best_f = run_segmented_optimization(segs, verbose=verbose)
-    time_full, data_full, result = run_segmented_full(best_x, segs, verbose=verbose)
-    return time_full, data_full, result, best_x, best_f, segs
+    (time_full, data_full, thrust_full, alpha_full, t_ignition, result,
+     coriolis_mag_data, centrifugal_mag_data) = run_segmented_full(
+        best_x, segs, verbose=verbose)
+    return {
+        'time': time_full, 'data': data_full,
+        'thrust': thrust_full, 'alpha': alpha_full,
+        'coriolis': coriolis_mag_data, 'centrifugal': centrifugal_mag_data,
+        't_ignition': t_ignition, 'result': result,
+        'best_x': best_x, 'best_f': best_f, 'segs': segs,
+    }
