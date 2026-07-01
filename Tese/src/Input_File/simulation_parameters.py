@@ -437,8 +437,8 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 # -------------------------------------------------------------------
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 250      # swarm size
-PSO_MAX_GENERATIONS = 500      # maximum number of generations
+PSO_N_PARTICLES     = 100      # swarm size
+PSO_MAX_GENERATIONS = 250      # maximum number of generations
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -468,6 +468,30 @@ PENALTY_W_VELOCITY  = 100.0     # s2: relative velocity error (1% error -> 1.0)
 PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
 PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
 GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
+
+# -------------- Full-ascent PMP extension ------------------------------------
+# By default the indirect_pmp law only steers STAGE 2 (costates born at Stage-2
+# ignition; Stage 1 is a fixed gravity turn). Set INDIRECT_PMP_FULL_ASCENT=True
+# to steer the WHOLE powered ascent (Stage 1 -> staging -> inter-stage coast ->
+# Stage 2 -> insertion) with the PMP costate law. Every knob below is inert when
+# INDIRECT_PMP_FULL_ASCENT is False, so the Stage-2-only mode (and all other
+# guidance modes) are byte-for-byte unchanged.
+INDIRECT_PMP_FULL_ASCENT   = True   # False = Stage-2-only (current); True = Stage 1 -> insertion
+
+# Couple aerodynamic drag into BOTH the physical EOM and the costate ODEs (the
+# adjoint equations are otherwise drag-free, valid only above the atmosphere).
+# None -> follow INDIRECT_PMP_FULL_ASCENT (drag on iff full-ascent). True/False
+# forces it. Drag vanishes as air density -> 0, so it is a no-op at Stage-2
+# altitudes; it only matters for the atmospheric Stage-1 arc.
+INDIRECT_PMP_INCLUDE_DRAG  = True    # None | True | False
+
+# Angle-of-attack constraint [deg] for the PMP control law. None -> unconstrained
+# (today's behaviour). When set, the optimal alpha is clamped to [-a_max, +a_max];
+# this keeps the dense-atmosphere Stage-1 arc near a gravity turn (small alpha
+# through max-q) rather than commanding the large aerodynamically-inadmissible
+# angles a drag-free optimum would. Recommended when INDIRECT_PMP_FULL_ASCENT=True
+# (e.g. 5.0). Ignored while alpha is unconstrained (None).
+INDIRECT_PMP_ALPHA_MAX_DEG = None    # None or e.g. 5.0
 
 # -------------------------------------------------------------------
 # 11b. Coast PSO   (only used when COAST_METHOD == "pso_coast")

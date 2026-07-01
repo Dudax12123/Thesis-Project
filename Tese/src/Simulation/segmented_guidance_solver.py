@@ -69,7 +69,7 @@ class _Segments:
     orbit for the final segment).
     """
 
-    def __init__(self, time_full, data_full):
+    def __init__(self, time_full, data_full, alpha_full=None):
         self.schedule = [("gravity_turn", 0.0)] + [
             (str(mode), float(alt)) for (mode, alt) in sim_params.GUIDANCE_SEGMENTS
         ]
@@ -82,6 +82,16 @@ class _Segments:
             i_top = len(alt_col) - 1
         self._alt_asc = alt_col[: i_top + 1]
         self._t_asc = np.asarray(time_full, dtype=float)[: i_top + 1]
+
+        # Optional replay of the stored indirect-PMP optimal control: a segment
+        # whose law is "indirect_pmp" commands the reference α at the current
+        # altitude instead of running a live guidance law. None ⇒ no reference
+        # control available (only needed when an indirect_pmp segment is used).
+        self.replay_alpha = None
+        if alpha_full is not None:
+            self._alpha_asc = np.asarray(alpha_full, dtype=float)[: i_top + 1]
+            _alt, _al = self._alt_asc, self._alpha_asc
+            self.replay_alpha = lambda state: float(np.interp(state[1] - c.R_EARTH, _alt, _al))
 
         orbit_alt = float(sim_params.TARGET_ORBITAL_ALTITUDE)
         ft = float(getattr(sim_params, "SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD", 2.0))
@@ -241,6 +251,9 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     kick_angle = gamma_p - np.pi / 2.0
     gs = pcs.GuidanceState()
     gs.force_planned_tgo = True
+    # Replay the stored indirect-PMP optimal control for any "indirect_pmp"
+    # segment (None ⇒ feature unused / no reference control available).
+    gs.replay_alpha = getattr(segs, "replay_alpha", None)
     mgr = {"idx": 0}
 
     crashed_result = lambda **kw: {
@@ -552,7 +565,8 @@ def run_segmented_full(optimal_params, segs, verbose=True):
 def validate_schedule():
     """Raise ValueError on a malformed GUIDANCE_SEGMENTS schedule."""
     segments = sim_params.GUIDANCE_SEGMENTS
-    supported = {"apollo", "peg_new", "linear_tangent", "bilinear_tangent", "gravity_turn"}
+    supported = {"apollo", "peg_new", "linear_tangent", "bilinear_tangent",
+                 "gravity_turn", "indirect_pmp"}
     if not segments:
         raise ValueError("GUIDANCE_SEGMENTS is empty.")
     alts = [float(a) for _, a in segments]
@@ -573,8 +587,15 @@ def run_segmented(verbose=True):
     result, best_x, best_f, segs.
     """
     validate_schedule()
-    time_ref, data_ref = segref.get_pmp_reference(verbose=verbose)
-    segs = _Segments(time_ref, data_ref)
+    # A segment that reuses the stored indirect-PMP control needs the reference's
+    # α history; otherwise the lighter state-only reference is enough.
+    _uses_pmp = any(str(m) == "indirect_pmp" for m, _ in sim_params.GUIDANCE_SEGMENTS)
+    if _uses_pmp:
+        time_ref, data_ref, alpha_ref = segref.get_pmp_reference_full(verbose=verbose)
+        segs = _Segments(time_ref, data_ref, alpha_full=alpha_ref)
+    else:
+        time_ref, data_ref = segref.get_pmp_reference(verbose=verbose)
+        segs = _Segments(time_ref, data_ref)
 
     if verbose:
         # Per-guidance objectives: the PMP-reference state (altitude, speed,

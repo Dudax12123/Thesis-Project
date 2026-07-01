@@ -430,6 +430,14 @@ def execute():
         print("="*60)
         print("  Optimising 7 variables: λ₀_r, λ₀_v, λ₀_γ, Δt_c,")
         print("  Δt_r%, coast_start%, γ_p  (see Table 6 of paper)")
+        if getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT", False):
+            _, _drag, _amax = ips._resolve_pmp_options()
+            _amax_txt = "unconstrained" if _amax is None else f"±{np.rad2deg(_amax):.1f}°"
+            print("-"*60)
+            print("  FULL-ASCENT mode: PMP steers Stage 1 → insertion")
+            print("  arcs: vertical rise → Stage-1 burn → staging drop →")
+            print("        inter-stage coast → Stage-2 burn/coast/burn")
+            print(f"  drag in costates: {_drag}   |   α constraint: {_amax_txt}")
         print("="*60)
 
         # Suppress event prints during PSO (thousands of trajectory evals)

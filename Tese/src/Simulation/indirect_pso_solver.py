@@ -49,6 +49,7 @@ from Guidance.indirect_pmp_guidance import (
     pmp_control_law,
     costate_derivatives,
     compute_hamiltonian,
+    drag_specific_force,
 )
 import Simulation.rocket_ascent as ra
 
@@ -60,6 +61,44 @@ _MDOT_2 = r.F_THRUST_2 / (r.ISP_2 * c.G_0)           # Stage-2 mass flow rate [k
 _T_MAX_2 = r.M_PROP_2 / _MDOT_2                        # Time to deplete ALL Stage-2 propellant [s]
 # Engine-ignition delay measured from stage separation:
 _T_IGNITION_DELAY = r.TIME_SECOND_ENGINE_IGNITION - r.TIME_First_STAGE_SEPARATION
+
+# ---------------------------------------------------------------------------
+# Derived Stage-1 constants (only used by the full-ascent PMP extension)
+# ---------------------------------------------------------------------------
+# The augmented PMP ODE is a constant-(thrust, Isp) point-mass model, so Stage 1
+# is represented with a single representative thrust/Isp — the mean of the
+# sea-level and vacuum values (the true engine ramps between them with ambient
+# pressure). This is the same order of simplification the indirect method already
+# makes for Stage 2, and it only affects the opt-in full-ascent mode.
+_F_THRUST_1 = 0.5 * (r.F_THRUST_1_SL + r.F_THRUST_1_VAC)   # representative Stage-1 thrust [N]
+_ISP_1      = 0.5 * (r.ISP_1_SL + r.ISP_1_VAC)             # representative Stage-1 Isp [s]
+_MDOT_1     = _F_THRUST_1 / (_ISP_1 * c.G_0)               # Stage-1 mass flow [kg/s]
+_T_MAX_1    = r.M_PROP_1 / _MDOT_1                          # Stage-1 full-burn time [s]
+
+# Full stacked launch mass (fairing is part of M_STRUCTURE_1).
+_M_LAUNCH = (r.M_STRUCTURE_1 + r.M_PROP_1 + r.M_STRUCTURE_2
+             + r.M_PROP_2 + r.M_PAYLOAD)
+
+
+def _resolve_pmp_options():
+    """Read the full-ascent PMP config knobs into a normalised tuple.
+
+    Returns (full_ascent, include_drag, alpha_max_rad):
+      full_ascent   : bool   INDIRECT_PMP_FULL_ASCENT
+      include_drag  : bool   INDIRECT_PMP_INCLUDE_DRAG, or full_ascent if None
+      alpha_max_rad : float or None   INDIRECT_PMP_ALPHA_MAX_DEG in radians
+
+    All three default so that the Stage-2-only mode is byte-for-byte the original
+    drag-free, unconstrained behaviour (full_ascent=False ⇒ include_drag=False,
+    alpha_max=None regardless of the drag/alpha knobs — the caller only applies
+    them on the full-ascent path).
+    """
+    full_ascent = bool(getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT", False))
+    inc = getattr(sim_params, "INDIRECT_PMP_INCLUDE_DRAG", None)
+    include_drag = full_ascent if inc is None else bool(inc)
+    a_deg = getattr(sim_params, "INDIRECT_PMP_ALPHA_MAX_DEG", None)
+    alpha_max_rad = None if a_deg is None else np.deg2rad(float(a_deg))
+    return full_ascent, include_drag, alpha_max_rad
 
 # ---------------------------------------------------------------------------
 # Integration tolerances (shared by all solve_ivp calls)
@@ -114,15 +153,17 @@ def _strip_to_pmp_state(state, lat_fallback_rad):
 # Stage-2 augmented ODE
 # ===========================================================================
 
-def _stage2_ode(t, aug_state, thrust, Isp):
+def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
+                force_alpha=None):
     """
-    Right-hand side for the augmented Stage-2 ODE.
+    Right-hand side for the augmented PMP ODE (Stage 2, and Stage 1 in
+    full-ascent mode — the equations are engine-agnostic, parameterised by
+    ``thrust`` / ``Isp``).
 
     aug_state = [s, r, v, γ, m, λ_r, λ_v, λ_γ]
     (indices 0-4 = physical state, 5-7 = costates)
 
     The PMP control law computes α from the current costates.
-    Drag-free dynamics are used (consistent with the costate equations).
 
     Parameters
     ----------
@@ -130,6 +171,18 @@ def _stage2_ode(t, aug_state, thrust, Isp):
     aug_state : array   Augmented state (8 elements)
     thrust    : float   Current thrust force [N]  (0 during coast arcs)
     Isp       : float   Specific impulse [s]
+    include_drag : bool
+        Couple aerodynamic drag into BOTH the physical EOM (V̇ -= a_D) and the
+        costate ODEs. Default False ⇒ drag-free (byte-for-byte the original
+        Stage-2 dynamics; a_D → 0 in vacuum anyway).
+    alpha_max : float or None
+        Angle-of-attack constraint [rad] passed to the control law. None ⇒
+        unconstrained (original behaviour).
+    force_alpha : float or None
+        If not None, override the PMP control with this fixed α [rad] (used for
+        the vertical-rise arc, where α ≡ 0 keeps the vehicle vertical until the
+        pitch-over kick). The same α feeds the costate ODEs so they stay
+        consistent with the flown control.
 
     Returns
     -------
@@ -141,8 +194,11 @@ def _stage2_ode(t, aug_state, thrust, Isp):
     _EPS = 1e-10
     mu = c.MU_EARTH
 
-    # Angle of attack from PMP
-    alpha = pmp_control_law(lam_v, lam_g, v)
+    # Angle of attack: fixed override (vertical rise) or PMP (optionally clamped)
+    if force_alpha is not None:
+        alpha = force_alpha
+    else:
+        alpha = pmp_control_law(lam_v, lam_g, v, alpha_max=alpha_max)
 
     cg = np.cos(gamma)
     sg = np.sin(gamma)
@@ -151,11 +207,12 @@ def _stage2_ode(t, aug_state, thrust, Isp):
 
     g_local = mu / r_val ** 2
     T_over_m = (thrust / m) if m > _EPS else 0.0
+    a_D = drag_specific_force(r_val, v, m) if include_drag else 0.0
 
-    # --- Physical state derivatives (drag-free) ---
+    # --- Physical state derivatives (drag included only when requested) ---
     dsdt    = (c.R_EARTH / r_val) * v * cg
     drdt    = v * sg
-    dvdt    = T_over_m * ca - g_local * sg
+    dvdt    = T_over_m * ca - g_local * sg - a_D
     if abs(v) < _EPS:
         dgdt = 0.0
     else:
@@ -163,7 +220,8 @@ def _stage2_ode(t, aug_state, thrust, Isp):
     dmdt    = -thrust / (Isp * c.G_0) if thrust > 0 and m > _EPS else 0.0
 
     # --- Costate derivatives ---
-    dlams = costate_derivatives(r_val, v, gamma, thrust, m, lam_r, lam_v, lam_g, alpha)
+    dlams = costate_derivatives(r_val, v, gamma, thrust, m, lam_r, lam_v, lam_g,
+                                alpha, include_drag=include_drag)
 
     return [dsdt, drdt, dvdt, dgdt, dmdt] + dlams
 
@@ -176,6 +234,220 @@ def _event_crash(t, y, *args):
 
 _event_crash.terminal  = True
 _event_crash.direction = -1
+
+
+def _make_mass_event(m_threshold):
+    """Terminal solve_ivp event that fires when mass decreases to ``m_threshold``
+    (used to end the Stage-1 burn arc at propellant depletion / MECO)."""
+    def _event(t, y, *args):
+        return y[4] - m_threshold
+    _event.terminal  = True
+    _event.direction = -1
+    return _event
+
+
+# ===========================================================================
+# Full-ascent PMP (modular arc engine)  —  opt-in via INDIRECT_PMP_FULL_ASCENT
+# ===========================================================================
+#
+# When enabled, the PMP costate law steers the WHOLE powered ascent instead of
+# just Stage 2. The trajectory is expressed as an ordered list of arcs threaded
+# through a single integrator that carries the 8-element augmented state
+# [s, r, v, γ, m, λ_r, λ_v, λ_γ] — including across the staging mass drop, where
+# the reduced (no-λ_m) costates are continuous (Weierstrass–Erdmann), so no jump
+# condition is needed.
+#
+#   1. vrise   Stage-1 thrust, α ≡ 0 (vertical) until the pitch-over kick time
+#   2. s1burn  Stage-1 thrust, PMP-steered, until MECO (mass-depletion event)
+#              → staging mass drop
+#   3. coast   inter-stage ballistic coast (thrust = 0)
+#   4. s2arc1  Stage-2 thrust, PMP-steered
+#   5. s2coast Stage-2 coast
+#   6. s2arc3  Stage-2 thrust, PMP-steered
+#
+# The Stage-2 arc timing (s2arc1/s2coast/s2arc3) is identical to the Stage-2-only
+# mode, so the objective / transversality machinery is reused unchanged (the
+# transversality residual is still anchored on the Stage-2 burn boundaries).
+
+_FA_DENSE_STEP = 0.5   # output step [s] for the dense (plotting/reference) run
+
+
+def _apply_post(aug, post):
+    """Apply an inter-arc discontinuity. post = ('gamma_jump', dγ) | ('mass_drop', dm)."""
+    if post is None:
+        return aug
+    kind, val = post
+    aug = list(aug)
+    if kind == 'gamma_jump':
+        aug[3] += val
+    elif kind == 'mass_drop':
+        aug[4] -= val
+    return aug
+
+
+def _fa_crashed(result_extra=None):
+    res = {
+        'crashed': True, 'state_final': None,
+        'H_burn_start': 0.0, 'H_coast_end': 0.0, 'H_burn_end': 0.0,
+        't_f': 0.0, 't_cf': 0.0,
+        't_stage2_start': 0.0, 't_ignition': 0.0,
+        't_stage1': np.array([]), 'y_stage1': np.array([]),
+    }
+    if result_extra:
+        res.update(result_extra)
+    return res
+
+
+def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
+                           delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
+                           include_drag, alpha_max, dense=False, verbose=False):
+    """Integrate the full-ascent PMP trajectory (Stage 1 → insertion).
+
+    Returns a dict with the same keys as ``run_indirect_trajectory`` under
+    ``'result'``; when ``dense`` is True it additionally carries the concatenated
+    plotting arrays 'time_full', 'data_full' (5×N), 'thrust_full', 'alpha_full'
+    and 't_ignition'.
+    """
+    lam0 = _normalize_costates(lambda0_r, lambda0_v, lambda0_g)
+
+    # --- Mass bookkeeping (mirror run_stage1's fairing convention) ---
+    if include_drag:
+        m0 = _M_LAUNCH                       # carry the fairing (folded into staging)
+        stage_drop = r.M_STRUCTURE_1
+    else:
+        m0 = _M_LAUNCH - r.M_FAIRING         # no atmosphere ⇒ no fairing (as run_stage1)
+        stage_drop = r.M_STRUCTURE_1 - r.M_FAIRING
+    meco_mass = m0 - r.M_PROP_1              # Stage-1 propellant-depletion threshold
+
+    # --- Stage-2 arc timing (identical to the Stage-2-only mode) ---
+    T_burn_total  = (delta_tr_pct   / 100.0) * _T_MAX_2
+    t_coast_start = (coast_start_pct / 100.0) * T_burn_total
+    t_arc3_burn   = T_burn_total - t_coast_start
+
+    plan = [
+        dict(label='vrise',   thrust=_F_THRUST_1, Isp=_ISP_1, term=('time', sim_params.TIME_TO_START_KICK),
+             force_alpha=0.0,  post=('gamma_jump', gamma_p - np.pi / 2.0)),
+        dict(label='s1burn',  thrust=_F_THRUST_1, Isp=_ISP_1, term=('mass', meco_mass),
+             force_alpha=None, post=('mass_drop', stage_drop)),
+        dict(label='coast',   thrust=0.0,         Isp=_ISP_1, term=('time', r.TIME_SECOND_ENGINE_IGNITION),
+             force_alpha=None, post=None),
+        dict(label='s2arc1',  thrust=r.F_THRUST_2, Isp=r.ISP_2, term=('time', t_coast_start),
+             force_alpha=None, post=None),
+        dict(label='s2coast', thrust=0.0,          Isp=r.ISP_2, term=('time', delta_tc),
+             force_alpha=None, post=None),
+        dict(label='s2arc3',  thrust=r.F_THRUST_2, Isp=r.ISP_2, term=('time', t_arc3_burn),
+             force_alpha=None, post=None),
+    ]
+
+    aug = [0.0, c.R_EARTH, 0.0, np.pi / 2.0, m0, lam0[0], lam0[1], lam0[2]]
+    t = 0.0
+    endpoints = {}     # label -> (t_end, aug_end_before_post)
+    sols = []          # (label, thrust, force_alpha, sol) for dense reconstruction
+    max_step = _FA_DENSE_STEP if dense else _MAX_STEP
+
+    for arc in plan:
+        thrust, Isp, fa = arc['thrust'], arc['Isp'], arc['force_alpha']
+        rhs = (lambda tt, y, thrust=thrust, Isp=Isp, fa=fa:
+               _stage2_ode(tt, y, thrust, Isp, include_drag=include_drag,
+                           alpha_max=alpha_max, force_alpha=fa))
+        kind, val = arc['term']
+
+        if kind == 'time':
+            if val <= 1e-9:                       # zero-duration arc — skip
+                endpoints[arc['label']] = (t, list(aug))
+                aug = _apply_post(aug, arc['post'])
+                continue
+            sol = solve_ivp(rhs, (t, t + val), aug, rtol=_RTOL, atol=_ATOL,
+                            max_step=max_step, events=_event_crash)
+        else:                                     # ('mass', threshold) — MECO
+            sol = solve_ivp(rhs, (t, t + _T_MAX_1 * 2.0), aug,
+                            rtol=_RTOL, atol=_ATOL, max_step=max_step,
+                            events=[_event_crash, _make_mass_event(val)])
+            if len(sol.t_events[1]) == 0:         # never reached MECO (unphysical)
+                return {'result': _fa_crashed()}
+
+        if len(sol.t_events[0]) > 0:              # ground collision
+            return {'result': _fa_crashed()}
+
+        sols.append((arc['label'], thrust, fa, sol))
+        t = float(sol.t[-1])
+        aug = list(sol.y[:, -1])
+        endpoints[arc['label']] = (t, list(aug))
+        aug = _apply_post(aug, arc['post'])
+
+    # --- Hamiltonians at the Stage-2 boundaries (transversality, Eq. 38) ---
+    def _H(aug_pt, thrust):
+        a = pmp_control_law(aug_pt[6], aug_pt[7], aug_pt[2], alpha_max=alpha_max)
+        return compute_hamiltonian(aug_pt[1], aug_pt[2], aug_pt[3], thrust, aug_pt[4],
+                                   a, aug_pt[5], aug_pt[6], aug_pt[7],
+                                   include_drag=include_drag)
+
+    aug_ign      = endpoints['coast'][1]     # Stage-2 ignition (end of inter-stage coast)
+    aug_coast_end = endpoints['s2coast'][1]  # end of Stage-2 coast
+    aug_burn_end  = endpoints['s2arc3'][1]   # end of Stage-2 burn (final)
+
+    H_burn_start = _H(aug_ign,      r.F_THRUST_2)
+    H_coast_end  = _H(aug_coast_end, 0.0)
+    H_burn_end   = _H(aug_burn_end,  r.F_THRUST_2)
+
+    state_final = np.array(aug_burn_end[:5])
+    t_meco      = endpoints['s1burn'][0]
+    t_ignition  = endpoints['coast'][0]
+
+    # Stage-1 physical trajectory (vrise + s1burn) for downstream plotting.
+    s1_sols = [s for s in sols if s[0] in ('vrise', 's1burn')]
+    if s1_sols:
+        t_stage1 = np.concatenate([s[3].t for s in s1_sols])
+        y_stage1 = np.concatenate([s[3].y[:5, :] for s in s1_sols], axis=1)
+    else:
+        t_stage1, y_stage1 = np.array([]), np.array([])
+
+    result = {
+        'crashed': False,
+        'state_final': state_final,
+        'H_burn_start': H_burn_start,
+        'H_coast_end':  H_coast_end,
+        'H_burn_end':   H_burn_end,
+        't_f':  T_burn_total + delta_tc,   # Eq. 27 (Stage-2 powered + coast)
+        't_cf': delta_tc,
+        't_stage2_start': t_meco,
+        't_ignition':     t_ignition,
+        't_stage1': t_stage1,
+        'y_stage1': y_stage1,
+    }
+
+    if verbose:
+        h_f = state_final[1] - c.R_EARTH
+        print(f"  [full-ascent] MECO t={t_meco:.1f}s, ignition t={t_ignition:.1f}s")
+        print(f"  Ascent end: t={t_ignition + result['t_f']:.1f}s, h={h_f/1e3:.1f}km, "
+              f"v={state_final[2]:.0f}m/s, gam={np.rad2deg(state_final[3]):.2f}deg")
+        print(f"  H_burn_start={H_burn_start:.4f}  H_coast_end={H_coast_end:.4f}  "
+              f"H_burn_end={H_burn_end:.4f}")
+
+    out = {'result': result}
+
+    if dense:
+        t_parts, y_parts, th_parts, al_parts = [], [], [], []
+        for label, thrust, fa, sol in sols:
+            if sol is None or len(sol.t) == 0:
+                continue
+            t_parts.append(sol.t)
+            y_parts.append(sol.y[:5, :])
+            th_parts.append(np.full(len(sol.t), thrust))
+            if fa is not None:
+                al_parts.append(np.full(len(sol.t), fa))
+            else:
+                al_parts.append(np.array([
+                    pmp_control_law(sol.y[6, i], sol.y[7, i], sol.y[2, i], alpha_max=alpha_max)
+                    for i in range(sol.y.shape[1])
+                ]))
+        out['time_full']   = np.concatenate(t_parts)
+        out['data_full']   = np.concatenate(y_parts, axis=1)
+        out['thrust_full'] = np.concatenate(th_parts)
+        out['alpha_full']  = np.concatenate(al_parts)
+        out['t_ignition']  = t_ignition
+
+    return out
 
 
 # ===========================================================================
@@ -229,6 +501,19 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         't_stage1'         : ndarray  Stage-1 time array
         'y_stage1'         : ndarray  Stage-1 state data
     """
+    # -----------------------------------------------------------------
+    # Full-ascent mode (opt-in): PMP steers Stage 1 → insertion. Routed through
+    # the modular arc engine; the Stage-2-only path below is left untouched.
+    # -----------------------------------------------------------------
+    full_ascent, include_drag, alpha_max = _resolve_pmp_options()
+    if full_ascent:
+        return _integrate_full_ascent(
+            lambda0_r, lambda0_v, lambda0_g,
+            delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
+            include_drag=include_drag, alpha_max=alpha_max,
+            dense=False, verbose=verbose,
+        )['result']
+
     # -----------------------------------------------------------------
     # Phase 1: Stage 1 gravity turn
     # -----------------------------------------------------------------
@@ -720,6 +1005,21 @@ def run_indirect_full(optimal_params, verbose=True):
     """
     (lambda0_r, lambda0_v, lambda0_g,
      delta_tc, delta_tr_pct, coast_start_pct, gamma_p) = optimal_params
+
+    # Full-ascent mode: reconstruct the dense trajectory from the same modular
+    # arc engine used by the objective, so plots/reference match the optimum.
+    full_ascent, include_drag, alpha_max = _resolve_pmp_options()
+    if full_ascent:
+        out = _integrate_full_ascent(
+            lambda0_r, lambda0_v, lambda0_g,
+            delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
+            include_drag=include_drag, alpha_max=alpha_max,
+            dense=True, verbose=verbose,
+        )
+        if out['result']['crashed']:
+            raise RuntimeError("Full-ascent PMP trajectory crashed during plotting run.")
+        return (out['time_full'], out['data_full'], out['thrust_full'],
+                out['alpha_full'], out['t_ignition'], out['result'])
 
     # Match run_indirect_trajectory: the trajectory uses the unit-norm costates.
     lambda0_r, lambda0_v, lambda0_g = _normalize_costates(

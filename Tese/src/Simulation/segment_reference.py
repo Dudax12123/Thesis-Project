@@ -135,30 +135,46 @@ def _reference_input_key():
         ("ISP_2", float(r.ISP_2)), ("F_THRUST_2", float(r.F_THRUST_2)),
         ("M_STRUCTURE_2", float(r.M_STRUCTURE_2)), ("M_PROP_2", float(r.M_PROP_2)),
     )
+    # Full-ascent PMP changes the reference trajectory. Only perturb the key when
+    # it is enabled, so existing Stage-2-only caches remain valid by default.
+    if getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT", False):
+        payload = payload + (
+            ("INDIRECT_PMP_FULL_ASCENT", True),
+            ("INDIRECT_PMP_INCLUDE_DRAG", getattr(sim_params, "INDIRECT_PMP_INCLUDE_DRAG", None)),
+            ("INDIRECT_PMP_ALPHA_MAX_DEG", getattr(sim_params, "INDIRECT_PMP_ALPHA_MAX_DEG", None)),
+        )
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 
 
 def _load_cache(path, key):
+    """Return (time_full, data_full, alpha_full_or_None) for a matching cache,
+    else None. ``alpha_full`` is None for legacy caches written before the
+    control history was stored (state-only reuse still works; replaying the
+    optimal control needs a rebuild — see ``get_pmp_reference_full``)."""
     if not path.exists():
         return None
     try:
         with np.load(path, allow_pickle=False) as npz:
             if str(npz["key"]) != key:
                 return None
-            return np.asarray(npz["time_full"]), np.asarray(npz["data_full"])
+            alpha = (np.asarray(npz["alpha_full"]) if "alpha_full" in npz.files
+                     else None)
+            return np.asarray(npz["time_full"]), np.asarray(npz["data_full"]), alpha
     except Exception as exc:  # corrupt/old cache -> rebuild
         warnings.warn(f"[segment_reference] ignoring unreadable cache {path}: {exc}",
                       RuntimeWarning)
         return None
 
 
-def _save_cache(path, key, time_full, data_full):
+def _save_cache(path, key, time_full, data_full, alpha_full):
     path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(path, key=np.array(key), time_full=time_full, data_full=data_full)
+    np.savez(path, key=np.array(key), time_full=time_full, data_full=data_full,
+             alpha_full=alpha_full)
 
 
 def _run_pmp_reference(verbose):
-    """Run the indirect-PMP PSO + dense re-run. Requires PyGMO."""
+    """Run the indirect-PMP PSO + dense re-run. Requires PyGMO.
+    Returns (time_full, data_full, alpha_full)."""
     import Simulation.indirect_pso_solver as ips
     n_particles, n_gen = _reference_pso_settings()
     if verbose:
@@ -167,8 +183,10 @@ def _run_pmp_reference(verbose):
     best_x, _J = ips.run_pso_optimization(
         verbose=verbose, n_particles=n_particles, n_gen=n_gen)
     out = ips.run_indirect_full(best_x, verbose=verbose)
-    time_full, data_full = out[0], out[1]
-    return np.asarray(time_full, dtype=float), np.asarray(data_full, dtype=float)
+    time_full, data_full, alpha_full = out[0], out[1], out[3]
+    return (np.asarray(time_full, dtype=float),
+            np.asarray(data_full, dtype=float),
+            np.asarray(alpha_full, dtype=float))
 
 
 # ---------------------------------------------------------------------------
@@ -181,21 +199,54 @@ def get_pmp_reference(verbose=True):
     Loads the npz cache when present, valid (input hash matches) and enabled;
     otherwise runs the PMP solve (PyGMO required) and caches the result.
     """
+    time_full, data_full, _alpha = _get_pmp_reference_impl(verbose, need_alpha=False)
+    return time_full, data_full
+
+
+def get_pmp_reference_full(verbose=True):
+    """Like ``get_pmp_reference`` but also returns the optimal control history
+    ``alpha_full`` (needed to REPLAY indirect_pmp as a segmented-guidance law).
+
+    A legacy cache without the stored control triggers one rebuild so the α
+    history exists; afterwards it is cached like the rest.
+    """
+    return _get_pmp_reference_impl(verbose, need_alpha=True)
+
+
+def _get_pmp_reference_impl(verbose, need_alpha):
     cache_path = _abs_cache_path()
     key = _reference_input_key()
 
     if sim_params.PMP_REFERENCE_USE_CACHE and not sim_params.PMP_REFERENCE_FORCE_RERUN:
         cached = _load_cache(cache_path, key)
-        if cached is not None:
+        if cached is not None and not (need_alpha and cached[2] is None):
             if verbose:
                 print(f"[segment_reference] loaded PMP reference from cache: {cache_path}")
             return cached
+        if cached is not None and need_alpha and cached[2] is None and verbose:
+            print("[segment_reference] cache has no stored control (alpha) — "
+                  "rebuilding once so indirect_pmp can be replayed.")
 
     if verbose:
         print("[segment_reference] building PMP reference (PyGMO PSO) — this is slow; "
               "the result will be cached for reuse.")
-    time_full, data_full = _run_pmp_reference(verbose)
-    _save_cache(cache_path, key, time_full, data_full)
+    time_full, data_full, alpha_full = _run_pmp_reference(verbose)
+    _save_cache(cache_path, key, time_full, data_full, alpha_full)
     if verbose:
         print(f"[segment_reference] cached PMP reference to: {cache_path}")
-    return time_full, data_full
+    return time_full, data_full, alpha_full
+
+
+def alpha_at(data_full, alpha_full, alt):
+    """Interpolate the reference optimal control α [rad] at an ascent altitude.
+
+    Uses the same monotonic ascent prefix as ``waypoint_at_altitude`` so the
+    lookup is single-valued; altitudes outside the ascent range clamp to the
+    endpoints (np.interp default)."""
+    data_full  = np.asarray(data_full, dtype=float)
+    alpha_full = np.asarray(alpha_full, dtype=float)
+    alt_col = data_full[1] - c.R_EARTH
+    i_top = int(np.argmax(alt_col))
+    if i_top < 1:
+        i_top = len(alt_col) - 1
+    return float(np.interp(alt, alt_col[: i_top + 1], alpha_full[: i_top + 1]))

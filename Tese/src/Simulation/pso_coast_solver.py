@@ -340,6 +340,18 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
     s, r_val, v, gamma, m = state[:5]
     mode  = (gs.mode_override if getattr(gs, "mode_override", None) is not None
              else sim_params.GUIDANCE_MODE)
+
+    # Replayed indirect-PMP segment: command the stored optimal control α at the
+    # current altitude (set by the segmented driver). This branch is reached ONLY
+    # when a segment's law is the new "indirect_pmp" mode, so every other guidance
+    # path is unaffected.
+    if mode == "indirect_pmp":
+        replay = getattr(gs, "replay_alpha", None)
+        alpha = float(replay(state)) if replay is not None else 0.0
+        gs.time_log.append(t)
+        gs.alpha_log.append(alpha)
+        return alpha
+
     r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     Ve    = Isp * c.G_0
 

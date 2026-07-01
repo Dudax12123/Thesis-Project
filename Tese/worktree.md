@@ -163,9 +163,12 @@ coast typically lands inside the final segment — handled by the per-arc guidan
 | `PMP_REFERENCE_PSO_GENERATIONS` | int or `None` | `None` | Reference-build generations. `None` ⇒ use `PSO_MAX_GENERATIONS`. Raise for a finer reference. |
 
 **Supported laws** in `GUIDANCE_SEGMENTS`: `apollo`, `peg_new`, `linear_tangent`,
-`bilinear_tangent` (classic `peg` deferred). The two tangent laws are **angle-only** — they match a
-waypoint's flight-path angle but not its altitude/velocity, so their waypoint tracking is weaker
-than apollo/peg_new (they still reach orbit because the final segment does the insertion).
+`bilinear_tangent`, `indirect_pmp` (classic `peg` deferred). The two tangent laws are **angle-only** —
+they match a waypoint's flight-path angle but not its altitude/velocity, so their waypoint tracking is
+weaker than apollo/peg_new (they still reach orbit because the final segment does the insertion). An
+`indirect_pmp` segment does not run a live law — it **replays** the stored optimal α from the PMP
+reference at the current altitude (build the reference with `INDIRECT_PMP_FULL_ASCENT=True` so the
+control covers Stage-1 altitudes; see §2.9).
 
 **PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
 `PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (default `None`/`None` ⇒ the indirect
@@ -305,6 +308,21 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `PENALTY_W_FPA` (L289) | float | `10.0` | FPA-error penalty. |
 | `PENALTY_W_TRANSVERS` (L290) | float | `10.0` | Transversality penalty (needs ‖λ₀‖=1). |
 | `GAMMA_REF_DEG` (L291) | float deg | `1.0` | FPA non-dimensionalization reference. |
+
+**Full-ascent PMP extension** (opt-in; all default to the current Stage-2-only behavior):
+
+| Variable | Allowed values | Default | Controls |
+|---|---|---|---|
+| `INDIRECT_PMP_FULL_ASCENT` | bool | `False` | `False` = PMP steers Stage 2 only (costates born at Stage-2 ignition; Stage 1 is the fixed gravity turn) — **unchanged**. `True` = PMP steers the whole powered ascent via a modular arc engine: vertical rise → Stage-1 burn (PMP) → staging mass-drop → inter-stage coast → Stage-2 burn/coast/burn. The 7-var decision vector is unchanged, but λ₀ is now initialised at liftoff. |
+| `INDIRECT_PMP_INCLUDE_DRAG` | `None`/`True`/`False` | `None` | Couple aerodynamic drag into the physical EOM **and** the costate ODEs (adjoints are otherwise drag-free). `None` ⇒ follow `INDIRECT_PMP_FULL_ASCENT`. Drag vanishes at altitude, so it only affects the atmospheric Stage-1 arc. |
+| `INDIRECT_PMP_ALPHA_MAX_DEG` | `None` or float deg | `None` | Angle-of-attack clamp for the control law. `None` = unconstrained (today). When set (e.g. `5.0`), α is clamped to ±α_max, keeping the dense-atmosphere Stage-1 arc near a gravity turn through max-q. **Recommended when `INDIRECT_PMP_FULL_ASCENT=True`.** |
+
+Notes / v1 simplifications: Stage-1 uses a constant representative thrust/Isp (mean of SL & vacuum);
+the fairing is folded into the staging mass-drop; the transversality residual stays anchored on the
+Stage-2 burn boundaries. Costates are continuous across staging (reduced no-λ_m set, fixed ΔM).
+`indirect_pmp` is also now a valid `GUIDANCE_SEGMENTS` law (§1b): such a segment **replays** the
+stored optimal α from the reference (build the reference with `INDIRECT_PMP_FULL_ASCENT=True` so the
+control exists down to Stage-1 altitudes; the npz cache now also stores `alpha_full`).
 
 ### 2.10 Optimizer — `direct` PSO (only when `COAST_METHOD="direct"`)
 
