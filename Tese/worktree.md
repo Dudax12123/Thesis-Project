@@ -159,22 +159,28 @@ coast typically lands inside the final segment — handled by the per-arc guidan
 | `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. |
 | `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
 | `PMP_REFERENCE_FORCE_RERUN` | bool | `False` | Rebuild the reference even if a valid cache exists. |
+| `PMP_REFERENCE_PSO_PARTICLES` | int or `None` | `None` | Reference-build swarm size. `None` ⇒ use `PSO_N_PARTICLES`. Raise for a finer reference (auto-rebuilds). |
+| `PMP_REFERENCE_PSO_GENERATIONS` | int or `None` | `None` | Reference-build generations. `None` ⇒ use `PSO_MAX_GENERATIONS`. Raise for a finer reference. |
 
 **Supported laws** in `GUIDANCE_SEGMENTS`: `apollo`, `peg_new`, `linear_tangent`,
 `bilinear_tangent` (classic `peg` deferred). The two tangent laws are **angle-only** — they match a
 waypoint's flight-path angle but not its altitude/velocity, so their waypoint tracking is weaker
 than apollo/peg_new (they still reach orbit because the final segment does the insertion).
 
-**PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at the
-configured `PSO_N_PARTICLES × PSO_MAX_GENERATIONS` (250×500 ≈ 1 h) and caches it
-(key = target orbit + vehicle + indirect-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so
-different schedules and coast budgets reuse the same reference). Later runs load the cache and only
-pay the ~31-min coast PSO. PyGMO is needed only for the build.
+**PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
+`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (default `None`/`None` ⇒ the indirect
+`PSO_N_PARTICLES × PSO_MAX_GENERATIONS`, 250×500 ≈ 1 h) and caches it (key = target orbit + vehicle +
+reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different schedules and coast
+budgets reuse the same reference). Later runs load the cache and only pay the ~31-min coast PSO;
+each run prints "loaded from cache" vs "building … this is slow". **To rebuild at higher fidelity**,
+raise the `PMP_REFERENCE_PSO_*` knobs (or set `PMP_REFERENCE_FORCE_RERUN=True`) and run once — the
+cache auto-rebuilds when the value changes. PyGMO is needed only for the build.
 
 **Plots.** Renders the SAME 17-plot suite as the single-law modes (channels assembled in
-`run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`, nothing saved). The
-apollo/θ steering plots show a brief transient at each intermediate handoff (the law's t_go → 0
-right at the waypoint) — harmless to the flight (altitude/γ/orbit stay smooth).
+`run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`). By default nothing is
+written to disk — set `SAVE_PLOTS=True` (§2.12) to also save PNGs to `SAVE_PLOTS_DIR`. The apollo/θ
+steering plots show a brief transient at each intermediate handoff (the law's t_go → 0 right at the
+waypoint) — harmless to the flight (altitude/γ/orbit stay smooth).
 
 **Validated** end-to-end at full production: headline `[apollo@40km, peg_new@120km]` inserts at
 500.2 km / 7176 m/s / −0.004° (orbit e=0.0011), J' = 0.839 ≈ the PMP-optimal cost; robustness
@@ -334,6 +340,8 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `DURATION_AFTER_SIMULATION` (L245) | float s | `1000.` | Extra propagation after reaching orbit. | none. |
 | `INTERRUPTS_PRINT` (L251) | `True`/`False` | `False` | Print ODE-interrupt debug. | none. |
 | `EVENTS_PRINT` (L252) | `True`/`False` | `True` | Print mission-event log lines. | none. |
+| `SAVE_PLOTS` | `True`/`False` | `False` | `False` = display the plot suite only (`plt.show`), write nothing. `True` = also save PNGs. Applies to every mode. | gates `SAVE_PLOTS_DIR`. |
+| `SAVE_PLOTS_DIR` | path | `Tese/src/Output/plots` | Where PNGs are written when `SAVE_PLOTS=True`. | requires `SAVE_PLOTS=True`. |
 
 ### 2.13 Vehicle / staging constants (`Auxiliary/rocket_specs.py`)
 

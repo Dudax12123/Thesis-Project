@@ -100,8 +100,19 @@ def _abs_cache_path():
     return p
 
 
+def _reference_pso_settings():
+    """(particles, generations) for the PMP-reference build: the dedicated
+    PMP_REFERENCE_PSO_* knobs when set, else the indirect-PMP PSO defaults."""
+    p = getattr(sim_params, "PMP_REFERENCE_PSO_PARTICLES", None)
+    g = getattr(sim_params, "PMP_REFERENCE_PSO_GENERATIONS", None)
+    p = int(sim_params.PSO_N_PARTICLES if p is None else p)
+    g = int(sim_params.PSO_MAX_GENERATIONS if g is None else g)
+    return p, g
+
+
 def _reference_input_key():
     """Hash of every input that changes the PMP reference trajectory."""
+    _ref_particles, _ref_generations = _reference_pso_settings()
     payload = (
         ("TARGET_ORBITAL_ALTITUDE", float(sim_params.TARGET_ORBITAL_ALTITUDE)),
         ("TARGET_ORBIT_INCLINATION", float(sim_params.TARGET_ORBIT_INCLINATION)),
@@ -109,8 +120,11 @@ def _reference_input_key():
         ("ENABLE_EARTH_ROTATION", bool(sim_params.ENABLE_EARTH_ROTATION)),
         ("INCLUDE_DRAG", bool(sim_params.INCLUDE_DRAG)),
         ("PSO_SEED", int(getattr(sim_params, "PSO_SEED", 0))),
-        ("PSO_N_PARTICLES", int(getattr(sim_params, "PSO_N_PARTICLES", 0))),
-        ("PSO_MAX_GENERATIONS", int(getattr(sim_params, "PSO_MAX_GENERATIONS", 0))),
+        # Labels kept as PSO_N_PARTICLES/PSO_MAX_GENERATIONS so a default build
+        # (knobs=None ⇒ same values as the indirect PSO) keeps the existing cache
+        # valid; raising PMP_REFERENCE_PSO_* changes the value here and rebuilds.
+        ("PSO_N_PARTICLES", _ref_particles),
+        ("PSO_MAX_GENERATIONS", _ref_generations),
         ("PSO_LB", tuple(float(x) for x in getattr(sim_params, "PSO_LB", ()))),
         ("PSO_UB", tuple(float(x) for x in getattr(sim_params, "PSO_UB", ()))),
         # Vehicle (rocket_specs) — anything that changes the optimal trajectory
@@ -146,7 +160,12 @@ def _save_cache(path, key, time_full, data_full):
 def _run_pmp_reference(verbose):
     """Run the indirect-PMP PSO + dense re-run. Requires PyGMO."""
     import Simulation.indirect_pso_solver as ips
-    best_x, _J = ips.run_pso_optimization(verbose=verbose)
+    n_particles, n_gen = _reference_pso_settings()
+    if verbose:
+        print(f"[segment_reference] reference PSO fidelity: "
+              f"{n_particles} particles x {n_gen} generations")
+    best_x, _J = ips.run_pso_optimization(
+        verbose=verbose, n_particles=n_particles, n_gen=n_gen)
     out = ips.run_indirect_full(best_x, verbose=verbose)
     time_full, data_full = out[0], out[1]
     return np.asarray(time_full, dtype=float), np.asarray(data_full, dtype=float)

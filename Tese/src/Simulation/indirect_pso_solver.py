@@ -601,15 +601,20 @@ class IndirectTPBVPProblem:
 # PSO runner
 # ===========================================================================
 
-def run_pso_optimization(verbose=True):
+def run_pso_optimization(verbose=True, n_particles=None, n_gen=None):
     """
     Run the PSO optimisation as described in the paper (Sect. 4.2.2).
 
-    Attempts to use PyGMO (``pygmo``) first. 
+    Attempts to use PyGMO (``pygmo``) first.
 
     Parameters
     ----------
     verbose : bool   Print progress and final result if True.
+    n_particles, n_gen : int or None
+        Swarm size / generation count overrides. None ⇒ use the configured
+        ``PSO_N_PARTICLES`` / ``PSO_MAX_GENERATIONS``. The segmented PMP-reference
+        build passes higher values here to raise the reference fidelity without
+        touching the indirect_pmp mode's settings.
 
     Returns
     -------
@@ -617,8 +622,8 @@ def run_pso_optimization(verbose=True):
                              delta_tr_pct, coast_start_pct, gamma_p]
     J_optimal      : float  Best augmented objective value achieved
     """
-    n_particles = sim_params.PSO_N_PARTICLES
-    n_gen       = sim_params.PSO_MAX_GENERATIONS
+    n_particles = sim_params.PSO_N_PARTICLES if n_particles is None else int(n_particles)
+    n_gen       = sim_params.PSO_MAX_GENERATIONS if n_gen is None else int(n_gen)
     lb          = sim_params.PSO_LB
     ub          = sim_params.PSO_UB
     bounds_list = list(zip(lb, ub))

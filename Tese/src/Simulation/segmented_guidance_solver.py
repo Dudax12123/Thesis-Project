@@ -577,17 +577,20 @@ def run_segmented(verbose=True):
     segs = _Segments(time_ref, data_ref)
 
     if verbose:
-        print("\nResolved segment waypoints (from PMP reference):")
-        for i in range(segs.n):
-            mode, act = segs.schedule[i]
-            tgt = segs.target[i]
-            if tgt is None:
-                print(f"  [{i}] {mode:16s} from {act/1e3:6.1f} km  ->  ORBIT "
-                      f"({segs.target_alt[i]/1e3:.0f} km, circular)")
-            else:
-                print(f"  [{i}] {mode:16s} from {act/1e3:6.1f} km  ->  waypoint "
-                      f"@ {tgt.alt/1e3:6.1f} km: v={tgt.v:.1f} m/s, "
-                      f"gam={np.rad2deg(tgt.gamma):.2f} deg")
+        # Per-guidance objectives: the PMP-reference state (altitude, speed,
+        # flight-path angle, time) at each law's hand-off altitude. The final
+        # law aims at orbit insertion (target is None), so its objective is read
+        # straight from the PMP reference at the orbit altitude.
+        print("\nPer-guidance objectives (PMP reference at each hand-off altitude):")
+        apogee_alt = float(segs._alt_asc[-1])   # clamp so the final (orbit) lookup
+        for i in range(segs.n):                 # never trips the "exceeds apogee" warning
+            mode, start = segs.schedule[i]
+            look_alt = min(segs.target_alt[i], apogee_alt)
+            wp = segref.waypoint_at_altitude(data_ref, time_ref, look_alt)
+            tag = "  (orbit insertion)" if segs.target[i] is None else ""
+            print(f"  {mode:16s} start {start/1e3:6.1f} km  ->  objective @ "
+                  f"{wp['alt']/1e3:6.1f} km : v={wp['v']:7.1f} m/s, "
+                  f"fpa={np.rad2deg(wp['gamma']):6.2f} deg, t={wp['t']:6.1f} s{tag}")
 
     best_x, best_f = run_segmented_optimization(segs, verbose=verbose)
     (time_full, data_full, thrust_full, alpha_full, t_ignition, result,

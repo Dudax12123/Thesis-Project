@@ -277,7 +277,7 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
 #
 # NOTE: When MULTI_GUIDANCE_ENABLED is False (default) NONE of this has any effect
 # — every existing mode/path behaves exactly as before.
-MULTI_GUIDANCE_ENABLED = False
+MULTI_GUIDANCE_ENABLED = True
 
 # Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be
 # strictly increasing. Supported laws this iteration:
@@ -299,6 +299,15 @@ SEGMENT_TARGET_SOURCE     = "pmp"   # "pmp" (interpolate the PMP reference) — 
 PMP_REFERENCE_CACHE       = "Tese/src/Output/pmp_reference.npz"  # cache file path
 PMP_REFERENCE_USE_CACHE   = True    # load the cache if present and inputs unchanged
 PMP_REFERENCE_FORCE_RERUN = False   # recompute the PMP reference even if a valid cache exists
+
+# Reference-build fidelity — the PSO budget used ONLY to build the PMP reference
+# (independent of the indirect_pmp guidance MODE's PSO settings). None = use the
+# indirect-PMP defaults (PSO_N_PARTICLES / PSO_MAX_GENERATIONS, §11a). To rebuild
+# the reference at HIGHER FIDELITY: raise these (or set PMP_REFERENCE_FORCE_RERUN
+# = True) and run once — the cache auto-rebuilds when the value changes, then is
+# reused on later runs.
+PMP_REFERENCE_PSO_PARTICLES   = None   # e.g. 400 for a finer reference
+PMP_REFERENCE_PSO_GENERATIONS = None   # e.g. 700 for a finer reference
 
 # -------------- 8b. Apollo / polynomial guidance --------------
 # (Only used if GUIDANCE_MODE is "apollo". APOLLO_FREEZE_THRESHOLD is also the
@@ -559,6 +568,13 @@ OPTIMAL_KICK_ANGLES = {
 TIME_STEP = 0.01                              # output sampling interval for t_eval; [s]
                                               # (integration itself is adaptive, max_step=1)
 DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after reaching desired orbit; [s]
+
+# -------------- Plot output --------------
+# By default the plot suite only DISPLAYS the figures (a single plt.show() at the
+# end of main.py) and writes NOTHING to disk. Set SAVE_PLOTS=True to also save the
+# PNGs to SAVE_PLOTS_DIR. Applies to every guidance mode (single-law + segmented).
+SAVE_PLOTS = False                            # False = display only, nothing saved
+SAVE_PLOTS_DIR = "Tese/src/Output/plots"      # only used when SAVE_PLOTS = True
 
 
 # ===================================================================

@@ -1,0 +1,3 @@
+# Regenerable build artifacts: PMP reference cache (pmp_reference.npz) and any
+# opt-in saved plots (SAVE_PLOTS=True writes PNGs to Tese/src/Output/plots).
+Tese/src/Output/

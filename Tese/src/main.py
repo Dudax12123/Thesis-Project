@@ -219,9 +219,11 @@ def _report_segmented(result, segs, best_x, best_f, data_full):
             continue
         v_ach = np.interp(a, x, data_full[2, : itop + 1])
         g_ach = np.interp(a, x, data_full[3, : itop + 1])
+        t_obj = segs.t_ref(a)   # PMP-reference time the objective altitude occurs
         print(f"   @ {a/1e3:6.1f} km ({segs.mode(i)}->{segs.mode(i+1)}): "
               f"v {v_ach:7.1f} vs {tgt.v:7.1f} m/s | "
-              f"gamma {np.rad2deg(g_ach):6.2f} vs {np.rad2deg(tgt.gamma):6.2f} deg")
+              f"gamma {np.rad2deg(g_ach):6.2f} vs {np.rad2deg(tgt.gamma):6.2f} deg | "
+              f"t_obj {t_obj:6.1f} s")
 
     try:
         v_in, g_in = ra.get_inertial_state_components(
@@ -394,7 +396,8 @@ def execute():
                 time, data,
                 seg_out['thrust'], time,        # thrust_data, time_thrust (on `time` grid)
                 seg_out['alpha'],  time,        # alpha_data, alpha_time_data
-                output_dir=None, show=False, close_after=False,
+                output_dir=(sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS else None),
+                show=False, close_after=False,
                 coriolis_mag_data=seg_out['coriolis'],
                 centrifugal_mag_data=seg_out['centrifugal'],
                 tgo_time_data=_tgo_time, tgo_data=_tgo,
@@ -1092,7 +1095,7 @@ def execute():
         time_thrust,
         alpha_data,
         alpha_time_data,
-        output_dir=None,
+        output_dir=(sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS else None),
         show=False,
         close_after=False,
         coriolis_mag_data=coriolis_mag_data,
