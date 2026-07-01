@@ -313,16 +313,34 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls |
 |---|---|---|---|
-| `INDIRECT_PMP_FULL_ASCENT` | bool | `False` | `False` = PMP steers Stage 2 only (costates born at Stage-2 ignition; Stage 1 is the fixed gravity turn) — **unchanged**. `True` = PMP steers the whole powered ascent via a modular arc engine: vertical rise → Stage-1 burn (PMP) → staging mass-drop → inter-stage coast → Stage-2 burn/coast/burn. The 7-var decision vector is unchanged, but λ₀ is now initialised at liftoff. |
+| `INDIRECT_PMP_FULL_ASCENT` | bool | `False` | `False` = PMP steers Stage 2 only (costates born at Stage-2 ignition; Stage 1 is the fixed gravity turn) — **unchanged**. `True` = PMP steers the whole powered ascent via a modular arc engine: vertical rise → Stage-1 burn (PMP) → staging mass-drop → inter-stage coast → Stage-2 burn/coast/burn. The 7-var decision vector is unchanged, but λ₀ is initialised at the POST-KICK state (the PMP optimization starts after the pitch-over kick; the vertical rise carries no costates and the ‖λ‖=1 gauge is fixed there). |
 | `INDIRECT_PMP_INCLUDE_DRAG` | `None`/`True`/`False` | `None` | Couple aerodynamic drag into the physical EOM **and** the costate ODEs (adjoints are otherwise drag-free). `None` ⇒ follow `INDIRECT_PMP_FULL_ASCENT`. Drag vanishes at altitude, so it only affects the atmospheric Stage-1 arc. |
-| `INDIRECT_PMP_ALPHA_MAX_DEG` | `None` or float deg | `None` | Angle-of-attack clamp for the control law. `None` = unconstrained (today). When set (e.g. `5.0`), α is clamped to ±α_max, keeping the dense-atmosphere Stage-1 arc near a gravity turn through max-q. **Recommended when `INDIRECT_PMP_FULL_ASCENT=True`.** |
+| `INDIRECT_PMP_ALPHA_MAX_DEG` | `None` or float deg | `5.0` | Angle-of-attack clamp for the control law. `None` = unconstrained. When set (e.g. `5.0`), α is clamped to ±α_max, keeping the dense-atmosphere Stage-1 arc near a gravity turn through max-q. **Recommended when `INDIRECT_PMP_FULL_ASCENT=True`.** |
+| `INDIRECT_PMP_FULL_ASCENT_GAMMA_P_BOUNDS` | `(lb,ub)` rad or `None` | `(1.45, 1.57)` | Full-ascent-only kick-angle (γ_p) bounds. In full-ascent the kick seeds the whole PMP ascent, so the shared `[1.54,1.57]` is often too tight (optimizer rails the lower bound). Overrides ONLY γ_p element 6 when full-ascent is on; `PSO_LB/UB` (Stage-2-only) untouched. |
+| `INDIRECT_PMP_ALPHA_CAP_QMIN` | float Pa or `None` | `250.0` | Dynamic-pressure floor below which the α clamp is **lifted** (vacuum → interior-PMP steering). Without it a constant α cap saturates the whole (mostly-vacuum) Stage-2 arc at α_max; with it the cap applies only where aero load matters (through max-q ≈ 47 kPa) and Stage-2 α is free. `None` = cap everywhere. Full-ascent only. |
+
+**Mass costate λ_m (rigor).** Full-ascent carries a 9th costate λ_m so the high-mass-flow Stage-1 arc
+is a rigorous extremal (H conserved *within* each powered arc — the corner diagnostic confirms it). λ_m
+is passive/additive (ṁ is independent of r,v,γ), so it's integrated then shifted to satisfy
+`λ_m(t_f)=0` in closed form — the trajectory, steering, decision vector (7-D) and the **objective's
+transversality residual are all unchanged** (objective H uses `lam_m=0`; λ_m is diagnostic/rigor only).
+Matches the multistage indirect literature's costate set (Pontani; there λ_m is *active* via
+max-final-mass + a switching-function coast — this thesis keeps min-burn-time + parameterized coast).
+
+Transversality (follows the multistage indirect literature — Pontani, *Acta Astronautica* 2014;
+Gath & Calise, *JGCD* 2001): costates conjugate to r/v/γ are continuous across the staging mass-drop
+and the coast corners (Weierstrass–Erdmann), which the continuous augmented-state integration gives
+for free. Stage 1 burns to depletion (fixed duration), so the only FREE-timing transversality
+conditions are on the Stage-2 coast/final time — the residual therefore stays anchored on the Stage-2
+boundaries. A verbose H-at-corners diagnostic (`_integrate_full_ascent`) prints the Hamiltonian at
+each arc corner to confirm it is ~constant on the extremal arcs.
 
 Notes / v1 simplifications: Stage-1 uses a constant representative thrust/Isp (mean of SL & vacuum);
-the fairing is folded into the staging mass-drop; the transversality residual stays anchored on the
-Stage-2 burn boundaries. Costates are continuous across staging (reduced no-λ_m set, fixed ΔM).
-`indirect_pmp` is also now a valid `GUIDANCE_SEGMENTS` law (§1b): such a segment **replays** the
-stored optimal α from the reference (build the reference with `INDIRECT_PMP_FULL_ASCENT=True` so the
-control exists down to Stage-1 altitudes; the npz cache now also stores `alpha_full`).
+the fairing is folded into the staging mass-drop; with the reduced no-λ_m set a *tiny* H step at
+staging is expected when drag is on (negligible in near-vacuum). `indirect_pmp` is also now a valid
+`GUIDANCE_SEGMENTS` law (§1b): such a segment **replays** the stored optimal α from the reference
+(build the reference with `INDIRECT_PMP_FULL_ASCENT=True` so the control exists down to Stage-1
+altitudes; the npz cache now also stores `alpha_full`).
 
 ### 2.10 Optimizer — `direct` PSO (only when `COAST_METHOD="direct"`)
 

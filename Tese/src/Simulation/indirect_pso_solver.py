@@ -154,7 +154,7 @@ def _strip_to_pmp_state(state, lat_fallback_rad):
 # ===========================================================================
 
 def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
-                force_alpha=None):
+                force_alpha=None, alpha_cap_qmin=None):
     """
     Right-hand side for the augmented PMP ODE (Stage 2, and Stage 1 in
     full-ascent mode — the equations are engine-agnostic, parameterised by
@@ -194,11 +194,13 @@ def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
     _EPS = 1e-10
     mu = c.MU_EARTH
 
-    # Angle of attack: fixed override (vertical rise) or PMP (optionally clamped)
+    # Angle of attack: fixed override (vertical rise) or PMP (optionally clamped,
+    # with the clamp q-gated so it is lifted in near-vacuum).
     if force_alpha is not None:
         alpha = force_alpha
     else:
-        alpha = pmp_control_law(lam_v, lam_g, v, alpha_max=alpha_max)
+        alpha = pmp_control_law(lam_v, lam_g, v, alpha_max=alpha_max,
+                                alpha_cap_qmin=alpha_cap_qmin, r_val=r_val)
 
     cg = np.cos(gamma)
     sg = np.sin(gamma)
@@ -219,9 +221,23 @@ def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
         dgdt = (1.0 / v) * (T_over_m * sa - (g_local - v ** 2 / r_val) * cg)
     dmdt    = -thrust / (Isp * c.G_0) if thrust > 0 and m > _EPS else 0.0
 
-    # --- Costate derivatives ---
+    # --- Costate derivatives (r, v, γ) ---
     dlams = costate_derivatives(r_val, v, gamma, thrust, m, lam_r, lam_v, lam_g,
                                 alpha, include_drag=include_drag)
+
+    # --- Optional mass costate λ_m (9-state, full-ascent only) ---
+    # λ̇_m = −∂H/∂m = λ_v(T·cosα/m² − a_D/m) + λ_γ·T·sinα/(m²·v).  ṁ is independent
+    # of r,v,γ, so λ_m never feeds back into the state/other costates (passive).
+    # 8-state calls (Stage-2-only) return exactly as before.
+    if len(aug_state) >= 9:
+        if m > _EPS:
+            v_safe = v if abs(v) >= _EPS else _EPS
+            T_over_m2 = thrust / (m * m)
+            dlam_m = (lam_v * (T_over_m2 * ca - a_D / m)
+                      + lam_g * (T_over_m2 * sa / v_safe))
+        else:
+            dlam_m = 0.0
+        return [dsdt, drdt, dvdt, dgdt, dmdt] + dlams + [dlam_m]
 
     return [dsdt, drdt, dvdt, dgdt, dmdt] + dlams
 
@@ -258,6 +274,7 @@ def _make_mass_event(m_threshold):
 # condition is needed.
 #
 #   1. vrise   Stage-1 thrust, α ≡ 0 (vertical) until the pitch-over kick time
+#              → kick: γ jump AND costate initialization (PMP starts here)
 #   2. s1burn  Stage-1 thrust, PMP-steered, until MECO (mass-depletion event)
 #              → staging mass drop
 #   3. coast   inter-stage ballistic coast (thrust = 0)
@@ -265,23 +282,42 @@ def _make_mass_event(m_threshold):
 #   5. s2coast Stage-2 coast
 #   6. s2arc3  Stage-2 thrust, PMP-steered
 #
-# The Stage-2 arc timing (s2arc1/s2coast/s2arc3) is identical to the Stage-2-only
-# mode, so the objective / transversality machinery is reused unchanged (the
-# transversality residual is still anchored on the Stage-2 burn boundaries).
+# Costates are initialised at the POST-KICK state (start of the PMP region), not
+# at liftoff: the vertical rise has no steering freedom (α≡0) and the unit-norm λ
+# gauge would otherwise drift through it. This mirrors the multistage indirect
+# formulation of Pontani (Acta Astronautica 2014) / Gath & Calise (JGCD 2001):
+# a sequence of propelled + coast arcs with inert-mass separation at burnout,
+# costates continuous across staging and coast corners (Weierstrass–Erdmann).
+# Stage-1 burns to depletion (fixed duration), so the only FREE-timing
+# transversality conditions are on the Stage-2 coast/final time — hence the
+# objective's transversality residual stays anchored on the Stage-2 boundaries,
+# unchanged. A verbose H-at-corners diagnostic confirms H-constancy.
 
 _FA_DENSE_STEP = 0.5   # output step [s] for the dense (plotting/reference) run
 
 
 def _apply_post(aug, post):
-    """Apply an inter-arc discontinuity. post = ('gamma_jump', dγ) | ('mass_drop', dm)."""
+    """Apply an inter-arc discontinuity.
+
+    post = ('mass_drop', dm)                 staging inert-mass separation
+         | ('kick_init', (dγ, (λr, λv, λg))) pitch-over kick AND costate init.
+
+    ``kick_init`` both applies the instantaneous pitch-over (γ += dγ) and SEEDS
+    the costates at the post-kick state — i.e. the PMP optimization starts after
+    the kick, not at liftoff. The pre-kick vertical rise carries zero costates
+    (α is forced to 0 there, so they never steer), and the unit-norm gauge is
+    fixed here, where the transversality residual is actually evaluated.
+    """
     if post is None:
         return aug
     kind, val = post
     aug = list(aug)
-    if kind == 'gamma_jump':
-        aug[3] += val
-    elif kind == 'mass_drop':
+    if kind == 'mass_drop':
         aug[4] -= val
+    elif kind == 'kick_init':
+        gamma_delta, lam0 = val
+        aug[3] += gamma_delta
+        aug[5], aug[6], aug[7] = lam0[0], lam0[1], lam0[2]
     return aug
 
 
@@ -310,6 +346,10 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
     """
     lam0 = _normalize_costates(lambda0_r, lambda0_v, lambda0_g)
 
+    # Dynamic-pressure floor below which the α clamp is lifted (vacuum → interior
+    # PMP steering). None ⇒ the clamp applies everywhere.
+    alpha_cap_qmin = getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_QMIN", None)
+
     # --- Mass bookkeeping (mirror run_stage1's fairing convention) ---
     if include_drag:
         m0 = _M_LAUNCH                       # carry the fairing (folded into staging)
@@ -325,8 +365,11 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
     t_arc3_burn   = T_burn_total - t_coast_start
 
     plan = [
+        # vertical rise: PMP does NOT steer here (α≡0) and carries no costates —
+        # the kick both pitches over AND seeds λ₀, so the optimization begins at
+        # the post-kick state (costate init AFTER the kick, unit norm fixed there).
         dict(label='vrise',   thrust=_F_THRUST_1, Isp=_ISP_1, term=('time', sim_params.TIME_TO_START_KICK),
-             force_alpha=0.0,  post=('gamma_jump', gamma_p - np.pi / 2.0)),
+             force_alpha=0.0,  post=('kick_init', (gamma_p - np.pi / 2.0, lam0))),
         dict(label='s1burn',  thrust=_F_THRUST_1, Isp=_ISP_1, term=('mass', meco_mass),
              force_alpha=None, post=('mass_drop', stage_drop)),
         dict(label='coast',   thrust=0.0,         Isp=_ISP_1, term=('time', r.TIME_SECOND_ENGINE_IGNITION),
@@ -339,17 +382,25 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
              force_alpha=None, post=None),
     ]
 
-    aug = [0.0, c.R_EARTH, 0.0, np.pi / 2.0, m0, lam0[0], lam0[1], lam0[2]]
+    # Liftoff with ZERO costates: the costate ODE is homogeneous in λ, so they
+    # stay 0 through the vertical rise and are seeded to λ₀ by the kick_init post.
+    # The 9th element is the passive mass costate λ_m (seeded 0 at the kick; its
+    # additive integration constant is fixed afterwards by the transversality
+    # λ_m(t_f)=0, applied as a constant shift below).
+    aug = [0.0, c.R_EARTH, 0.0, np.pi / 2.0, m0, 0.0, 0.0, 0.0, 0.0]
     t = 0.0
     endpoints = {}     # label -> (t_end, aug_end_before_post)
+    arc_starts = {}    # label -> aug at arc start (post previous discontinuity)
     sols = []          # (label, thrust, force_alpha, sol) for dense reconstruction
     max_step = _FA_DENSE_STEP if dense else _MAX_STEP
 
     for arc in plan:
+        arc_starts[arc['label']] = list(aug)
         thrust, Isp, fa = arc['thrust'], arc['Isp'], arc['force_alpha']
         rhs = (lambda tt, y, thrust=thrust, Isp=Isp, fa=fa:
                _stage2_ode(tt, y, thrust, Isp, include_drag=include_drag,
-                           alpha_max=alpha_max, force_alpha=fa))
+                           alpha_max=alpha_max, force_alpha=fa,
+                           alpha_cap_qmin=alpha_cap_qmin))
         kind, val = arc['term']
 
         if kind == 'time':
@@ -375,20 +426,38 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
         endpoints[arc['label']] = (t, list(aug))
         aug = _apply_post(aug, arc['post'])
 
-    # --- Hamiltonians at the Stage-2 boundaries (transversality, Eq. 38) ---
-    def _H(aug_pt, thrust):
-        a = pmp_control_law(aug_pt[6], aug_pt[7], aug_pt[2], alpha_max=alpha_max)
-        return compute_hamiltonian(aug_pt[1], aug_pt[2], aug_pt[3], thrust, aug_pt[4],
-                                   a, aug_pt[5], aug_pt[6], aug_pt[7],
-                                   include_drag=include_drag)
-
     aug_ign      = endpoints['coast'][1]     # Stage-2 ignition (end of inter-stage coast)
     aug_coast_end = endpoints['s2coast'][1]  # end of Stage-2 coast
     aug_burn_end  = endpoints['s2arc3'][1]   # end of Stage-2 burn (final)
 
-    H_burn_start = _H(aug_ign,      r.F_THRUST_2)
-    H_coast_end  = _H(aug_coast_end, 0.0)
-    H_burn_end   = _H(aug_burn_end,  r.F_THRUST_2)
+    # Mass-costate transversality: λ_m(t_f) = ∂Φ/∂m = 0 (no terminal-mass cost).
+    # λ_m is a passive, additive quadrature, so the physically-correct λ_m is the
+    # integrated value shifted by −λ_m(t_f). One constant fixes the whole history.
+    lam_m_shift = aug_burn_end[8] if len(aug_burn_end) >= 9 else 0.0
+
+    # OBJECTIVE Hamiltonians use λ_m = 0 (identical to the pre-λ_m full-ascent):
+    # λ_m is carried for RIGOR/diagnostics only, so the tuned transversality
+    # residual — and hence the optimization — is left unchanged.
+    def _H_obj(aug_pt, thrust):
+        a = pmp_control_law(aug_pt[6], aug_pt[7], aug_pt[2], alpha_max=alpha_max,
+                            alpha_cap_qmin=alpha_cap_qmin, r_val=aug_pt[1])
+        return compute_hamiltonian(aug_pt[1], aug_pt[2], aug_pt[3], thrust, aug_pt[4],
+                                   a, aug_pt[5], aug_pt[6], aug_pt[7],
+                                   include_drag=include_drag)
+
+    # DIAGNOSTIC Hamiltonians include the shifted λ_m·ṁ term (so H is conserved
+    # along each powered arc — the check that the arcs are rigorous extremals).
+    def _H_diag(aug_pt, thrust, Isp):
+        a = pmp_control_law(aug_pt[6], aug_pt[7], aug_pt[2], alpha_max=alpha_max,
+                            alpha_cap_qmin=alpha_cap_qmin, r_val=aug_pt[1])
+        lam_m = (aug_pt[8] - lam_m_shift) if len(aug_pt) >= 9 else 0.0
+        return compute_hamiltonian(aug_pt[1], aug_pt[2], aug_pt[3], thrust, aug_pt[4],
+                                   a, aug_pt[5], aug_pt[6], aug_pt[7],
+                                   include_drag=include_drag, lam_m=lam_m, Isp=Isp)
+
+    H_burn_start = _H_obj(aug_ign,      r.F_THRUST_2)
+    H_coast_end  = _H_obj(aug_coast_end, 0.0)
+    H_burn_end   = _H_obj(aug_burn_end,  r.F_THRUST_2)
 
     state_final = np.array(aug_burn_end[:5])
     t_meco      = endpoints['s1burn'][0]
@@ -422,7 +491,25 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
         print(f"  Ascent end: t={t_ignition + result['t_f']:.1f}s, h={h_f/1e3:.1f}km, "
               f"v={state_final[2]:.0f}m/s, gam={np.rad2deg(state_final[3]):.2f}deg")
         print(f"  H_burn_start={H_burn_start:.4f}  H_coast_end={H_coast_end:.4f}  "
-              f"H_burn_end={H_burn_end:.4f}")
+              f"H_burn_end={H_burn_end:.4f}   (objective H, lam_m=0)")
+        print(f"  lam_m carried for rigor; lam_m(t_f)=0 enforced "
+              f"(shift={lam_m_shift:+.4e})")
+        # Hamiltonian at the PMP-region corners (Weierstrass–Erdmann check). With
+        # the mass costate λ_m carried, H is now conserved ALONG each powered arc
+        # (s1 start ≈ s1 end) and continuous across the FREE Stage-2 coast corners.
+        # Staging is a forced (fixed-duration) corner, so a small H step there
+        # remains (from the drag a_D=D/m term across the mass drop).
+        corners = [
+            ("s1 burn start (post-kick)", arc_starts['s1burn'],  _F_THRUST_1, _ISP_1),
+            ("s1 burn end (MECO)",        endpoints['s1burn'][1], _F_THRUST_1, _ISP_1),
+            ("coast start (post-staging)", arc_starts['coast'],   0.0,         _ISP_1),
+            ("s2 ignition",               aug_ign,                r.F_THRUST_2, r.ISP_2),
+            ("s2 coast end",              aug_coast_end,          0.0,          r.ISP_2),
+            ("s2 burn end",               aug_burn_end,           r.F_THRUST_2, r.ISP_2),
+        ]
+        print("  Hamiltonian at arc corners (transversality diagnostic, lam_m-aware):")
+        for name, a_pt, th, isp in corners:
+            print(f"    {name:28s} H={_H_diag(a_pt, th, isp):+.5f}")
 
     out = {'result': result}
 
@@ -438,7 +525,9 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
                 al_parts.append(np.full(len(sol.t), fa))
             else:
                 al_parts.append(np.array([
-                    pmp_control_law(sol.y[6, i], sol.y[7, i], sol.y[2, i], alpha_max=alpha_max)
+                    pmp_control_law(sol.y[6, i], sol.y[7, i], sol.y[2, i],
+                                    alpha_max=alpha_max, alpha_cap_qmin=alpha_cap_qmin,
+                                    r_val=sol.y[1, i])
                     for i in range(sol.y.shape[1])
                 ]))
         out['time_full']   = np.concatenate(t_parts)
@@ -876,7 +965,18 @@ class IndirectTPBVPProblem:
         return [compute_augmented_objective(result)]
 
     def get_bounds(self):
-        return (sim_params.PSO_LB, sim_params.PSO_UB)
+        # Full-ascent mode may widen the γ_p (kick-angle) range: the kick now
+        # seeds the whole PMP ascent, so the Stage-2-only range [1.54, 1.57] is
+        # often too tight. Overrides ONLY element 6 and ONLY when full-ascent is
+        # on, so the shared Stage-2-only bounds are untouched.
+        lb = list(sim_params.PSO_LB)
+        ub = list(sim_params.PSO_UB)
+        full_ascent, _, _ = _resolve_pmp_options()
+        if full_ascent:
+            gp = getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT_GAMMA_P_BOUNDS", None)
+            if gp is not None:
+                lb[6], ub[6] = float(gp[0]), float(gp[1])
+        return (lb, ub)
 
     def get_nobj(self):
         return 1

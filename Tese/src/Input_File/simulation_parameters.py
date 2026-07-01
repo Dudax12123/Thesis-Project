@@ -238,7 +238,7 @@ INITIAL_KICK_ANGLE = - np.deg2rad(3.0)          # Initial kick angle [rad]
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
 #                   - PSO tuning for this mode lives in §11a (PSO_* constants).
-GUIDANCE_MODE = "gravity_turn"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "indirect_pmp"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- 8a. Shared guidance parameters --------------
 # (GUIDANCE_UPDATE_RATE is used by apollo and linear_tangent/bilinear_tangent;
@@ -277,7 +277,7 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
 #
 # NOTE: When MULTI_GUIDANCE_ENABLED is False (default) NONE of this has any effect
 # — every existing mode/path behaves exactly as before.
-MULTI_GUIDANCE_ENABLED = True
+MULTI_GUIDANCE_ENABLED = False
 
 # Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be
 # strictly increasing. Supported laws this iteration:
@@ -437,8 +437,8 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 # -------------------------------------------------------------------
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
-PSO_N_PARTICLES     = 100      # swarm size
-PSO_MAX_GENERATIONS = 250      # maximum number of generations
+PSO_N_PARTICLES     = 250      # swarm size (paper default; full-ascent needs the budget)
+PSO_MAX_GENERATIONS = 500      # maximum number of generations (paper default)
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
@@ -491,7 +491,21 @@ INDIRECT_PMP_INCLUDE_DRAG  = True    # None | True | False
 # through max-q) rather than commanding the large aerodynamically-inadmissible
 # angles a drag-free optimum would. Recommended when INDIRECT_PMP_FULL_ASCENT=True
 # (e.g. 5.0). Ignored while alpha is unconstrained (None).
-INDIRECT_PMP_ALPHA_MAX_DEG = None    # None or e.g. 5.0
+INDIRECT_PMP_ALPHA_MAX_DEG = 5.0     # None or e.g. 5.0
+
+# Dynamic-pressure floor [Pa] below which the alpha clamp above is LIFTED. The
+# clamp is a proxy for atmospheric aero loads, which vanish in vacuum -- so above
+# ~80 km (q < this) the exact interior-PMP steering is used instead of the flat
+# cap, which otherwise saturates the whole (mostly-vacuum) Stage-2 arc at alpha_max.
+# The cap still applies through max-q (q ~ 47 kPa). None -> cap applies everywhere.
+INDIRECT_PMP_ALPHA_CAP_QMIN = 250.0  # Pa; None to disable the q-gate
+
+# Full-ascent-only kick-angle (gamma_p) bounds [rad]. In full-ascent the kick
+# seeds the ENTIRE PMP ascent, so the Stage-2-only range [1.54, 1.57] is often
+# too tight (the optimizer rails against the lower bound). This overrides ONLY
+# gamma_p and ONLY when INDIRECT_PMP_FULL_ASCENT=True; the shared PSO_LB/UB
+# (Stage-2-only) are untouched. Set to None to reuse PSO_LB/UB[6].
+INDIRECT_PMP_FULL_ASCENT_GAMMA_P_BOUNDS = (1.45, 1.57)   # ~83.1 deg .. 89.95 deg
 
 # -------------------------------------------------------------------
 # 11b. Coast PSO   (only used when COAST_METHOD == "pso_coast")
