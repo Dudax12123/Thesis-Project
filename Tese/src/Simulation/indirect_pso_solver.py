@@ -44,6 +44,7 @@ sys.path.insert(0, str(_HERE.parent))
 
 from Auxiliary import constants as c
 from Auxiliary import rocket_specs as r
+from Auxiliary import atmosphere as atm
 from Input_File import simulation_parameters as sim_params
 from Guidance.indirect_pmp_guidance import (
     pmp_control_law,
@@ -100,6 +101,30 @@ def _resolve_pmp_options():
     alpha_max_rad = None if a_deg is None else np.deg2rad(float(a_deg))
     return full_ascent, include_drag, alpha_max_rad
 
+
+def _in_atmosphere(r_val, v, include_drag=True):
+    """True while the vehicle is still within the atmosphere, per the SHARED
+    ``ATMOSPHERE_EXIT_METHOD`` criterion — the same test rocket_ascent uses to
+    mark atmosphere exit (rocket_ascent.py ~L1018). Used to gate the full-ascent
+    PMP α cap: the clamp is active in the atmosphere and lifted after exit, so the
+    dense-atmosphere arc is bounded while the near-vacuum arc follows interior PMP.
+
+    Mirrors the rocket_ascent branch logic exactly, reusing the atmosphere helpers
+    and the section-6 thresholds. With no drag in the PMP arc the q / aerothermal
+    methods are physically meaningless, so the deterministic altitude marker is
+    used instead (matching rocket_ascent's ``not INCLUDE_DRAG`` fallback). The
+    powered ascent is monotone in altitude, so this pointwise (non-latching) test
+    trips once near the top of Stage 1.
+    """
+    alt = r_val - c.R_EARTH
+    method = ("altitude" if not include_drag
+              else getattr(sim_params, "ATMOSPHERE_EXIT_METHOD", "altitude"))
+    if method == "dynamic_pressure":
+        return atm.dynamic_pressure(v, alt) >= sim_params.DYNAMIC_PRESSURE_THRESHOLD
+    if method == "aerothermal_flux":
+        return atm.aerothermal_flux(v, alt) >= sim_params.AEROTHERMAL_FLUX_THRESHOLD
+    return alt <= sim_params.ALT_NO_ATMOSPHERE   # "altitude" (and default)
+
 # ---------------------------------------------------------------------------
 # Integration tolerances (shared by all solve_ivp calls)
 # ---------------------------------------------------------------------------
@@ -154,7 +179,7 @@ def _strip_to_pmp_state(state, lat_fallback_rad):
 # ===========================================================================
 
 def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
-                force_alpha=None, alpha_cap_qmin=None):
+                force_alpha=None, cap_atmosphere_only=False):
     """
     Right-hand side for the augmented PMP ODE (Stage 2, and Stage 1 in
     full-ascent mode — the equations are engine-agnostic, parameterised by
@@ -183,6 +208,11 @@ def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
         the vertical-rise arc, where α ≡ 0 keeps the vehicle vertical until the
         pitch-over kick). The same α feeds the costate ODEs so they stay
         consistent with the flown control.
+    cap_atmosphere_only : bool
+        When True (and ``alpha_max`` is set), the α clamp is applied only while
+        the vehicle is in the atmosphere (per ``_in_atmosphere``) and lifted after
+        atmosphere exit. False ⇒ the clamp applies everywhere (constant cap).
+        Ignored when ``alpha_max`` is None (no clamp at all — Stage-2-only path).
 
     Returns
     -------
@@ -195,12 +225,15 @@ def _stage2_ode(t, aug_state, thrust, Isp, include_drag=False, alpha_max=None,
     mu = c.MU_EARTH
 
     # Angle of attack: fixed override (vertical rise) or PMP (optionally clamped,
-    # with the clamp q-gated so it is lifted in near-vacuum).
+    # with the clamp lifted after atmosphere exit so it is bounded only where the
+    # aero load matters).
     if force_alpha is not None:
         alpha = force_alpha
     else:
+        cap_active = (_in_atmosphere(r_val, v, include_drag=include_drag)
+                      if (alpha_max is not None and cap_atmosphere_only) else True)
         alpha = pmp_control_law(lam_v, lam_g, v, alpha_max=alpha_max,
-                                alpha_cap_qmin=alpha_cap_qmin, r_val=r_val)
+                                cap_active=cap_active)
 
     cg = np.cos(gamma)
     sg = np.sin(gamma)
@@ -346,9 +379,16 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
     """
     lam0 = _normalize_costates(lambda0_r, lambda0_v, lambda0_g)
 
-    # Dynamic-pressure floor below which the α clamp is lifted (vacuum → interior
-    # PMP steering). None ⇒ the clamp applies everywhere.
-    alpha_cap_qmin = getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_QMIN", None)
+    # Whether the α clamp is lifted after atmosphere exit (per the shared
+    # ATMOSPHERE_EXIT_METHOD). False ⇒ the clamp applies everywhere. ``_cap`` maps a
+    # (r, v) point to the clamp-active flag threaded into every α evaluation below.
+    cap_atmosphere_only = bool(
+        getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY", True))
+
+    def _cap(r_val, v):
+        if alpha_max is None or not cap_atmosphere_only:
+            return True
+        return _in_atmosphere(r_val, v, include_drag=include_drag)
 
     # --- Mass bookkeeping (mirror run_stage1's fairing convention) ---
     if include_drag:
@@ -400,7 +440,7 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
         rhs = (lambda tt, y, thrust=thrust, Isp=Isp, fa=fa:
                _stage2_ode(tt, y, thrust, Isp, include_drag=include_drag,
                            alpha_max=alpha_max, force_alpha=fa,
-                           alpha_cap_qmin=alpha_cap_qmin))
+                           cap_atmosphere_only=cap_atmosphere_only))
         kind, val = arc['term']
 
         if kind == 'time':
@@ -440,7 +480,7 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
     # residual — and hence the optimization — is left unchanged.
     def _H_obj(aug_pt, thrust):
         a = pmp_control_law(aug_pt[6], aug_pt[7], aug_pt[2], alpha_max=alpha_max,
-                            alpha_cap_qmin=alpha_cap_qmin, r_val=aug_pt[1])
+                            cap_active=_cap(aug_pt[1], aug_pt[2]))
         return compute_hamiltonian(aug_pt[1], aug_pt[2], aug_pt[3], thrust, aug_pt[4],
                                    a, aug_pt[5], aug_pt[6], aug_pt[7],
                                    include_drag=include_drag)
@@ -449,7 +489,7 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
     # along each powered arc — the check that the arcs are rigorous extremals).
     def _H_diag(aug_pt, thrust, Isp):
         a = pmp_control_law(aug_pt[6], aug_pt[7], aug_pt[2], alpha_max=alpha_max,
-                            alpha_cap_qmin=alpha_cap_qmin, r_val=aug_pt[1])
+                            cap_active=_cap(aug_pt[1], aug_pt[2]))
         lam_m = (aug_pt[8] - lam_m_shift) if len(aug_pt) >= 9 else 0.0
         return compute_hamiltonian(aug_pt[1], aug_pt[2], aug_pt[3], thrust, aug_pt[4],
                                    a, aug_pt[5], aug_pt[6], aug_pt[7],
@@ -526,8 +566,8 @@ def _integrate_full_ascent(lambda0_r, lambda0_v, lambda0_g,
             else:
                 al_parts.append(np.array([
                     pmp_control_law(sol.y[6, i], sol.y[7, i], sol.y[2, i],
-                                    alpha_max=alpha_max, alpha_cap_qmin=alpha_cap_qmin,
-                                    r_val=sol.y[1, i])
+                                    alpha_max=alpha_max,
+                                    cap_active=_cap(sol.y[1, i], sol.y[2, i]))
                     for i in range(sol.y.shape[1])
                 ]))
         out['time_full']   = np.concatenate(t_parts)

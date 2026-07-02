@@ -56,8 +56,7 @@ def drag_specific_force(r_val, v, m):
 # PMP optimal control law
 # ---------------------------------------------------------------------------
 
-def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None,
-                    alpha_cap_qmin=None, r_val=None):
+def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None, cap_active=True):
     """
     PMP optimal angle of attack α (Eq. 34 of the paper).
 
@@ -78,15 +77,13 @@ def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None,
         optimum). When set, the optimum is clamped to [−alpha_max, +alpha_max] —
         the constrained-control solution that keeps the atmospheric arc near a
         gravity turn instead of commanding aerodynamically-inadmissible angles.
-    alpha_cap_qmin : float or None
-        Dynamic-pressure floor [Pa] below which the α clamp is LIFTED. When both
-        this and ``r_val`` are given, the clamp applies only where the aero load
-        matters (q = ½ρ(h)V² ≥ alpha_cap_qmin); in near-vacuum (q < floor) the
-        exact interior-PMP α is used. None ⇒ the clamp applies everywhere (the
-        original constant-cap behaviour).
-    r_val : float or None
-        Radius [m] (= R_E + h), needed to evaluate q for the q-gate. Uses the
-        same exponential atmosphere as ``drag_specific_force``.
+    cap_active : bool
+        Whether the α clamp is active at this point. The caller decides this —
+        e.g. the full-ascent solver lifts the clamp after atmosphere exit (via
+        the shared ATMOSPHERE_EXIT_METHOD criterion), so the atmospheric arc is
+        bounded while the near-vacuum arc follows the exact interior-PMP α. The
+        clamp is applied only when ``alpha_max`` is set AND ``cap_active`` is True;
+        the default True reproduces a constant cap wherever ``alpha_max`` is given.
 
     Returns
     -------
@@ -108,15 +105,11 @@ def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None,
     cos_alpha = -lambda_v * denom
     alpha = float(np.arctan2(sin_alpha, cos_alpha))
 
-    # q-gate: lift the clamp where the dynamic pressure (aero load) is negligible.
-    amax = alpha_max
-    if amax is not None and alpha_cap_qmin is not None and r_val is not None:
-        q = 0.5 * c.RHO_0 * np.exp(-(r_val - c.R_EARTH) / c.H) * v * v
-        if q < alpha_cap_qmin:
-            amax = None
-
-    if amax is not None:
-        alpha = max(-amax, min(amax, alpha))
+    # Apply the α clamp only when a cap is set AND it is active here. The caller
+    # lifts it after atmosphere exit (near-vacuum → exact interior-PMP steering);
+    # see ``_in_atmosphere`` in the full-ascent solver.
+    if alpha_max is not None and cap_active:
+        alpha = max(-alpha_max, min(alpha_max, alpha))
     return alpha
 
 

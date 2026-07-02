@@ -142,6 +142,14 @@ def _reference_input_key():
             ("INDIRECT_PMP_FULL_ASCENT", True),
             ("INDIRECT_PMP_INCLUDE_DRAG", getattr(sim_params, "INDIRECT_PMP_INCLUDE_DRAG", None)),
             ("INDIRECT_PMP_ALPHA_MAX_DEG", getattr(sim_params, "INDIRECT_PMP_ALPHA_MAX_DEG", None)),
+            # The α cap-lift now follows the shared atmosphere-exit criterion, so its
+            # knobs change the full-ascent α reference and must key the cache too.
+            ("INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY",
+             getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY", True)),
+            ("ATMOSPHERE_EXIT_METHOD", getattr(sim_params, "ATMOSPHERE_EXIT_METHOD", "altitude")),
+            ("ALT_NO_ATMOSPHERE", getattr(sim_params, "ALT_NO_ATMOSPHERE", None)),
+            ("DYNAMIC_PRESSURE_THRESHOLD", getattr(sim_params, "DYNAMIC_PRESSURE_THRESHOLD", None)),
+            ("AEROTHERMAL_FLUX_THRESHOLD", getattr(sim_params, "AEROTHERMAL_FLUX_THRESHOLD", None)),
         )
     return hashlib.sha256(repr(payload).encode("utf-8")).hexdigest()
 

@@ -486,19 +486,21 @@ INDIRECT_PMP_FULL_ASCENT   = True   # False = Stage-2-only (current); True = Sta
 INDIRECT_PMP_INCLUDE_DRAG  = True    # None | True | False
 
 # Angle-of-attack constraint [deg] for the PMP control law. None -> unconstrained
-# (today's behaviour). When set, the optimal alpha is clamped to [-a_max, +a_max];
-# this keeps the dense-atmosphere Stage-1 arc near a gravity turn (small alpha
-# through max-q) rather than commanding the large aerodynamically-inadmissible
-# angles a drag-free optimum would. Recommended when INDIRECT_PMP_FULL_ASCENT=True
-# (e.g. 5.0). Ignored while alpha is unconstrained (None).
-INDIRECT_PMP_ALPHA_MAX_DEG = 5.0     # None or e.g. 5.0
+# (today's behaviour). When set, the optimal alpha is clamped to [-a_max, +a_max]
+# while the vehicle is IN the atmosphere; this bounds the dense-atmosphere Stage-1
+# arc (limited alpha through max-q) rather than commanding the large aerodynamically
+# -inadmissible angles a drag-free optimum would. Recommended when
+# INDIRECT_PMP_FULL_ASCENT=True. Ignored while alpha is unconstrained (None).
+INDIRECT_PMP_ALPHA_MAX_DEG = 10.0    # None or e.g. 10.0
 
-# Dynamic-pressure floor [Pa] below which the alpha clamp above is LIFTED. The
-# clamp is a proxy for atmospheric aero loads, which vanish in vacuum -- so above
-# ~80 km (q < this) the exact interior-PMP steering is used instead of the flat
-# cap, which otherwise saturates the whole (mostly-vacuum) Stage-2 arc at alpha_max.
-# The cap still applies through max-q (q ~ 47 kPa). None -> cap applies everywhere.
-INDIRECT_PMP_ALPHA_CAP_QMIN = 250.0  # Pa; None to disable the q-gate
+# When True, the alpha clamp above is applied ONLY while the vehicle is still in the
+# atmosphere and is LIFTED after atmosphere exit (the exact interior-PMP steering
+# resumes) -- so the mostly-vacuum Stage-2 arc is not pinned to the cap. "Still in
+# the atmosphere" is decided by the SHARED atmosphere-exit criterion (section 6:
+# ATMOSPHERE_EXIT_METHOD = altitude / dynamic_pressure / aerothermal_flux and its
+# threshold), so the PMP cap-lift and the rest of the sim agree on where the
+# atmosphere ends. False -> the cap applies everywhere (constant cap, incl. vacuum).
+INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY = True   # True: cap in-atmosphere only; False: everywhere
 
 # Full-ascent-only kick-angle (gamma_p) bounds [rad]. In full-ascent the kick
 # seeds the ENTIRE PMP ascent, so the Stage-2-only range [1.54, 1.57] is often

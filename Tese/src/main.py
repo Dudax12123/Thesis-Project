@@ -432,13 +432,14 @@ def execute():
         print("  Δt_r%, coast_start%, γ_p  (see Table 6 of paper)")
         if getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT", False):
             _, _drag, _amax = ips._resolve_pmp_options()
-            _qmin = getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_QMIN", None)
+            _atmos_only = bool(getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY", True))
             if _amax is None:
                 _amax_txt = "unconstrained"
             else:
                 _amax_txt = f"±{np.rad2deg(_amax):.1f}°"
-                if _qmin is not None:
-                    _amax_txt += f" (lifted below q={_qmin:.0f} Pa)"
+                if _atmos_only:
+                    _method = getattr(sim_params, "ATMOSPHERE_EXIT_METHOD", "altitude")
+                    _amax_txt += f" (lifted after atmosphere exit: {_method})"
             print("-"*60)
             print("  FULL-ASCENT mode: PMP steers Stage 1 → insertion")
             print("  arcs: vertical rise → Stage-1 burn → staging drop →")
