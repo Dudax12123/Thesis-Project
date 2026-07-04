@@ -616,7 +616,6 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 SAVE_PLOTS = False                            # False = display only, nothing saved
 SAVE_PLOTS_DIR = "Tese/src/Output/plots"      # only used when SAVE_PLOTS = True
 
-
 # ===================================================================
 # 14. DEBUGGING FLAGS
 # ===================================================================
