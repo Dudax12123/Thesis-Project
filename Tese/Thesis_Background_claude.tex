@@ -66,6 +66,7 @@ where $v$ is the inertial speed magnitude, $\alpha$ is the angle of attack (the 
 \label{sec:reference_frames}
 
 \subsection{Rotating Earth Frame and Inertial Frame}
+\label{ssec:frames}
 
 The ascent analysis relies on two complementary Earth-centered reference frames.
 The first is a rotating Earth frame (ECEF-type), whose origin is at Earth’s center and whose axes rotate with Earth at angular rate $\omega_E$. This frame is convenient for describing launch-site-relative motion, including altitude, downrange progression, local flight-path angle, and velocity relative to the rotating planet. It is especially practical for representing early ascent and atmospheric flight, since geographic quantities and air-relative effects are naturally interpreted in this frame~\cite{relativityframes}.
@@ -77,6 +78,17 @@ In summary, the rotating frame is preferred for the ascent description, while th
 \mathbf{v}_{\mathrm{ECI}}=\mathbf{v}_{\mathrm{rot}}+\boldsymbol{\omega}_E\times\mathbf{r},
 \]
 which shows that inertial velocity is the rotating-frame velocity plus the contribution from Earth’s rotation~\cite{relativityframes}.
+
+For the planar ascent state $[s,r,v,\gamma]$ this vector relation reduces to a set of scalar components. Resolving the rotating-frame velocity into local East--North--Up (ENU) components at latitude $\phi$ and heading $\psi$, the horizontal speed is $v_h = v\cos\gamma$, so that
+\begin{subequations}\label{eq:ecef_eci}
+\begin{align}
+v_N &= v_h\cos\psi \ , \qquad v_E^{\mathrm{ECEF}} = v_h\sin\psi \ , \label{eq:ecef_eci_enu}\\[3pt]
+v_E^{\mathrm{ECI}} &= v_E^{\mathrm{ECEF}} + \omega_E\,r\cos\phi \ , \label{eq:ecef_eci_add}\\[3pt]
+v_{\mathrm{ECI}} &= \sqrt{\bigl(v_E^{\mathrm{ECI}}\bigr)^{2} + v_N^{2} + \bigl(v\sin\gamma\bigr)^{2}} \ , \label{eq:ecef_eci_speed}\\[3pt]
+\gamma_{\mathrm{ECI}} &= \operatorname{atan2}\!\Bigl(v\sin\gamma,\; \sqrt{\bigl(v_E^{\mathrm{ECI}}\bigr)^{2} + v_N^{2}}\Bigr) \ , \label{eq:ecef_eci_gamma}
+\end{align}
+\end{subequations}
+where only the eastward component is augmented by the surface rotation speed $\omega_E r\cos\phi$~\cite{relativityframes,curtis2020orbital}. Equations~\eqref{eq:ecef_eci} are the conversion actually applied in the simulator whenever orbital elements are evaluated (Chapter~\ref{chapter:methodology}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -92,11 +104,36 @@ For a vehicle moving with velocity $\mathbf{v}_{\mathrm{rot}}$ relative to the r
 \mathbf{a}_{\mathrm{cen}} = -\,\boldsymbol{\omega}_E\times\bigl(\boldsymbol{\omega}_E\times\mathbf{r}\bigr) \ .
 \label{eq:pseudo_forces}
 \end{equation}
-The Coriolis term depends on the vehicle velocity and deflects the trajectory laterally, coupling the in-plane motion to the cross-range direction, whereas the centrifugal term depends only on position and acts to reduce the effective gravity, most strongly near the equator~\cite{curtis2020orbital}. When projected onto the local East--North--Up directions and then onto the flight-path frame, these accelerations introduce additive corrections to the velocity and flight-path-angle rates of Eqs.~\eqref{eq:planar_eom_a}--\eqref{eq:planar_eom_b}; their detailed projection is presented in the methodology chapter. The centrifugal contribution is small but non-negligible, while the Coriolis contribution is the dominant rotational effect on the achieved orbital inclination~\cite{vallado2013fundamentals}.
+The Coriolis term depends on the vehicle velocity and deflects the trajectory laterally, coupling the in-plane motion to the cross-range direction, whereas the centrifugal term depends only on position and acts to reduce the effective gravity, most strongly near the equator~\cite{curtis2020orbital}. The centrifugal contribution is small but non-negligible, while the Coriolis contribution is the dominant rotational effect on the achieved orbital inclination~\cite{vallado2013fundamentals}.
+
+Evaluating the cross products in the local East--North--Up (ENU) basis at latitude $\phi$ gives the component form used in this work. With rotating-frame velocity components $(v_E,v_N,v_{\mathrm{up}})$, the Coriolis acceleration is~\cite{vallado2013fundamentals}
+\begin{subequations}\label{eq:coriolis_enu}
+\begin{align}
+a_E^{\mathrm{cor}} &= -2\omega_E\cos\phi\;v_{\mathrm{up}} + 2\omega_E\sin\phi\;v_N \ , \\
+a_N^{\mathrm{cor}} &= -2\omega_E\sin\phi\;v_E \ , \\
+a_{\mathrm{up}}^{\mathrm{cor}} &= 2\omega_E\cos\phi\;v_E \ ,
+\end{align}
+\end{subequations}
+and the centrifugal acceleration, which depends on position only, is~\cite{vallado2013fundamentals}
+\begin{subequations}\label{eq:centrifugal_enu}
+\begin{align}
+a_E^{\mathrm{cen}} &= 0 \ , \\
+a_N^{\mathrm{cen}} &= -\omega_E^{2}\,r\,\sin\phi\cos\phi \ , \\
+a_{\mathrm{up}}^{\mathrm{cen}} &= \omega_E^{2}\,r\,\cos^{2}\!\phi \ .
+\end{align}
+\end{subequations}
+Summing the two contributions in each direction ($a_E = a_E^{\mathrm{cor}}+a_E^{\mathrm{cen}}$, and likewise for $N$ and up) and projecting onto the along-heading horizontal and vertical directions gives
+\begin{equation}
+a_{h,\parallel} = a_E\sin\psi + a_N\cos\psi \ , \qquad
+a_{h,\perp}     = a_E\cos\psi - a_N\sin\psi \ ,
+\label{eq:pseudo_projection}
+\end{equation}
+with $a_{\mathrm{up}}$ retained for the radial direction. The along-heading and vertical components $a_{h,\parallel}$ and $a_{\mathrm{up}}$ enter the velocity and flight-path-angle rates of Eqs.~\eqref{eq:planar_eom_a}--\eqref{eq:planar_eom_b} as the additive corrections applied in the simulator (Chapter~\ref{chapter:methodology}), while the cross-heading term $a_{h,\perp}$ measures the lateral (inclination-changing) forcing.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \subsection{Launch Azimuth and Orbit Inclination}
+\label{ssec:launch_azimuth}
 
 %A space rocket must be launched toward a clear area to ensure the safe fall of spent stages, which may impact thousands of kilometres downrange. Consequently, many launch sites are located along coastlines facing the ocean~\cite{teofilatto2025trajectories}. For example, the Kennedy Space Center allows launch azimuths of approximately $35^\circ$ to $120^\circ$ to avoid overflight of populated areas, as can be seen in Figure~\ref{fig:KSC}.
 
@@ -118,7 +155,21 @@ From equation~\ref{eq:azimuth} the following is implied:
 \begin{equation}
 \sin A = \frac{\cos i}{\cos \lambda} < 1 \;\implies\; \cos i < \cos \lambda \;\implies\; i > \lambda \ .
 \end{equation}
-This means that an azimuth angle, $A$, can only be selected if the launch-site latitude, $\lambda$, is smaller than the required orbital inclination $i$. Otherwise, reaching the target orbital plane requires an expensive out-of-plane manoeuvre~\cite{teofilatto2025trajectories}.
+This means that an azimuth angle, $A$, can only be selected if the launch-site latitude, $\lambda$, is smaller than the required orbital inclination $i$. Otherwise, reaching the target orbital plane requires an expensive out-of-plane manoeuvre~\cite{teofilatto2025trajectories}. Equation~\eqref{eq:azimuth} is the \emph{inertial} azimuth $A_I$: it orients the orbital plane in inertial space and admits a symmetric descending-node solution $A_I^{(\mathrm{desc})} = \pi - A_I$~\cite{Edberg}.
+
+Because the launch site already carries an eastward inertial velocity due to Earth rotation, the heading that the guidance law must command \emph{relative to the rotating Earth} differs from $A_I$. At latitude $\phi$ this surface speed is $v_E = \omega_E R_E\cos\phi$~\cite{Edberg}. Writing the required inertial velocity as the sum of the ground-relative velocity and the site rotation, and matching the East and North components, the ground-relative launch azimuth is~\cite{BateMuellerWhite1971Fundamentals,curtis2020orbital}
+\begin{equation}
+A_G = \operatorname{atan2}\!\bigl(V_I\sin A_I - \omega_E R_E\cos\phi,\; V_I\cos A_I\bigr) \ ,
+\label{eq:ground_azimuth}
+\end{equation}
+where $V_I$ is the inertial injection speed (for a circular orbit of radius $r$, $V_I=\sqrt{\mu/r}$). Earth rotation therefore does not change the required inclination itself; it only changes the ground-relative heading needed to realise the same inertial injection~\cite{curtis2020orbital}. The simulator uses the corrected azimuth $A_G$ by default and the geometric value $A_I$ as an option.
+
+Conversely, the inclination \emph{achieved} at the end of the ascent is recovered from the inertial velocity of Eqs.~\eqref{eq:ecef_eci}: with the inertial velocity azimuth $\beta_{\mathrm{ECI}} = \operatorname{atan2}\!\bigl(v_E^{\mathrm{ECI}},\,v_N\bigr)$, the classical relation gives~\cite{curtis2020orbital}
+\begin{equation}
+\cos i_{\mathrm{achieved}} = \cos\phi\,\sin\beta_{\mathrm{ECI}} \ ,
+\label{eq:achieved_inclination}
+\end{equation}
+so that the inclination drift $\Delta i = i_{\mathrm{achieved}} - i_{\mathrm{target}}$ serves as a fidelity metric for the rotating-frame treatment.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -1051,23 +1102,7 @@ which relates the Hamiltonian at the end of the last thrust arc, the end of the 
 
 \subsubsection{Penalty-Based Reformulation}
 
-Rather than solving the resulting two-point boundary value problem by classical shooting, the boundary and optimality conditions are enforced through a static penalty function, transforming the problem into an unconstrained minimisation suited to a population-based optimiser~\cite{Morgado2022_MultistagePrelimDesignTrajectoryOpt}. The augmented objective is
-\begin{equation}
-J' = J + \sum_{c=1}^{3} s_c\,\bigl\lVert x_{c,f} - x_{c}'\bigr\rVert
-   + s_4\,\bigl\lVert H_f^{\text{last}} + H_f^{\text{coast}} - H_0^{\text{last}}\bigr\rVert
-   + C \ ,
-\label{eq:indirect_augmented}
-\end{equation}
-where the first sum penalises the terminal altitude, velocity, and flight-path-angle errors (with constraint weight factors $s_c$), the fourth term penalises any violation of the transversality condition~\eqref{eq:indirect_transversality}, and $C$ is a large fixed penalty applied to non-physical trajectories,
-\begin{equation}
-C =
-\begin{cases}
-0, & \text{trajectory constraints satisfied}, \\[2pt]
-10^{20}, & \text{trajectory constraints violated} .
-\end{cases}
-\label{eq:indirect_penalty}
-\end{equation}
-Minimising $J'$ therefore drives the optimiser implicitly toward feasible trajectories that also satisfy the optimality conditions. The remaining unknowns---the initial costates and the arc-timing parameters---are determined by the particle swarm optimiser described in Section~\ref{ssec:optimization}.
+Rather than solving the resulting two-point boundary value problem by classical shooting, the boundary and optimality conditions are enforced by recasting it as a penalised minimisation suited to a population-based optimiser~\cite{Morgado2022_MultistagePrelimDesignTrajectoryOpt}: the terminal altitude, velocity, and flight-path-angle errors, together with the transversality residual~\eqref{eq:indirect_transversality}, are gathered into a single augmented objective whose remaining unknowns---the initial costates and the arc-timing parameters---are searched by a particle swarm optimiser. This reformulation trades the ill-conditioned initial-costate guess of classical shooting for a robust global search, at the cost of only approximate satisfaction of the optimality conditions. The concrete augmented objective, its penalty weights, the decision vector, and the multi-arc integration used to evaluate it are detailed in the methodology (Section~\ref{sssec:indirect_pmp}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -1097,14 +1132,7 @@ Flying the powered first stage through the dense lower atmosphere requires limit
 \alpha = \max\!\bigl(-\alpha_{\max},\,\min(\alpha_{\max},\,\alpha^{\star})\bigr) \ ,
 \label{eq:fa_alpha_clamp}
 \end{equation}
-where $\alpha^{\star}$ denotes the unconstrained value given by Eq.~\eqref{eq:indirect_control} and $\alpha_{\max}$ is a prescribed bound. The constraint is enforced only while the vehicle remains within the atmosphere and is released once an atmosphere-exit criterion is met---here the dynamic pressure falling below a fixed threshold, $q < q_{\mathrm{exit}}$---so that the near-vacuum arc recovers the exact interior control~\eqref{eq:indirect_control}. Using the same exit criterion that governs fairing jettison and guidance activation keeps the notion of ``atmospheric flight'' consistent across the simulator~\cite{gath2001optimization}.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-\subsubsection{Multi-Arc Ascent and Staging Continuity}
-\label{sssec:fa_arcs}
-
-With drag and the angle-of-attack constraint in place, the indirect law can steer the entire powered ascent rather than the upper stage alone. The trajectory is represented as an ordered sequence of arcs sharing a single continuous integration of the augmented state: a vertical rise at $\alpha\equiv 0$ up to the pitch-over instant, the first-stage powered arc terminated by propellant depletion (MECO), an instantaneous inert-mass separation (staging), an inter-stage ballistic coast, and finally the upper-stage thrust--coast--thrust arcs of the baseline formulation. The costates are seeded at the pitch-over point rather than at lift-off: the vertical rise carries no steering freedom ($\alpha\equiv 0$) and the homogeneous costate equations keep $\boldsymbol{\lambda}$ at zero through it, so fixing the normalised initial costates at the kick is both sufficient and numerically cleaner. Staging is a prescribed exogenous mass drop; because the reduced costate set carries no mass adjoint, the position and velocity costates and the Hamiltonian remain continuous across the staging and coast corners by the Weierstrass--Erdmann conditions, and no interior jump conditions are required~\cite{pontani2014particle,pontani2013ascent}.
+where $\alpha^{\star}$ denotes the unconstrained value given by Eq.~\eqref{eq:indirect_control} and $\alpha_{\max}$ is a prescribed bound. The constraint is enforced only while the vehicle remains within the atmosphere and is released once an atmosphere-exit criterion is met, so that the near-vacuum arc recovers the exact interior control~\eqref{eq:indirect_control}~\cite{gath2001optimization}. The specific exit criterion used---shared with the fairing-jettison and guidance-activation logic---is described in the methodology (Section~\ref{sssec:indirect_pmp}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -1117,7 +1145,7 @@ Because the high mass-flow first stage consumes a large fraction of the lift-off
 + \lambda_\gamma\,\frac{T\sin\alpha}{m^{2}v} \ ,
 \label{eq:fa_masscostate}
 \end{equation}
-that neither alters the trajectory nor enlarges the set of unknowns. With no terminal mass cost the transversality condition is $\lambda_m(t_f)=0$, which, for a passive quadrature, is satisfied in closed form by subtracting the constant $\lambda_m(t_f)$ from the integrated history. Including $\lambda_m$ renders the Hamiltonian constant along each powered arc, confirming that the multi-arc solution is a consistent extremal of the full-ascent problem~\cite{pontani2013ascent,pontani2019ascent}.
+that neither alters the trajectory nor enlarges the set of unknowns. With no terminal mass cost the transversality condition is $\lambda_m(t_f)=0$; because the quadrature is passive, this condition is imposed \emph{a posteriori} on the integrated costate history, as detailed in the methodology (Section~\ref{sssec:indirect_pmp}). Including $\lambda_m$ renders the Hamiltonian constant along each powered arc, confirming that the multi-arc solution is a consistent extremal of the full-ascent problem~\cite{pontani2013ascent,pontani2019ascent}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -1180,7 +1208,7 @@ For higher-dimensional design spaces, Particle Swarm Optimization (PSO) is emplo
 \end{equation}
 where $\mathbf{p}_i$ is the particle's personal-best position, $\mathbf{g}$ the swarm's global-best position, and $r_1,r_2$ are uniform random numbers in $[0,1]$. The inertia weight $\omega$ together with the cognitive and social coefficients $c_1$ and $c_2$ balance exploration of the design space against exploitation of known good regions~\cite{shi1998modified}. PSO requires no gradient information, handles non-smooth and multimodal objectives naturally, and is therefore well suited to the event-driven ascent objectives considered here. The implementation relies on the \texttt{PyGMO} optimization library~\cite{biscani2020pagmo}.
 
-In the indirect optimisation of Section~\ref{ssec:indirect_ascent}, PSO plays the specific role of supplying the parameters that the indirect method cannot initialise on its own, while minimising the propellant required for the mission~\cite{pontani2014particle}. Each particle encodes a candidate parameter set comprising the unknown initial costates $(\lambda_{0r},\lambda_{0v},\lambda_{0\gamma})$ together with the coast-phase duration $\Delta t_c$, the coast start (initialisation) time, the last-stage burn duration $\Delta t_T$, and the pitch-manoeuvre angle $\gamma_p$. For each particle a complete trajectory is simulated until the vehicle reaches orbit or a maximum number of iterations is exceeded, and the augmented objective~\eqref{eq:indirect_augmented} is evaluated; the swarm then evolves toward the parameter set that minimises propellant consumption while satisfying the optimality conditions.
+In the indirect optimisation of Section~\ref{ssec:indirect_ascent}, PSO plays the specific role of supplying the initial costates and arc-timing parameters that the indirect method cannot initialise on its own, while minimising the propellant required for the mission~\cite{pontani2014particle}. The precise decision vector encoded by each particle, and the augmented objective it is scored against, are given in the methodology (Section~\ref{sssec:indirect_pmp}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

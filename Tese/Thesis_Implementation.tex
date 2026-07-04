@@ -1,0 +1,767 @@
+\chapter{Methodology}
+\label{chapter:methodology}
+
+This chapter describes how the theoretical principles established in
+Chapter~\ref{chapter:theoretical_background} are realised in a working ascent-trajectory
+simulator, and how that simulator is driven by the optimisation back-ends used
+throughout this work. The presentation is kept at the level of architecture,
+data flow, and configuration: it explains \emph{where} and \emph{how} each model
+is implemented without reproducing source code. The chapter opens with the
+software architecture, then follows the natural order of a single evaluation ---
+mission phases, the integrated state and numerical scheme, the reference-frame
+strategy, the equations of motion, and the environmental and force models. It
+then catalogues the nine guidance laws and the four optimisation architectures
+available, and closes with the configuration system, the baseline vehicle and
+mission, and a note on running the software.
+
+% =============================================================================
+\section{Software Architecture Overview}
+\label{sec:architecture}
+
+The code is organised as a layered dependency graph. At the bottom sit leaf data
+and models that depend on nothing else: the physical constants and vehicle
+specifications, and the environment models (gravity, atmosphere, Earth rotation).
+Above them the configuration layer exposes every user-facing switch. The guidance
+laws are also leaves --- pure functions that map a state to a steering command ---
+so that dependencies always run from the simulation core towards the guidance
+modules and never the reverse, which keeps each law testable in isolation. At the
+centre is the physics hub \texttt{rocket\_ascent.py}, which imports all guidance
+and auxiliary modules and integrates the equations of motion; the solvers and
+optimisers wrap the hub, and the plotting layer consumes plain result arrays,
+decoupled from the solvers.
+
+\begin{figure}[h!]
+\centering
+\begin{minipage}{0.92\linewidth}
+\small
+\begin{verbatim}
+main.py
+  |-- Simulation/solver.py --------------------+
+  |-- Simulation/pso_coast_solver.py           |  all import ->
+  |-- Simulation/direct_pso_solver.py          |  Simulation/rocket_ascent.py
+  |     \-- imports pso_coast_solver            |  (the hub: imports ALL
+  |-- Simulation/indirect_pso_solver.py -------+   Guidance/* + Auxiliary/*)
+  |         \-- imports Guidance/indirect_pmp_guidance.py
+  |-- Auxiliary/{constants, gravity, atmosphere, earth_rotation, rocket_specs}.py
+  |-- Input_File/simulation_parameters.py   (imported almost everywhere)
+  \-- Plots/new_plot_runner.py -> Plots/new_metrics/*   (decoupled)
+\end{verbatim}
+\end{minipage}
+\caption{Surface-level module dependency tree. \texttt{rocket\_ascent.py} is the
+central hub; the guidance modules are leaves, so dependencies run
+Simulation~$\rightarrow$~Guidance and never the reverse.}
+\label{fig:dependency_tree}
+\end{figure}
+
+The execution flow is an outer--inner loop. An outer optimiser proposes a
+candidate design vector; the inner simulation engine integrates the trajectory,
+evaluating at every step the environment models, the active guidance law, and the
+equations of motion, with event detection triggering phase transitions and
+cut-off; the resulting trajectory is scored by an objective function and returned
+to the optimiser (Figure~\ref{fig:flowchart}). The same inner engine serves all
+four optimisation architectures of Section~\ref{sec:optimization}; only the design
+vector, the termination event, and the objective differ.
+
+% NOTE (author action): FlowChart.png should be redrawn to show the four
+% optimisation back-ends branching on COAST_METHOD / GUIDANCE_MODE, replacing the
+% single brute-force loop of the original figure.
+\begin{figure}[h!]
+    \centering
+    \includegraphics[width=1\linewidth]{Figures/FlowChart.png}
+    \caption{Flight-dynamics simulation and optimisation flowchart: the outer
+    optimiser feeds a design vector to the inner engine, which returns a scalar
+    cost. The inner engine is guidance- and architecture-agnostic.}
+    \label{fig:flowchart}
+\end{figure}
+
+% =============================================================================
+\section{Mission Decomposition into Phases}
+\label{sec:phases}
+
+A single trajectory evaluation is resolved as an ordered sequence of mission
+phases, each propagated by a separate call to the numerical integrator and
+chained by event detection:
+
+\begin{enumerate}
+  \item \textbf{Stage-1 powered ascent.} From lift-off until first-stage
+        propellant depletion (Main Engine Cut-Off, MECO): an initial vertical
+        rise, the pitchover kick manoeuvre, and atmospheric flight under
+        aerodynamic drag. This phase is produced by
+        \texttt{rocket\_ascent.run\_stage1}.
+
+  \item \textbf{Stage separation and coast.} An instantaneous drop of the
+        first-stage inert mass followed by a short ballistic coast to
+        second-stage ignition.
+
+  \item \textbf{Stage-2 powered ascent with guidance.} The active guidance law
+        (one of the nine modes of Section~\ref{sec:guidance}) shapes the
+        trajectory until the architecture-dependent cut-off.
+
+  \item \textbf{Coast and orbit insertion.} Depending on the mission
+        architecture (Section~\ref{sec:optimization}), the vehicle either coasts
+        to apogee for an impulsive circularisation burn, or is inserted directly
+        when the powered arc reaches circular-velocity conditions.
+\end{enumerate}
+
+The thrust--coast--thrust arc structure of the PSO architectures is assembled
+inside the solvers, which reuse the same right-hand side as
+\texttt{rocket\_ascent.run} with the thrust set to zero on coast arcs.
+
+% =============================================================================
+\section{State Vector and Numerical Integration}
+\label{sec:state_integration}
+
+\subsection{State Vector}
+\label{ssec:state_vector}
+
+The base state integrated by the solver is
+\begin{equation}
+  \mathbf{x} = \bigl[\,s,\; r,\; v,\; \gamma,\; m\,\bigr]^{T},
+  \label{eq:state_base}
+\end{equation}
+with downrange distance $s$, geocentric radius $r$, rotating-frame speed $v$,
+flight-path angle $\gamma$, and mass $m$. When Earth-rotation effects are enabled
+the geocentric latitude $\phi$ is appended,
+\begin{equation}
+  \mathbf{x} = \bigl[\,s,\; r,\; v,\; \gamma,\; m,\; \phi\,\bigr]^{T},
+  \label{eq:state_rot}
+\end{equation}
+so that the pseudo-force accelerations can be evaluated at the current latitude.
+The local heading (azimuth) $\psi$ is \emph{not} propagated as a dynamical state:
+it is held constant at the launch azimuth throughout the ascent, since the planar
+model carries no cross-range degree of freedom. A dynamic heading state was used
+in an earlier version of the model and is retained only as a deprecated option;
+reinstating full three-dimensional heading tracking is left as future work.
+
+\subsection{Numerical Integration}
+\label{ssec:integration_sim}
+
+Each phase is propagated with the explicit Runge--Kutta~4(5) Dormand--Prince
+scheme provided by \texttt{scipy.integrate.solve\_ivp}~\cite{dormand1980family,
+virtanen2020scipy}, using adaptive step-size control, a tight tolerance, a bounded
+maximum step, and dense output for post-processing. Phase transitions are located
+by \emph{event functions} --- scalar functions $g(t,\mathbf{x})$ whose sign change
+marks a transition. When the integrator brackets a zero-crossing, the exact
+crossing time is found by root-finding (Brent's method) and the phase is
+terminated~\cite{brent1973algorithms}. Events include propellant depletion
+(MECO), stage separation, atmosphere exit, target-apogee matching (SECO), the
+circular-velocity cut-off used by the direct architecture, and ground-collision
+safeguards. Chaining phases through events lets the mission timeline emerge from
+the physics rather than being prescribed in advance.
+
+% =============================================================================
+\section{Reference-Frame Strategy}
+\label{sec:sim_frames}
+
+The simulator uses the mixed-frame strategy motivated in
+Section~\ref{sec:reference_frames}: ascent dynamics quantities ($v$, $\gamma$,
+and the heading decomposition) are expressed in a rotating (ECEF-like) frame,
+which makes the treatment of atmosphere-relative drag natural; orbital energy and
+orbital elements are evaluated in an Earth-Centred Inertial (ECI) frame, which is
+required for consistent event detection (target-apogee matching) and end-of-run
+orbit characterisation; and the Coriolis and centrifugal pseudo-accelerations are
+first formed in the local East--North--Up basis before being projected onto the
+flight-dynamics directions.
+
+During powered ascent and early coasting the integration proceeds in the rotating
+frame with optional pseudo-force corrections. Once the vehicle reaches the final
+ballistic coast (post-SECO), the propagation switches to pure inertial two-body
+dynamics, and the pseudo-force terms are deactivated so that no spurious
+accelerations are introduced when the motion is governed solely by gravity.
+
+Whenever orbital elements are required, the rotating-frame velocity is converted
+to its inertial counterpart with the component relations derived in
+Eqs.~\eqref{eq:ecef_eci}: only the eastward component gains the surface rotation
+speed $\omega_E r\cos\phi$. The launch azimuth is computed from the target
+inclination and launch latitude using the rotating-Earth correction of
+Eq.~\eqref{eq:ground_azimuth}; the simulator applies the corrected ground-relative
+azimuth $A_G$ by default and exposes the geometric inertial value $A_I$ as an
+option. At end of run the achieved inclination and its drift
+$\Delta i = i_{\mathrm{achieved}} - i_{\mathrm{target}}$ follow from
+Eq.~\eqref{eq:achieved_inclination}.
+
+% =============================================================================
+\section{Implemented Equations of Motion}
+\label{sec:eom}
+
+\subsection{Base Dynamics}
+\label{ssec:base_eom}
+
+The core system integrated by the simulator, realising the planar model of
+Eq.~\eqref{eq:planar_eom}, is
+\begin{align}
+  \dot s      &= \frac{R_E}{r}\,v\cos\gamma,
+               \label{eq:sim_sdot}\\[3pt]
+  \dot r      &= v\sin\gamma,
+               \label{eq:sim_rdot}\\[3pt]
+  \dot v      &= \frac{F_T}{m}\cos\alpha
+                 - \frac{F_D}{m}
+                 - g(r)\sin\gamma,
+               \label{eq:sim_vdot}\\[3pt]
+  \dot\gamma  &= \frac{1}{v}\!\left(
+                   \frac{F_T}{m}\sin\alpha
+                   + \frac{F_L}{m}
+                   - \Bigl[g(r) - \frac{v^2}{r}\Bigr]\cos\gamma
+                 \right),
+               \label{eq:sim_gammadot}\\[3pt]
+  \dot m      &= -\frac{F_T}{I_{sp}\,g_0},
+               \label{eq:sim_mdot}
+\end{align}
+where $\alpha$ is the angle of attack (the steering command from the active
+guidance law), $F_T$ and $I_{sp}$ are the current thrust and specific impulse,
+$F_D$ is aerodynamic drag, $F_L$ is lift (set to zero in every analysis here),
+and $g(r)=\mu/r^{2}$. The centripetal term $v^{2}/r$ in
+Eq.~\eqref{eq:sim_gammadot} raises the flight-path angle once it exceeds
+$g\cos\gamma$. Two safeguards are applied: a small-velocity guard forces
+$\dot\gamma=0$ when $v<10^{-6}$~m/s to avoid the $1/v$ singularity, and during
+the initial vertical rise (before pitchover) $\dot\gamma$ is held at zero
+regardless of the geometric terms.
+
+\subsection{Rotating-Frame Augmentation}
+\label{ssec:rot_augmentation}
+
+When Earth rotation is enabled, the Coriolis and centrifugal accelerations
+of Eqs.~\eqref{eq:coriolis_enu}--\eqref{eq:centrifugal_enu} are summed in each
+ENU direction and projected onto the along-heading and vertical directions
+(Eq.~\eqref{eq:pseudo_projection}). The resulting additive corrections to the
+velocity and flight-path-angle rates are
+\begin{align}
+  \Delta\dot v     &= a_{h,\parallel}\cos\gamma + a_{\mathrm{up}}\sin\gamma,
+                    \label{eq:sim_dv_pseudo}\\[3pt]
+  \Delta\dot\gamma &= \frac{-a_{h,\parallel}\sin\gamma
+                      + a_{\mathrm{up}}\cos\gamma}{v},
+                    \label{eq:sim_dgamma_pseudo}
+\end{align}
+so that the integrated rates become $\dot v + \Delta\dot v$ and
+$\dot\gamma + \Delta\dot\gamma$; with rotation disabled both corrections vanish
+and Eqs.~\eqref{eq:sim_vdot}--\eqref{eq:sim_gammadot} are recovered exactly.
+
+\subsection{Latitude Reconstruction}
+\label{ssec:latitude}
+
+Rather than integrating a latitude rate directly, the simulator reconstructs
+latitude from the downrange angle by great-circle geometry, which avoids
+numerical drift~\cite{BateMuellerWhite1971Fundamentals}:
+\begin{equation}
+  \sigma = \frac{s}{R_E}, \qquad
+  \sin\phi = \sin\phi_0\cos\sigma + \cos\phi_0\sin\sigma\cos\beta_0,
+  \label{eq:lat_recon}
+\end{equation}
+where $\phi_0$ is the launch latitude and $\beta_0$ the inertial launch azimuth.
+The latitude rate required by the pseudo-force evaluation follows analytically,
+\begin{equation}
+  \dot\phi = \frac{-\sin\phi_0\sin\sigma
+    + \cos\phi_0\cos\sigma\cos\beta_0}{\cos\phi}\;\frac{\dot s}{R_E}.
+  \label{eq:phidot}
+\end{equation}
+
+% =============================================================================
+\section{Environmental and Force Models}
+\label{sec:models}
+
+\subsection{Gravity and Atmosphere}
+\label{ssec:gravity_atm}
+
+Gravity is the central inverse-square field $g(r)=\mu/r^{2}$ with
+$\mu=3.986\times10^{14}~\mathrm{m^{3}\,s^{-2}}$; the Earth is treated as
+spherical, so oblateness ($J_2$) is not modelled. Atmospheric density follows the
+exponential profile of Eq.~\eqref{eq:exp_atmosphere}, with sea-level density
+$\rho_0=1.225~\mathrm{kg\,m^{-3}}$ and scale height $H=8500$~m, and the dynamic
+pressure is $q=\tfrac12\rho v^{2}$. Two criteria are available for declaring
+atmosphere exit and activating exo-atmospheric guidance: an altitude threshold
+($h>65$~km~\cite{kluever2018space}) or a dynamic-pressure threshold
+($q<1000$~Pa, configurable). The selected criterion is a simulation parameter and
+is shared with the fairing-jettison logic.
+
+\subsection{Aerodynamic and Propulsive Forces}
+\label{ssec:aero_prop}
+
+Aerodynamic drag is evaluated at every step from the dynamic pressure and a
+constant drag coefficient $C_D=0.3$ over the reference area
+$A=10.52~\mathrm{m^{2}}$~\cite{NASA_Falcon9v12_Datasheet_2018}, using
+Eqs.~\eqref{eq:cd} and~\eqref{eq:q_dyn_press}. A lift model is present in the
+formulation (the $F_L$ term of Eq.~\eqref{eq:sim_gammadot}) but is neglected in
+all analyses ($F_L=0$).
+
+Thrust magnitude $F_T$ and specific impulse $I_{sp}$ are stage-dependent
+constants that switch at discrete events (MECO, separation, second-stage
+ignition, cut-off). For the first stage, the effective sea-level-to-vacuum
+variation is captured by selectable engine modes (\texttt{ISP\_1\_MODE} and
+\texttt{THRUST\_1\_MODE}: sea-level, vacuum, average, or altitude-linear). Thrust
+acts at the angle of attack $\alpha$ relative to the velocity vector; $\alpha$ is
+the primary control and is set at each step by the active guidance law
+(Section~\ref{sec:guidance}). Mass depletion obeys Eq.~\eqref{eq:sim_mdot} with
+$g_0=9.80665~\mathrm{m\,s^{-2}}$. A no-atmosphere mode (\texttt{INCLUDE\_DRAG}
+disabled) removes drag, drops the fairing at lift-off, and forces the
+altitude-based exit criterion, giving a clean reference free of drag loss.
+
+% =============================================================================
+\section{Guidance Laws Implemented}
+\label{sec:guidance}
+
+Nine guidance modes are available, selected by \texttt{GUIDANCE\_MODE}. All share
+a common initial pitchover manoeuvre and differ in how the angle of attack
+$\alpha$ is commanded thereafter. The scalar-$t_{go}$ modes (Apollo, the tangent
+laws, and CPR) share a \texttt{TGO\_ESTIMATOR} option that selects between a
+rocket-equation and a PEG-based time-to-go estimate. The atmospheric-arc theory
+of each law is developed in Chapter~\ref{chapter:theoretical_background}; this section
+documents the implemented form.
+
+\subsection{Common Initial Kick Phase}
+\label{ssec:kick_phase}
+
+Regardless of mode, the vehicle rises vertically until time $T_k$ (nominally
+$7.5$~s) and then executes a symmetric triangular pitchover over a duration
+$\Delta T_k$ (nominally $45$~s):
+\begin{equation}
+  \alpha(t) =
+  \begin{cases}
+    0, & t < T_k, \\[2pt]
+    \displaystyle\alpha_k\;\frac{2(t - T_k)}{\Delta T_k},
+      & T_k \le t < T_k + \tfrac{\Delta T_k}{2}, \\[6pt]
+    \displaystyle 2\, \alpha_k\!\left(1 - \frac{t - T_k}{\Delta T_k}\right),
+      & T_k + \tfrac{\Delta T_k}{2} \le t < T_k + \Delta T_k, \\[6pt]
+    0, & t \ge T_k + \Delta T_k,
+  \end{cases}
+  \label{eq:kick_profile}
+\end{equation}
+where $\alpha_k$ is the kick angle. After the kick, and until the atmosphere-exit
+criterion is met, $\alpha$ is held at zero; active guidance then engages. The
+kick angle (or, equivalently, the pitch-manoeuvre parameter $\gamma_p$) is the
+design variable optimised by every architecture of Section~\ref{sec:optimization}.
+
+\subsection{Gravity Turn}
+\label{ssec:gt}
+
+The gravity-turn mode applies no active steering after the kick,
+$\alpha(t)=0$ for all $t>T_k+\Delta T_k$, so the trajectory is shaped entirely by
+gravity and the initial conditions. It is the simplest baseline.
+
+\subsection{Constant Pitch Rate (CPR)}
+\label{ssec:cpr}
+
+CPR ramps the commanded pitch angle linearly from its value at guidance start
+towards the horizontal at a constant rate $\dot\theta$ fixed once, at engagement,
+from the estimated time-to-go~\cite{Ulrich}:
+\begin{equation}
+  \theta_{\mathrm{cmd}}(t) = \max\!\bigl(\theta_{\mathrm{init}}
+        - \dot\theta\,(t - t_{\mathrm{start}}),\; 0\bigr),
+  \qquad
+  \alpha = \theta_{\mathrm{cmd}} - \gamma,
+  \label{eq:cpr}
+\end{equation}
+the clamp preventing pitching below the local horizontal. Under the
+\texttt{pso\_coast} architecture the pitch rate $\dot\theta$ is exposed as an
+additional PSO decision variable rather than being derived from $t_{go}$.
+
+\subsection{Linear Tangent Steering}
+\label{ssec:lts}
+
+Linear tangent steering prescribes that the tangent of the velocity inclination
+angle $(\alpha+\gamma)$ vary linearly with time-to-go,
+$\tan(\alpha+\gamma)=a\,t_{go}+b$. Terminal horizontal flight at $t_{go}=0$ gives
+$b=0$, and continuity with the current state gives $a=\tan\gamma/t_{go}$, so that
+\begin{equation}
+  \alpha = \arctan\!\bigl(a\,t_{go}\bigr) - \gamma,
+  \label{eq:lts_alpha}
+\end{equation}
+recomputed at the guidance update rate. This provides smooth, monotonic
+inclination control.
+
+\subsection{Bilinear Tangent Steering}
+\label{ssec:bts}
+
+The bilinear law generalises the linear form by writing the inclination tangent
+as a ratio of two linear functions of $t_{go}$,
+\begin{equation}
+  \tan(\alpha+\gamma)
+    = \frac{c_1\,t_{go} + c_2}{c_1'\,t_{go} + c_2'},
+  \label{eq:bts}
+\end{equation}
+whose four constants are fixed by four conditions: terminal horizontal flight
+($c_2=0$); a small terminal-rate constant $c_1$ for a smooth approach;
+normalisation ($c_2'=1$); and an initial-value match to a blended target
+$\gamma_{\mathrm{blended}}=0.7\,\gamma_{\mathrm{current}}+0.3\,\gamma_{\mathrm{target}}$,
+where $\gamma_{\mathrm{target}}$ is the geometric flight-path angle required to
+reach the target altitude over the remaining downrange. Controlling both the
+value and the rate of the inclination angle at the terminal point yields a
+smoother insertion than the purely linear variant.
+
+\subsection{Apollo Polynomial Guidance}
+\label{ssec:apollo}
+
+The Apollo mode commands the total acceleration in the downrange ($x$) and
+altitude ($y$) directions with two linear-in-time channels,
+$a_x(t)=k_1(t-t_{\mathrm{epoch}})+k_2$ and
+$a_y(t)=k_3(t-t_{\mathrm{epoch}})+k_4$, whose coefficients are chosen to reach
+the target radius, the local circular velocity $\sqrt{\mu/r_f}$ in the horizontal,
+and zero radial velocity at burnout. For a generic channel,
+\begin{equation}
+  k_1 = \frac{6(v_f+v_i)\,t_{go} - 12(x_f-x_i)}{t_{go}^{3}}, \qquad
+  k_2 = \frac{-2(v_f+2v_i)\,t_{go} + 6(x_f-x_i)}{t_{go}^{2}}.
+  \label{eq:apollo_k}
+\end{equation}
+As $t_{go}\to0$ the denominators drive the coefficients to large values, so they
+are frozen at their last values once $t_{go}$ falls below a threshold (nominally
+$10$~s). The thrust-only acceleration is obtained by subtracting the local gravity
+vector, and the steering angle follows as
+$\alpha=\arctan(a_y^{\mathrm{thrust}}/a_x^{\mathrm{thrust}})-\arctan(v_y/v_x)$. An
+optional thrust-magnitude-control mode throttles the engine to the commanded
+acceleration magnitude, up to the maximum available thrust.
+
+\subsection{Powered Explicit Guidance (PEG)}
+\label{ssec:peg}
+
+The classical PEG mode maintains the linear pitch program
+$\sin(\text{pitch}[t]) = A + B\,t$ and updates the steering constants $A,B$ and the
+burn-time estimate $T$ each major cycle. Given the rocket-equation thrust
+integrals $b_0,b_1,c_0,c_1$ over the remaining burn, $A$ and $B$ are obtained by
+solving the $2\times2$ linear system that enforces the target radius and radial
+velocity at burnout, while $T$ is refined from the angular-momentum gap
+$h_T-h$~\cite{burden2015numerical}. The undamped Guide$\rightarrow$Estimate
+fixed-point iteration can exhibit a two-point limit cycle for early Stage-2
+states, so successive under-relaxation (SUR) is applied,
+\begin{equation}
+  T_{n+1} = \omega\,T_{\mathrm{est}}(T_n) + (1-\omega)\,T_n,
+  \qquad \omega=0.5,
+  \label{eq:peg_sur}
+\end{equation}
+which breaks the cycle and converges in a few iterations~\cite{burden2015numerical}.
+The minor loop then commands $\alpha=\arcsin(A+B\,\tau)-\gamma$, with $\tau$ the
+time since the last major update.
+
+\subsection{Analytical Predictor--Corrector PEG (\texttt{peg\_new})}
+\label{ssec:peg_new}
+
+The \texttt{peg\_new} mode implements the velocity-to-be-gained formulation, in
+which the primary variable is the two-dimensional vector $\mathbf{v}_{go}$ and the
+time-to-go follows directly from the rocket equation,
+$t_{go}=\tau\bigl(1-e^{-\lVert\mathbf{v}_{go}\rVert/v_e}\bigr)$. The tangential
+component is the (gravity-free) velocity deficit
+$v_{go,\theta}=v_{\theta,T}-v_\theta$, while the radial component is iterated
+against the gravity integral. A predictor--corrector outer loop refines that
+integral by evaluating the radial gravity at the predicted burnout position and
+averaging it with the current value (trapezoidal quadrature), which supplies the
+physically correct pitch-down for orbit insertion. The steering direction is the
+normalised
+\begin{equation}
+  \hat{\mathbf u}(t) \;\propto\; \frac{\mathbf{v}_{go}}{L_0}
+        + \lambda'_r\,(t-t_\lambda)\,\hat{\mathbf r},
+  \label{eq:pegnew_u}
+\end{equation}
+with $L_0=\lVert\mathbf{v}_{go}\rVert$, the radial position costate $\lambda'_r$,
+and the reference time $t_\lambda$ obtained from the constant-thrust integrals;
+the angle of attack is $\alpha=\beta-\gamma$ with
+$\beta=\operatorname{atan2}(u_r,u_\theta)$. This gravity-aware $t_{go}$ is also
+reusable as the \texttt{TGO\_ESTIMATOR} for the scalar-$t_{go}$ laws.
+
+\subsection{Exponential Pitch (Shooting) Law}
+\label{ssec:exp_shooting}
+
+The exponential pitch law prescribes an open-loop pitch program
+$\theta(t_{\mathrm{rel}}) = a\,e^{b\,t_{\mathrm{rel}}}$, so that
+$\alpha = a\,e^{b\,t_{\mathrm{rel}}}-\gamma$. The pair $(a,b)$ is fixed once, at
+guidance start, by a single-shooting solve: \texttt{scipy.optimize.fsolve} adjusts
+$(a,b)$ until a simplified drag-free forward propagation to burnout satisfies the
+two terminal constraints $r(T)=r_T$ and $\gamma(T)=0$. If the solve fails to
+converge the current-state initial guess is retained. This is the simplest
+boundary-value method, and the same shooting idea underlies the indirect
+optimal-control architecture, where the unknowns are the initial costates rather
+than pitch coefficients.
+
+\subsection{Indirect Optimal-Control Steering (\texttt{indirect\_pmp})}
+\label{ssec:indirect_guidance}
+
+The indirect mode commands the costate-optimal angle of attack derived in
+Section~\ref{ssec:indirect_ascent},
+$\alpha=\operatorname{atan2}\!\bigl(-\lambda_\gamma/v,\,-\lambda_v\bigr)$
+(Eq.~\eqref{eq:indirect_control}), obtained by propagating the augmented
+state--costate system alongside the trajectory. Unlike the other eight modes it is
+not a stand-alone feedback law: the initial costates that make it an extremal are
+themselves found by the dedicated optimisation architecture of
+Section~\ref{sssec:indirect_pmp}, which also governs how the law is replayed when
+it steers a segment of a multi-law schedule.
+
+% =============================================================================
+\section{Mission Architectures and Optimization Strategies}
+\label{sec:optimization}
+
+The optimiser is deliberately guidance-agnostic: it supplies a design vector and
+receives a scalar cost, while the inner simulation selects and runs whichever
+guidance law is active. Four architectures are available, selected by
+\texttt{COAST\_METHOD} together with the \texttt{indirect\_pmp} mode. All share
+the non-dimensional penalised-objective philosophy introduced in
+Section~\ref{ssec:optimization}: terminal errors and infeasibility are folded
+into a single scalar to be minimised.
+
+\subsection{\texttt{apogee\_check}: Brute-Force Kick-Angle Search}
+\label{ssec:apogee_check}
+
+The \texttt{apogee\_check} architecture optimises the single kick angle $\alpha$
+explicitly while determining the cut-off implicitly through a physics-based event.
+The objective is the total propellant required to reach the target circular orbit,
+\begin{equation}
+  \min_{\alpha}\; J(\alpha), \qquad
+  J(\alpha)=m_{\mathrm{prop,ascent}}(\alpha)+m_{\mathrm{prop,circ}}(\alpha),
+  \label{eq:apogee_objective}
+\end{equation}
+subject to reaching the target apogee radius within the propellant and
+burn-duration limits. The circularisation propellant is evaluated from the
+Tsiolkovsky equation,
+\begin{equation}
+  m_{\mathrm{prop,circ}} = m_{\mathrm{apo}}
+    \Bigl(1 - \exp\!\bigl[-\Delta v_{\mathrm{circ}}/(I_{sp}g_0)\bigr]\Bigr),
+  \qquad
+  \Delta v_{\mathrm{circ}} = \bigl|v_{\mathrm{circular}}-v_{\mathrm{apo}}\bigr|,
+  \label{eq:circ_dv}
+\end{equation}
+with $v_{\mathrm{circular}}=\sqrt{\mu/r_{\mathrm{target}}}$. Above the
+atmosphere-exit altitude the powered phase is terminated when the
+\emph{instantaneous unpowered} apogee of the current state matches the target,
+detected through the event function
+$g(t,\mathbf{y}) = r_{\mathrm{apo}}(t,\mathbf{y}) - r_{\mathrm{target}}$, where
+$r_{\mathrm{apo}}=a(1+e)$ is computed from the instantaneous orbital elements
+$\varepsilon=v^{2}/2-\mu/r$, $a=-\mu/2\varepsilon$,
+$e=\sqrt{1-h^{2}/(\mu a)}$~\cite{curtis2020orbital}. Because the design space is
+one-dimensional, the optimum $\alpha^{\star}=\arg\min_{\alpha_i}J(\alpha_i)$ is
+found by a brute-force grid search (\texttt{scipy.optimize.brute}), which is
+robust to the non-smoothness introduced by discrete staging and cut-off events.
+
+\subsection{\texttt{pso\_coast}: Coast-Parameter PSO}
+\label{ssec:pso_coast}
+
+The \texttt{pso\_coast} architecture searches a four-variable design vector with
+particle swarm optimisation~\cite{kennedy1995particle,biscani2020pagmo},
+\begin{equation}
+  \mathbf{x} = \bigl[\,\Delta t_c,\; \Delta t_{r}\%,\; \text{coast-start}\%,\;
+                     \gamma_p\,\bigr],
+  \label{eq:pso_coast_vector}
+\end{equation}
+where $\Delta t_c$ is the coast duration, $\Delta t_r\%$ the Stage-2 burn as a
+percentage of the maximum burn time, coast-start$\%$ the coast onset as a
+percentage of that burn, and $\gamma_p$ the pitch-manoeuvre angle
+(kick angle $=\gamma_p-\pi/2$). The trajectory is assembled as a
+thrust--coast--thrust sequence of three arcs sharing the state, and scored by a
+four-term non-dimensional objective (a burn-time term plus the normalised
+altitude, velocity, and flight-path-angle errors) augmented by a large fixed
+crash penalty --- the same normalisation as the indirect objective of
+Section~\ref{sssec:indirect_pmp} without its transversality term.
+
+\subsection{\texttt{direct}: Direct-Insertion PSO}
+\label{ssec:direct}
+
+The \texttt{direct} architecture inserts the payload with a single continuous
+Stage-2 burn cut at circular velocity, with no coast-to-apogee and no
+circularisation burn. It is a two-variable PSO over
+\begin{equation}
+  \mathbf{x} = \bigl[\,\gamma_p,\; t_{\mathrm{burn}}\%\,\bigr],
+  \label{eq:direct_vector}
+\end{equation}
+the pitch angle and the Stage-2 burn duration as a percentage of the maximum. The
+objective is the same non-dimensional weighted sum,
+\begin{equation}
+  J = w_J\,\frac{t_{\mathrm{burn}}}{T_{\max,2}}
+    + w_h\,\bigl|\Delta h\bigr|_{\mathrm{nd}}
+    + w_v\,\bigl|\Delta v\bigr|_{\mathrm{nd}}
+    + w_\gamma\,\bigl|\Delta\gamma\bigr|_{\mathrm{nd}} + C,
+  \label{eq:direct_objective}
+\end{equation}
+where the errors are measured against a direct-insertion box target and $C$ is the
+crash penalty. Only a subset of the guidance laws (notably Apollo, PEG, and
+\texttt{peg\_new}) can reliably close a single continuous burn; others go
+suborbital under this architecture.
+
+\subsection{\texttt{indirect\_pmp}: Indirect Optimal-Control PSO}
+\label{sssec:indirect_pmp}
+
+The \texttt{indirect\_pmp} architecture realises the optimal-control reference
+trajectory formulated in Section~\ref{ssec:indirect_ascent}. It propagates the
+augmented state--costate system --- the reduced state $[s,r,v,\gamma,m]$ together
+with the adjoints $[\lambda_r,\lambda_v,\lambda_\gamma]$ governed by
+Eqs.~\eqref{eq:indirect_costates} and the costate-optimal control
+$\alpha=\operatorname{atan2}(-\lambda_\gamma/v,-\lambda_v)$ of
+Eq.~\eqref{eq:indirect_control} --- and searches the unknown initial costates and
+arc-timing parameters with a particle swarm optimiser.
+
+\paragraph{Decision vector.}
+Each particle encodes the seven-element vector
+\begin{equation}
+  \mathbf{x} = \bigl[\,\lambda_{0r},\;\lambda_{0v},\;\lambda_{0\gamma},\;
+        \Delta t_c,\; \text{coast-start},\; \Delta t_T,\; \gamma_p\,\bigr],
+  \label{eq:indirect_vector}
+\end{equation}
+the initial costates, the coast duration, the coast-start (initialisation) time,
+the last-stage burn duration, and the pitch-manoeuvre angle. Because the costate
+equations are homogeneous in $\boldsymbol\lambda$, only the \emph{direction} of
+the initial costate matters, so the three costate components are searched on the
+normalised interval $[-1,1]$ and the $\lVert\boldsymbol\lambda\rVert=1$ gauge is
+fixed at the pitch-over point where the transversality residual is evaluated.
+
+\paragraph{Augmented objective.}
+The boundary and optimality conditions are enforced through a static penalty,
+turning the two-point boundary-value problem into an unconstrained minimisation,
+\begin{equation}
+  J' = J + \sum_{c=1}^{3} s_c\,\bigl\lVert x_{c,f}-x_c'\bigr\rVert
+     + s_4\,\bigl\lVert H_f^{\mathrm{last}} + H_f^{\mathrm{coast}}
+                      - H_0^{\mathrm{last}}\bigr\rVert + C,
+  \label{eq:indirect_augmented}
+\end{equation}
+where $J=t_f-t_{cf}$ is the powered-flight time, the first sum penalises the
+terminal altitude, velocity, and flight-path-angle errors, the fourth term
+penalises violation of the transversality condition
+Eq.~\eqref{eq:indirect_transversality}, and $C$ is a large fixed penalty
+($10^{20}$) applied to non-physical (crashing or propellant-depleting)
+trajectories. Minimising $J'$ drives the swarm towards feasible extremals; the
+run uses a swarm of $250$ particles over $500$ generations.
+
+\paragraph{Multi-arc integration.}
+When the optional full-ascent extension is active, the trajectory is integrated as
+one continuous pass of the augmented state through an ordered arc list --- a
+vertical rise at $\alpha\equiv0$, the first-stage powered arc terminated by a
+propellant-depletion (MECO) event, an instantaneous inert-mass staging drop, an
+inter-stage coast, and the upper-stage thrust--coast--thrust arcs. The costates are
+seeded at the pitch-over point (the homogeneous adjoint equations keep them zero
+through the vertical rise), and, since the reduced costate set carries no mass
+adjoint, the position and velocity costates and the Hamiltonian remain continuous
+across the staging and coast corners by the Weierstrass--Erdmann conditions, so no
+interior jump conditions are imposed. The angle-of-attack clamp of
+Eq.~\eqref{eq:fa_alpha_clamp} is active only while the vehicle is inside the
+atmosphere, using the same \texttt{ATMOSPHERE\_EXIT\_METHOD} criterion as the
+fairing-jettison and guidance-activation logic, and is lifted at atmosphere exit so
+the near-vacuum arc recovers the exact interior control. The passive mass costate
+$\lambda_m$ of Eq.~\eqref{eq:fa_masscostate} is integrated for rigour; because it
+feeds back into nothing, its terminal condition $\lambda_m(t_f)=0$ is imposed in
+closed form by subtracting the constant $\lambda_m(t_f)$ from the integrated
+history, which renders the Hamiltonian constant along each powered arc.
+
+\subsection{Separation of Concerns}
+\label{ssec:separation}
+
+Across all four architectures the outer optimiser supplies only a design vector
+and receives only a scalar cost, while the inner simulation selects and runs
+whichever guidance law is active. This decoupling is what makes the comparative
+study fair: the same trajectory engine, environment models, and scoring
+normalisation are applied to every guidance law, so differences in the results
+reflect the laws themselves rather than the machinery around them.
+
+% =============================================================================
+\section{Configuration System}
+\label{sec:configuration}
+
+All user-facing behaviour is controlled from
+\texttt{Input\_File/simulation\_parameters.py}, without editing the solver code.
+Table~\ref{tab:config} groups the principal switches by function; each mission is
+fully specified by a choice within these groups plus the vehicle and
+mission-geometry parameters of Section~\ref{sec:vehicle}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Principal configuration switches, grouped by function.}
+  \label{tab:config}
+  \small
+  \begin{tabular}{l l}
+    \toprule
+    \textbf{Group} & \textbf{Representative parameters} \\
+    \midrule
+    Guidance selection      & \texttt{GUIDANCE\_MODE} (nine laws),
+                              \texttt{TGO\_ESTIMATOR}, \texttt{PEG\_CONVERGENCE\_MODE},
+                              \texttt{CPR\_THETA\_DOT\_MODE} \\
+    Mission architecture    & \texttt{COAST\_METHOD}
+                              (\texttt{apogee\_check}/\texttt{pso\_coast}/\texttt{direct}) \\
+    Earth-rotation / frames & \texttt{ENABLE\_EARTH\_ROTATION},
+                              \texttt{INCLUDE\_PSEUDO\_FORCES},
+                              \texttt{AZIMUTH\_INCLINATION\_MODE} \\
+    Atmosphere / aero       & \texttt{INCLUDE\_DRAG}, \texttt{INCLUDE\_LIFT},
+                              \texttt{ATMOSPHERE\_EXIT\_METHOD} \\
+    Kick profile            & \texttt{KICK\_PROFILE\_MODE} (triangular / instantaneous) \\
+    Engine modes            & \texttt{ISP\_1\_MODE}, \texttt{THRUST\_1\_MODE}
+                              (sea-level / vacuum / average / linear) \\
+    Optimiser settings      & \texttt{RUN\_FAST}, PSO tuning blocks
+                              ($\omega$, $c_1$, $c_2$, $v_{\max}$, swarm size,
+                              generations, seed) \\
+    Integration / output    & tolerances, maximum step, dense-output resolution,
+                              plot flags \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% =============================================================================
+\section{Vehicle Configuration and Baseline Mission}
+\label{sec:vehicle}
+
+The simulator is configured with parameters representative of a Falcon-9-class
+two-stage launcher (Table~\ref{tab:stage_params}). The framework is not specific
+to this vehicle: any two-stage launcher can be studied by editing the stage
+masses, engine parameters, reference area, and drag coefficient; the Falcon-9
+values are used here as a concrete, well-documented baseline.
+
+\begin{table}[ht]
+\centering
+\caption{Launch vehicle stage parameters~\cite{NASA_Falcon9v12_Datasheet_2018,
+SpaceX_Falcon9_2025, Wevolver_Falcon9v12_Block5_2019}.}
+\label{tab:stage_params}
+\begin{tabular}{lcc}
+\hline
+\textbf{Parameter} & \textbf{First Stage} & \textbf{Second Stage} \\
+\hline
+Isp (Sea Level)          & 283 s        & --       \\
+Isp (Vacuum)             & 312 s        & 348 s    \\
+Maximum Thrust (SL)      & 7{,}607 kN    & 8{,}227 kN \\
+Maximum Thrust (V)       & --           & 981 kN   \\
+Propellant               & LOX/RP-1      & LOX/RP-1 \\
+Propellant Mass          & 395{,}700 kg  & 92{,}670 kg \\
+Empty Mass               & 25{,}600 kg   & 3{,}900 kg \\
+Payload Capacity (LEO)   & --           & 22{,}800 kg \\
+Payload Capacity (GTO)   & --           & 8{,}300 kg \\
+Diameter                 & 3.7 m        & 3.7 m    \\
+\hline
+\end{tabular}
+\end{table}
+
+The launch site and target orbit are set independently by the user
+(Table~\ref{tab:param_mission}); the values below are the baseline used for the
+demonstration case of the next chapter. The baseline targets a $500$~km circular
+orbit at an inclination of $51.6^\circ$ (representative of the International Space
+Station), launched from latitude $28.5^\circ$ (Kennedy Space Center). The
+resulting lift-off mass is approximately $517.9$~t, being the sum of both stages
+with zero payload in the reference configuration.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Mission geometry and target-orbit parameters.}
+  \label{tab:param_mission}
+  \begin{tabular}{l l c c}
+    \toprule
+    \textbf{Parameter} & \textbf{Description} & \textbf{Default} & \textbf{Unit} \\
+    \midrule
+    Target orbital altitude    & Circular orbit height above surface
+                               & 500       & km   \\
+    Target inclination         & Desired final orbital inclination
+                               & 51.6      & deg  \\
+    Launch latitude            & Geodetic latitude of the launch pad
+                               & 28.5      & deg  \\
+    Launch longitude           & Longitude of the launch pad (reserved)
+                               & $-80.5$   & deg  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% =============================================================================
+\section{Software Usage}
+\label{sec:software}
+
+A single mission is configured entirely in
+\texttt{Input\_File/simulation\_parameters.py} and run through \texttt{main.py},
+which selects the guidance law and mission architecture, runs the appropriate
+optimiser, propagates the optimal trajectory, and writes the result arrays and
+summary metrics. Vehicle and environment models are taken from the
+\texttt{Auxiliary/} package, and no source-code edits are needed to change the
+vehicle, mission, guidance law, or optimiser.
+
+For comparative studies, batch runners execute every guidance law under common
+conditions and collate the outcomes
+(\texttt{all\_guidance\_plotting/run\_all\_guidance\_methods.py} and
+\texttt{guidance\_comparison/compare\_guidance\_methods.py}). The plotting layer
+(\texttt{Plots/new\_plot\_runner.py}, drawing on \texttt{Plots/new\_metrics/})
+consumes the plain result arrays produced by any run and is independent of the
+solvers, so figures can be regenerated without re-running the simulation.
