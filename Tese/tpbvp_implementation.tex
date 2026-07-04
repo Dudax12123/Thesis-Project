@@ -1,340 +1,60 @@
 % =============================================================================
-%  Indirect-PMP TPBVP Implementation — Thesis Section
-%  To include in a chapter: \input{tpbvp_implementation}
-%  Bibliography entries for the \cite keys used here live in tpbvp_refs.bib.
+%  Full-ascent extension of the indirect-PMP (TPBVP) guidance — drafting source.
+%
+%  This snippet holds ONLY the genuinely-new material: the full-ascent extension
+%  (drag-aware adjoints, angle-of-attack constraint + atmosphere exit, multi-arc
+%  ascent with staging continuity, and the passive mass costate). The core
+%  indirect-PMP formulation (objective, Hamiltonian, costate ODEs, control law,
+%  transversality, penalty objective) already lives in the thesis, in
+%  Thesis_Background_claude.tex, Section "Indirect Optimization of the Ascent
+%  Trajectory" (\label{ssec:indirect_ascent}) — so it is NOT repeated here.
+%
+%  These four \subsubsection blocks are already INLINED into that section
+%  (after "Penalty-Based Reformulation", before \section{Numerical Methods}).
+%  This file is kept as the standalone drafting source; it is not \input by the
+%  thesis. New \cite keys (gath2001optimization, pontani2013ascent,
+%  pontani2019ascent) are defined in tpbvp_refs.bib for merging into the master
+%  bibliography; the remaining keys reuse existing master-bib entries.
 % =============================================================================
 
-\section{Indirect Optimisation of the Ascent Trajectory}
-\label{sec:tpbvp}
+\subsubsection{Extension to the Atmospheric Arc: Drag-Aware Adjoints}
+\label{sssec:fa_drag}
 
-The most physically-grounded guidance mode implemented in the simulator does not
-prescribe an \emph{ad hoc} steering law; instead it derives the optimal
-angle-of-attack history from Pontryagin's Minimum Principle (PMP).  The
-first-order necessary conditions of optimality turn the trajectory-optimisation
-problem into a \emph{two-point boundary-value problem} (TPBVP): the state is
-known at lift-off while the adjoint (costate) variables are known only through
-terminal transversality conditions.  Rather than closing this TPBVP with a
-gradient-based shooting method --- notoriously sensitive to the initial costate
-guess because the costate dynamics are unstable --- the unknown initial costates
-and a small set of free timing parameters are treated as the decision variables
-of a Particle Swarm Optimisation (PSO) outer loop.  This ``hybrid indirect''
-strategy retains the accuracy of the exact optimality conditions while replacing
-the fragile shooting iteration with a derivative-free global
-search~\cite{Pontani2014,PontaniTeofilatto,Betts}.  The formulation follows the
-multistage indirect approach of Pontani and Teofilatto, of the same research
-group as~\cite{teofilatto2025trajectories}, and rests on the classical
-optimal-control foundations of Bryson and Ho~\cite{BrysonHo} and
-Hull~\cite{Hull}.
-
-% -----------------------------------------------------------------------------
-\subsection{Optimal-Control Problem}
-\label{ssec:tpbvp_ocp}
-
-The optimisation is carried out on the reduced planar point-mass state
+The formulation above applies the costate-based control only on the exo-atmospheric arcs, where aerodynamic forces are negligible. The same indirect framework can be carried through the atmospheric flight of the first stage by retaining aerodynamic drag in both the dynamics and the adjoint equations. Writing the drag specific force (deceleration) as
 \begin{equation}
-  \mathbf{x} = \bigl[\,s,\; r,\; v,\; \gamma,\; m\,\bigr]^T,
-  \label{eq:tpbvp_state}
+a_D = \frac{D}{m} = \frac{1}{2}\,\rho(h)\,v^{2}\,\frac{C_D\,S_{\mathrm{ref}}}{m} \ ,
+\label{eq:fa_drag}
 \end{equation}
-with downrange $s$, geocentric radius $r = R_E + h$, rotating-frame speed $v$,
-flight-path angle $\gamma$ and mass $m$.  The dynamics are the point-mass
-equations of motion integrated by the simulator, with the thrust directed at an
-angle of attack $\alpha$ (the control) relative to the velocity vector:
-\begin{align}
-  \dot s      &= \frac{R_E}{r}\,v\cos\gamma, \label{eq:tpbvp_sdot}\\[3pt]
-  \dot r      &= v\sin\gamma, \label{eq:tpbvp_rdot}\\[3pt]
-  \dot v      &= \frac{F_T}{m}\cos\alpha - g(r)\sin\gamma - a_D, \label{eq:tpbvp_vdot}\\[3pt]
-  \dot\gamma  &= \frac{1}{v}\!\left(\frac{F_T}{m}\sin\alpha
-                 - \bigl[g(r) - \tfrac{v^2}{r}\bigr]\cos\gamma\right), \label{eq:tpbvp_gammadot}\\[3pt]
-  \dot m      &= -\frac{F_T}{I_{sp}\,g_0}, \label{eq:tpbvp_mdot}
-\end{align}
-where $g(r) = \mu/r^2$ and $a_D = D/m$ is the drag specific force
-(Section~\ref{ssec:tpbvp_fullascent}); in the exo-atmospheric baseline
-$a_D \equiv 0$.  Thrust $F_T$ and specific impulse $I_{sp}$ are piecewise-constant
-per arc, so Eqs.~\eqref{eq:tpbvp_sdot}--\eqref{eq:tpbvp_mdot} are
-\emph{engine-agnostic}: the same right-hand side represents any powered or coast
-arc simply by selecting $(F_T,I_{sp})$, with $F_T=0$ on coasts.
-
-The performance index is the total \emph{powered} time of the guided phase,
+with the exponential density of Eq.~\eqref{eq:exp_atmosphere}, drag enters the velocity dynamics as an additional $-a_D$ term in $\dot{v}$. Because $a_D$ depends on $r$ and $v$ but not on $\gamma$, and because the exponential atmosphere yields the closed-form partial derivatives $\partial a_D/\partial r = -a_D/H_\rho$ and $\partial a_D/\partial v = 2a_D/v$ (with $H_\rho$ the density scale height, written $H$ in Eq.~\eqref{eq:exp_atmosphere} and renamed here to avoid confusion with the Hamiltonian), the drag contribution to the adjoint equations~\eqref{eq:indirect_costates} is analytic and affects only $\dot{\lambda}_r$ and $\dot{\lambda}_v$. The extra terms, added to the right-hand sides of Eqs.~\eqref{eq:costate_r} and~\eqref{eq:costate_v}, are~\cite{gath2001optimization}:
 \begin{equation}
-  J = t_f - t_{cf},
-  \label{eq:tpbvp_objective}
+\dot{\lambda}_r \mathrel{+}= -\,\lambda_v\,\frac{a_D}{H_\rho} \ , \qquad
+\dot{\lambda}_v \mathrel{+}= +\,2\,\lambda_v\,\frac{a_D}{v} \ .
+\label{eq:fa_drag_adjoint}
 \end{equation}
-i.e.\ the final time minus the accumulated coast duration, so that minimising $J$
-is equivalent to minimising propellant expenditure for the fixed engine.  The
-trajectory must satisfy the orbit-insertion boundary conditions
+A matching $a_D$ term is likewise retained in the Hamiltonian~\eqref{eq:indirect_hamiltonian}, so the transversality residual stays consistent with the drag-aware dynamics. In the vacuum limit $\rho\to 0$ these terms vanish and the drag-free equations of the preceding subsections are recovered exactly.
+
+\subsubsection{Angle-of-Attack Constraint and Atmosphere Exit}
+\label{sssec:fa_alpha}
+
+Flying the powered first stage through the dense lower atmosphere requires limiting the angle of attack, both to respect aerodynamic load limits near maximum dynamic pressure and to keep the vehicle close to a gravity turn~\cite{Cremaschi2013TrajectoryOptimization}. The interior optimal control~\eqref{eq:indirect_control} is therefore clamped to an admissible band,
 \begin{equation}
-  r(t_f) = R_E + h_{\text{target}}, \qquad
-  v(t_f) = v_{\text{circ}}, \qquad
-  \gamma(t_f) = 0,
-  \label{eq:tpbvp_bc}
+\alpha = \max\!\bigl(-\alpha_{\max},\,\min(\alpha_{\max},\,\alpha^{\star})\bigr) \ ,
+\label{eq:fa_alpha_clamp}
 \end{equation}
-with $v_{\text{circ}} = \sqrt{\mu/r_{\text{target}}}$ the local circular speed
-(corrected for the Earth-rotation credit in the rotating frame,
-Section~\ref{ssec:tpbvp_pso}).
+where $\alpha^{\star}$ denotes the unconstrained value given by Eq.~\eqref{eq:indirect_control} and $\alpha_{\max}$ is a prescribed bound. The constraint is enforced only while the vehicle remains within the atmosphere and is released once an atmosphere-exit criterion is met---here the dynamic pressure falling below a fixed threshold, $q < q_{\mathrm{exit}}$---so that the near-vacuum arc recovers the exact interior control~\eqref{eq:indirect_control}. Using the same exit criterion that governs fairing jettison and guidance activation keeps the notion of ``atmospheric flight'' consistent across the simulator~\cite{gath2001optimization}.
 
-% -----------------------------------------------------------------------------
-\subsection{First-Order Necessary Conditions}
-\label{ssec:tpbvp_pmp}
+\subsubsection{Multi-Arc Ascent and Staging Continuity}
+\label{sssec:fa_arcs}
 
-Introducing the costate vector
-$\boldsymbol{\lambda} = [\lambda_s,\lambda_r,\lambda_v,\lambda_\gamma,\lambda_m]^T$
-conjugate to the state~\eqref{eq:tpbvp_state}, the Hamiltonian is
+With drag and the angle-of-attack constraint in place, the indirect law can steer the entire powered ascent rather than the upper stage alone. The trajectory is represented as an ordered sequence of arcs sharing a single continuous integration of the augmented state: a vertical rise at $\alpha\equiv 0$ up to the pitch-over instant, the first-stage powered arc terminated by propellant depletion (MECO), an instantaneous inert-mass separation (staging), an inter-stage ballistic coast, and finally the upper-stage thrust--coast--thrust arcs of the baseline formulation. The costates are seeded at the pitch-over point rather than at lift-off: the vertical rise carries no steering freedom ($\alpha\equiv 0$) and the homogeneous costate equations keep $\boldsymbol{\lambda}$ at zero through it, so fixing the normalised initial costates at the kick is both sufficient and numerically cleaner. Staging is a prescribed exogenous mass drop; because the reduced costate set carries no mass adjoint, the position and velocity costates and the Hamiltonian remain continuous across the staging and coast corners by the Weierstrass--Erdmann conditions, and no interior jump conditions are required~\cite{pontani2014particle,pontani2013ascent}.
+
+\subsubsection{Mass Costate and Transversality}
+\label{sssec:fa_masscostate}
+
+Because the high mass-flow first stage consumes a large fraction of the lift-off mass, the mass adjoint $\lambda_m$ is retained on the full-ascent arcs for rigour. As the mass rate $\dot{m} = -T/(I_{sp}g_0)$ is independent of $r$, $v$ and $\gamma$, the partial $\partial H/\partial m$ produces no feedback into the steering costates, so $\lambda_m$ is a passive quadrature,
 \begin{equation}
-  H = \lambda_s\,\dot s + \lambda_r\,\dot r + \lambda_v\,\dot v
-    + \lambda_\gamma\,\dot\gamma + \lambda_m\,\dot m.
-  \label{eq:tpbvp_hamiltonian}
+\dot{\lambda}_m = \lambda_v\!\left(\frac{T\cos\alpha}{m^{2}} - \frac{a_D}{m}\right)
++ \lambda_\gamma\,\frac{T\sin\alpha}{m^{2}v} \ ,
+\label{eq:fa_masscostate}
 \end{equation}
-Because neither the dynamics nor the boundary conditions depend on the downrange
-coordinate $s$, its costate is constant and, by transversality, identically
-zero:
-\begin{equation}
-  \dot\lambda_s = -\frac{\partial H}{\partial s} = 0
-  \;\Longrightarrow\; \lambda_s \equiv 0,
-  \label{eq:tpbvp_lams}
-\end{equation}
-so the $\dot s$ term is dropped and $s$ is carried only for bookkeeping.  The
-Euler--Lagrange (adjoint) equations $\dot{\boldsymbol\lambda} = -\partial H/\partial\mathbf{x}$
-yield, for the drag-free dynamics,
-\begin{align}
-  \dot\lambda_r &= \frac{v\cos\gamma}{r^2}\,\lambda_\gamma
-     - \frac{2\mu}{r^3}\!\left(\lambda_v\sin\gamma
-       + \frac{\lambda_\gamma\cos\gamma}{v}\right), \label{eq:tpbvp_lamr}\\[4pt]
-  \dot\lambda_v &= -\lambda_r\sin\gamma
-     - \lambda_\gamma\!\left[\cos\gamma\!\left(\frac{1}{r} + \frac{\mu}{r^2 v^2}\right)
-       - \frac{F_T}{m}\frac{\sin\alpha}{v^2}\right], \label{eq:tpbvp_lamv}\\[4pt]
-  \dot\lambda_\gamma &= -v\,\lambda_r\cos\gamma
-     + \frac{\mu}{r^2}\,\lambda_v\cos\gamma
-     + \lambda_\gamma\sin\gamma\!\left(\frac{v}{r} - \frac{\mu}{r^2 v}\right).
-     \label{eq:tpbvp_lamg}
-\end{align}
-The mass costate $\lambda_m$ is treated separately in
-Section~\ref{ssec:tpbvp_fullascent}; in the baseline it does not affect the
-steering and is omitted.
-
-\paragraph{Optimal control.}
-The angle of attack that minimises $H$ is obtained from the stationarity
-condition $\partial H/\partial\alpha = 0$, which the thrust-direction terms of
-Eqs.~\eqref{eq:tpbvp_vdot}--\eqref{eq:tpbvp_gammadot} solve in closed form:
-\begin{equation}
-  \sin\alpha^\star = \frac{-\lambda_\gamma/v}{\sqrt{(\lambda_\gamma/v)^2 + \lambda_v^2}},
-  \qquad
-  \cos\alpha^\star = \frac{-\lambda_v}{\sqrt{(\lambda_\gamma/v)^2 + \lambda_v^2}},
-  \label{eq:tpbvp_control_sc}
-\end{equation}
-or, compactly,
-\begin{equation}
-  \alpha^\star = \operatorname{atan2}\!\left(-\frac{\lambda_\gamma}{v},\; -\lambda_v\right).
-  \label{eq:tpbvp_control}
-\end{equation}
-The control therefore depends only on the instantaneous costates and speed; when
-both $\lambda_v$ and $\lambda_\gamma$ vanish (a singular, coast-like arc) the
-convention $\alpha^\star = 0$ is used.
-
-\paragraph{Transversality.}
-With the final time free and the terminal constraints~\eqref{eq:tpbvp_bc}
-imposed, the transversality conditions relate the terminal costates to the
-boundary manifold and require the Hamiltonian to vanish at the free endpoints.
-In the implemented residual this is enforced through the continuity of $H$ across
-the free coast/burn corners of the guided phase (Section~\ref{ssec:tpbvp_pso}),
-which is the practical form of the transversality
-requirement~\cite{BrysonHo,Hull,Longuski}.
-
-% -----------------------------------------------------------------------------
-\subsection{Two-Point Boundary-Value Problem and Hybrid-PSO Solution}
-\label{ssec:tpbvp_pso}
-
-Equations~\eqref{eq:tpbvp_sdot}--\eqref{eq:tpbvp_mdot} and
-\eqref{eq:tpbvp_lamr}--\eqref{eq:tpbvp_lamg}, closed by the
-control~\eqref{eq:tpbvp_control}, form a coupled state--costate system whose
-state is fixed at the start of the guided phase and whose costates are pinned
-only by the terminal conditions --- the defining structure of a TPBVP.  It is
-solved by searching over the unknown initial costates together with the free
-timing parameters of the powered/coast arc sequence.  The decision vector is
-seven-dimensional,
-\begin{equation}
-  \mathbf{p} = \bigl[\,\lambda_{r,0},\;\lambda_{v,0},\;\lambda_{\gamma,0},\;
-     \delta t_c,\; \delta t_{r},\; \tau_c,\; \gamma_p\,\bigr],
-  \label{eq:tpbvp_decision}
-\end{equation}
-where $(\lambda_{r,0},\lambda_{v,0},\lambda_{\gamma,0})$ are the initial
-costates, $\delta t_c$ is the coast duration, $\delta t_r \in [0,100]\%$ sets the
-total burn time as a fraction of the propellant-limited maximum $T_{\max}$,
-$\tau_c \in [0,100]\%$ is the coast-start location within the burn, and
-$\gamma_p$ is the pitch-over (kick) angle.  The burn split follows directly:
-\begin{equation}
-  T_{\text{burn}} = \frac{\delta t_r}{100}\,T_{\max}, \qquad
-  t_{\text{arc}1} = \frac{\tau_c}{100}\,T_{\text{burn}}, \qquad
-  t_{\text{arc}3} = T_{\text{burn}} - t_{\text{arc}1},
-  \label{eq:tpbvp_timing}
-\end{equation}
-so that $t_f = T_{\text{burn}} + \delta t_c$ and $t_{cf} = \delta t_c$, and
-$J = t_f - t_{cf} = T_{\text{burn}}$ recovers Eq.~\eqref{eq:tpbvp_objective}.
-
-\paragraph{Costate gauge.}
-The optimal control~\eqref{eq:tpbvp_control} and the linear costate
-equations~\eqref{eq:tpbvp_lamr}--\eqref{eq:tpbvp_lamg} are invariant to a
-positive rescaling of $\boldsymbol\lambda$: only the costate \emph{direction}
-shapes the trajectory, whereas $H$ scales linearly with the costate
-\emph{magnitude}.  To remove this gauge freedom --- and prevent the
-transversality penalty from being trivially driven to zero by shrinking the
-costates --- the initial costate vector is normalised to unit norm,
-\begin{equation}
-  \lVert(\lambda_{r,0},\lambda_{v,0},\lambda_{\gamma,0})\rVert = 1.
-  \label{eq:tpbvp_gauge}
-\end{equation}
-
-\paragraph{Augmented objective.}
-Each candidate $\mathbf{p}$ is scored by propagating the augmented state
-$[\,\mathbf{x},\lambda_r,\lambda_v,\lambda_\gamma\,]$ and evaluating a
-non-dimensional weighted penalty that combines the burn-time index, the terminal
-constraint violations, and the transversality residual:
-\begin{equation}
-  J' = w_J\,\frac{J}{T_{\max}}
-     + w_h\left|\frac{r_f - r_{\text{target}}}{h_{\text{target}}}\right|
-     + w_v\left|\frac{v_f - v_{\text{circ}}}{v_{\text{circ}}}\right|
-     + w_\gamma\left|\frac{\gamma_f}{\gamma_{\text{ref}}}\right|
-     + w_{\text{tr}}\left|\frac{H_{be} + H_{ce} - H_{bs}}{v_{\text{circ}}}\right|
-     + C.
-  \label{eq:tpbvp_Jprime}
-\end{equation}
-Here $H_{bs}$, $H_{ce}$ and $H_{be}$ are the Hamiltonian evaluated at the start
-of the guided burn, the end of the coast arc and the end of the final burn,
-respectively; their combination is the discrete transversality residual, made
-dimensionless by $v_{\text{circ}}$ because $H$ scales like a velocity.  The
-weights adopted are $w_J = 1$, $w_h = w_v = 100$, $w_\gamma = w_{\text{tr}} = 10$,
-with $\gamma_{\text{ref}} = 1^\circ$; the rotating-frame target absorbs the
-Earth-rotation credit through
-$v_{\text{circ}} = \sqrt{\mu/r_{\text{target}}} - \Omega_E\,r_{\text{target}}\cos\phi$.
-The term $C = 10^{20}$ is a large constant added whenever the trajectory is
-unphysical (ground impact or negative speed), so infeasible particles are
-strongly repelled.  The minimisation of $J'$ is performed with the PSO algorithm
-provided by PyGMO~\cite{Pontani2014,Pontani2013}, using the swarm size, inertia
-$\omega$, cognitive/social weights $c_1,c_2$, velocity clamp and seed configured
-in the parameter file (a $250\times500$ particle-generation budget for the
-full-ascent runs).  The costate bounds are $[-1,1]$, the coast duration
-$[0,2000]\,\text{s}$, both percentage variables $[0,100]$, and the kick angle
-$\gamma_p \in [1.54,1.57]\,\text{rad}$ (widened to $[1.45,1.57]$ in the
-full-ascent mode).
-
-% -----------------------------------------------------------------------------
-\subsection{Multi-Arc Structure and Corner Conditions}
-\label{ssec:tpbvp_arcs}
-
-The guided phase is a sequence of alternating powered and coast arcs.  In the
-baseline (upper-stage) configuration these are a thrust arc, a coast arc of
-duration $\delta t_c$, and a second thrust arc, preceded by a short ballistic
-ignition-delay coast.  The augmented state is integrated continuously across
-every arc junction, so the costates and the Hamiltonian are automatically
-continuous there.  This is exactly the Weierstrass--Erdmann corner condition:
-across a corner where the control switches (thrust on/off) the costates conjugate
-to position and velocity, and the Hamiltonian, do not jump~\cite{Pontani2013,GathCalise2001}.
-No interior jump conditions therefore need to be imposed --- continuity is
-obtained for free from the single continuous integration, and the only genuine
-free-timing transversality conditions are those of the coast/final-time boundary,
-already embedded in the residual of Eq.~\eqref{eq:tpbvp_Jprime}.
-
-% -----------------------------------------------------------------------------
-\subsection{Full-Ascent Extension}
-\label{ssec:tpbvp_fullascent}
-
-An opt-in extension lets the same PMP law steer the \emph{entire} powered ascent,
-from first-stage lift-off through orbit insertion, rather than the upper stage
-alone.  Four ingredients are added; each defaults off, so the baseline
-upper-stage TPBVP is recovered bit-for-bit.
-
-\paragraph{Drag-aware adjoints.}
-Aerodynamic drag is coupled into both the dynamics and the costates through the
-specific force
-\begin{equation}
-  a_D = \frac{1}{2}\,\rho(h)\,v^2\,\frac{C_D A}{m}, \qquad
-  \rho(h) = \rho_0\,e^{-h/H}, \quad h = r - R_E,
-  \label{eq:tpbvp_drag}
-\end{equation}
-appearing as $-a_D$ in $\dot v$ (Eq.~\eqref{eq:tpbvp_vdot}).  Because the
-exponential atmosphere gives closed-form partials
-$\partial a_D/\partial r = -a_D/H$ and $\partial a_D/\partial v = 2a_D/v$
-(and $a_D$ is independent of $\gamma$), the drag contribution to the adjoint
-equations is analytic and enters only $\dot\lambda_r$ and $\dot\lambda_v$:
-\begin{equation}
-  \dot\lambda_r \mathrel{+}= -\,\lambda_v\,\frac{a_D}{H}, \qquad
-  \dot\lambda_v \mathrel{+}= +\,2\,\lambda_v\,\frac{a_D}{v}.
-  \label{eq:tpbvp_drag_adjoint}
-\end{equation}
-A matching $a_D$ term is included in the Hamiltonian so the transversality
-residual stays consistent.  These partials were verified against finite
-differences to $\sim\!10^{-9}$.
-
-\paragraph{Angle-of-attack constraint.}
-Flying the first stage through the dense atmosphere requires bounding the angle
-of attack to keep the vehicle near a gravity turn and avoid aerodynamically
-inadmissible attitudes.  The interior-PMP control~\eqref{eq:tpbvp_control} is
-clamped,
-\begin{equation}
-  \alpha = \max\!\bigl(-\alpha_{\max},\,\min(\alpha_{\max},\,\alpha^\star)\bigr),
-  \label{eq:tpbvp_alpha_clamp}
-\end{equation}
-with $\alpha_{\max}$ a configurable bound (nominally $10^\circ$).  The clamp is
-active only while the vehicle remains within the atmosphere and is \emph{lifted
-after atmosphere exit}, so the exo-atmospheric arc recovers the exact
-interior-PMP steering.  The exit instant is decided by the same shared
-atmosphere-exit criterion used elsewhere in the simulator (default:
-dynamic-pressure threshold $q < 1000\,\text{Pa}$), keeping the guidance and the
-rest of the simulation consistent about where the atmosphere ends.  This mirrors
-the path-constrained, coast-containing multi-arc formulation of Gath and
-Calise~\cite{GathCalise2001}.
-
-\paragraph{Modular arc engine.}
-The full ascent is expressed as an ordered list of six arcs threaded through a
-single integrator that carries the augmented state, including across the staging
-discontinuity:
-\[
-  \text{vertical rise} \;\to\; \text{Stage-1 burn (MECO)} \;\to\;
-  \text{staging drop} \;\to\; \text{inter-stage coast} \;\to\;
-  \text{Stage-2 burn} \;\to\; \text{coast} \;\to\; \text{Stage-2 burn}.
-\]
-During the vertical rise the control is held at $\alpha \equiv 0$ and the
-costates are zero; the pitch-over kick both applies the flight-path-angle jump
-($\gamma \mathrel{+}= \gamma_p - \pi/2$) and \emph{seeds} the initial
-costates~\eqref{eq:tpbvp_gauge}, so the PMP optimisation effectively begins at
-the post-kick state --- the vertical rise carries no steering freedom and the
-homogeneous costate equations keep $\boldsymbol\lambda = 0$ through it.  The
-first-stage burn terminates on a mass-depletion (MECO) event rather than a fixed
-time, and staging is applied as a fixed exogenous mass drop across which the
-reduced costates are continuous (Section~\ref{ssec:tpbvp_arcs}), so no jump
-condition is required~\cite{Pontani2014,Pontani2013}.
-
-\paragraph{Mass costate.}
-For rigour the mass adjoint $\lambda_m$ is carried on the full-ascent path.
-Since $\dot m = -F_T/(I_{sp} g_0)$ is independent of $r$, $v$ and $\gamma$, the
-term $\partial H/\partial m$ contains no feedback into the steering costates, so
-$\lambda_m$ is a \emph{passive} additive quadrature,
-\begin{equation}
-  \dot\lambda_m = \lambda_v\!\left(\frac{F_T\cos\alpha}{m^2} - \frac{a_D}{m}\right)
-     + \lambda_\gamma\,\frac{F_T\sin\alpha}{m^2 v},
-  \label{eq:tpbvp_lamm}
-\end{equation}
-that neither changes the trajectory nor enlarges the decision vector.  With no
-terminal mass cost the transversality condition is $\lambda_m(t_f) = 0$, which,
-for a passive quadrature, is satisfied in closed form by shifting the integrated
-history by the constant $-\lambda_m(t_f)$.  Including $\lambda_m$ makes the
-Hamiltonian conserved within each powered arc, confirming that the arcs are
-rigorous extremals~\cite{GathCalise2001,PontaniTeofilatto}.
-
-% -----------------------------------------------------------------------------
-\subsection{Numerical Implementation}
-\label{ssec:tpbvp_numerics}
-
-The augmented state--costate system is propagated with the explicit
-Runge--Kutta~4(5) (Dormand--Prince) integrator of
-\texttt{scipy.integrate.solve\_ivp}, so the costates inherit the same adaptive
-accuracy as the physical state; relative and absolute tolerances of $10^{-9}$ are
-used because the terminal altitude penalty is sensitive to sub-kilometre errors
-in $r$.  Arc transitions and safeguards are handled by event functions: a
-mass-threshold event locates MECO, and a ground-collision event terminates any
-trajectory that would impact the Earth (such particles receive the crash
-penalty $C$).  For plotting and for reuse by the segmented-guidance module the
-optimal trajectory is re-integrated on a dense time grid and the control history
-$\alpha(t)$ is reconstructed pointwise from the stored costates via
-Eq.~\eqref{eq:tpbvp_control}; a segmented run can then replay this stored optimal
-$\alpha$ open-loop over the corresponding altitude band instead of re-solving the
-TPBVP.
+that neither alters the trajectory nor enlarges the set of unknowns. With no terminal mass cost the transversality condition is $\lambda_m(t_f)=0$, which, for a passive quadrature, is satisfied in closed form by subtracting the constant $\lambda_m(t_f)$ from the integrated history. Including $\lambda_m$ renders the Hamiltonian constant along each powered arc, confirming that the multi-arc solution is a consistent extremal of the full-ascent problem~\cite{pontani2013ascent,pontani2019ascent}.

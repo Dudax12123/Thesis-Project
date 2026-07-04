@@ -1,36 +1,16 @@
 % =============================================================================
 %  tpbvp_refs.bib
-%  References for the indirect-PMP two-point boundary-value problem (TPBVP)
-%  section (\input{tpbvp_implementation}).  These entries were gathered while
-%  documenting the indirect_pmp guidance and its full-ascent extension; merge
-%  them into the master thesis bibliography.  Keys follow the existing style
-%  (cf. teofilatto2025trajectories), which is cited but defined elsewhere.
+%  New references for the full-ascent extension of the indirect-PMP section
+%  (subsubsections added to \label{ssec:indirect_ascent} in
+%  Thesis_Background_claude.tex).  Merge these into the master thesis
+%  bibliography.  Only entries NOT already in the master bib are listed:
+%  the core indirect/PMP/PSO citations reuse the existing keys
+%  (pontani2014particle, Morgado2022_MultistagePrelimDesignTrajectoryOpt,
+%  BettsSurvey1998, conway2010spacecraft, dormand1980family,
+%  Cremaschi2013TrajectoryOptimization, ...).
 % =============================================================================
 
-@article{Pontani2014,
-  author  = {Pontani, Mauro},
-  title   = {Particle Swarm Optimization of Ascent Trajectories of Multistage
-             Launch Vehicles},
-  journal = {Acta Astronautica},
-  volume  = {94},
-  number  = {2},
-  pages   = {852--864},
-  year    = {2014},
-  doi     = {10.1016/j.actaastro.2013.09.013},
-}
-
-@article{Pontani2013,
-  author  = {Pontani, Mauro},
-  title   = {Ascent Trajectories of Multistage Launch Vehicles: Numerical
-             Optimization with Second-Order Conditions Verification},
-  journal = {ISRN Aerospace Engineering},
-  volume  = {2013},
-  pages   = {498765},
-  year    = {2013},
-  doi     = {10.1155/2013/498765},
-}
-
-@article{GathCalise2001,
+@article{gath2001optimization,
   author  = {Gath, Peter F. and Calise, Anthony J.},
   title   = {Optimization of Launch Vehicle Ascent Trajectories with Path
              Constraints and Coast Arcs},
@@ -42,7 +22,18 @@
   doi     = {10.2514/2.4712},
 }
 
-@incollection{PontaniTeofilatto,
+@article{pontani2013ascent,
+  author  = {Pontani, Mauro},
+  title   = {Ascent Trajectories of Multistage Launch Vehicles: Numerical
+             Optimization with Second-Order Conditions Verification},
+  journal = {ISRN Aerospace Engineering},
+  volume  = {2013},
+  pages   = {498765},
+  year    = {2013},
+  doi     = {10.1155/2013/498765},
+}
+
+@incollection{pontani2019ascent,
   author    = {Pontani, Mauro and Teofilatto, Paolo},
   title     = {Ascent Trajectory Optimization and Neighboring Optimal Guidance
                of Multistage Launch Vehicles},
@@ -50,42 +41,4 @@
   publisher = {Springer},
   year      = {2019},
   doi       = {10.1007/978-3-030-10501-3_13},
-}
-
-@book{BrysonHo,
-  author    = {Bryson, Arthur E. and Ho, Yu-Chi},
-  title     = {Applied Optimal Control: Optimization, Estimation, and Control},
-  publisher = {Hemisphere Publishing Corporation},
-  address   = {Washington, D.C.},
-  year      = {1975},
-}
-
-@book{Hull,
-  author    = {Hull, David G.},
-  title     = {Optimal Control Theory for Applications},
-  publisher = {Springer},
-  series    = {Mechanical Engineering Series},
-  year      = {2003},
-  doi       = {10.1007/978-1-4757-4180-3},
-}
-
-@book{Longuski,
-  author    = {Longuski, James M. and Guzm{\'a}n, Jos{\'e} J. and
-               Prussing, John E.},
-  title     = {Optimal Control with Aerospace Applications},
-  publisher = {Springer},
-  series    = {Space Technology Library},
-  year      = {2014},
-  doi       = {10.1007/978-1-4614-8945-0},
-}
-
-@book{Betts,
-  author    = {Betts, John T.},
-  title     = {Practical Methods for Optimal Control and Estimation Using
-               Nonlinear Programming},
-  edition   = {2},
-  publisher = {Society for Industrial and Applied Mathematics (SIAM)},
-  address   = {Philadelphia, PA},
-  year      = {2010},
-  doi       = {10.1137/1.9780898718577},
 }
