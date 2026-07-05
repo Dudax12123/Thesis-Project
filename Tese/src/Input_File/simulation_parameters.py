@@ -65,7 +65,7 @@ INCLUDE_PSEUDO_FORCES = True                     # if True, include Coriolis and
 # in-plane trajectory. When True, the per-step counter-force the actuator must supply,
 # m*|a_cross| [N], is computed, stored and plotted (as kN vs time). Requires
 # ENABLE_EARTH_ROTATION and INCLUDE_PSEUDO_FORCES.
-COMPUTE_CROSS_HEADING_COUNTER_FORCE = False
+COMPUTE_CROSS_HEADING_COUNTER_FORCE = True
 
 
 # ===================================================================
@@ -491,7 +491,7 @@ INDIRECT_PMP_INCLUDE_DRAG  = True    # None | True | False
 # arc (limited alpha through max-q) rather than commanding the large aerodynamically
 # -inadmissible angles a drag-free optimum would. Recommended when
 # INDIRECT_PMP_FULL_ASCENT=True. Ignored while alpha is unconstrained (None).
-INDIRECT_PMP_ALPHA_MAX_DEG = 10.0    # None or e.g. 10.0
+INDIRECT_PMP_ALPHA_MAX_DEG = 10.0       # None or e.g. 10.0
 
 # When True, the alpha clamp above is applied ONLY while the vehicle is still in the
 # atmosphere and is LIFTED after atmosphere exit (the exact interior-PMP steering
