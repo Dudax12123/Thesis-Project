@@ -267,11 +267,13 @@ $\mu=3.986\times10^{14}~\mathrm{m^{3}\,s^{-2}}$; the Earth is treated as
 spherical, so oblateness ($J_2$) is not modelled. Atmospheric density follows the
 exponential profile of Eq.~\eqref{eq:exp_atmosphere}, with sea-level density
 $\rho_0=1.225~\mathrm{kg\,m^{-3}}$ and scale height $H=8500$~m, and the dynamic
-pressure is $q=\tfrac12\rho v^{2}$. Two criteria are available for declaring
+pressure is $q=\tfrac12\rho v^{2}$. Three criteria are available for declaring
 atmosphere exit and activating exo-atmospheric guidance: an altitude threshold
-($h>65$~km~\cite{kluever2018space}) or a dynamic-pressure threshold
-($q<1000$~Pa, configurable). The selected criterion is a simulation parameter and
-is shared with the fairing-jettison logic.
+($h>65$~km~\cite{kluever2018space}), a dynamic-pressure threshold
+($q<1000$~Pa, the default), or an aerothermal-flux threshold
+($\tfrac12\rho v^{3}<1135~\mathrm{W\,m^{-2}}$). The selected criterion is a
+simulation parameter (\texttt{ATMOSPHERE\_EXIT\_METHOD}) and is shared with the
+fairing-jettison logic.
 
 \subsection{Aerodynamic and Propulsive Forces}
 \label{ssec:aero_prop}
@@ -303,9 +305,12 @@ Nine guidance modes are available, selected by \texttt{GUIDANCE\_MODE}. All shar
 a common initial pitchover manoeuvre and differ in how the angle of attack
 $\alpha$ is commanded thereafter. The scalar-$t_{go}$ modes (Apollo, the tangent
 laws, and CPR) share a \texttt{TGO\_ESTIMATOR} option that selects between a
-rocket-equation and a PEG-based time-to-go estimate. The atmospheric-arc theory
-of each law is developed in Chapter~\ref{chapter:theoretical_background}; this section
-documents the implemented form.
+rocket-equation and a PEG-based time-to-go estimate. Besides being selected
+individually, several of these laws can also be chained by altitude within a single
+ascent through the segmented mode of Section~\ref{ssec:segmented}. The
+atmospheric-arc theory of each law is developed in
+Chapter~\ref{chapter:theoretical_background}; this section documents the
+implemented form.
 
 \subsection{Common Initial Kick Phase}
 \label{ssec:kick_phase}
@@ -329,6 +334,14 @@ where $\alpha_k$ is the kick angle. After the kick, and until the atmosphere-exi
 criterion is met, $\alpha$ is held at zero; active guidance then engages. The
 kick angle (or, equivalently, the pitch-manoeuvre parameter $\gamma_p$) is the
 design variable optimised by every architecture of Section~\ref{sec:optimization}.
+
+The triangular profile of Eq.~\eqref{eq:kick_profile} (selected by
+\texttt{KICK\_PROFILE\_MODE}) is applied only in the brute-force
+\texttt{apogee\_check} architecture. The three PSO architectures instead impose an
+\emph{instantaneous} flight-path-angle jump at the end of the vertical rise,
+$\gamma \to \gamma_p$ (equivalently a kick angle $\gamma_p-\pi/2$), so under those
+paths \texttt{KICK\_PROFILE\_MODE} has no effect and $\gamma_p$ alone parametrises
+the manoeuvre.
 
 \subsection{Gravity Turn}
 \label{ssec:gt}
@@ -433,7 +446,9 @@ time since the last major update.
 \subsection{Analytical Predictor--Corrector PEG (\texttt{peg\_new})}
 \label{ssec:peg_new}
 
-The \texttt{peg\_new} mode implements the velocity-to-be-gained formulation, in
+The \texttt{peg\_new} mode implements the velocity-to-be-gained formulation --- the
+vector Powered Explicit Guidance form derived in
+Section~\ref{sssec:peg_theory} --- in
 which the primary variable is the two-dimensional vector $\mathbf{v}_{go}$ and the
 time-to-go follows directly from the rocket equation,
 $t_{go}=\tau\bigl(1-e^{-\lVert\mathbf{v}_{go}\rVert/v_e}\bigr)$. The tangential
@@ -464,10 +479,13 @@ $\alpha = a\,e^{b\,t_{\mathrm{rel}}}-\gamma$. The pair $(a,b)$ is fixed once, at
 guidance start, by a single-shooting solve: \texttt{scipy.optimize.fsolve} adjusts
 $(a,b)$ until a simplified drag-free forward propagation to burnout satisfies the
 two terminal constraints $r(T)=r_T$ and $\gamma(T)=0$. If the solve fails to
-converge the current-state initial guess is retained. This is the simplest
-boundary-value method, and the same shooting idea underlies the indirect
-optimal-control architecture, where the unknowns are the initial costates rather
-than pitch coefficients.
+converge the current-state initial guess is retained. Under the \texttt{pso\_coast}
+architecture the shooting solve is bypassed: $(a,b)$ are instead carried as two
+additional PSO decision variables and re-epoched at the start of each burn arc, so
+the coefficients are chosen by the outer optimiser rather than by \texttt{fsolve}.
+This is the simplest boundary-value method, and the same shooting idea underlies
+the indirect optimal-control architecture, where the unknowns are the initial
+costates rather than pitch coefficients.
 
 \subsection{Indirect Optimal-Control Steering (\texttt{indirect\_pmp})}
 \label{ssec:indirect_guidance}
@@ -489,10 +507,11 @@ it steers a segment of a multi-law schedule.
 The optimiser is deliberately guidance-agnostic: it supplies a design vector and
 receives a scalar cost, while the inner simulation selects and runs whichever
 guidance law is active. Four architectures are available, selected by
-\texttt{COAST\_METHOD} together with the \texttt{indirect\_pmp} mode. All share
-the non-dimensional penalised-objective philosophy introduced in
-Section~\ref{ssec:optimization}: terminal errors and infeasibility are folded
-into a single scalar to be minimised.
+\texttt{COAST\_METHOD} together with the \texttt{indirect\_pmp} mode; a further
+\emph{segmented} mode (Section~\ref{ssec:segmented}) chains several laws within a
+single ascent. All share the non-dimensional penalised-objective philosophy
+introduced in Section~\ref{ssec:optimization}: terminal errors and infeasibility
+are folded into a single scalar to be minimised.
 
 \subsection{\texttt{apogee\_check}: Brute-Force Kick-Angle Search}
 \label{ssec:apogee_check}
@@ -619,7 +638,10 @@ When the optional full-ascent extension is active, the trajectory is integrated 
 one continuous pass of the augmented state through an ordered arc list --- a
 vertical rise at $\alpha\equiv0$, the first-stage powered arc terminated by a
 propellant-depletion (MECO) event, an instantaneous inert-mass staging drop, an
-inter-stage coast, and the upper-stage thrust--coast--thrust arcs. The costates are
+inter-stage coast, and the upper-stage thrust--coast--thrust arcs. On the
+first-stage arc the engine is modelled with a constant representative thrust and
+specific impulse (the mean of the sea-level and vacuum values), a first-version
+simplification of the altitude-varying Stage-1 performance. The costates are
 seeded at the pitch-over point (the homogeneous adjoint equations keep them zero
 through the vertical rise), and, since the reduced costate set carries no mass
 adjoint, the position and velocity costates and the Hamiltonian remain continuous
@@ -633,6 +655,34 @@ $\lambda_m$ of Eq.~\eqref{eq:fa_masscostate} is integrated for rigour; because i
 feeds back into nothing, its terminal condition $\lambda_m(t_f)=0$ is imposed in
 closed form by subtracting the constant $\lambda_m(t_f)$ from the integrated
 history, which renders the Hamiltonian constant along each powered arc.
+
+\subsection{Segmented Multi-Law Guidance}
+\label{ssec:segmented}
+
+The architectures above fly a single guidance law for the whole guided ascent. An
+optional segmented mode (\texttt{MULTI\_GUIDANCE\_ENABLED}) instead ignores the
+single \texttt{GUIDANCE\_MODE} and flies an ordered schedule of laws, each
+activated at a prescribed altitude. Gravity turn is the implicit prefix from
+lift-off to the first activation altitude; every non-final segment then steers
+toward the optimal $(h,v,\gamma)$ waypoint taken from a cached indirect-PMP
+reference (Section~\ref{sssec:indirect_pmp}) at the next activation altitude, and
+the final segment performs the orbit insertion. Insertion reuses the
+\texttt{pso\_coast} thrust--coast--thrust engine and its four-variable design
+vector of Eq.~\eqref{eq:pso_coast_vector}; the activation altitudes are
+user-specified.
+
+The distinctive feature is that, because a segment can activate below MECO, a
+closed-loop law can fly \emph{during} the first stage --- something the single-law
+modes cannot do, since they gate active guidance on second-stage ignition. To keep
+the time-to-go--dependent laws (Apollo and the tangent laws) counting down
+monotonically across staging rather than saturating at the stage boundary, the
+segmented mode replaces the rocket-equation $t_{go}$ estimate with a
+planned-deadline countdown $t_{go}=t_{\mathrm{deadline}}-t$, the deadlines being
+sourced from the reference timing. The supported segment laws are \texttt{apollo},
+\texttt{peg\_new}, \texttt{linear\_tangent}, \texttt{bilinear\_tangent}, and
+\texttt{indirect\_pmp} (which replays the stored optimal $\alpha$); the two tangent
+laws are angle-only, matching a waypoint's flight-path angle but not its altitude
+or speed, so the final segment carries the insertion.
 
 \subsection{Separation of Concerns}
 \label{ssec:separation}
@@ -672,8 +722,10 @@ mission-geometry parameters of Section~\ref{sec:vehicle}.
                               \texttt{INCLUDE\_PSEUDO\_FORCES},
                               \texttt{AZIMUTH\_INCLINATION\_MODE} \\
     Atmosphere / aero       & \texttt{INCLUDE\_DRAG}, \texttt{INCLUDE\_LIFT},
-                              \texttt{ATMOSPHERE\_EXIT\_METHOD} \\
-    Kick profile            & \texttt{KICK\_PROFILE\_MODE} (triangular / instantaneous) \\
+                              \texttt{ATMOSPHERE\_EXIT\_METHOD}
+                              (altitude / dynamic pressure / aerothermal flux) \\
+    Kick profile            & \texttt{KICK\_PROFILE\_MODE} (triangular / instantaneous;
+                              triangular honoured only under \texttt{apogee\_check}) \\
     Engine modes            & \texttt{ISP\_1\_MODE}, \texttt{THRUST\_1\_MODE}
                               (sea-level / vacuum / average / linear) \\
     Optimiser settings      & \texttt{RUN\_FAST}, PSO tuning blocks
@@ -706,8 +758,8 @@ SpaceX_Falcon9_2025, Wevolver_Falcon9v12_Block5_2019}.}
 \hline
 Isp (Sea Level)          & 283 s        & --       \\
 Isp (Vacuum)             & 312 s        & 348 s    \\
-Maximum Thrust (SL)      & 7{,}607 kN    & 8{,}227 kN \\
-Maximum Thrust (V)       & --           & 981 kN   \\
+Maximum Thrust (SL)      & 7{,}607 kN    & --       \\
+Maximum Thrust (V)       & 8{,}227 kN    & 981 kN   \\
 Propellant               & LOX/RP-1      & LOX/RP-1 \\
 Propellant Mass          & 395{,}700 kg  & 92{,}670 kg \\
 Empty Mass               & 25{,}600 kg   & 3{,}900 kg \\

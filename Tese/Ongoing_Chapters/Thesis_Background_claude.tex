@@ -544,11 +544,11 @@ As the vehicle accelerates, the factor $\left((\frac{g}{v})-(\frac{v}{r})\right)
 
 \subsubsection{Constant Pitch Rate (CPR) and Constant Flight Path Angle Rate (CFPAR)}
 
-Although the gravity turn provides a simple and effective way to transition from near-vertical ascent to near-horizontal flight while maintaining a small angle of attack, it is not the only available option. In practice, alternative steering laws are often adopted to better trade drag losses, structural loads, and operational constraints. Two commonly used families are the \emph{constant pitch rate} (CPR) and the \emph{constant flight-path angle rate} (CPFAR) approaches~\cite{Ulrich}.
+Although the gravity turn provides a simple and effective way to transition from near-vertical ascent to near-horizontal flight while maintaining a small angle of attack, it is not the only available option. In practice, alternative steering laws are often adopted to better trade drag losses, structural loads, and operational constraints. Two commonly used families are the \emph{constant pitch rate} (CPR) and the \emph{constant flight-path angle rate} (CFPAR) approaches~\cite{Ulrich}.
 
 In a CPR maneuver, the vehicle is commanded to rotate at an approximately constant pitch rate, yielding a predictable and easily implementable attitude program. This strategy is frequently used as a practical alternative to a pure gravity turn, particularly when it is desirable to shape the atmospheric segment to reduce drag losses and to impose a controlled, smooth reorientation rather than relying solely on gravity-driven turning~\cite{Ulrich}.
 
-The CPFAR family instead focuses on prescribing how the \emph{flight-path angle} evolves, typically enforcing an approximately constant rate of change during the early ascent. This is especially useful shortly after lift-off, when the vehicle speed is low and simplified force balances can be used to obtain guidance relationships that are straightforward to tune. In this sense, CPFAR can serve as an intermediate step between purely open-loop attitude programming and a more physics-driven steering law, and it can also be used as a building block to derive CPR-type profiles under suitable assumptions~\cite{Ulrich}.
+The CFPAR family instead focuses on prescribing how the \emph{flight-path angle} evolves, typically enforcing an approximately constant rate of change during the early ascent. This is especially useful shortly after lift-off, when the vehicle speed is low and simplified force balances can be used to obtain guidance relationships that are straightforward to tune. In this sense, CFPAR can serve as an intermediate step between purely open-loop attitude programming and a more physics-driven steering law, and it can also be used as a building block to derive CPR-type profiles under suitable assumptions~\cite{Ulrich}.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -779,6 +779,7 @@ These parameters are required to satisfy the target terminal position and veloci
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \subsubsection{Power Explicit Law}
+\label{sssec:peg_theory}
 
 The method relies on a linear tangent law to parametrize the thrust-direction history and yields a guidance profile that is close to fuel-optimal for a nominal rocket ascent. Owing to its effectiveness and onboard practicality, PEG later became a widely adopted ascent-guidance approach and is most notably associated with the Space Shuttle guidance system.
 
@@ -870,6 +871,8 @@ Where the thrust contributions are approximated by~\cite{SONG2015463}:
 \label{eq:peg_rthrust}
 \end{align}
 In the correction step, the desired cut-off condition and the updated $\vec v_{go}$ are recomputed using the predicted states and the target-orbit information, and the predictor-corrector loop is repeated~\cite{SONG2015463}. Convergence is typically assessed by requiring that the updated time-to-go $t_{go}$ does not change significantly between successive iterations~\cite{SONG2015463}.
+
+Two PEG variants are implemented in this work. A classical variant parametrizes the pitch directly as a \emph{scalar} linear-tangent programme, $\sin(\text{pitch})=A+B\,t$, and refines its steering constants and burn-time estimate through a damped Guide--Estimate major loop; the analytical predictor--corrector variant instead carries the velocity-to-be-gained vector $\vec v_{go}$ derived above. These correspond respectively to the \texttt{peg} and \texttt{peg\_new} guidance modes, whose implemented forms are given in the methodology (Sections~\ref{ssec:peg} and~\ref{ssec:peg_new}).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -994,12 +997,10 @@ where, for compactness, the explicit dependence of each quantity on $(x,u,t)$ ha
 To compute the first variation $\delta\mathcal{J}$, it is convenient to introduce the Hamiltonian~\cite{Optimization_Review}:
 \begin{equation}
 H(x,u,\lambda) \;=\; L \;+\; \lambda^{T} f ,
-\tag{60}
 \end{equation}
 together with the auxiliary (endpoint) function
 \begin{equation}
-\Phi \;=\; \Phi \;+\; \nu^{T} b .
-\tag{61}
+\bar{\Phi} \;=\; \Phi \;+\; \nu^{T} b .
 \end{equation}
 Setting $\delta\mathcal{J}=0$ yields the first-order necessary conditions, commonly written as the Euler-Lagrange equations~\cite{Optimization_Review}. In particular, the co-state adjoint dynamics are:
 \begin{equation}
@@ -1015,9 +1016,8 @@ The associated transversality conditions for the simplified case read
 \begin{equation}
 \label{eq:transversality_conditions}
 \begin{aligned}
-\lambda^{T}(t_f) &= \left.\Phi_{x}\right|_{t=t_f}, \\
-\left.(\Phi_{t}+H)\right|_{t=t_f} &= 0, \\
-\lambda(t_0) &= 0.
+\lambda^{T}(t_f) &= \left.\bar{\Phi}_{x}\right|_{t=t_f}, \\
+\left.(\bar{\Phi}_{t}+H)\right|_{t=t_f} &= 0.
 \end{aligned}
 \end{equation}
 Here, subscripts denote partial derivatives with respect to the corresponding variables and are taken as row vectors. The stationarity condition~\ref{eq:63} is an expression of Pontryagin's Maximum Principle: the optimal control history $u^{*}(t)$ maximizes the Hamiltonian $H$ at every time instant, and the corresponding optimal state $x^{*}(t)$ follows from the dynamic constraints driven by $u^{*}(t)$~\cite{BettsSurvey1998}. Since the maximum principle is naturally stated for a maximization problem, a minimization objective can be handled by changing the sign of the cost function (i.e., minimizing $J$ is equivalent to maximizing $-J$).
