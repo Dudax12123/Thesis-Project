@@ -430,21 +430,6 @@ def execute():
         print("="*60)
         print("  Optimising 7 variables: λ₀_r, λ₀_v, λ₀_γ, Δt_c,")
         print("  Δt_r%, coast_start%, γ_p  (see Table 6 of paper)")
-        if getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT", False):
-            _, _drag, _amax = ips._resolve_pmp_options()
-            _atmos_only = bool(getattr(sim_params, "INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY", True))
-            if _amax is None:
-                _amax_txt = "unconstrained"
-            else:
-                _amax_txt = f"±{np.rad2deg(_amax):.1f}°"
-                if _atmos_only:
-                    _method = getattr(sim_params, "ATMOSPHERE_EXIT_METHOD", "altitude")
-                    _amax_txt += f" (lifted after atmosphere exit: {_method})"
-            print("-"*60)
-            print("  FULL-ASCENT mode: PMP steers Stage 1 → insertion")
-            print("  arcs: vertical rise → Stage-1 burn → staging drop →")
-            print("        inter-stage coast → Stage-2 burn/coast/burn")
-            print(f"  drag in costates: {_drag}   |   α constraint: {_amax_txt}")
         print("="*60)
 
         # Suppress event prints during PSO (thousands of trajectory evals)
@@ -477,6 +462,16 @@ def execute():
         coriolis_mag_data    = np.zeros_like(time)
         centrifugal_mag_data = np.zeros_like(time)
         delta_v          = 0.0
+
+        # The cross-heading counter-force history is appended at ODE-RHS cadence
+        # inside the EOM, so it does NOT match the dense output grid `time` (=
+        # time_thrust here) and would crash the plot. Recompute it on the grid
+        # (pure function of state) so the downstream plot block gets length-aligned
+        # channels. See rocket_ascent.cross_heading_channels_on_grid.
+        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
+            _cf_grid, _ca_grid = ra.cross_heading_channels_on_grid(time, data)
+            ra.cross_heading_counter_force_history = _cf_grid
+            ra.cross_heading_accel_history         = _ca_grid
 
         kick_angle_optimal     = optimal_params[6] - np.pi / 2.0   # gamma_p → kick angle
         best_azimuth_override  = None

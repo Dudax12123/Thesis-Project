@@ -27,36 +27,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from Auxiliary import constants as c
-from Auxiliary import rocket_specs as r
-
-
-# ---------------------------------------------------------------------------
-# Aerodynamic specific force (exponential atmosphere)
-# ---------------------------------------------------------------------------
-
-def drag_specific_force(r_val, v, m):
-    """Drag deceleration  a_D = D/m  [m/s²]  using the exponential atmosphere.
-
-        a_D = ½ ρ(h) v² C_D A / m,   h = r_val − R_E,   ρ = RHO_0 · e^{−h/H}
-
-    Single source of truth shared by the augmented ODE, the costate ODEs and the
-    Hamiltonian so the drag-aware trajectory and its adjoints stay consistent.
-    Vanishes as ρ → 0 (vacuum), so it is a no-op at Stage-2 altitudes. Returns 0
-    for non-positive mass.  The analytic partial used by the costate ODEs follows
-    directly from the exponential model:  ∂a_D/∂r = −a_D/H,  ∂a_D/∂v = 2 a_D/v.
-    """
-    if m <= 1e-10:
-        return 0.0
-    alt = r_val - c.R_EARTH
-    rho = c.RHO_0 * np.exp(-alt / c.H)
-    return 0.5 * rho * v * v * r.C_D * r.A / m
 
 
 # ---------------------------------------------------------------------------
 # PMP optimal control law
 # ---------------------------------------------------------------------------
 
-def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None, cap_active=True):
+def pmp_control_law(lambda_v, lambda_gamma, v):
     """
     PMP optimal angle of attack α (Eq. 34 of the paper).
 
@@ -72,18 +49,6 @@ def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None, cap_active=True):
     lambda_v     : float  Velocity costate λ_V
     lambda_gamma : float  FPA costate λ_γ
     v            : float  Velocity magnitude [m/s]
-    alpha_max    : float or None
-        Angle-of-attack constraint [rad]. None ⇒ unconstrained (the exact PMP
-        optimum). When set, the optimum is clamped to [−alpha_max, +alpha_max] —
-        the constrained-control solution that keeps the atmospheric arc near a
-        gravity turn instead of commanding aerodynamically-inadmissible angles.
-    cap_active : bool
-        Whether the α clamp is active at this point. The caller decides this —
-        e.g. the full-ascent solver lifts the clamp after atmosphere exit (via
-        the shared ATMOSPHERE_EXIT_METHOD criterion), so the atmospheric arc is
-        bounded while the near-vacuum arc follows the exact interior-PMP α. The
-        clamp is applied only when ``alpha_max`` is set AND ``cap_active`` is True;
-        the default True reproduces a constant cap wherever ``alpha_max`` is given.
 
     Returns
     -------
@@ -103,22 +68,14 @@ def pmp_control_law(lambda_v, lambda_gamma, v, alpha_max=None, cap_active=True):
 
     sin_alpha = -lg_over_v * denom
     cos_alpha = -lambda_v * denom
-    alpha = float(np.arctan2(sin_alpha, cos_alpha))
-
-    # Apply the α clamp only when a cap is set AND it is active here. The caller
-    # lifts it after atmosphere exit (near-vacuum → exact interior-PMP steering);
-    # see ``_in_atmosphere`` in the full-ascent solver.
-    if alpha_max is not None and cap_active:
-        alpha = max(-alpha_max, min(alpha_max, alpha))
-    return alpha
+    return float(np.arctan2(sin_alpha, cos_alpha))
 
 
 # ---------------------------------------------------------------------------
 # Costate (adjoint) ODEs
 # ---------------------------------------------------------------------------
 
-def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha,
-                        include_drag=False):
+def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha):
     """
     Adjoint (costate) ODEs from Eqs. 30b–30d of the paper.
 
@@ -138,16 +95,6 @@ def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha,
     lam_v : float  Costate for V  (λ_V)
     lam_g : float  Costate for γ  (λ_γ)
     alpha : float  Current angle of attack [rad]
-    include_drag : bool
-        If True, add the aerodynamic-drag partials to the adjoint equations.
-        Drag enters the EOM only through V̇ (a_D along −V), so it perturbs only
-        λ̇_r and λ̇_v; λ̇_γ is unchanged (a_D is γ-independent). With the
-        exponential atmosphere (∂a_D/∂r = −a_D/H, ∂a_D/∂v = 2a_D/v):
-
-            λ̇_r += −λ_v · a_D / H
-            λ̇_v += +2 · λ_v · a_D / V
-
-        Default False reproduces the drag-free equations byte-for-byte.
 
     Returns
     -------
@@ -181,12 +128,6 @@ def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha,
               + mu * lam_v * cg / r2
               + lam_g * sg * (v / r_val - mu / (r2 * v_safe)))
 
-    # Aerodynamic-drag adjoint terms (only V̇ carries a_D = −∂H/∂x additions)
-    if include_drag:
-        a_D = drag_specific_force(r_val, v, m)
-        dlam_r += -lam_v * a_D / c.H
-        dlam_v += 2.0 * lam_v * a_D / v_safe
-
     return [dlam_r, dlam_v, dlam_g]
 
 
@@ -194,23 +135,14 @@ def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha,
 # Hamiltonian
 # ---------------------------------------------------------------------------
 
-def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g,
-                        include_drag=False, lam_m=0.0, Isp=None):
+def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g):
     """
     Hamiltonian H at a given state/costate point (Eq. 28 of the paper).
 
-        H = λ_s·ṡ + λ_r·ṙ + λ_v·V̇ + λ_γ·γ̇ + λ_m·ṁ
+        H = λ_s·ṡ + λ_r·ṙ + λ_v·V̇ + λ_γ·γ̇
 
     λ_s = 0, so the ṡ term vanishes.
     Drag-free EOM used for ṙ, V̇, γ̇ (consistent with costate_derivatives).
-    When ``include_drag`` is True the a_D = D/m term is subtracted from V̇,
-    matching the drag-aware costate equations so the transversality residual
-    stays consistent.  Default (``include_drag=False``, ``lam_m=0``) is unchanged.
-
-    The mass-costate term ``λ_m·ṁ`` (ṁ = −F_T/(Isp·g₀)) is added only for the
-    full-ascent formulation, where the mass adjoint is carried so the powered
-    arcs are rigorous extremals (H conserved). ``lam_m=0`` (the default, and the
-    Stage-2-only path) drops it, leaving H byte-for-byte the original value.
 
     Parameters
     ----------
@@ -239,19 +171,13 @@ def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g,
     ca = np.cos(alpha)
     sa = np.sin(alpha)
 
-    # EOM  (F_L = 0; F_D included only when requested)
-    a_D     = drag_specific_force(r_val, v, m) if include_drag else 0.0
+    # Drag-free EOM  (F_D = F_L = 0)
     drdt    = v * sg
-    dvdt    = T_over_m * ca - g_local * sg - a_D
+    dvdt    = T_over_m * ca - g_local * sg
     if abs(v) < _EPS:
         dgammadt = 0.0
     else:
         dgammadt = (1.0 / v) * (T_over_m * sa - (g_local - v ** 2 / r_val) * cg)
 
-    # Mass-costate contribution (dropped when lam_m == 0)
-    dmdt_term = 0.0
-    if lam_m != 0.0 and Isp is not None and F_T > 0 and m > _EPS:
-        dmdt_term = lam_m * (-F_T / (Isp * c.G_0))
-
-    # H = λ_r·ṙ + λ_v·V̇ + λ_γ·γ̇ + λ_m·ṁ
-    return float(lam_r * drdt + lam_v * dvdt + lam_g * dgammadt + dmdt_term)
+    # H = λ_r·ṙ + λ_v·V̇ + λ_γ·γ̇
+    return float(lam_r * drdt + lam_v * dvdt + lam_g * dgammadt)

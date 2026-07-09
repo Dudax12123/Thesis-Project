@@ -559,6 +559,49 @@ def get_latitude_rate_from_downrange(s, dsdt):
     return dlat_dsigma * dsigma_dt
 
 
+def cross_heading_channels_on_grid(time, data):
+    """Recompute the cross-heading counter-force / acceleration on the output grid.
+
+    ``cross_heading_counter_force_history`` and ``cross_heading_accel_history`` are
+    appended INSIDE the EOM derivative (at ODE right-hand-side cadence), so their
+    length never matches the dense plotting grid ``time`` — plotting them together
+    crashes (x/y first-dimension mismatch). The counter-force is a pure function of
+    state (``m*|a_cross|``), so recompute it on the ``(time, data)`` grid instead:
+    length ``len(time)`` by construction, mirroring the EOM's own convention
+    (``heading = LAUNCH_AZIMUTH``, ``lat = get_latitude_from_downrange(s)`` for the
+    5-state indirect path; see the EOM near :func:`get_latitude_from_downrange`).
+
+    Parameters
+    ----------
+    time : ndarray            Output time grid (only its length matters here).
+    data : ndarray (5 x N)    State rows ``[s, r, v, gamma, m]``.
+
+    Returns
+    -------
+    force_grid : ndarray (N,)  Counter-force ``m*|a_cross|`` [N].
+    accel_grid : ndarray (N,)  ``|a_cross|`` [m/s^2].
+    """
+    n = data.shape[1]
+    force_grid = np.zeros(n)
+    accel_grid = np.zeros(n)
+
+    # Same activation guard the EOM uses for the pseudo-force term (line ~1411).
+    if not (sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES
+            and not PROPAGATING_IN_INERTIAL_FRAME):
+        return force_grid, accel_grid
+
+    for i in range(n):
+        s_i, r_i, v_i, g_i, m_i = (data[0, i], data[1, i], data[2, i],
+                                   data[3, i], data[4, i])
+        lat_i = get_latitude_from_downrange(s_i)
+        _, _, _, a_cross_i, _, _ = earth_rot.rotating_frame_pseudoforce_rates(
+            v_i, g_i, LAUNCH_AZIMUTH, lat_i, r_i)
+        accel_grid[i] = abs(a_cross_i)
+        force_grid[i] = m_i * abs(a_cross_i)
+
+    return force_grid, accel_grid
+
+
 def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
     """
     Computes the orbital parameters given the input state.
