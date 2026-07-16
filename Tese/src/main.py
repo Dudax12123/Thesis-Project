@@ -181,7 +181,7 @@ def _print_propellant_losses():
     print(f"\t* Back-pressure thrust loss (Ka):\t{ka_kms:.4f} km/s  ({ka_kms*1000:.1f} m/s)")
 
 
-def _report_segmented(result, segs, best_x, best_f, data_full):
+def _report_segmented(result, segs, best_x, best_f, data_full, optimized_altitudes=None):
     """Print the segmented-guidance results: insertion state, per-segment waypoint
     tracking (achieved vs PMP reference) and the achieved orbit."""
     print("\n" + "=" * 60)
@@ -204,6 +204,9 @@ def _report_segmented(result, segs, best_x, best_f, data_full):
     print(f"  Kick angle (gamma_p-pi/2): {np.rad2deg(best_x[3] - np.pi/2.0):.4f} deg")
     print(f"  PSO [dtc, dtr%, cs%, gamma_p]: "
           f"[{best_x[0]:.2f}, {best_x[1]:.2f}, {best_x[2]:.2f}, {np.rad2deg(best_x[3]):.3f}deg]")
+    if optimized_altitudes:
+        print(f"  Optimised activation altitudes: " +
+              ", ".join(f"{a/1e3:.1f} km" for a in optimized_altitudes))
     print(f"  Insertion altitude: {h_f:.2f} km  (target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km)")
     print(f"  Insertion velocity: {v_f:.2f} m/s  (target {v_c - v_rot:.2f} m/s)")
     print(f"  Insertion FPA:      {g_f:.4f} deg  (target 0)")
@@ -369,7 +372,8 @@ def execute():
         best_f     = seg_out['best_f']
         segs       = seg_out['segs']
         kick_angle_optimal = best_x[3] - np.pi / 2.0
-        _report_segmented(result_seg, segs, best_x, best_f, data)
+        _report_segmented(result_seg, segs, best_x, best_f, data,
+                          optimized_altitudes=seg_out.get('optimized_altitudes'))
 
         # ---- Plot suite (same as the single-law modes) -------------------
         # run_segmented_full already populated ra.theta_*/tgo_* histories and the

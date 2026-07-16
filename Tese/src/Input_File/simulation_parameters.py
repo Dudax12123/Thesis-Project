@@ -268,26 +268,49 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
 # 8a-bis. SEGMENTED (multi-law, altitude-triggered) GUIDANCE
 # ===================================================================
 # When MULTI_GUIDANCE_ENABLED is True the single GUIDANCE_MODE law is ignored and
-# the rocket flies the ordered GUIDANCE_SEGMENTS schedule instead: a passive
-# gravity turn from launch until the FIRST entry's altitude, then each chosen law
-# in turn. Each non-final segment aims at the indirect-PMP optimal (alt, v, γ)
+# the rocket flies the ordered GUIDANCE_SEGMENTS schedule instead: the FIRST entry's
+# law takes over right after the kick maneuver (gravity turn is no longer forced —
+# it is just one selectable law), then each subsequent law at its activation
+# altitude. Each non-final segment aims at the indirect-PMP optimal (alt, v, γ)
 # waypoint at the NEXT entry's altitude; the LAST entry aims at orbit insertion.
 # t_go is the planned-deadline countdown (deadline − t), NOT the rocket-equation
 # estimate, so it never collapses across the stage boundary.
 #
 # NOTE: When MULTI_GUIDANCE_ENABLED is False (default) NONE of this has any effect
 # — every existing mode/path behaves exactly as before.
-MULTI_GUIDANCE_ENABLED = False
+MULTI_GUIDANCE_ENABLED = True
 
-# Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be
-# strictly increasing. Supported laws this iteration:
-#   "apollo", "peg_new", "linear_tangent", "bilinear_tangent".
+# Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be strictly
+# increasing. Supported laws:
+#   "gravity_turn", "apollo", "peg_new", "linear_tangent", "bilinear_tangent",
+#   "indirect_pmp".
+# The FIRST entry flies right after the kick (its altitude is treated as 0 / the
+# floor): pick "gravity_turn" here for a passive turn straight after the kick, or an
+# active law to steer from launch. The LAST entry always inserts to orbit.
 # (linear_tangent / bilinear_tangent are angle-only: they match the waypoint's
-#  flight-path angle but not its altitude/velocity, so their tracking is weaker.)
+#  flight-path angle but not its altitude/velocity, so their tracking is weaker.
+#  An "indirect_pmp" segment replays the stored PMP-optimal α from the reference.)
+#
+# NOTE: the indirect-PMP reference is STAGE-2-ONLY (full-ascent was reverted), so its
+# Stage-1 / atmospheric portion is a plain gravity turn — a segment flying below
+# Stage-2 ignition aims at gravity-turn waypoints, not an optimised atmospheric arc.
 GUIDANCE_SEGMENTS = [
-    ("apollo",  40_000.0),     # Apollo takes over at 40 km, aims at PMP(120 km)
-    ("peg_new", 120_000.0),    # peg_new takes over at 120 km, aims at orbit insertion
+    ("gravity_turn",   0.0),   # passive; flies right after the kick.
+                               #   -> drop this line to make an ACTIVE law fly
+                               #      straight after the kick instead.
+    ("apollo",     40_000.0),  # takes over at 40 km, aims at PMP(120 km)
+    ("peg_new",   120_000.0),  # takes over at 120 km, aims at orbit insertion
 ]
+
+# --- Optional PSO optimisation of the activation altitudes -------------------
+# When True the segmented PSO also chooses the activation altitudes of every segment
+# EXCEPT the first (which stays right after the kick), to minimise Stage-2 burn time
+# (same objective as pso_coast, subject to a clean orbit insertion). For the 3-entry
+# default that is the 2nd and 3rd laws' altitudes = 2 extra decision variables
+# appended to the 4 base coast vars. False ⇒ the altitudes above are used as-is.
+MULTI_GUIDANCE_OPTIMIZE_ALTITUDES = True
+MULTI_GUIDANCE_ALT_LB = 10_000.0    # lower bound for optimised activation altitudes [m]
+MULTI_GUIDANCE_ALT_UB = 200_000.0   # upper bound [m]; clamped at runtime to the reference apogee
 
 # Per-segment coefficient-freeze time-to-go [s] for the intermediate (non-final)
 # segments. Smaller than APOLLO_FREEZE_THRESHOLD so short shaping segments are not

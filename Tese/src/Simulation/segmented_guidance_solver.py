@@ -2,12 +2,13 @@
 Segmented Guidance Solver — multi-law, altitude-triggered ascent guidance.
 
 Flies the ordered ``simulation_parameters.GUIDANCE_SEGMENTS`` schedule instead of a
-single guidance law: a passive gravity turn from launch until the first activation
-altitude, then each chosen law in turn. Each non-final segment aims at the
-indirect-PMP optimal (alt, v, gamma) waypoint at the NEXT activation altitude; the
-final segment aims at orbit insertion. Time-to-go is a planned-deadline countdown
-(deadline - t) sourced from the PMP reference, so it never collapses across the
-stage boundary — this is what lets the t_go-dependent laws fly DURING Stage 1.
+single guidance law: the FIRST chosen law takes over right after the kick maneuver
+(gravity turn is one selectable option, no longer forced), then each subsequent law
+at its activation altitude. Each non-final segment aims at the indirect-PMP optimal
+(alt, v, gamma) waypoint at the NEXT activation altitude; the final segment aims at
+orbit insertion. Time-to-go is a planned-deadline countdown (deadline - t) sourced
+from the PMP reference, so it never collapses across the stage boundary — this is
+what lets the t_go-dependent laws fly DURING Stage 1.
 
 Architecture (per the chosen "pso_coast only" path):
   * Stage 1 reuses the validated rocket_ascent physics via ``ra.run_stage1`` with
@@ -62,17 +63,23 @@ def _make_alt_event(target_alt):
 class _Segments:
     """The resolved guidance schedule and its PMP-derived targets/timing.
 
-    schedule[0] is the implicit ("gravity_turn", 0.0) prefix; schedule[1:] are the
-    user's GUIDANCE_SEGMENTS. For segment i, target_alt[i] is the activation
-    altitude of segment i+1 (or the orbit altitude for the final segment), and
-    target[i] is the SegmentTarget aiming at that waypoint (or None ⇒ circular
-    orbit for the final segment).
+    schedule[i] is the user's GUIDANCE_SEGMENTS[i] (law, activation altitude); the
+    FIRST entry flies right after the kick (its altitude is normalised to 0.0) and
+    is no longer forced to be a gravity turn. For segment i, target_alt[i] is the
+    activation altitude of segment i+1 (or the orbit altitude for the final
+    segment), and target[i] is the SegmentTarget aiming at that waypoint (or None ⇒
+    circular orbit for the final segment).
     """
 
     def __init__(self, time_full, data_full, alpha_full=None):
-        self.schedule = [("gravity_turn", 0.0)] + [
+        self.schedule = [
             (str(mode), float(alt)) for (mode, alt) in sim_params.GUIDANCE_SEGMENTS
         ]
+        # The first segment flies right after the kick — its law is the user's
+        # choice (gravity turn no longer forced) and its activation altitude is the
+        # floor, so normalise it to 0.0 for a clean strictly-increasing schedule.
+        if self.schedule:
+            self.schedule[0] = (self.schedule[0][0], 0.0)
         self.n = len(self.schedule)
 
         # Ascent prefix for monotonic altitude->time / waypoint interpolation
@@ -82,6 +89,11 @@ class _Segments:
             i_top = len(alt_col) - 1
         self._alt_asc = alt_col[: i_top + 1]
         self._t_asc = np.asarray(time_full, dtype=float)[: i_top + 1]
+
+        # Keep the raw reference arrays so the per-segment targets can be rebuilt
+        # when activation altitudes change (e.g. the altitude-optimising PSO).
+        self._time_full = np.asarray(time_full, dtype=float)
+        self._data_full = np.asarray(data_full, dtype=float)
 
         # Optional replay of the stored indirect-PMP optimal control: a segment
         # whose law is "indirect_pmp" commands the reference α at the current
@@ -93,20 +105,39 @@ class _Segments:
             _alt, _al = self._alt_asc, self._alpha_asc
             self.replay_alpha = lambda state: float(np.interp(state[1] - c.R_EARTH, _alt, _al))
 
+        self._build_targets()
+
+    def _build_targets(self):
+        """(Re)compute each segment's aim point from the PMP reference.
+
+        Non-final segment i aims at the PMP waypoint at segment i+1's activation
+        altitude; the final segment aims at the circular orbit (target None). Split
+        out of __init__ so it can be re-run when activation altitudes change.
+        """
         orbit_alt = float(sim_params.TARGET_ORBITAL_ALTITUDE)
         ft = float(getattr(sim_params, "SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD", 2.0))
-
         self.target_alt = []
         self.target = []
         for i in range(self.n):
             if i + 1 < self.n:
                 t_alt = self.schedule[i + 1][1]
-                wp = segref.waypoint_at_altitude(data_full, time_full, t_alt)
+                wp = segref.waypoint_at_altitude(self._data_full, self._time_full, t_alt)
                 self.target_alt.append(t_alt)
                 self.target.append(pcs.SegmentTarget.from_waypoint(wp, freeze_threshold=ft))
             else:
                 self.target_alt.append(orbit_alt)
                 self.target.append(None)   # final segment -> circular orbit
+
+    def set_activation_altitudes(self, alts):
+        """Update schedule[1:] activation altitudes and rebuild targets.
+
+        ``alts`` has length n-1 (segment 0 stays at 0.0 / "after the kick"). Used by
+        the altitude-optimising PSO to evaluate a candidate altitude vector; PSO
+        evaluation is serial here, so mutating the shared schedule in place is safe.
+        """
+        for i, a in enumerate(alts, start=1):
+            self.schedule[i] = (self.schedule[i][0], float(a))
+        self._build_targets()
 
     def mode(self, idx):
         return self.schedule[idx][0]
@@ -156,6 +187,16 @@ def _make_stage1_hook(gs, segs, mgr):
     """
     def hook(t, state, F_T, Isp):
         alt = state[1] - c.R_EARTH
+        # Apply the FIRST segment once, on the first post-kick call. Nothing ever
+        # switches *into* index 0, so with the gravity-turn prefix gone an active
+        # segment 0 would otherwise never get its target/deadline set. The hook only
+        # runs once kick_performed, so this is exactly "right after the kick".
+        if not mgr.get("seg0_applied"):
+            mgr["seg0_applied"] = True
+            gs.restart_for_new_burn()
+            segs.apply(gs, mgr["idx"])
+            if segs.mode(mgr["idx"]) != "gravity_turn":
+                segs.set_deadline(gs, mgr["idx"], t, alt)
         new_idx = segs.index_for_alt(alt)
         if new_idx > mgr["idx"]:
             mgr["idx"] = new_idx
@@ -261,7 +302,7 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
         't_stage2_start': 0.0, 't_ignition': 0.0, 't_arc2_start': 0.0,
         't_arc3_end': 0.0, **kw}
 
-    # ---- Stage 1 (gravity turn -> first chosen law via the steering hook) ----
+    # ---- Stage 1 (first chosen law flies right after the kick via the hook) ----
     hook = _make_stage1_hook(gs, segs, mgr)
     ra._SEGMENTED_ALPHA_HOOK = hook
     try:
@@ -360,29 +401,70 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
 # PyGMO problem + PSO runner
 # ---------------------------------------------------------------------------
 
-class SegmentedPSOProblem:
-    """UDP for PyGMO: decision vector [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]."""
+def _alts_from_fractions(fracs, lb, ub):
+    """Map cumulative fractions in [0,1] to strictly-increasing altitudes in [lb, ub].
 
-    def __init__(self, segs):
+    a_1 = lb + f_1*(ub - lb);  a_k = a_{k-1} + f_k*(ub - a_{k-1}). Any fracs in
+    [0,1] yield lb <= a_1 < a_2 < ... <= ub (a 1 m epsilon gap keeps them strictly
+    increasing even when successive fractions are 0), so the ordering constraint is
+    satisfied by construction — no wasted particles.
+    """
+    alts = []
+    prev = float(lb)
+    eps = 1.0   # 1 m minimum spacing
+    for f in fracs:
+        f = min(max(float(f), 0.0), 1.0)
+        a = max(prev + f * (ub - prev), prev + eps)
+        alts.append(a)
+        prev = a
+    return alts
+
+
+class SegmentedPSOProblem:
+    """UDP for PyGMO.
+
+    Decision vector: the 4 base coast vars ``[delta_tc, delta_tr_pct,
+    coast_start_pct, gamma_p]``, plus — when ``optimize_alts`` — ``(n-1)``
+    activation-altitude fractions in [0,1] mapped cumulatively into
+    ``[alt_lb, alt_ub]`` (segment 0 stays "after the kick", so its altitude is not
+    a variable). The objective is unchanged (pso_coast's Stage-2 burn-time term +
+    orbit-insertion penalties), so the altitudes are chosen to minimise Stage-2
+    burn time subject to a clean insertion.
+    """
+
+    def __init__(self, segs, optimize_alts=False, alt_bounds=None):
         self._segs = segs
+        self._optimize_alts = bool(optimize_alts)
+        self._n_alt = (segs.n - 1) if self._optimize_alts else 0
+        self._alt_lb, self._alt_ub = (alt_bounds if alt_bounds is not None else (0.0, 0.0))
 
     def fitness(self, x):
         try:
             dtc, dtr, cs, gp = float(x[0]), float(x[1]), float(x[2]), float(x[3])
+            if self._n_alt > 0:
+                alts = _alts_from_fractions(x[4:4 + self._n_alt],
+                                            self._alt_lb, self._alt_ub)
+                self._segs.set_activation_altitudes(alts)
             result = run_segmented_trajectory(dtc, dtr, cs, gp, self._segs)
             return [pcs.compute_coast_objective(result)]
         except Exception:
             return [pcs.CRASH_PENALTY]
 
     def get_bounds(self):
-        return (list(sim_params.PSO_COAST_LB), list(sim_params.PSO_COAST_UB))
+        lb = list(sim_params.PSO_COAST_LB)
+        ub = list(sim_params.PSO_COAST_UB)
+        if self._n_alt > 0:
+            lb += [0.0] * self._n_alt
+            ub += [1.0] * self._n_alt
+        return (lb, ub)
 
     def get_nobj(self):
         return 1
 
 
-def run_segmented_optimization(segs, verbose=True):
-    """Run the PSO over [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]."""
+def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbose=True):
+    """Run the PSO over the 4 base coast vars (+ the (n-1) activation-altitude
+    fractions when ``optimize_alts``)."""
     n_particles = sim_params.PSO_COAST_N_PARTICLES
     n_gen       = sim_params.PSO_COAST_MAX_GENERATIONS
 
@@ -391,7 +473,10 @@ def run_segmented_optimization(segs, verbose=True):
         print("SEGMENTED GUIDANCE - PSO OPTIMISATION")
         print("=" * 60)
         sched = " -> ".join(f"{m}@{a/1e3:.0f}km" for m, a in segs.schedule)
-        print(f"  Schedule : gravity_turn -> {sched}")
+        print(f"  Schedule : {sched}  -> orbit")
+        if optimize_alts and alt_bounds is not None:
+            print(f"  Optimising {segs.n - 1} activation altitude(s) in "
+                  f"[{alt_bounds[0]/1e3:.0f}, {alt_bounds[1]/1e3:.0f}] km")
         print(f"  Particles: {n_particles}   Max gen.: {n_gen}")
         print("=" * 60 + "\n")
 
@@ -402,7 +487,8 @@ def run_segmented_optimization(segs, verbose=True):
         raise ImportError("pygmo is required for the segmented guidance PSO. "
                           "Install it with: conda install -c conda-forge pygmo")
 
-    prob = pg.problem(SegmentedPSOProblem(segs))
+    prob = pg.problem(SegmentedPSOProblem(segs, optimize_alts=optimize_alts,
+                                          alt_bounds=alt_bounds))
     algo = pg.algorithm(pg.pso(
         gen=n_gen, omega=sim_params.PSO_COAST_OMEGA,
         eta1=sim_params.PSO_COAST_C1, eta2=sim_params.PSO_COAST_C2,
@@ -576,7 +662,7 @@ def validate_schedule():
         if mode not in supported:
             raise ValueError(
                 f"Unsupported segmented guidance law '{mode}'. "
-                f"Supported: {sorted(supported - {'gravity_turn'})}.")
+                f"Supported: {sorted(supported)}.")
 
 
 def run_segmented(verbose=True):
@@ -597,7 +683,23 @@ def run_segmented(verbose=True):
         time_ref, data_ref = segref.get_pmp_reference(verbose=verbose)
         segs = _Segments(time_ref, data_ref)
 
-    if verbose:
+    # Optional: let the PSO also choose the (n-1) activation altitudes (segment 0
+    # stays right after the kick) to minimise Stage-2 burn time. Bounds come from
+    # the config, clamped to the reference apogee so waypoint lookups stay on the
+    # monotonic ascent prefix.
+    optimize_alts = bool(getattr(sim_params, "MULTI_GUIDANCE_OPTIMIZE_ALTITUDES", False))
+    alt_bounds = None
+    if optimize_alts and segs.n > 1:
+        apogee_alt = float(segs._alt_asc[-1])
+        alt_ub = min(float(getattr(sim_params, "MULTI_GUIDANCE_ALT_UB", 200_000.0)),
+                     0.98 * apogee_alt)
+        alt_lb = float(getattr(sim_params, "MULTI_GUIDANCE_ALT_LB", 10_000.0))
+        alt_lb = min(alt_lb, 0.5 * alt_ub)      # keep lb < ub even for a low apogee
+        alt_bounds = (alt_lb, alt_ub)
+    else:
+        optimize_alts = False                    # nothing to optimise (single segment / flag off)
+
+    if verbose and not optimize_alts:
         # Per-guidance objectives: the PMP-reference state (altitude, speed,
         # flight-path angle, time) at each law's hand-off altitude. The final
         # law aims at orbit insertion (target is None), so its objective is read
@@ -612,15 +714,33 @@ def run_segmented(verbose=True):
             print(f"  {mode:16s} start {start/1e3:6.1f} km  ->  objective @ "
                   f"{wp['alt']/1e3:6.1f} km : v={wp['v']:7.1f} m/s, "
                   f"fpa={np.rad2deg(wp['gamma']):6.2f} deg, t={wp['t']:6.1f} s{tag}")
+    elif verbose:
+        print(f"\nActivation altitudes are PSO decision variables (bounds "
+              f"[{alt_bounds[0]/1e3:.0f}, {alt_bounds[1]/1e3:.0f}] km); the "
+              "per-guidance objectives follow the optimum.")
 
-    best_x, best_f = run_segmented_optimization(segs, verbose=verbose)
+    best_x, best_f = run_segmented_optimization(
+        segs, optimize_alts=optimize_alts, alt_bounds=alt_bounds, verbose=verbose)
+
+    # Bake the optimal activation altitudes into segs before the dense re-run
+    # (run_segmented_full uses only the 4 base params).
+    opt_alts = None
+    if optimize_alts:
+        opt_alts = _alts_from_fractions(best_x[4:4 + (segs.n - 1)],
+                                        alt_bounds[0], alt_bounds[1])
+        segs.set_activation_altitudes(opt_alts)
+        if verbose:
+            print("  optimised activation altitudes: " +
+                  ", ".join(f"{a/1e3:.1f} km" for a in opt_alts))
+
     (time_full, data_full, thrust_full, alpha_full, t_ignition, result,
      coriolis_mag_data, centrifugal_mag_data) = run_segmented_full(
-        best_x, segs, verbose=verbose)
+        best_x[:4], segs, verbose=verbose)
     return {
         'time': time_full, 'data': data_full,
         'thrust': thrust_full, 'alpha': alpha_full,
         'coriolis': coriolis_mag_data, 'centrifugal': centrifugal_mag_data,
         't_ignition': t_ignition, 'result': result,
         'best_x': best_x, 'best_f': best_f, 'segs': segs,
+        'optimized_altitudes': opt_alts,
     }
