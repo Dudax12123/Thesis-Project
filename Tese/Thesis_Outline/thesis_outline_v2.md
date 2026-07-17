@@ -189,9 +189,11 @@ vertical-hold during initial rise).
 
 ## 3.6 Environmental and Force Models (as implemented)
 Inverse-square gravity; exponential atmosphere with altitude- or dynamic-pressure-triggered exit;
-drag (constant `C_D`, fixed reference area), lift set to zero; stage-dependent thrust/`Iₛₚ`;
-**Stage-1 engine modes** (`ISP_1_MODE` / `THRUST_1_MODE`: sea_level / vacuum / average / linear);
-the **`INCLUDE_DRAG` no-atmosphere mode** (also drops the fairing and forces altitude-based exit).
+drag (constant `C_D`, fixed reference area) and lift (`F_L = q·C_L·A`, constant `C_L`, active only
+while `INCLUDE_DRAG` is on); stage-dependent thrust/`Iₛₚ`; **Stage-1 engine modes** (`ISP_1_MODE` /
+`THRUST_1_MODE`: sea_level / vacuum / average / linear); the **`INCLUDE_DRAG` no-atmosphere mode**
+(also drops the fairing and forces altitude-based exit). *[RECONCILE]* Lift is **modeled**, not
+neglected: `INCLUDE_LIFT = True` by default (small constant `C_L`, independent of angle of attack).
 
 ## 3.7 Guidance Laws Implemented  *(all nine — one short subsection each)*
 The nine current `GUIDANCE_MODE` options: `gravity_turn` · `linear_tangent` · `bilinear_tangent` ·
@@ -216,8 +218,21 @@ control `α = atan2(−λ_γ/V, −λ_V)`). Note the **`TGO_ESTIMATOR`** option 
 - **3.8.4 `indirect_pmp`.** 7-variable PSO over initial costates `[λ0_r, λ0_v, λ0_g]` plus timing/kick
   variables; the augmented state `[s, r, v, γ, m, λ_r, λ_v, λ_γ]` is propagated jointly; the
   objective adds a **transversality-condition residual** penalty. This is the optimal-control
-  *reference* trajectory.
-- **3.8.5 Separation of concerns.** The optimizer is guidance-mode-agnostic: the outer loop supplies
+  *reference* trajectory. *[RECONCILE]* `indirect_pmp` is **Stage-2-only**: Stage 1 still flies the
+  fixed gravity turn up to MECO; a full-ascent (costate-driven-from-liftoff) extension was explored
+  and then reverted after its Stage-1 arc lofted well past the standard gravity-turn profile.
+- **3.8.5 Segmented multi-law guidance (`MULTI_GUIDANCE_ENABLED`)** *[NEW]*. An architecture
+  orthogonal to `COAST_METHOD`: instead of one fixed `GUIDANCE_MODE`, the rocket flies an ordered
+  `GUIDANCE_SEGMENTS` schedule of `(law, activation altitude)` pairs. The FIRST law takes over right
+  after the kick — a gravity turn is now just one selectable choice there, no longer hard-wired to
+  fly first. Every non-final segment steers toward the cached indirect-PMP optimal `(h, v, γ)`
+  waypoint at the NEXT segment's activation altitude; the FINAL segment inserts to orbit by reusing
+  the `pso_coast` thrust→coast→thrust engine. Because `t_go` is a planned-deadline countdown sourced
+  from the PMP reference (deadline − t) rather than the rocket-equation estimate, a law can fly
+  during Stage 1 (below MECO) without its `t_go` collapsing at the stage boundary. The non-first
+  activation altitudes can themselves be PSO-optimized (`MULTI_GUIDANCE_OPTIMIZE_ALTITUDES`) — on
+  top of the usual 4 coast variables — to minimize Stage-2 burn time.
+- **3.8.6 Separation of concerns.** The optimizer is guidance-mode-agnostic: the outer loop supplies
   a design vector and receives a scalar cost; the inner simulation selects and runs whichever
   guidance law is active. This is what makes the comparative study fair.
 
@@ -228,9 +243,10 @@ mission geometry & target orbit; Earth-rotation/pseudo-force flags (`ENABLE_EART
 atmosphere/drag (`INCLUDE_DRAG`, `INCLUDE_LIFT`, `ATMOSPHERE_EXIT_METHOD`); kick profile
 (`KICK_PROFILE_MODE`); guidance selection & tuning (`GUIDANCE_MODE`, `TGO_ESTIMATOR`,
 `CPR_THETA_DOT_MODE`, `PEG_CONVERGENCE_MODE`); engine modes (`ISP_1_MODE`/`THRUST_1_MODE`); mission
-architecture (`COAST_METHOD`, `DIRECT_OPTIMIZATION_MODE`); optimizer settings (`RUN_FAST`, PSO tuning
-blocks); integration/output. Present as tables (refresh the tables already drafted in
-`simulator_methodology.tex`).
+architecture (`COAST_METHOD`, `DIRECT_OPTIMIZATION_MODE`); segmented multi-law guidance
+(`MULTI_GUIDANCE_ENABLED`, `GUIDANCE_SEGMENTS`, `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES`); optimizer
+settings (`RUN_FAST`, PSO tuning blocks incl. `PSO_MG_*` for the segmented solver); integration/output.
+Present as tables (refresh the tables already drafted in `simulator_methodology.tex`).
 
 ## 3.10 Vehicle Configuration and Baseline Mission
 Falcon-9-class two-stage parameters (thrust, `Iₛₚ`, structural/propellant masses, reference area,
@@ -288,7 +304,10 @@ tied back to the propellant ranking in §4.4.
 ## 4.7 Sensitivity, Limitations and Negative Results
 Effect of `KICK_PROFILE_MODE` (triangular vs. instantaneous — and the gotcha that triangular is a
 no-op under the PSO paths); engine-mode (vacuum-thrust) feasibility; known incompatibilities/crashes;
-modeling limitations (exponential atmosphere, no `J₂`, planar model, lift = 0).
+modeling limitations (exponential atmosphere, no `J₂`, planar model, constant/AoA-independent lift
+coefficient). *[RECONCILE]* Earlier drafts noted lift = 0 (neglected); the code models lift
+(`INCLUDE_LIFT = True` default, `F_L = q·C_L·A`) — the residual limitation is the fixed, small `C_L`,
+not its absence.
 
 ---
 
@@ -297,8 +316,9 @@ modeling limitations (exponential atmosphere, no `J₂`, planar model, lift = 0)
 - **5.1 Achievements.** A single framework comparing 9 guidance laws, 4 optimizers, and 3 mission
   architectures, with a quantified comparison against an optimal-control reference.
 - **5.2 Future Work.** Analytic-CPR and CFPAR variants (specified in `dev-notes/` but not
-  implemented); `J₂`/oblateness; full 3-D out-of-plane motion; lift modeling; multi-revolution
-  insertion (`Ideas.md`); reinstating heading-state tracking.
+  implemented); `J₂`/oblateness; full 3-D out-of-plane motion; higher-fidelity (angle-of-attack-
+  dependent) lift modeling; multi-revolution insertion (`Ideas.md`); reinstating heading-state
+  tracking.
 
 ---
 

@@ -351,7 +351,7 @@ def execute():
         print("SEGMENTED (MULTI-LAW) GUIDANCE — altitude-triggered schedule")
         print("=" * 60)
         _sched = " -> ".join(f"{m}@{a/1e3:.0f}km" for m, a in sim_params.GUIDANCE_SEGMENTS)
-        print(f"  gravity_turn -> {_sched}")
+        print(f"  {_sched} -> orbit")
         print("  Stage-2 method: pso_coast (direct insertion); planned-deadline t_go")
         print("=" * 60)
 

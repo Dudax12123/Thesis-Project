@@ -16,6 +16,15 @@ the same mission, and the same physics — and therefore compared **fairly**. Fo
 the achieved orbit, the propellant used (equivalently, the payload capability), the breakdown of
 velocity losses, and a set of diagnostic plots.
 
+At the highest level, every run is one pass through the same loop: an optimizer proposes a candidate,
+the simulator flies and scores it, and the loop repeats until convergence.
+
+```
+Optimizer ─→ Simulator (environment + guidance + equations of motion, evaluated step by step)
+          ─→ event detection / engine cut-off ─→ trajectory ─→ score ─┐
+          └───────────────────────── repeat ────────────────────────┘
+```
+
 ## 2. The physical model
 
 The vehicle is treated as a **point mass moving in a vertical plane** (a 3-degree-of-freedom model).
@@ -26,8 +35,8 @@ enabled. The forces acting on it are:
 - **Thrust**, whose direction is steered by the *angle of attack* `α = θ − γ` (the difference between
   the vehicle's pitch angle `θ` and its flight-path angle `γ`); this `α` is the single command that
   every guidance law produces.
-- **Aerodynamic drag**, from an exponential atmosphere model (lift is available in the formulation but
-  set to zero in the analyses).
+- **Aerodynamic drag and lift**, from an exponential atmosphere model. Lift is included in the force
+  model by default (`F_L = q · C_L · A`, evaluated alongside the drag force), not neglected.
 - **Gravity**, an inverse-square central field around a spherical Earth.
 - Optionally, **Coriolis and centrifugal pseudo-forces** when the rotating Earth is modelled.
 
@@ -37,7 +46,8 @@ rotates with the Earth, while orbital quantities (semi-major axis, apogee, incli
 in an inertial frame; after engine cut-off the motion is propagated as a pure two-body orbit.
 
 **Stated assumptions / limitations:** planar 3-DOF motion, spherical non-oblate Earth (no J₂
-perturbation), exponential atmosphere, lift neglected, and no attitude (rotational) dynamics.
+perturbation), exponential atmosphere with drag and lift both included, and no attitude (rotational)
+dynamics.
 
 ## 3. The mission, phase by phase
 
@@ -79,6 +89,10 @@ Nine guidance modes are implemented, spanning a spectrum from passive to optimal
 | `exp_shooting` | Open-loop, solved | Exponential pitch law fixed once by a boundary-value (shooting) solve. |
 | `indirect_pmp` | Optimal-control reference | Pontryagin Minimum Principle: steering follows the optimal-control law from costates. |
 
+`indirect_pmp` is **Stage-2-only by design**: the costate-optimal control steers only the
+exo-atmospheric second-stage arc, while Stage 1 always flies the fixed gravity turn (a full-ascent
+extension was explored and reverted).
+
 This mix lets the thesis place simple, robust laws and sophisticated closed-loop laws against a
 near-optimal benchmark.
 
@@ -91,6 +105,20 @@ near-optimal benchmark.
   (no separate circularization burn).
 - **`direct`** — a **single continuous burn** that ends the instant the vehicle reaches circular
   orbital velocity.
+- **`segmented` (multi-guidance)** — instead of one guidance law for the whole ascent, the vehicle
+  flies an **ordered schedule of guidance laws**, each one activated at a chosen altitude.
+
+When segmented mode is enabled (`MULTI_GUIDANCE_ENABLED`), the first scheduled law takes over right
+after the pitch-over kick — a gravity turn is only one selectable option here, it is no longer forced
+to fly first. Every non-final segment steers toward the optimal *(altitude, velocity, flight-path
+angle)* waypoint taken from a cached indirect-PMP reference trajectory, evaluated at the next
+segment's activation altitude; the final segment performs the orbit insertion itself, reusing the
+`pso_coast` thrust–coast–thrust engine. Because a segment can be set to activate below MECO, a
+closed-loop law can fly *during* the first stage — something none of the other architectures allow.
+The activation altitudes can be fixed by the user or, when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` is
+set, chosen by the PSO itself so as to minimize Stage-2 burn time. The segmented solver has its own
+dedicated PSO configuration block (`PSO_MG_*`), separate from the `pso_coast` PSO settings it used to
+reuse.
 
 ### 4.3 Optimization method — *how the best trajectory is found*
 
@@ -136,7 +164,7 @@ Everything is set in a single parameter file; the choices group naturally into t
 | Setting | Meaning |
 |---|---|
 | Guidance law | One of the nine steering modes (§4.1). |
-| Mission architecture | Coast strategy: `apogee_check`, `pso_coast`, or `direct` (§4.2). |
+| Mission architecture | Coast strategy: `apogee_check`, `pso_coast`, `direct`, or `segmented` (multi-guidance) (§4.2). |
 | Optimization method | Brute-force, PSO, or indirect optimal control (§4.3). |
 
 **(c) Modeling & run settings**
@@ -171,7 +199,7 @@ detection, and `pygmo` for Particle Swarm Optimization.
 
 ## 9. Assumptions and limitations (summary)
 
-Planar 3-DOF point-mass motion; spherical, non-oblate Earth (no J₂); exponential atmosphere; lift
-neglected; no attitude/rotational dynamics. These keep the model fast and transparent — appropriate
-for a comparative, preliminary-design study — while leaving clear avenues for higher-fidelity
-extensions.
+Planar 3-DOF point-mass motion; spherical, non-oblate Earth (no J₂); exponential atmosphere with drag
+and lift both included (`F_L = q · C_L · A`); no attitude/rotational dynamics. These keep the model
+fast and transparent — appropriate for a comparative, preliminary-design study — while leaving clear
+avenues for higher-fidelity extensions.

@@ -451,8 +451,8 @@ class SegmentedPSOProblem:
             return [pcs.CRASH_PENALTY]
 
     def get_bounds(self):
-        lb = list(sim_params.PSO_COAST_LB)
-        ub = list(sim_params.PSO_COAST_UB)
+        lb = list(getattr(sim_params, "PSO_MG_LB", sim_params.PSO_COAST_LB))
+        ub = list(getattr(sim_params, "PSO_MG_UB", sim_params.PSO_COAST_UB))
         if self._n_alt > 0:
             lb += [0.0] * self._n_alt
             ub += [1.0] * self._n_alt
@@ -465,8 +465,8 @@ class SegmentedPSOProblem:
 def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbose=True):
     """Run the PSO over the 4 base coast vars (+ the (n-1) activation-altitude
     fractions when ``optimize_alts``)."""
-    n_particles = sim_params.PSO_COAST_N_PARTICLES
-    n_gen       = sim_params.PSO_COAST_MAX_GENERATIONS
+    n_particles = getattr(sim_params, "PSO_MG_N_PARTICLES", sim_params.PSO_COAST_N_PARTICLES)
+    n_gen       = getattr(sim_params, "PSO_MG_MAX_GENERATIONS", sim_params.PSO_COAST_MAX_GENERATIONS)
 
     if verbose:
         print("\n" + "=" * 60)
@@ -487,15 +487,19 @@ def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbo
         raise ImportError("pygmo is required for the segmented guidance PSO. "
                           "Install it with: conda install -c conda-forge pygmo")
 
+    _seed = getattr(sim_params, "PSO_MG_SEED", sim_params.PSO_COAST_SEED)
     prob = pg.problem(SegmentedPSOProblem(segs, optimize_alts=optimize_alts,
                                           alt_bounds=alt_bounds))
     algo = pg.algorithm(pg.pso(
-        gen=n_gen, omega=sim_params.PSO_COAST_OMEGA,
-        eta1=sim_params.PSO_COAST_C1, eta2=sim_params.PSO_COAST_C2,
-        max_vel=sim_params.PSO_COAST_VMAX, seed=sim_params.PSO_COAST_SEED))
+        gen=n_gen,
+        omega=getattr(sim_params, "PSO_MG_OMEGA", sim_params.PSO_COAST_OMEGA),
+        eta1=getattr(sim_params, "PSO_MG_C1", sim_params.PSO_COAST_C1),
+        eta2=getattr(sim_params, "PSO_MG_C2", sim_params.PSO_COAST_C2),
+        max_vel=getattr(sim_params, "PSO_MG_VMAX", sim_params.PSO_COAST_VMAX),
+        seed=_seed))
     if verbose:
         algo.set_verbosity(25)
-    pop = pg.population(prob, size=n_particles, seed=sim_params.PSO_COAST_SEED)
+    pop = pg.population(prob, size=n_particles, seed=_seed)
     pop = algo.evolve(pop)
 
     best_x = list(pop.champion_x)

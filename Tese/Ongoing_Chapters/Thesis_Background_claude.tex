@@ -1032,7 +1032,7 @@ The optimal control problem, together with the first-order necessary conditions~
 \subsection{Indirect Optimization of the Ascent Trajectory}
 \label{ssec:indirect_ascent}
 
-The indirect framework introduced above is now specialised to the powered-ascent problem addressed in this work, following the formulation of~\cite{Morgado2022_MultistagePrelimDesignTrajectoryOpt}. Direct methods are generally more robust in convergence, even with poor initial guesses, whereas the indirect method is harder to initialise but yields more accurate results, a property that is critical for aerospace applications~\cite{conway2010spacecraft}. In the baseline formulation the indirect control law is applied only on the free-flight (exo-atmospheric) arcs, after fairing jettison, where aerodynamic forces are negligible; during the preceding atmospheric flight the vehicle performs an uncontrolled gravity turn following the initial pitch manoeuvre. This assumption is relaxed by an optional full-ascent extension (Sections~\ref{sssec:fa_drag}--\ref{sssec:fa_masscostate}), which carries the same costate-based control through the atmospheric first-stage arc by augmenting the adjoint equations with aerodynamic drag and bounding the angle of attack.
+The indirect framework introduced above is now specialised to the powered-ascent problem addressed in this work, following the formulation of~\cite{Morgado2022_MultistagePrelimDesignTrajectoryOpt}. Direct methods are generally more robust in convergence, even with poor initial guesses, whereas the indirect method is harder to initialise but yields more accurate results, a property that is critical for aerospace applications~\cite{conway2010spacecraft}. In the baseline formulation the indirect control law is applied only on the free-flight (exo-atmospheric) arcs, after fairing jettison, where aerodynamic forces are negligible; during the preceding atmospheric flight the vehicle performs an uncontrolled gravity turn following the initial pitch manoeuvre.
 
 Because the propellant mass flow is taken as constant, minimising the propellant consumption is equivalent to minimising the powered-flight duration. The objective is therefore the total impulse (thrusting) time required for orbital injection~\cite{Morgado2022_MultistagePrelimDesignTrajectoryOpt}:
 \begin{equation}
@@ -1104,50 +1104,7 @@ which relates the Hamiltonian at the end of the last thrust arc, the end of the 
 
 Rather than solving the resulting two-point boundary value problem by classical shooting, the boundary and optimality conditions are enforced by recasting it as a penalised minimisation suited to a population-based optimiser~\cite{Morgado2022_MultistagePrelimDesignTrajectoryOpt}: the terminal altitude, velocity, and flight-path-angle errors, together with the transversality residual~\eqref{eq:indirect_transversality}, are gathered into a single augmented objective whose remaining unknowns---the initial costates and the arc-timing parameters---are searched by a particle swarm optimiser. This reformulation trades the ill-conditioned initial-costate guess of classical shooting for a robust global search, at the cost of only approximate satisfaction of the optimality conditions. The concrete augmented objective, its penalty weights, the decision vector, and the multi-arc integration used to evaluate it are detailed in the methodology (Section~\ref{sssec:indirect_pmp}).
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-\subsubsection{Extension to the Atmospheric Arc: Drag-Aware Adjoints}
-\label{sssec:fa_drag}
-
-The formulation above applies the costate-based control only on the exo-atmospheric arcs, where aerodynamic forces are negligible. The same indirect framework can be carried through the atmospheric flight of the first stage by retaining aerodynamic drag in both the dynamics and the adjoint equations. Writing the drag specific force (deceleration) as
-\begin{equation}
-a_D = \frac{D}{m} = \frac{1}{2}\,\rho(h)\,v^{2}\,\frac{C_D\,S_{\mathrm{ref}}}{m} \ ,
-\label{eq:fa_drag}
-\end{equation}
-with the exponential density of Eq.~\eqref{eq:exp_atmosphere}, drag enters the velocity dynamics as an additional $-a_D$ term in $\dot{v}$. Because $a_D$ depends on $r$ and $v$ but not on $\gamma$, and because the exponential atmosphere yields the closed-form partial derivatives $\partial a_D/\partial r = -a_D/H_\rho$ and $\partial a_D/\partial v = 2a_D/v$ (with $H_\rho$ the density scale height, written $H$ in Eq.~\eqref{eq:exp_atmosphere} and renamed here to avoid confusion with the Hamiltonian), the drag contribution to the adjoint equations~\eqref{eq:indirect_costates} is analytic and affects only $\dot{\lambda}_r$ and $\dot{\lambda}_v$. The extra terms, added to the right-hand sides of Eqs.~\eqref{eq:costate_r} and~\eqref{eq:costate_v}, are~\cite{gath2001optimization}:
-\begin{equation}
-\dot{\lambda}_r \mathrel{+}= -\,\lambda_v\,\frac{a_D}{H_\rho} \ , \qquad
-\dot{\lambda}_v \mathrel{+}= +\,2\,\lambda_v\,\frac{a_D}{v} \ .
-\label{eq:fa_drag_adjoint}
-\end{equation}
-A matching $a_D$ term is likewise retained in the Hamiltonian~\eqref{eq:indirect_hamiltonian}, so the transversality residual stays consistent with the drag-aware dynamics. In the vacuum limit $\rho\to 0$ these terms vanish and the drag-free equations of the preceding subsections are recovered exactly.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-\subsubsection{Angle-of-Attack Constraint and Atmosphere Exit}
-\label{sssec:fa_alpha}
-
-Flying the powered first stage through the dense lower atmosphere requires limiting the angle of attack, both to respect aerodynamic load limits near maximum dynamic pressure and to keep the vehicle close to a gravity turn~\cite{Cremaschi2013TrajectoryOptimization}. The interior optimal control~\eqref{eq:indirect_control} is therefore clamped to an admissible band,
-\begin{equation}
-\alpha = \max\!\bigl(-\alpha_{\max},\,\min(\alpha_{\max},\,\alpha^{\star})\bigr) \ ,
-\label{eq:fa_alpha_clamp}
-\end{equation}
-where $\alpha^{\star}$ denotes the unconstrained value given by Eq.~\eqref{eq:indirect_control} and $\alpha_{\max}$ is a prescribed bound. The constraint is enforced only while the vehicle remains within the atmosphere and is released once an atmosphere-exit criterion is met, so that the near-vacuum arc recovers the exact interior control~\eqref{eq:indirect_control}~\cite{gath2001optimization}. The specific exit criterion used---shared with the fairing-jettison and guidance-activation logic---is described in the methodology (Section~\ref{sssec:indirect_pmp}).
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-\subsubsection{Mass Costate and Transversality}
-\label{sssec:fa_masscostate}
-
-Because the high mass-flow first stage consumes a large fraction of the lift-off mass, the mass adjoint $\lambda_m$ is retained on the full-ascent arcs for rigour. As the mass rate $\dot{m} = -T/(I_{sp}g_0)$ is independent of $r$, $v$ and $\gamma$, the partial $\partial H/\partial m$ produces no feedback into the steering costates, so $\lambda_m$ is a passive quadrature,
-\begin{equation}
-\dot{\lambda}_m = \lambda_v\!\left(\frac{T\cos\alpha}{m^{2}} - \frac{a_D}{m}\right)
-+ \lambda_\gamma\,\frac{T\sin\alpha}{m^{2}v} \ ,
-\label{eq:fa_masscostate}
-\end{equation}
-that neither alters the trajectory nor enlarges the set of unknowns. With no terminal mass cost the transversality condition is $\lambda_m(t_f)=0$; because the quadrature is passive, this condition is imposed \emph{a posteriori} on the integrated costate history, as detailed in the methodology (Section~\ref{sssec:indirect_pmp}). Including $\lambda_m$ renders the Hamiltonian constant along each powered arc, confirming that the multi-arc solution is a consistent extremal of the full-ascent problem~\cite{pontani2013ascent,pontani2019ascent}.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 \section{Numerical Methods}
 \label{sec:numerical_methods}

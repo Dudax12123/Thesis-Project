@@ -133,11 +133,13 @@ A separate top-level mode (like `indirect_pmp`): when `MULTI_GUIDANCE_ENABLED = 
 ordered schedule of guidance laws, each starting at a chosen altitude. Dispatched from `main.py`
 (segmented branch) → `Simulation/segmented_guidance_solver.py`. Requires PyGMO.
 
-**What it does.** Gravity turn flies from launch until the first activation altitude; then each law
-in `GUIDANCE_SEGMENTS` takes over in turn. Every non-final segment aims at the indirect-PMP optimal
-`(alt, v, γ)` waypoint at the NEXT activation altitude; the LAST segment aims at orbit insertion. A
-guidance law can therefore fly DURING Stage 1 (e.g. apollo activating at 40 km, sub-MECO) — the
-thing the single-law modes can't do (they gate guidance on Stage-2 ignition).
+**What it does.** The FIRST law in `GUIDANCE_SEGMENTS` takes over right after the kick — gravity turn
+is no longer a forced prefix, it is just one selectable law (put `("gravity_turn", 0.0)` first for a
+passive lead-in). Each subsequent law then takes over at its activation altitude. Every non-final
+segment aims at the indirect-PMP optimal `(alt, v, γ)` waypoint at the NEXT activation altitude; the
+LAST segment aims at orbit insertion. A guidance law can therefore fly DURING Stage 1 (e.g. apollo
+activating at 40 km, sub-MECO) — the thing the single-law modes can't do (they gate guidance on
+Stage-2 ignition).
 
 **Anti-collapse t_go.** In segmented mode t_go is the planned-deadline countdown `deadline − t`
 (NOT the rocket-equation estimate that saturates at the stage boundary), deadlines sourced from the
@@ -145,16 +147,21 @@ PMP reference timing. So the t_go-dependent laws (apollo, linear/bilinear tangen
 monotonically across staging instead of pinning at a constant. This is what lets them fly Stage 1.
 
 **Insertion.** Same as `pso_coast`: a thrust→coast→thrust Stage-2 profile with DIRECT orbit
-insertion by the final law (no impulsive circularisation). The PSO (4-var
-`[Δt_c, Δt_r%, coast_start%, γ_p]`, reusing the `PSO_COAST_*` settings) tunes the kick + burn/coast
-timing; the activation altitudes are user-fixed (PSO-optimising them is future work). The single
-coast typically lands inside the final segment — handled by the per-arc guidance re-init
-(`restart_for_new_burn`), the same mechanism single-law pso_coast uses.
+insertion by the final law (no impulsive circularisation). The PSO (base 4-var
+`[Δt_c, Δt_r%, coast_start%, γ_p]`, driven by the dedicated `PSO_MG_*` block §2.11-bis) tunes the
+kick + burn/coast timing. The activation altitudes are user-fixed by default, or — when
+`MULTI_GUIDANCE_OPTIMIZE_ALTITUDES=True` — appended to the decision vector as `(n−1)` extra variables
+(every segment except the first) and PSO-optimised to minimise Stage-2 burn time (cumulative-fraction
+reparametrisation → strictly increasing, within `MULTI_GUIDANCE_ALT_LB/UB`, `_UB` clamped to the
+reference apogee). The single coast typically lands inside the final segment — handled by the per-arc
+guidance re-init (`restart_for_new_burn`), the same mechanism single-law pso_coast uses.
 
 | Variable (§8a-bis) | Allowed | Default | Controls / tangles |
 |---|---|---|---|
 | `MULTI_GUIDANCE_ENABLED` | bool | `False` | Master switch. **False ⇒ NOTHING here applies; every single-law path is byte-identical.** True ⇒ ignores `GUIDANCE_MODE`, `COAST_METHOD`, `KICK_PROFILE_MODE`, `RUN_FAST`, `DIRECT_*`, `TGO_ESTIMATOR`, `GUIDANCE_TGO_USE_PSO_PLAN`. |
-| `GUIDANCE_SEGMENTS` | list[(law, alt_m)] | `[("apollo",40e3),("peg_new",120e3)]` | Ordered schedule; altitudes strictly increasing (raises otherwise). Gravity turn is the implicit prefix. Last entry inserts to orbit. 3+ entries work unchanged. |
+| `GUIDANCE_SEGMENTS` | list[(law, alt_m)] | `[("gravity_turn",0.0),("apollo",40e3),("peg_new",120e3)]` | Ordered schedule; altitudes strictly increasing (raises otherwise). The FIRST entry flies right after the kick (its altitude normalised to 0.0); gravity turn is a selectable law, NOT a forced prefix. Last entry inserts to orbit. 3+ entries work unchanged. |
+| `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§11d) | bool | `True` | Append the `(n−1)` non-first activation altitudes to the PSO decision vector (→ `4+(n−1)` vars) and optimise them to minimise Stage-2 burn time. False ⇒ use the `GUIDANCE_SEGMENTS` altitudes as-is. |
+| `MULTI_GUIDANCE_ALT_LB` / `_UB` (§11d) | float m | `10e3` / `200e3` | Bounds for the optimised activation altitudes; `_UB` clamped at runtime to 0.98× reference apogee. |
 | `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD` | float s | `2.0` | Coefficient-freeze t_go for intermediate (non-final) segments; final segment uses `APOLLO_FREEZE_THRESHOLD`. |
 | `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. |
 | `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
@@ -162,13 +169,14 @@ coast typically lands inside the final segment — handled by the per-arc guidan
 | `PMP_REFERENCE_PSO_PARTICLES` | int or `None` | `None` | Reference-build swarm size. `None` ⇒ use `PSO_N_PARTICLES`. Raise for a finer reference (auto-rebuilds). |
 | `PMP_REFERENCE_PSO_GENERATIONS` | int or `None` | `None` | Reference-build generations. `None` ⇒ use `PSO_MAX_GENERATIONS`. Raise for a finer reference. |
 
-**Supported laws** in `GUIDANCE_SEGMENTS`: `apollo`, `peg_new`, `linear_tangent`,
+**Supported laws** in `GUIDANCE_SEGMENTS`: `gravity_turn`, `apollo`, `peg_new`, `linear_tangent`,
 `bilinear_tangent`, `indirect_pmp` (classic `peg` deferred). The two tangent laws are **angle-only** —
 they match a waypoint's flight-path angle but not its altitude/velocity, so their waypoint tracking is
 weaker than apollo/peg_new (they still reach orbit because the final segment does the insertion). An
 `indirect_pmp` segment does not run a live law — it **replays** the stored optimal α from the PMP
-reference at the current altitude (build the reference with `INDIRECT_PMP_FULL_ASCENT=True` so the
-control covers Stage-1 altitudes; see §2.9).
+reference at the current altitude. The reference is **Stage-2-only** (full-ascent was reverted; see
+§2.9), so its atmospheric portion is the gravity turn — a segment flying below Stage-2 ignition tracks
+that arc, not an optimised atmospheric control.
 
 **PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
 `PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (default `None`/`None` ⇒ the indirect
@@ -177,7 +185,10 @@ reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different sc
 budgets reuse the same reference). Later runs load the cache and only pay the ~31-min coast PSO;
 each run prints "loaded from cache" vs "building … this is slow". **To rebuild at higher fidelity**,
 raise the `PMP_REFERENCE_PSO_*` knobs (or set `PMP_REFERENCE_FORCE_RERUN=True`) and run once — the
-cache auto-rebuilds when the value changes. PyGMO is needed only for the build.
+cache auto-rebuilds when the value changes. PyGMO is needed only for the build. The currently cached
+reference (rebuilt 2026-07-16 at 250×500) inserts at 500.0 km / 7172 m/s / γ≈0 with **J'=0.846**,
+apogee 500 km, stores `alpha_full`, and its key matches the current inputs so segmented runs load it
+from cache.
 
 **Plots.** Renders the SAME 17-plot suite as the single-law modes (channels assembled in
 `run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`). By default nothing is
@@ -185,10 +196,13 @@ written to disk — set `SAVE_PLOTS=True` (§2.12) to also save PNGs to `SAVE_PL
 steering plots show a brief transient at each intermediate handoff (the law's t_go → 0 right at the
 waypoint) — harmless to the flight (altitude/γ/orbit stay smooth).
 
-**Validated** end-to-end at full production: headline `[apollo@40km, peg_new@120km]` inserts at
-500.2 km / 7176 m/s / −0.004° (orbit e=0.0011), J' = 0.839 ≈ the PMP-optimal cost; robustness
-matrix (peg_new chains, angle-only intermediates, post-MECO activation, 3-segment) all reach
-~500 km, e ≤ 0.002; single-law regression (flag off) unchanged.
+**Validated** end-to-end at full production. Fixed-altitude headline
+`[gravity_turn@0, apollo@40km, peg_new@120km]` inserts at ~500 km / ~7176 m/s / γ≈0, J' ≈ 0.84 ≈ the
+PMP-optimal cost. **Altitude-optimised** (2026-07-16, `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES=True`,
+`PSO_MG` 100×250): **J' = 0.8406**, insertion 499.8 km / 7182 m/s / −0.017° (orbit e=0.0026),
+optimised hand-offs **11.6 km / 117.2 km**. Earlier robustness matrix (peg_new chains, angle-only
+intermediates, post-MECO activation, 3-segment) all reach ~500 km, e ≤ 0.003; single-law regression
+(flag off) unchanged.
 
 ---
 
@@ -309,38 +323,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `PENALTY_W_TRANSVERS` (L290) | float | `10.0` | Transversality penalty (needs ‖λ₀‖=1). |
 | `GAMMA_REF_DEG` (L291) | float deg | `1.0` | FPA non-dimensionalization reference. |
 
-**Full-ascent PMP extension** (opt-in; all default to the current Stage-2-only behavior):
-
-| Variable | Allowed values | Default | Controls |
-|---|---|---|---|
-| `INDIRECT_PMP_FULL_ASCENT` | bool | `False` | `False` = PMP steers Stage 2 only (costates born at Stage-2 ignition; Stage 1 is the fixed gravity turn) — **unchanged**. `True` = PMP steers the whole powered ascent via a modular arc engine: vertical rise → Stage-1 burn (PMP) → staging mass-drop → inter-stage coast → Stage-2 burn/coast/burn. The 7-var decision vector is unchanged, but λ₀ is initialised at the POST-KICK state (the PMP optimization starts after the pitch-over kick; the vertical rise carries no costates and the ‖λ‖=1 gauge is fixed there). |
-| `INDIRECT_PMP_INCLUDE_DRAG` | `None`/`True`/`False` | `None` | Couple aerodynamic drag into the physical EOM **and** the costate ODEs (adjoints are otherwise drag-free). `None` ⇒ follow `INDIRECT_PMP_FULL_ASCENT`. Drag vanishes at altitude, so it only affects the atmospheric Stage-1 arc. |
-| `INDIRECT_PMP_ALPHA_MAX_DEG` | `None` or float deg | `10.0` | Angle-of-attack clamp for the control law. `None` = unconstrained. When set (e.g. `10.0`), α is clamped to ±α_max **while in the atmosphere**, bounding the dense-atmosphere Stage-1 arc through max-q. **Recommended when `INDIRECT_PMP_FULL_ASCENT=True`.** |
-| `INDIRECT_PMP_FULL_ASCENT_GAMMA_P_BOUNDS` | `(lb,ub)` rad or `None` | `(1.45, 1.57)` | Full-ascent-only kick-angle (γ_p) bounds. In full-ascent the kick seeds the whole PMP ascent, so the shared `[1.54,1.57]` is often too tight (optimizer rails the lower bound). Overrides ONLY γ_p element 6 when full-ascent is on; `PSO_LB/UB` (Stage-2-only) untouched. |
-| `INDIRECT_PMP_ALPHA_CAP_ATMOSPHERE_ONLY` | bool | `True` | `True` = the α clamp is applied only while the vehicle is **in the atmosphere** and **lifted after atmosphere exit** (near-vacuum → exact interior-PMP steering), so the mostly-vacuum Stage-2 arc is not pinned to α_max. "In the atmosphere" reuses the SHARED `ATMOSPHERE_EXIT_METHOD` criterion (§6: altitude / dynamic_pressure / aerothermal_flux + threshold), so the PMP cap-lift and the rest of the sim agree on where the atmosphere ends. `False` = constant cap everywhere. Full-ascent only. (Supersedes the old `INDIRECT_PMP_ALPHA_CAP_QMIN` PMP-private q-floor.) |
-
-**Mass costate λ_m (rigor).** Full-ascent carries a 9th costate λ_m so the high-mass-flow Stage-1 arc
-is a rigorous extremal (H conserved *within* each powered arc — the corner diagnostic confirms it). λ_m
-is passive/additive (ṁ is independent of r,v,γ), so it's integrated then shifted to satisfy
-`λ_m(t_f)=0` in closed form — the trajectory, steering, decision vector (7-D) and the **objective's
-transversality residual are all unchanged** (objective H uses `lam_m=0`; λ_m is diagnostic/rigor only).
-Matches the multistage indirect literature's costate set (Pontani; there λ_m is *active* via
-max-final-mass + a switching-function coast — this thesis keeps min-burn-time + parameterized coast).
-
-Transversality (follows the multistage indirect literature — Pontani, *Acta Astronautica* 2014;
-Gath & Calise, *JGCD* 2001): costates conjugate to r/v/γ are continuous across the staging mass-drop
-and the coast corners (Weierstrass–Erdmann), which the continuous augmented-state integration gives
-for free. Stage 1 burns to depletion (fixed duration), so the only FREE-timing transversality
-conditions are on the Stage-2 coast/final time — the residual therefore stays anchored on the Stage-2
-boundaries. A verbose H-at-corners diagnostic (`_integrate_full_ascent`) prints the Hamiltonian at
-each arc corner to confirm it is ~constant on the extremal arcs.
-
-Notes / v1 simplifications: Stage-1 uses a constant representative thrust/Isp (mean of SL & vacuum);
-the fairing is folded into the staging mass-drop; with the reduced no-λ_m set a *tiny* H step at
-staging is expected when drag is on (negligible in near-vacuum). `indirect_pmp` is also now a valid
-`GUIDANCE_SEGMENTS` law (§1b): such a segment **replays** the stored optimal α from the reference
-(build the reference with `INDIRECT_PMP_FULL_ASCENT=True` so the control exists down to Stage-1
-altitudes; the npz cache now also stores `alpha_full`).
+**Full-ascent PMP (REVERTED).** An opt-in full-ascent extension (`INDIRECT_PMP_FULL_ASCENT` + drag-aware adjoints, angle-of-attack clamp, mass costate, full-ascent γ_p bounds) was explored and then **reverted** (commit `d20ac94`): its Stage-1 arc never reproduced the validated `run_stage1` gravity turn (α=0 reached MECO γ ~15–19° too steep and lofted). `indirect_pmp` is therefore **Stage-2-only** — the costates are born at Stage-2 ignition and Stage 1 is the fixed gravity turn. None of the `INDIRECT_PMP_FULL_ASCENT*` knobs exist in the code any more. An `indirect_pmp` `GUIDANCE_SEGMENTS` law (§1b) replays the stored optimal α from the Stage-2-only reference (whose atmospheric portion is the gravity turn); the npz cache stores `alpha_full`.
 
 ### 2.10 Optimizer — `direct` PSO (only when `COAST_METHOD="direct"`)
 
@@ -367,6 +350,18 @@ altitudes; the npz cache now also stores `alpha_full`).
 | `PSO_COAST_LB` / `PSO_COAST_UB` (L385–386) | `[0, 50, 0, 1.54]` / `[1000, 100, 100, 1.57]` | Bounds for `[Δt_c, Δt_r%, coast_start%, γ_p]`. |
 | `PSO_COAST_W_J`/`W_ALTITUDE`/`W_VELOCITY`/`W_FPA` (L394–397) | `1.0`/`100.0`/`100.0`/`10.0` | Objective penalty weights (4-term, no transversality). |
 | `PSO_COAST_GAMMA_REF_DEG` (L398) | `1.0` | FPA non-dimensionalization reference [deg]. |
+
+### 2.11-bis Optimizer — multi-guidance PSO (`PSO_MG_*`, only when `MULTI_GUIDANCE_ENABLED`)
+
+The segmented solver has its **own** PSO block (`simulation_parameters.py` §11d), decoupled from
+`PSO_COAST_*` (which it used to reuse). Objective **weights are still shared** with `PSO_COAST_W_*`
+(same coast objective, no transversality term).
+
+| Variable | Default | Notes |
+|---|---|---|
+| `PSO_MG_N_PARTICLES` / `PSO_MG_MAX_GENERATIONS` | `100` / `250` | Swarm size / generations. |
+| `PSO_MG_C1`/`C2`/`OMEGA`/`VMAX`/`SEED` | `2.05`/`2.05`/`0.7298`/`0.5`/`42` | Standard PSO hyperparameters. |
+| `PSO_MG_LB` / `PSO_MG_UB` | `[0,50,0,1.54]` / `[1000,100,100,1.57]` | Bounds for the 4 base vars `[Δt_c, Δt_r%, coast_start%, γ_p]`. Under `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§1b), `(n−1)` altitude-fraction vars ∈ `[0,1]` are appended. |
 
 ### 2.12 Numerical / output
 

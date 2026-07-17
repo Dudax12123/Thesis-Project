@@ -136,14 +136,15 @@ reinstating full three-dimensional heading tracking is left as future work.
 \subsection{Numerical Integration}
 \label{ssec:integration_sim}
 
-Each phase is propagated with the explicit Runge--Kutta~4(5) Dormand--Prince
-scheme provided by \texttt{scipy.integrate.solve\_ivp}~\cite{dormand1980family,
-virtanen2020scipy}, using adaptive step-size control, a tight tolerance, a bounded
-maximum step, and dense output for post-processing. Phase transitions are located
-by \emph{event functions} --- scalar functions $g(t,\mathbf{x})$ whose sign change
-marks a transition. When the integrator brackets a zero-crossing, the exact
-crossing time is found by root-finding (Brent's method) and the phase is
-terminated~\cite{brent1973algorithms}. Events include propellant depletion
+Each phase is propagated with the Dormand--Prince RK4(5) scheme of
+Section~\ref{sec:numerical_methods}, as provided by
+\texttt{scipy.integrate.solve\_ivp}~\cite{virtanen2020scipy}, using adaptive
+step-size control, a tight tolerance, a bounded maximum step, and dense output for
+post-processing. Phase transitions are located by \emph{event functions} --- scalar
+functions $g(t,\mathbf{x})$ whose sign change marks a transition. When the
+integrator brackets a zero-crossing, the exact crossing time is found by
+root-finding (Brent's method; Section~\ref{ssec:rootfinding}) and the phase is
+terminated. Events include propellant depletion
 (MECO), stage separation, atmosphere exit, target-apogee matching (SECO), the
 circular-velocity cut-off used by the direct architecture, and ground-collision
 safeguards. Chaining phases through events lets the mission timeline emerge from
@@ -209,7 +210,7 @@ Eq.~\eqref{eq:planar_eom}, is
 \end{align}
 where $\alpha$ is the angle of attack (the steering command from the active
 guidance law), $F_T$ and $I_{sp}$ are the current thrust and specific impulse,
-$F_D$ is aerodynamic drag, $F_L$ is lift (set to zero in every analysis here),
+$F_D$ is aerodynamic drag, $F_L$ is aerodynamic lift,
 and $g(r)=\mu/r^{2}$. The centripetal term $v^{2}/r$ in
 Eq.~\eqref{eq:sim_gammadot} raises the flight-path angle once it exceeds
 $g\cos\gamma$. Two safeguards are applied: a small-velocity guard forces
@@ -281,9 +282,9 @@ fairing-jettison logic.
 Aerodynamic drag is evaluated at every step from the dynamic pressure and a
 constant drag coefficient $C_D=0.3$ over the reference area
 $A=10.52~\mathrm{m^{2}}$~\cite{NASA_Falcon9v12_Datasheet_2018}, using
-Eqs.~\eqref{eq:cd} and~\eqref{eq:q_dyn_press}. A lift model is present in the
-formulation (the $F_L$ term of Eq.~\eqref{eq:sim_gammadot}) but is neglected in
-all analyses ($F_L=0$).
+Eqs.~\eqref{eq:cd} and~\eqref{eq:q_dyn_press}. Aerodynamic lift is included on the
+same basis, $F_L = q\,C_L\,A$ with a constant lift coefficient $C_L=0.1$ (the $F_L$
+term of Eq.~\eqref{eq:sim_gammadot}, enabled by the default \texttt{INCLUDE\_LIFT}).
 
 Thrust magnitude $F_T$ and specific impulse $I_{sp}$ are stage-dependent
 constants that switch at discrete events (MECO, separation, second-stage
@@ -425,9 +426,10 @@ acceleration magnitude, up to the maximum available thrust.
 \subsection{Powered Explicit Guidance (PEG)}
 \label{ssec:peg}
 
-The classical PEG mode maintains the linear pitch program
-$\sin(\text{pitch}[t]) = A + B\,t$ and updates the steering constants $A,B$ and the
-burn-time estimate $T$ each major cycle. Given the rocket-equation thrust
+The classical PEG mode maintains the linear tangent-steering program
+$\sin(\text{pitch}[t]) = A + B\,t$ --- a scalar realisation of the explicit-guidance
+principle derived in Section~\ref{sssec:peg_theory} --- and updates the steering
+constants $A,B$ and the burn-time estimate $T$ each major cycle. Given the rocket-equation thrust
 integrals $b_0,b_1,c_0,c_1$ over the remaining burn, $A$ and $B$ are obtained by
 solving the $2\times2$ linear system that enforces the target radius and radial
 velocity at burnout, while $T$ is refined from the angular-momentum gap
@@ -510,8 +512,10 @@ guidance law is active. Four architectures are available, selected by
 \texttt{COAST\_METHOD} together with the \texttt{indirect\_pmp} mode; a further
 \emph{segmented} mode (Section~\ref{ssec:segmented}) chains several laws within a
 single ascent. All share the non-dimensional penalised-objective philosophy
-introduced in Section~\ref{ssec:optimization}: terminal errors and infeasibility
-are folded into a single scalar to be minimised.
+introduced in Section~\ref{ssec:optimization}: terminal errors are folded into a
+single scalar to be minimised, and any non-physical outcome---a crash or propellant
+depletion before insertion---is driven out of contention by a large fixed crash
+penalty $C=10^{20}$.
 
 \subsection{\texttt{apogee\_check}: Brute-Force Kick-Angle Search}
 \label{ssec:apogee_check}
@@ -628,48 +632,46 @@ turning the two-point boundary-value problem into an unconstrained minimisation,
 where $J=t_f-t_{cf}$ is the powered-flight time, the first sum penalises the
 terminal altitude, velocity, and flight-path-angle errors, the fourth term
 penalises violation of the transversality condition
-Eq.~\eqref{eq:indirect_transversality}, and $C$ is a large fixed penalty
-($10^{20}$) applied to non-physical (crashing or propellant-depleting)
-trajectories. Minimising $J'$ drives the swarm towards feasible extremals; the
-run uses a swarm of $250$ particles over $500$ generations.
+Eq.~\eqref{eq:indirect_transversality}, and $C$ is the shared crash penalty
+introduced at the start of this section. Minimising $J'$ drives the swarm towards
+feasible extremals; the run uses a swarm of $250$ particles over $500$ generations.
 
 \paragraph{Multi-arc integration.}
-When the optional full-ascent extension is active, the trajectory is integrated as
-one continuous pass of the augmented state through an ordered arc list --- a
-vertical rise at $\alpha\equiv0$, the first-stage powered arc terminated by a
-propellant-depletion (MECO) event, an instantaneous inert-mass staging drop, an
-inter-stage coast, and the upper-stage thrust--coast--thrust arcs. On the
-first-stage arc the engine is modelled with a constant representative thrust and
-specific impulse (the mean of the sea-level and vacuum values), a first-version
-simplification of the altitude-varying Stage-1 performance. The costates are
-seeded at the pitch-over point (the homogeneous adjoint equations keep them zero
-through the vertical rise), and, since the reduced costate set carries no mass
-adjoint, the position and velocity costates and the Hamiltonian remain continuous
-across the staging and coast corners by the Weierstrass--Erdmann conditions, so no
-interior jump conditions are imposed. The angle-of-attack clamp of
-Eq.~\eqref{eq:fa_alpha_clamp} is active only while the vehicle is inside the
-atmosphere, using the same \texttt{ATMOSPHERE\_EXIT\_METHOD} criterion as the
-fairing-jettison and guidance-activation logic, and is lifted at atmosphere exit so
-the near-vacuum arc recovers the exact interior control. The passive mass costate
-$\lambda_m$ of Eq.~\eqref{eq:fa_masscostate} is integrated for rigour; because it
-feeds back into nothing, its terminal condition $\lambda_m(t_f)=0$ is imposed in
-closed form by subtracting the constant $\lambda_m(t_f)$ from the integrated
-history, which renders the Hamiltonian constant along each powered arc.
+The objective~\eqref{eq:indirect_augmented} is evaluated by integrating the
+trajectory in two phases. The first stage flies the fixed gravity turn produced by
+the shared Stage-1 routine --- the pitch-over kick followed by an uncontrolled
+$\alpha\equiv0$ arc up to main-engine cut-off and staging; no costates are carried
+here, since the indirect control acts only on the exo-atmospheric flight after
+fairing jettison, where aerodynamic forces are negligible. After the inert-mass
+staging drop and a short ballistic coast to second-stage ignition, the augmented
+state--costate system is initialised: the three costates
+$[\lambda_r,\lambda_v,\lambda_\gamma]$ encoded by the decision vector are seeded at
+ignition and propagated alongside the reduced state $[s,r,v,\gamma,m]$ under the
+costate-optimal control of Eq.~\eqref{eq:indirect_control}. The upper stage is then
+integrated as a thrust--coast--thrust sequence (an initial burn, a coast, and a
+final burn to insertion), across which the costates and the Hamiltonian remain
+continuous by the Weierstrass--Erdmann corner conditions, so no interior jump
+conditions are imposed. The terminal errors and the transversality residual of the
+resulting extremal are then scored through Eq.~\eqref{eq:indirect_augmented}.
 
 \subsection{Segmented Multi-Law Guidance}
 \label{ssec:segmented}
 
 The architectures above fly a single guidance law for the whole guided ascent. An
 optional segmented mode (\texttt{MULTI\_GUIDANCE\_ENABLED}) instead ignores the
-single \texttt{GUIDANCE\_MODE} and flies an ordered schedule of laws, each
-activated at a prescribed altitude. Gravity turn is the implicit prefix from
-lift-off to the first activation altitude; every non-final segment then steers
-toward the optimal $(h,v,\gamma)$ waypoint taken from a cached indirect-PMP
-reference (Section~\ref{sssec:indirect_pmp}) at the next activation altitude, and
-the final segment performs the orbit insertion. Insertion reuses the
-\texttt{pso\_coast} thrust--coast--thrust engine and its four-variable design
-vector of Eq.~\eqref{eq:pso_coast_vector}; the activation altitudes are
-user-specified.
+single \texttt{GUIDANCE\_MODE} and flies an ordered schedule of laws, each activated
+at a prescribed altitude. The first scheduled law takes over immediately after the
+pitch-over kick; a gravity turn is simply one of the selectable laws rather than a
+forced prefix, so the study can compare an active law flown from lift-off against a
+passive gravity-turn lead-in. Every non-final segment steers toward the optimal
+$(h,v,\gamma)$ waypoint read from a cached indirect-PMP reference
+(Section~\ref{sssec:indirect_pmp}) at the next activation altitude, and the final
+segment performs the orbit insertion, reusing the \texttt{pso\_coast}
+thrust--coast--thrust engine and its four-variable design vector of
+Eq.~\eqref{eq:pso_coast_vector}. Because that reference is the Stage-2-only
+extremal, its atmospheric portion is the reference gravity turn, so any waypoint
+below second-stage ignition tracks that arc rather than an optimised atmospheric
+control.
 
 The distinctive feature is that, because a segment can activate below MECO, a
 closed-loop law can fly \emph{during} the first stage --- something the single-law
@@ -678,21 +680,35 @@ the time-to-go--dependent laws (Apollo and the tangent laws) counting down
 monotonically across staging rather than saturating at the stage boundary, the
 segmented mode replaces the rocket-equation $t_{go}$ estimate with a
 planned-deadline countdown $t_{go}=t_{\mathrm{deadline}}-t$, the deadlines being
-sourced from the reference timing. The supported segment laws are \texttt{apollo},
-\texttt{peg\_new}, \texttt{linear\_tangent}, \texttt{bilinear\_tangent}, and
-\texttt{indirect\_pmp} (which replays the stored optimal $\alpha$); the two tangent
-laws are angle-only, matching a waypoint's flight-path angle but not its altitude
-or speed, so the final segment carries the insertion.
+sourced from the reference timing. The supported segment laws are
+\texttt{gravity\_turn}, \texttt{apollo}, \texttt{peg\_new}, \texttt{linear\_tangent},
+\texttt{bilinear\_tangent}, and \texttt{indirect\_pmp} (which replays the stored
+optimal~$\alpha$); the two tangent laws are angle-only, matching a waypoint's
+flight-path angle but not its altitude or speed, so the final segment carries the
+insertion.
+
+The activation altitudes may be fixed by the user or, when
+\texttt{MULTI\_GUIDANCE\_OPTIMIZE\_ALTITUDES} is enabled, optimised jointly with the
+insertion parameters. In that case the design vector of
+Eq.~\eqref{eq:pso_coast_vector} is augmented with the $(n-1)$ activation altitudes
+of the schedule --- every segment except the first, which stays anchored at the kick
+--- appended as normalised fractions that are mapped cumulatively to a strictly
+increasing altitude sequence within prescribed bounds, so that every particle yields
+an admissible ordering without rejection. Optimising the hand-off altitudes lets the
+swarm trade the segments against one another to minimise the second-stage burn time
+subject to a clean insertion, the same objective minimised by the single-law
+architectures. The segmented solver is driven by its own dedicated swarm settings
+(\texttt{PSO\_MG\_*}), decoupled from those of \texttt{pso\_coast}.
 
 \subsection{Separation of Concerns}
 \label{ssec:separation}
 
-Across all four architectures the outer optimiser supplies only a design vector
-and receives only a scalar cost, while the inner simulation selects and runs
-whichever guidance law is active. This decoupling is what makes the comparative
-study fair: the same trajectory engine, environment models, and scoring
-normalisation are applied to every guidance law, so differences in the results
-reflect the laws themselves rather than the machinery around them.
+This guidance-agnostic decoupling of the outer optimiser from the inner
+simulation, introduced in Section~\ref{sec:architecture} and shared by every
+architecture above, is what makes the comparative study fair: the same trajectory
+engine, environment models, and scoring normalisation are applied to every guidance
+law, so differences in the results reflect the laws themselves rather than the
+machinery around them.
 
 % =============================================================================
 \section{Configuration System}

@@ -35,7 +35,7 @@ TIME_SECOND_ENGINE_IGNITION = 8       # time when second stage should be ignited
 # -------------- Aerodynamic Properties --------------
 A = 10.52               # cross sectional area [m^2]
 C_D = 0.3               # drag coefficient [no unit]
-C_L = 0.1               # lift coefficient [no unit] ---> lift is neglected in the simulation
+C_L = 0.1               # lift coefficient [no unit]; used when INCLUDE_LIFT (default True)
 
 # =======================================================
 #  FIRST STAGE

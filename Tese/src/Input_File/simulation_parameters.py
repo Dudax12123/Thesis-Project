@@ -303,14 +303,10 @@ GUIDANCE_SEGMENTS = [
 ]
 
 # --- Optional PSO optimisation of the activation altitudes -------------------
-# When True the segmented PSO also chooses the activation altitudes of every segment
-# EXCEPT the first (which stays right after the kick), to minimise Stage-2 burn time
-# (same objective as pso_coast, subject to a clean orbit insertion). For the 3-entry
-# default that is the 2nd and 3rd laws' altitudes = 2 extra decision variables
-# appended to the 4 base coast vars. False ⇒ the altitudes above are used as-is.
-MULTI_GUIDANCE_OPTIMIZE_ALTITUDES = True
-MULTI_GUIDANCE_ALT_LB = 10_000.0    # lower bound for optimised activation altitudes [m]
-MULTI_GUIDANCE_ALT_UB = 200_000.0   # upper bound [m]; clamped at runtime to the reference apogee
+# The segmented PSO can also choose the activation altitudes (all segments except
+# the first, which stays right after the kick). Those knobs
+# (MULTI_GUIDANCE_OPTIMIZE_ALTITUDES, MULTI_GUIDANCE_ALT_LB/UB) live with the rest
+# of the multi-guidance PSO settings in §11d below.
 
 # Per-segment coefficient-freeze time-to-go [s] for the intermediate (non-final)
 # segments. Smaller than APOLLO_FREEZE_THRESHOLD so short shaping segments are not
@@ -573,6 +569,42 @@ PSO_DIRECT_W_ALTITUDE    = 100.0   # relative altitude error  (1% error -> 1.0)
 PSO_DIRECT_W_VELOCITY    = 100.0   # relative velocity error  (1% error -> 1.0)
 PSO_DIRECT_W_FPA         = 10.0    # FPA error in deg         (1 deg  -> 10.0)
 PSO_DIRECT_GAMMA_REF_DEG = 1.0     # FPA non-dimensionalisation reference [deg]
+
+
+# -------------------------------------------------------------------
+# 11d. Multi-guidance (segmented) PSO   (only when MULTI_GUIDANCE_ENABLED)
+# -------------------------------------------------------------------
+# Dedicated PSO knobs for the segmented multi-law solver
+# (Simulation/segmented_guidance_solver.py). It optimises the 4 base coast vars
+#   x = [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
+# and, when MULTI_GUIDANCE_OPTIMIZE_ALTITUDES is True, appends the (n-1)
+# activation-altitude variables of the schedule (segment 0 stays "after the kick").
+# This block decouples the segmented solver from PSO_COAST_* (§11b), which it used
+# to reuse. The OBJECTIVE WEIGHTS are still shared with PSO_COAST_W_* (§11b) — the
+# segmented solver scores with the same coast objective.
+PSO_MG_N_PARTICLES     = 100     # swarm size
+PSO_MG_MAX_GENERATIONS = 250     # maximum number of generations
+PSO_MG_C1              = 2.05    # cognitive parameter
+PSO_MG_C2              = 2.05    # social parameter
+PSO_MG_OMEGA           = 0.7298  # inertia weight
+PSO_MG_VMAX            = 0.5     # maximum particle velocity (normalised)
+PSO_MG_SEED            = 42      # RNG seed for reproducible runs
+
+# Bounds for the 4 base decision vars [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
+# (same meaning/units as PSO_COAST_LB/UB, §11b).
+PSO_MG_LB = [  0.0,   50,   0.0,  1.54]
+PSO_MG_UB = [1000.0, 100.0, 100.0,  1.57]
+
+# --- Activation-altitude optimisation (segmented mode only) -----------------
+# When True the segmented PSO also chooses the activation altitudes of every
+# segment EXCEPT the first (which stays right after the kick), to minimise Stage-2
+# burn time (same objective as pso_coast, subject to a clean orbit insertion). For
+# the 3-entry default schedule (§8a-bis) that is the 2nd and 3rd laws' altitudes =
+# 2 extra decision variables appended to the 4 base coast vars. False => the
+# GUIDANCE_SEGMENTS altitudes are used as-is.
+MULTI_GUIDANCE_OPTIMIZE_ALTITUDES = True
+MULTI_GUIDANCE_ALT_LB = 10_000.0    # lower bound for optimised activation altitudes [m]
+MULTI_GUIDANCE_ALT_UB = 200_000.0   # upper bound [m]; clamped at runtime to the reference apogee
 
 
 # ===================================================================
