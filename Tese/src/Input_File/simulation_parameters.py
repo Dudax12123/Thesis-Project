@@ -604,7 +604,9 @@ PSO_MG_UB = [1000.0, 100.0, 100.0,  1.57]
 # GUIDANCE_SEGMENTS altitudes are used as-is.
 MULTI_GUIDANCE_OPTIMIZE_ALTITUDES = True
 MULTI_GUIDANCE_ALT_LB = 10_000.0    # lower bound for optimised activation altitudes [m]
-MULTI_GUIDANCE_ALT_UB = 200_000.0   # upper bound [m]; clamped at runtime to the reference apogee
+MULTI_GUIDANCE_ALT_UB = TARGET_ORBITAL_ALTITUDE   # upper bound [m]: cap at the objective orbit
+                                    # altitude; still clamped at runtime to 0.98x the reference
+                                    # apogee (a hand-off must sit below apogee) => effective ~490 km.
 
 
 # ===================================================================

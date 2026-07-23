@@ -161,7 +161,7 @@ guidance re-init (`restart_for_new_burn`), the same mechanism single-law pso_coa
 | `MULTI_GUIDANCE_ENABLED` | bool | `False` | Master switch. **False ⇒ NOTHING here applies; every single-law path is byte-identical.** True ⇒ ignores `GUIDANCE_MODE`, `COAST_METHOD`, `KICK_PROFILE_MODE`, `RUN_FAST`, `DIRECT_*`, `TGO_ESTIMATOR`, `GUIDANCE_TGO_USE_PSO_PLAN`. |
 | `GUIDANCE_SEGMENTS` | list[(law, alt_m)] | `[("gravity_turn",0.0),("apollo",40e3),("peg_new",120e3)]` | Ordered schedule; altitudes strictly increasing (raises otherwise). The FIRST entry flies right after the kick (its altitude normalised to 0.0); gravity turn is a selectable law, NOT a forced prefix. Last entry inserts to orbit. 3+ entries work unchanged. |
 | `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§11d) | bool | `True` | Append the `(n−1)` non-first activation altitudes to the PSO decision vector (→ `4+(n−1)` vars) and optimise them to minimise Stage-2 burn time. False ⇒ use the `GUIDANCE_SEGMENTS` altitudes as-is. |
-| `MULTI_GUIDANCE_ALT_LB` / `_UB` (§11d) | float m | `10e3` / `200e3` | Bounds for the optimised activation altitudes; `_UB` clamped at runtime to 0.98× reference apogee. |
+| `MULTI_GUIDANCE_ALT_LB` / `_UB` (§11d) | float m | `10e3` / `TARGET_ORBITAL_ALTITUDE` (500e3) | Bounds for the optimised activation altitudes. `_UB` is now the objective orbit altitude (2026-07-23, was hardcoded `200e3`), still clamped at runtime to 0.98× reference apogee ⇒ effective ~490 km. Lets a late-insertion hand-off go as high as physically sensible. |
 | `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD` | float s | `2.0` | Coefficient-freeze t_go for intermediate (non-final) segments; final segment uses `APOLLO_FREEZE_THRESHOLD`. |
 | `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. |
 | `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
@@ -203,6 +203,54 @@ PMP-optimal cost. **Altitude-optimised** (2026-07-16, `MULTI_GUIDANCE_OPTIMIZE_A
 optimised hand-offs **11.6 km / 117.2 km**. Earlier robustness matrix (peg_new chains, angle-only
 intermediates, post-MECO activation, 3-segment) all reach ~500 km, e ≤ 0.003; single-law regression
 (flag off) unchanged.
+
+**Combination robustness sweep** (2026-07-22, `PSO_MG` 60×150 medium budget, altitude-optimised,
+seed 42, optimized-only). Six law combinations — **all reach a bound ~500 km orbit**, so the
+altitude-opt PSO is robust across law choices, not just the tuned default:
+
+| combo | J' | opt. altitudes | orbit peri×apo km (e) |
+|-------|----|----------------|------------------------|
+| gt→peg_new (2-law) | 0.841 | 172.6 | 498×502 (0.0003) |
+| gt→lin_tan→peg_new | 0.857 | 10 / 200 | 469×510 (0.0030) |
+| gt→apollo→peg_new (default) | 0.861 | 200 / 200 | 498×502 (0.0003) |
+| apollo→peg_new (active-first) | 0.875 | 172.6 | 499×502 (0.0002) |
+| gt→apollo (2-law) | 1.249 | 200 | 460×587 (0.0092) |
+| gt→peg_new→apollo (order swap) | 1.709 | 200 / 200 | 313×575 (0.0192) |
+
+Takeaways: (1) **the terminal law dominates** — `peg_new` last ⇒ near-circular (e ≤ 0.003); `apollo`
+last ⇒ mildly elliptical (e 0.009–0.019, γ lofted ~0.5–1°). (2) **Order matters** — PEG in the middle
+with apollo last (swap) is the worst of the six (e=0.019, J'=1.71): the strong insertion law belongs
+last. (3) angle-only `linear_tangent` is fine as a *shaping* segment because PEG still closes the
+insertion (PSO drove its window to the 10 km floor). (4) active-first (`apollo` from post-kick, no
+gravity turn) inserts near-perfectly. (5) Medium budget confirms *capability*, not the global optimum:
+several optima sit at the 200 km `ALT_UB` cap, and the default's medium-budget local optimum
+(J'=0.861, 200/200 km — apollo's window collapses so PEG dominates) is slightly worse than its
+full-fidelity optimum (J'=0.8406, 11.6/117.2 km).
+
+**Full-fidelity re-runs** (2026-07-23, `PSO_MG` 100×250, seed 42, `ALT_UB` = objective altitude
+~490 km eff., **plots saved per combo** to `Output/plots_mg_fullfi/<combo>/`, 18–19 PNGs each). All
+six re-run and stay **near-circular** — the medium-budget ellipticity of the `apollo`-terminal combos
+was largely a convergence artifact:
+
+| combo | med J' → full J' | med → full alts [km] | full orbit peri×apo km (e) |
+|-------|------------------|----------------------|-----------------------------|
+| gt→peg_new (2-law) | 0.841 → 0.848 | 172.6 → 306.3 | 498×503 (0.0003) |
+| gt→apollo→peg_new (default) | 0.861 → 0.852 | 200/200 → 479/485 | 500×500 (0.00003) |
+| gt→lin_tan→peg_new | 0.857 → 0.852 | 10/200 → 10/332 | 498×506 (0.0006) |
+| apollo→peg_new (active-first) | 0.875 → 0.853 | 172.6 → 140.6 | 500×501 (0.0001) |
+| gt→apollo (2-law) | **1.249 → 0.869** | 200 → 233 | 458×534 (0.0055) |
+| gt→peg_new→apollo (swap) | **1.709 → 0.941** | 200/200 → 165/186 | 491×508 (0.0013) |
+
+Findings: (a) **full fidelity fixed the two elliptical combos** — #3 e 0.009→0.006, #4 e 0.019→0.0013;
+the "order swap is bad" conclusion was mostly under-convergence (its full optimum 165/186 km sits
+*below* the old 200 km cap). (b) The raised cap **is binding for some** — default (479/485), gt→peg_new
+(306), gt→apollo (233), lin_tan (332) all optimise above 200 km; #4 (165/186) and active-first (141)
+stay below. (c) The cap raise is **not universally better J'**: for the well-behaved combos (default,
+gt→peg_new, active-first) the wider search + fixed seed found a different, slightly-higher-altitude
+basin with marginally worse J' than their best-known (e.g. default 0.852@479/485 vs the prior
+0.8406@11.6/117.2) — expected for a non-convex seed-dependent PSO; all still insert near-perfectly.
+(d) Best full-fidelity combo: **gt→peg_new** (J'=0.848, e=0.0003, simplest 2-law). Ranking by J':
+gt→peg_new < default ≈ lin_tan < active-first < gt→apollo < swap.
 
 ---
 
