@@ -337,8 +337,8 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `LAUNCH_LATITUDE` (L30) | float deg | `28.5` | Launch site latitude. | Feeds azimuth formula `sin(β)=cos(i)/cos(φ)`. |
 | `LAUNCH_LONGITUDE` (L31) | float deg | `-80.5` | Launch site longitude (reserved; not yet used). | none currently. |
 | `TARGET_ORBIT_INCLINATION` (L32) | float deg | `51.6` | Desired orbit inclination. | azimuth derivation + `AZIMUTH_INCLINATION_MODE`. |
-| `INCLUDE_PSEUDO_FORCES` (L61) | `True`/`False` | `True` | Coriolis/centrifugal in rotating-frame EOM. | **requires** `ENABLE_EARTH_ROTATION`; required by the counter-force flag below. |
-| `COMPUTE_CROSS_HEADING_COUNTER_FORCE` (L68) | `True`/`False` | `False` | Cross-heading actuator counter-force: heading held at the launch azimuth (assumed actuator-counteracted), so **no trajectory effect**; computes/stores/plots the per-step force `m·|a_cross|` [N]. | **requires** `ENABLE_EARTH_ROTATION` **and** `INCLUDE_PSEUDO_FORCES`. Single flag for the whole feature (former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` merged in; `TRACK_HEADING_STATE` removed). |
+| `INCLUDE_PSEUDO_FORCES` (L61) | `True`/`False` | `True` | Coriolis/centrifugal in rotating-frame EOM. | **requires** `ENABLE_EARTH_ROTATION`; required by the counter-force flag below. **Silently ignored under `indirect_pmp`**, the one architecture that always flies pseudo-force-free — see the all-or-nothing rule below. |
+| `COMPUTE_CROSS_HEADING_COUNTER_FORCE` (L68) | `True`/`False` | `False` | Cross-heading actuator counter-force: heading held at the launch azimuth (assumed actuator-counteracted), so **no trajectory effect**; computes/stores/plots the per-step force `m·|a_cross|` [N]. | **requires** `ENABLE_EARTH_ROTATION` **and** `INCLUDE_PSEUDO_FORCES`. Single flag for the whole feature (former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` merged in; `TRACK_HEADING_STATE` removed). Recomputed on the output grid by `ra.pseudo_force_channels_on_grid`; **all zeros under `indirect_pmp`**. |
 | `AZIMUTH_INCLINATION_MODE` (L55) | `formula_compare`, `formula_back_compare`, `iterative` | `formula_compare` | How launch azimuth is derived/analyzed. | `iterative` **force-overwritten** to `formula_compare` under `pso_coast` (`main.py:424`); only exercised in the legacy path otherwise. |
 | `AZIMUTH_ITER_STEP_DEG` (L56) | float deg | `0.1` | Azimuth sweep step. | `iterative` only. |
 | `AZIMUTH_ITER_RANGE_DEG` (L57) | float deg | `10.0` | Azimuth sweep half-width. | `iterative` only. |
@@ -524,6 +524,34 @@ Each is legal to set but does something other than what you'd expect. With `file
 - **`AZIMUTH_INCLINATION_MODE="iterative"` is force-overwritten to `"formula_compare"` under
   `pso_coast`** (re-running the full PSO per azimuth is too costly) — the config object is mutated at
   runtime (`main.py:424`). Under other PSO paths it is simply never exercised.
+
+- **Pseudo-forces are all-or-nothing per architecture.** Coriolis and centrifugal are carried for the
+  *whole* ascent or not at all, so no trajectory is integrated under one force model before staging
+  and a different one after it. `apogee_check`, `pso_coast`, `direct` and segmented all carry them in
+  both stages. **`indirect_pmp` is the sole exemption.**
+  - **Why `indirect_pmp` is exempt.** Its costate ODEs are `-(∂H/∂x)ᵀ` of the *drag-free* EOM, and
+    `λ_s = 0` holds only because nothing in that EOM depends on `s`. Pseudo-forces depend on latitude,
+    which depends on downrange, so `∂H/∂s` would stop vanishing: `λ_s` would become a fourth
+    propagated costate, Eqs. 30b–30d and the transversality condition would need re-deriving, and the
+    decision vector would grow from 7 to 8. That is a change to the published formulation, so the law
+    is left as is. (The control law, Eq. 34, would survive — α does not appear in the pseudo-forces.)
+  - **The switch is `rocket_ascent.set_pseudo_forces_for_run()`, set by the driving solver and NEVER
+    inferred from config.** `segment_reference` builds the PMP reference by running the *indirect*
+    solver, so a config-derived gate would mislabel it. For the same reason the segmented solver sets
+    the flag **per trajectory** (`run_segmented_trajectory`), not once at `run_segmented()` entry —
+    its reference build runs first and legitimately leaves the flag `False`.
+  - **Latitude is no longer a state anywhere.** The pseudo-force evaluation was its only consumer and
+    `get_latitude_from_downrange(s)` is the exact closed form, so every path now propagates the plain
+    5-element `[s, r, v, γ, m]`. The 6th row the latitude plot reads is synthesised at output-assembly
+    time via `ra.append_latitude_row()` (legacy) or the equivalent inline `vstack` (PSO solvers).
+  - **Residual inconsistency, by choice.** A segmented schedule containing `indirect_pmp` as a segment
+    replays a stored α history that is extremal for pseudo-force-free dynamics while flying with the
+    terms active. Waypoints and deadlines are unaffected in kind — they are targets, and the bias is
+    identical across all schedules, so comparisons between law combinations remain valid. Report this
+    in Ch. 5 rather than fixing it in code.
+  - **This changed results.** Every PSO/segmented result predating this change is invalid and must be
+    regenerated, including the sweeps recorded in §1b/§3. The PMP reference cache key gained a
+    `SCHEMA` token (`v2-pseudo-force-gating`) so stale caches invalidate automatically.
 
 - **Cross-heading counter-force is a pure diagnostic.** With the heading held at the launch azimuth
   (the actuator is assumed to cancel the lateral cross-heading pseudo-force), it has **no effect on the

@@ -614,7 +614,16 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
 def _stage2_ode_guidance(t, y, thrust, Isp, gs):
     """
-    Stage-2 ODE with guidance steering. Vacuum dynamics (F_L = F_D = 0).
+    Stage-2 ODE with guidance steering. Aerodynamically vacuum (F_L = F_D = 0),
+    but still integrated in the ROTATING frame — so the Coriolis and centrifugal
+    terms belong here even though drag and lift do not. They are not aerodynamic
+    forces that vanish above the atmosphere; they are frame terms that vanish
+    only when the propagation becomes inertial.
+
+    This RHS is shared by pso_coast, direct and segmented. Whether the terms are
+    applied is decided entirely by ra._pseudo_forces_active(), i.e. by the
+    architecture switch the driving solver sets — indirect_pmp is the one
+    architecture that turns them off, and it does not use this function anyway.
 
     gs = None  →  ballistic (pre-ignition or pure coast).
     """
@@ -629,7 +638,17 @@ def _stage2_ode_guidance(t, y, thrust, Isp, gs):
         alpha = 0.0
 
     a_grav = grav.gravitational_acceleration(r_val)
-    return ra.diff_eom_base(s, r_val, v, gamma, m, 0.0, 0.0, F_T, a_grav, alpha, Isp)
+    d = ra.diff_eom_base(s, r_val, v, gamma, m, 0.0, 0.0, F_T, a_grav, alpha, Isp)
+
+    if ra._pseudo_forces_active():
+        # Latitude from downrange — no state needed, s is already y[0].
+        lat = ra.get_latitude_from_downrange(s)
+        delta_dvdt, delta_dgammadt, _, _, _, _ = earth_rot.rotating_frame_pseudoforce_rates(
+            v, gamma, ra.LAUNCH_AZIMUTH, lat, r_val)
+        d[2] += delta_dvdt
+        d[3] += delta_dgammadt
+
+    return d
 
 
 # Ground-collision event (terminal; identical to indirect_pso_solver)
@@ -665,6 +684,7 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
         t_stage2_start, t_ignition, t_arc2_start, t_arc3_end,
         t_stage1, y_stage1
     """
+    ra.set_pseudo_forces_for_run(True)   # carried for the whole ascent
     kick_angle = gamma_p - np.pi / 2.0
 
     # ---- Stage 1 ----
@@ -1035,6 +1055,7 @@ def run_pso_coast_full(optimal_params, verbose=True):
     Also writes ra.theta_*_history, ra.tgo_*_history, ra.cross_heading_*_history
     so the shared plot block in main.py renders guidance/Earth-rotation plots.
     """
+    ra.set_pseudo_forces_for_run(True)   # carried for the whole ascent
     (delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
      _extras) = _unpack_coast_x(optimal_params)
     kick_angle = gamma_p - np.pi / 2.0
@@ -1152,6 +1173,12 @@ def run_pso_coast_full(optimal_params, verbose=True):
             lat_ins)
         post_init[2], post_init[3] = v_in, g_in
 
+    # The state above is now INERTIAL, so the rotating-frame pseudo-forces must
+    # not be applied to the propagation that follows. Same mechanism run() uses
+    # for its final ballistic coast; reset to False by run_stage1() at the start
+    # of the next trajectory, so it cannot leak between particles.
+    ra.PROPAGATING_IN_INERTIAL_FRAME = True
+
     t_post_start = t_arc3_end
     t_post_end   = t_post_start + sim_params.DURATION_AFTER_SIMULATION
     sol_post = solve_ivp(
@@ -1215,8 +1242,6 @@ def run_pso_coast_full(optimal_params, verbose=True):
 
     # ---- Assemble full-trajectory history channels for the plot suite ----
     # The shared plot block in main.py reads these from ra.*_history globals.
-    # Stage 1 already logged real values; Stage 2 is inertial vacuum, so its
-    # pseudo-force / cross-heading contributions are zero (physically honest).
     theta_full = alpha_full + data_full[3]            # pitch θ = α + γ
     ra.theta_history      = list(theta_full)
     ra.theta_time_history = list(time_full)
@@ -1227,28 +1252,29 @@ def run_pso_coast_full(optimal_params, verbose=True):
         ra.tgo_time_history = list(gs_full.tgo_time_log)
         ra.tgo_history      = list(gs_full.tgo_log)
 
-    # Pseudo-force / cross-heading: Stage-1 real (already in ra.*_history),
-    # Stage-2 zeros appended.
-    coriolis_stage1    = np.asarray(ra.coriolis_mag_history, dtype=float)
-    centrifugal_stage1 = np.asarray(ra.centrifugal_mag_history, dtype=float)
-    cor_s1  = interpolate_to_time(ra.time_history, coriolis_stage1, t_stage1) \
-        if len(coriolis_stage1) else np.zeros(n_stage1)
-    cen_s1  = interpolate_to_time(ra.time_history, centrifugal_stage1, t_stage1) \
-        if len(centrifugal_stage1) else np.zeros(n_stage1)
-    coriolis_mag_data    = np.concatenate([cor_s1, np.zeros(n_stage2)])
-    centrifugal_mag_data = np.concatenate([cen_s1, np.zeros(n_stage2)])
+    # Pseudo-force / cross-heading channels. Stage 2 now carries the same terms
+    # as Stage 1 (they are frame terms, not aerodynamic ones), so recompute all
+    # four channels on the full dense grid rather than splicing Stage-1 history
+    # onto Stage-2 zeros.
+    #
+    # PROPAGATING_IN_INERTIAL_FRAME is True at this point (set before sol_post),
+    # which would zero the whole grid — so clear it for the recomputation and
+    # instead zero exactly the post-insertion tail, which genuinely is inertial.
+    _n_post = len(sol_post.t) if (sol_post is not None and len(sol_post.t) > 0) else 0
+    _saved_inertial_flag = ra.PROPAGATING_IN_INERTIAL_FRAME
+    ra.PROPAGATING_IN_INERTIAL_FRAME = False
+    try:
+        chf_grid, cha_grid, coriolis_mag_data, centrifugal_mag_data = \
+            ra.pseudo_force_channels_on_grid(time_full, data_full[:5])
+    finally:
+        ra.PROPAGATING_IN_INERTIAL_FRAME = _saved_inertial_flag
+    if _n_post:
+        for _ch in (chf_grid, cha_grid, coriolis_mag_data, centrifugal_mag_data):
+            _ch[-_n_post:] = 0.0
 
     if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
-        chf_s1 = np.asarray(ra.cross_heading_counter_force_history, dtype=float)
-        cha_s1 = np.asarray(ra.cross_heading_accel_history, dtype=float)
-        chf_s1 = interpolate_to_time(ra.time_history, chf_s1, t_stage1) \
-            if len(chf_s1) else np.zeros(n_stage1)
-        cha_s1 = interpolate_to_time(ra.time_history, cha_s1, t_stage1) \
-            if len(cha_s1) else np.zeros(n_stage1)
-        ra.cross_heading_counter_force_history = list(
-            np.concatenate([chf_s1, np.zeros(n_stage2)]))
-        ra.cross_heading_accel_history = list(
-            np.concatenate([cha_s1, np.zeros(n_stage2)]))
+        ra.cross_heading_counter_force_history = list(chf_grid)
+        ra.cross_heading_accel_history         = list(cha_grid)
 
     # ---- Set event markers used by plot_state_utils ----
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = t_arc3_end

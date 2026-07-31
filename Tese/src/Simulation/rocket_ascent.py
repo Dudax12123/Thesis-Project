@@ -44,6 +44,10 @@ _stage1_kick_handled_by_gamma_jump = False
 # Stage 2. Leaving it active here drives a pitch-down during Stage 1 that fights
 # the gamma-jump kick and crashes solve_ivp's event bracketing (brentq).
 _IN_PSO_STAGE1 = False
+# Whether this architecture carries the rotating-frame pseudo-forces, for the
+# WHOLE ascent. Set via set_pseudo_forces_for_run() by the driving solver — see
+# that function for why it must never be inferred from sim_params.
+_PSEUDO_FORCES_THIS_RUN = True
 # Optional Stage-1 guidance override for segmented (multi-law) guidance. When the
 # segmented_guidance_solver sets this to a callable f(t, state, F_T, Isp) -> alpha
 # [rad], rocket_dynamics uses it for the steering angle once the kick is complete
@@ -514,6 +518,68 @@ def cartesian_coordinates(h, s):
     return x, y
 
 
+def set_pseudo_forces_for_run(enabled):
+    """Declare whether this architecture carries the rotating-frame pseudo-forces.
+
+    Pseudo-forces are all-or-nothing per architecture: a trajectory must not be
+    integrated under one force model before staging and a different one after
+    it. One switch therefore governs the WHOLE ascent, Stage 1 and Stage 2
+    alike, and the driving solver sets it:
+
+        run()                       -> True   (apogee_check)
+        pso_coast_solver            -> True
+        direct_pso_solver           -> True
+        segmented_guidance_solver   -> True   (set per trajectory, see below)
+        indirect_pso_solver         -> False  (the sole exemption)
+
+    ``indirect_pmp`` is exempt because its costate ODEs are -(dH/dx)^T of the
+    drag-free EOM. Pseudo-forces depend on latitude, latitude depends on
+    downrange, so dH/ds would cease to vanish: lambda_s would become a fourth
+    propagated costate and Eqs. 30b-30d and the transversality condition would
+    all need re-deriving. That is a change to the formulation, not to the code,
+    so the law is left exactly as published.
+
+    MUST be set explicitly by the caller and NEVER inferred from sim_params:
+    building the segmented PMP reference runs the *indirect* solver
+    (segment_reference.py -> ips.run_pso_optimization), so a config-derived gate
+    would mislabel the reference build as segmented. For the same reason the
+    segmented solver sets the flag per trajectory rather than once at entry —
+    its reference build runs first and legitimately leaves the flag False.
+    """
+    global _PSEUDO_FORCES_THIS_RUN
+    _PSEUDO_FORCES_THIS_RUN = bool(enabled)
+
+
+def _pseudo_forces_active():
+    """True when Coriolis/centrifugal should be added to the rotating-frame EOM.
+
+    Combines the architecture switch above with the config gates and with
+    PROPAGATING_IN_INERTIAL_FRAME, which correctly suppresses the terms on the
+    final ballistic coast once the state has been converted to the inertial
+    frame.
+    """
+    return (sim_params.ENABLE_EARTH_ROTATION
+            and sim_params.INCLUDE_PSEUDO_FORCES
+            and _PSEUDO_FORCES_THIS_RUN
+            and not PROPAGATING_IN_INERTIAL_FRAME)
+
+
+def append_latitude_row(data):
+    """Append a latitude row to a [5, N] trajectory array, for plotting only.
+
+    Latitude is not integrated (see rocket_dynamics), but the plot suite reads
+    ``data[5]`` (Plots/plot_state_utils.py). Every architecture therefore
+    synthesises the row here from downrange at output-assembly time; the PSO
+    solvers already do the same thing inline. Returns the array unchanged when a
+    sixth row is already present or Earth rotation is disabled.
+    """
+    data = np.asarray(data, dtype=float)
+    if data.ndim != 2 or data.shape[0] != 5 or not sim_params.ENABLE_EARTH_ROTATION:
+        return data
+    lat_row = np.array([get_latitude_from_downrange(s) for s in data[0]])
+    return np.vstack([data, lat_row])
+
+
 def get_latitude_from_downrange(s):
     """
     Compute geocentric latitude from downrange along the launch great-circle.
@@ -581,25 +647,48 @@ def cross_heading_channels_on_grid(time, data):
     force_grid : ndarray (N,)  Counter-force ``m*|a_cross|`` [N].
     accel_grid : ndarray (N,)  ``|a_cross|`` [m/s^2].
     """
+    force_grid, accel_grid, _, _ = pseudo_force_channels_on_grid(time, data)
+    return force_grid, accel_grid
+
+
+def pseudo_force_channels_on_grid(time, data):
+    """All four pseudo-force diagnostic channels, on the output grid.
+
+    Same rationale as :func:`cross_heading_channels_on_grid`: these quantities are
+    pure functions of state, so recomputing them on the dense ``(time, data)`` grid
+    is both cheaper and safer than appending from the ODE right-hand side — the
+    latter would grow per-particle history inside the PSO inner loop and would not
+    match the plotting grid anyway.
+
+    Returns
+    -------
+    force_grid, accel_grid : ndarray (N,)  cross-heading counter-force / accel.
+    coriolis_grid          : ndarray (N,)  |a_Coriolis| [m/s^2].
+    centrifugal_grid       : ndarray (N,)  |a_centrifugal| [m/s^2].
+    """
     n = data.shape[1]
     force_grid = np.zeros(n)
     accel_grid = np.zeros(n)
+    coriolis_grid = np.zeros(n)
+    centrifugal_grid = np.zeros(n)
 
-    # Same activation guard the EOM uses for the pseudo-force term (line ~1411).
-    if not (sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES
-            and not PROPAGATING_IN_INERTIAL_FRAME):
-        return force_grid, accel_grid
+    # Same gate the EOM uses, so the diagnostics are zero exactly where the terms
+    # are not applied (notably the whole of an indirect_pmp run).
+    if not _pseudo_forces_active():
+        return force_grid, accel_grid, coriolis_grid, centrifugal_grid
 
     for i in range(n):
         s_i, r_i, v_i, g_i, m_i = (data[0, i], data[1, i], data[2, i],
                                    data[3, i], data[4, i])
         lat_i = get_latitude_from_downrange(s_i)
-        _, _, _, a_cross_i, _, _ = earth_rot.rotating_frame_pseudoforce_rates(
+        _, _, _, a_cross_i, cor_i, cen_i = earth_rot.rotating_frame_pseudoforce_rates(
             v_i, g_i, LAUNCH_AZIMUTH, lat_i, r_i)
         accel_grid[i] = abs(a_cross_i)
         force_grid[i] = m_i * abs(a_cross_i)
+        coriolis_grid[i] = cor_i
+        centrifugal_grid[i] = cen_i
 
-    return force_grid, accel_grid
+    return force_grid, accel_grid, coriolis_grid, centrifugal_grid
 
 
 def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
@@ -1031,14 +1120,11 @@ def rocket_dynamics(t, state):
 
     # Get state components
     s, r_val, v, gamma, m = state[:5]
-    lat = LAUNCH_LATITUDE_RAD
     heading = LAUNCH_AZIMUTH
-
-    if sim_params.ENABLE_EARTH_ROTATION:
-        if len(state) > 5:
-            lat = state[5]
-        else:
-            lat = get_latitude_from_downrange(s)
+    # Latitude is derived from downrange, never carried as a state (see the
+    # dlat/dt note further down). get_latitude_from_downrange returns the launch
+    # latitude unchanged when Earth rotation is disabled.
+    lat = get_latitude_from_downrange(s)
 
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
@@ -1451,7 +1537,7 @@ def rocket_dynamics(t, state):
     a_cross_heading_pseudo = 0.0
     coriolis_mag_val = 0.0
     centrifugal_mag_val = 0.0
-    if sim_params.ENABLE_EARTH_ROTATION and sim_params.INCLUDE_PSEUDO_FORCES and not PROPAGATING_IN_INERTIAL_FRAME:
+    if _pseudo_forces_active():
         delta_dvdt, delta_dgammadt, _, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
             v,
             gamma,
@@ -1468,10 +1554,11 @@ def rocket_dynamics(t, state):
         cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
         cross_heading_accel_history.append(abs(a_cross_heading_pseudo))
 
-    if sim_params.ENABLE_EARTH_ROTATION:
-        dsdt = state_differentiated[0]
-        dlatdt = get_latitude_rate_from_downrange(s, dsdt)
-        state_differentiated.append(dlatdt)
+    # Latitude is NOT an integrated state: get_latitude_from_downrange(s) is the
+    # exact closed form whose derivative this used to integrate, and downrange is
+    # already state[0]. Deriving it keeps every architecture on one 5-element
+    # state and removes the Stage-1/Stage-2 length mismatch. The latitude row the
+    # plot suite reads is synthesised at output-assembly time instead.
 
     if time_kick_start == None:
         state_differentiated[3] = 0.0
@@ -1769,6 +1856,9 @@ def run(initial_kick_angle, azimuth_override=None):
     #===================================================
     reset_stage1_ramp_state()   # restart the Stage-1 Isp/thrust ramp from sea level
     _IN_PSO_STAGE1 = False   # legacy run() path: CPR Stage-1 behaviour is active
+    # apogee_check integrates both stages through rocket_dynamics, so it can carry
+    # the pseudo-forces for the whole ascent.
+    set_pseudo_forces_for_run(True)
     time_kick_start = None
     kick_performed = False
     _stage1_kick_handled_by_gamma_jump = False
@@ -1880,8 +1970,6 @@ def run(initial_kick_angle, azimuth_override=None):
         fairing_jettisoned = True
         initial_mass -= r.M_FAIRING
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
-    if sim_params.ENABLE_EARTH_ROTATION:
-        initial_state_1.append(LAUNCH_LATITUDE_RAD)
 
     # Define time of simulation 1
     time_1 = 500.
@@ -2435,8 +2523,6 @@ def run_stage1(initial_kick_angle):
         fairing_jettisoned = True
         initial_mass -= r.M_FAIRING
     initial_state_1 = [0., c.R_EARTH, 0., np.deg2rad(90.), initial_mass]
-    if sim_params.ENABLE_EARTH_ROTATION:
-        initial_state_1.append(LAUNCH_LATITUDE_RAD)
 
     time_1 = 500.
 

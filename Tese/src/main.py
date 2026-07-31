@@ -318,7 +318,19 @@ def execute():
         print("EARTH ROTATION CONFIGURATION")
         print("="*60)
         print(f"Azimuth/inclination mode: {sim_params.AZIMUTH_INCLINATION_MODE}")
-        print(f"Pseudo-forces in EOM:     {sim_params.INCLUDE_PSEUDO_FORCES}")
+        # Pseudo-forces are all-or-nothing per architecture: carried for the whole
+        # ascent, or not at all. indirect_pmp is the sole exemption, because its
+        # costate equations are derived from the drag-free EOM (see
+        # rocket_ascent.set_pseudo_forces_for_run). Report what is actually flown.
+        _pf_requested = sim_params.INCLUDE_PSEUDO_FORCES
+        _pf_exempt = (sim_params.GUIDANCE_MODE == "indirect_pmp"
+                      and not sim_params.MULTI_GUIDANCE_ENABLED)
+        if _pf_requested and _pf_exempt:
+            print("Pseudo-forces in EOM:     False  (requested True; indirect_pmp "
+                  "flies pseudo-force-free — its costate equations assume the "
+                  "drag-free EOM)")
+        else:
+            print(f"Pseudo-forces in EOM:     {_pf_requested}")
         print(f"Launch site latitude:     {sim_params.LAUNCH_LATITUDE:.4f} deg")
         print(f"Launch site longitude:    {sim_params.LAUNCH_LONGITUDE:.4f} deg")
         print(f"Target inclination:       {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
@@ -957,6 +969,10 @@ def execute():
 
             ra.SINGLE_BURN_FULL_SIMULATION = True
             time, data, alt_stopped, delta_v, m_propellant_total, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data = ra.run(kick_angle_optimal, azimuth_override=best_azimuth_override)
+
+            # Latitude is derived, not integrated: add the row the plot suite
+            # reads (data[5]), exactly as the PSO solvers do for their own output.
+            data = ra.append_latitude_row(data)
 
             _simulation_failed = False
 

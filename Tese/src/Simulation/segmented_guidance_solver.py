@@ -289,6 +289,11 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     (crashed, state_final, t_f, t_cf, ...). When ``collect`` is True also returns
     the dense Stage-1 and Stage-2 solution pieces for plotting (key 'pieces').
     """
+    # Set HERE, per trajectory, not once at run_segmented() entry: the PMP
+    # reference is built first and runs the exempt indirect solver, which
+    # legitimately leaves the flag False. Setting it per trajectory makes the
+    # ordering self-correcting.
+    ra.set_pseudo_forces_for_run(True)
     kick_angle = gamma_p - np.pi / 2.0
     gs = pcs.GuidanceState()
     gs.force_planned_tgo = True
@@ -558,6 +563,7 @@ def run_segmented_full(optimal_params, segs, verbose=True):
     # state (rotating-frame) here — diagnostic only (mirrors pso_coast). Expect a
     # small ~v_rot step in the velocity-vs-time plot at insertion.
     state_final = result.get('state_final')
+    sol_post = None          # stays None when there is no insertion state to coast from
     if state_final is not None:
         post_init = np.asarray(state_final[:5], dtype=float).copy()
         if sim_params.ENABLE_EARTH_ROTATION:
@@ -566,6 +572,9 @@ def run_segmented_full(optimal_params, segs, verbose=True):
                 np.deg2rad(sim_params.LAUNCH_LATITUDE))
             post_init[2], post_init[3] = v_in, g_in
         t_post0 = result['t_arc3_end']
+        # The state is now INERTIAL, so suppress the rotating-frame pseudo-forces
+        # for this propagation (same mechanism as pso_coast / direct / run()).
+        ra.PROPAGATING_IN_INERTIAL_FRAME = True
         sol_post = _ballistic(t_post0, t_post0 + sim_params.DURATION_AFTER_SIMULATION,
                               post_init, _teval_half_sec)
         if sol_post is not None and len(sol_post.t) > 0:
@@ -618,21 +627,24 @@ def run_segmented_full(optimal_params, segs, verbose=True):
         ra.tgo_time_history = []
         ra.tgo_history      = []
 
-    # Pseudo-forces: Stage-1 real (interpolated), Stage-2 inertial vacuum -> zeros.
-    cor1 = np.asarray(ra.coriolis_mag_history, dtype=float)
-    cen1 = np.asarray(ra.centrifugal_mag_history, dtype=float)
-    cor_s1 = interpolate_to_time(ra.time_history, cor1, t_stage1) if len(cor1) else np.zeros(n_stage1)
-    cen_s1 = interpolate_to_time(ra.time_history, cen1, t_stage1) if len(cen1) else np.zeros(n_stage1)
-    coriolis_mag_data    = np.concatenate([cor_s1, np.zeros(n_stage2)])
-    centrifugal_mag_data = np.concatenate([cen_s1, np.zeros(n_stage2)])
+    # Pseudo-force channels, recomputed on the full dense grid — segmented carries
+    # the same frame terms as pso_coast/direct in both stages. See the equivalent
+    # block in pso_coast_solver for the inertial-flag handling.
+    _n_post = len(sol_post.t) if (sol_post is not None and len(sol_post.t) > 0) else 0
+    _saved_inertial_flag = ra.PROPAGATING_IN_INERTIAL_FRAME
+    ra.PROPAGATING_IN_INERTIAL_FRAME = False
+    try:
+        chf_grid, cha_grid, coriolis_mag_data, centrifugal_mag_data = \
+            ra.pseudo_force_channels_on_grid(time_full, data_full[:5])
+    finally:
+        ra.PROPAGATING_IN_INERTIAL_FRAME = _saved_inertial_flag
+    if _n_post:
+        for _ch in (chf_grid, cha_grid, coriolis_mag_data, centrifugal_mag_data):
+            _ch[-_n_post:] = 0.0
 
     if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
-        chf = np.asarray(ra.cross_heading_counter_force_history, dtype=float)
-        cha = np.asarray(ra.cross_heading_accel_history, dtype=float)
-        chf = interpolate_to_time(ra.time_history, chf, t_stage1) if len(chf) else np.zeros(n_stage1)
-        cha = interpolate_to_time(ra.time_history, cha, t_stage1) if len(cha) else np.zeros(n_stage1)
-        ra.cross_heading_counter_force_history = list(np.concatenate([chf, np.zeros(n_stage2)]))
-        ra.cross_heading_accel_history = list(np.concatenate([cha, np.zeros(n_stage2)]))
+        ra.cross_heading_counter_force_history = list(chf_grid)
+        ra.cross_heading_accel_history         = list(cha_grid)
 
     # ---- Event markers used by plot_state_utils ----
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = result['t_arc3_end']

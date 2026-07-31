@@ -238,6 +238,12 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # Setting kick_angle = gamma_p - pi/2 therefore makes gamma_post == gamma_p
     # exactly — gamma_p is literally the post-kick flight-path angle (and pitch
     # angle, since alpha = 0 in the subsequent gravity turn).
+    # indirect_pmp is the ONE architecture that flies pseudo-force-free, in both
+    # stages. Its costate ODEs are -(dH/dx)^T of the drag-free EOM; pseudo-forces
+    # depend on latitude, hence on downrange, so dH/ds would stop vanishing and
+    # lambda_s would become a fourth costate (see ra.set_pseudo_forces_for_run).
+    # The published formulation is left untouched.
+    ra.set_pseudo_forces_for_run(False)
     kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] -> [-0.031, -0.001] rad
 
     # Normalize the initial costate vector to unit norm. The trajectory depends
@@ -726,6 +732,7 @@ def run_indirect_full(optimal_params, verbose=True):
         lambda0_r, lambda0_v, lambda0_g
     )
 
+    ra.set_pseudo_forces_for_run(False)   # see run_indirect_trajectory
     kick_angle = gamma_p - np.pi / 2.0
 
     # --- Stage 1 ---

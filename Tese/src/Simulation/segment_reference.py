@@ -114,6 +114,15 @@ def _reference_input_key():
     """Hash of every input that changes the PMP reference trajectory."""
     _ref_particles, _ref_generations = _reference_pso_settings()
     payload = (
+        # Bump when a change to the PHYSICS invalidates existing caches without
+        # changing any of the inputs listed below.
+        #   v2: pseudo-forces became all-or-nothing per architecture. The
+        #       indirect solver that builds this reference is now pseudo-force-
+        #       free end-to-end, where before it carried them through Stage 1.
+        #       Caches built before that are stale. Note that INCLUDE_PSEUDO_FORCES
+        #       is deliberately NOT a key input: the reference is pseudo-force-free
+        #       by construction now, so the flag cannot affect it.
+        ("SCHEMA", "v2-pseudo-force-gating"),
         ("TARGET_ORBITAL_ALTITUDE", float(sim_params.TARGET_ORBITAL_ALTITUDE)),
         ("TARGET_ORBIT_INCLINATION", float(sim_params.TARGET_ORBIT_INCLINATION)),
         ("LAUNCH_LATITUDE", float(sim_params.LAUNCH_LATITUDE)),

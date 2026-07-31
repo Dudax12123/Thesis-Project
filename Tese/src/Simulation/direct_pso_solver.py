@@ -80,6 +80,7 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct, verbose=False):
         crashed, state_final, t_burn, t_stage2_start, t_ignition,
         t_stage1, y_stage1
     """
+    ra.set_pseudo_forces_for_run(True)   # carried for the whole ascent
     kick_angle = gamma_p - np.pi / 2.0
     t_burn = (t_burn_pct / 100.0) * _T_MAX_2
 
@@ -347,6 +348,7 @@ def run_pso_direct_full(optimal_params, verbose=True):
     ra.cross_heading_*_history so the shared plot block in main.py renders
     guidance/Earth-rotation plots.
     """
+    ra.set_pseudo_forces_for_run(True)   # carried for the whole ascent
     gamma_p, t_burn_pct = optimal_params
     kick_angle = gamma_p - np.pi / 2.0
 
@@ -405,6 +407,10 @@ def run_pso_direct_full(optimal_params, verbose=True):
         v_in, g_in = ra.get_inertial_state_components(
             state_insertion[1], state_insertion[2], state_insertion[3], lat_ins)
         post_init[2], post_init[3] = v_in, g_in
+
+    # State is now INERTIAL — suppress the rotating-frame pseudo-forces for the
+    # orbit propagation below (mirrors pso_coast_solver and run()).
+    ra.PROPAGATING_IN_INERTIAL_FRAME = True
 
     t_post_start = t_burn_end
     t_post_end   = t_post_start + sim_params.DURATION_AFTER_SIMULATION
@@ -473,28 +479,25 @@ def run_pso_direct_full(optimal_params, verbose=True):
         ra.tgo_time_history = list(gs_full.tgo_time_log)
         ra.tgo_history      = list(gs_full.tgo_log)
 
-    # Pseudo-force / cross-heading: Stage-1 real (already in ra.*_history),
-    # Stage-2 zeros appended.
-    coriolis_stage1    = np.asarray(ra.coriolis_mag_history, dtype=float)
-    centrifugal_stage1 = np.asarray(ra.centrifugal_mag_history, dtype=float)
-    cor_s1 = interpolate_to_time(ra.time_history, coriolis_stage1, t_stage1) \
-        if len(coriolis_stage1) else np.zeros(n_stage1)
-    cen_s1 = interpolate_to_time(ra.time_history, centrifugal_stage1, t_stage1) \
-        if len(centrifugal_stage1) else np.zeros(n_stage1)
-    coriolis_mag_data    = np.concatenate([cor_s1, np.zeros(n_stage2)])
-    centrifugal_mag_data = np.concatenate([cen_s1, np.zeros(n_stage2)])
+    # Pseudo-force / cross-heading channels, recomputed on the full dense grid —
+    # Stage 2 now carries the same frame terms as Stage 1. See the equivalent
+    # block in pso_coast_solver for why the inertial flag is cleared here and the
+    # post-insertion tail zeroed instead.
+    _n_post = len(sol_post.t) if (sol_post is not None and len(sol_post.t) > 0) else 0
+    _saved_inertial_flag = ra.PROPAGATING_IN_INERTIAL_FRAME
+    ra.PROPAGATING_IN_INERTIAL_FRAME = False
+    try:
+        chf_grid, cha_grid, coriolis_mag_data, centrifugal_mag_data = \
+            ra.pseudo_force_channels_on_grid(time_full, data_full[:5])
+    finally:
+        ra.PROPAGATING_IN_INERTIAL_FRAME = _saved_inertial_flag
+    if _n_post:
+        for _ch in (chf_grid, cha_grid, coriolis_mag_data, centrifugal_mag_data):
+            _ch[-_n_post:] = 0.0
 
     if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
-        chf_s1 = np.asarray(ra.cross_heading_counter_force_history, dtype=float)
-        cha_s1 = np.asarray(ra.cross_heading_accel_history, dtype=float)
-        chf_s1 = interpolate_to_time(ra.time_history, chf_s1, t_stage1) \
-            if len(chf_s1) else np.zeros(n_stage1)
-        cha_s1 = interpolate_to_time(ra.time_history, cha_s1, t_stage1) \
-            if len(cha_s1) else np.zeros(n_stage1)
-        ra.cross_heading_counter_force_history = list(
-            np.concatenate([chf_s1, np.zeros(n_stage2)]))
-        ra.cross_heading_accel_history = list(
-            np.concatenate([cha_s1, np.zeros(n_stage2)]))
+        ra.cross_heading_counter_force_history = list(chf_grid)
+        ra.cross_heading_accel_history         = list(cha_grid)
 
     # ---- Direct-insertion reporting (mirrors run()'s direct-mode block) ----
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
