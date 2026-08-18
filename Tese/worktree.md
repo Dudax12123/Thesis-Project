@@ -181,8 +181,11 @@ that arc, not an optimised atmospheric control.
 **PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
 `PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (default `None`/`None` ⇒ the indirect
 `PSO_N_PARTICLES × PSO_MAX_GENERATIONS`, 250×500 ≈ 1 h) and caches it (key = target orbit + vehicle +
-reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different schedules and coast
-budgets reuse the same reference). Later runs load the cache and only pay the ~31-min coast PSO;
+Stage-1 engine MODES + reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different
+schedules and coast budgets reuse the same reference. `ISP_1_MODE`/`THRUST_1_MODE`/`A_E` joined the
+key on 2026-08-18: the raw `ISP_1_*`/`F_THRUST_1_*` figures were already keyed, but the mode that
+decides which of them Stage 1 actually flies was not, so a mode switch silently reused a reference
+built under a different Stage-1 force history). Later runs load the cache and only pay the ~31-min coast PSO;
 each run prints "loaded from cache" vs "building … this is slow". **To rebuild at higher fidelity**,
 raise the `PMP_REFERENCE_PSO_*` knobs (or set `PMP_REFERENCE_FORCE_RERUN=True`) and run once — the
 cache auto-rebuilds when the value changes. PyGMO is needed only for the build. The currently cached
@@ -317,10 +320,34 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `ISP_1_MODE` (L181) | `sea_level`, `vacuum`, `average`, `linear` | `sea_level` | Which Isp Stage 1 uses. | `linear` activates `ISP_1_LINEAR_UPDATE_RATE`; reads `ISP_1_SL`/`ISP_1_VAC` from `rocket_specs.py`. |
-| `ISP_1_LINEAR_UPDATE_RATE` (L182) | float s | `5.0` | Isp ramp step interval. | `ISP_1_MODE="linear"` only. |
-| `THRUST_1_MODE` (L191) | `sea_level`, `vacuum`, `average`, `linear` | `sea_level` | Which thrust Stage 1 uses. | `linear` activates `THRUST_1_LINEAR_UPDATE_RATE`; reads `F_THRUST_1_SL`/`_VAC`. |
-| `THRUST_1_LINEAR_UPDATE_RATE` (L192) | float s | `5.0` | Thrust ramp step interval. | `THRUST_1_MODE="linear"` only. |
+| `ISP_1_MODE` | `sea_level`, `vacuum`, `average`, `linear`, `pressure` | `sea_level` | Which Isp Stage 1 uses. | `linear` activates `ISP_1_LINEAR_UPDATE_RATE`; reads `ISP_1_SL`/`ISP_1_VAC` from `rocket_specs.py`. `pressure` needs an altitude — see the note below. |
+| `ISP_1_LINEAR_UPDATE_RATE` | float s | `5.0` | Isp ramp step interval. | `ISP_1_MODE="linear"` only. |
+| `THRUST_1_MODE` | `sea_level`, `vacuum`, `average`, `linear`, `pressure` | `sea_level` | Which thrust Stage 1 uses. | `linear` activates `THRUST_1_LINEAR_UPDATE_RATE`; reads `F_THRUST_1_SL`/`_VAC`. `pressure` also reads the derived `rocket_specs.A_E`. |
+| `THRUST_1_LINEAR_UPDATE_RATE` | float s | `5.0` | Thrust ramp step interval. | `THRUST_1_MODE="linear"` only. |
+
+**The `pressure` modes (added 2026-08-18).** Altitude-based rather than time-based:
+
+- `F(h) = F_THRUST_1_VAC - p_a(h)*A_E`, with `A_E = (F_THRUST_1_VAC - F_THRUST_1_SL)/P_0`
+  derived in `rocket_specs.py`. Reproduces both published thrust figures exactly, at `h=0`
+  and at altitude, and needs no new vehicle data.
+- `Isp(h) = ISP_1_VAC - p_a(h)/P_0 * (ISP_1_VAC - ISP_1_SL)`, the twin of the above.
+- `p_a` is `atmosphere.ambient_pressure`, the exponential model sharing the density scale
+  height; `constants.P_0 = 101325`.
+
+**Set the two together.** Scaling thrust with altitude while holding Isp at its sea-level
+value raises the implied mass flow `F/(Isp*g0)` about 8 % above the physical one and burns
+Stage 1 too fast. Neither mode holds ramp state, so unlike `linear` they need no
+per-trajectory reset.
+
+**They are what makes the pressure loss real.** `Auxiliary/losses.py` reports
+`Δv_pressure` only under `THRUST_1_MODE="pressure"` (`pressure_applicable` False otherwise):
+under a constant-thrust mode the flown thrust does not depend on ambient pressure, so a
+deficit computed against it would describe a vehicle that was not simulated.
+
+**Altitude is threaded, not defaulted.** `thrust_Isp(t, alt)` carries it from
+`rocket_dynamics`, and both getters **raise** when `pressure` is selected without one rather
+than falling back to sea level — a silent fallback would fly the wrong thrust for the whole
+atmospheric arc.
 
 ### 2.6 Aerodynamics / physics
 

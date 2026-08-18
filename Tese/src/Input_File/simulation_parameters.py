@@ -118,7 +118,11 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #   "average":    Use the mean of sea-level and vacuum Isp — simple middle ground
 #   "linear":     Linearly ramp from ISP_1_SL at ignition to ISP_1_VAC at stage-1 burnout,
 #                 updating every ISP_1_LINEAR_UPDATE_RATE seconds (discrete steps)
-ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear"
+#   "pressure":   Isp(h) = ISP_1_VAC - p_a(h)/p_0 * (ISP_1_VAC - ISP_1_SL) — the altitude twin
+#                 of THRUST_1_MODE = "pressure", reproducing both published endpoints exactly.
+#                 PAIR THE TWO: scaling thrust up with altitude while holding Isp at sea level
+#                 inflates the implied mass flow F/(Isp*g0) and burns stage 1 too fast.
+ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear", "pressure"
 ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear ramp (only used when ISP_1_MODE = "linear")
 
 # -------------- Stage 1 Thrust Mode --------------
@@ -128,10 +132,19 @@ ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear r
 #   "average":    Use the mean of sea-level and vacuum thrust — simple middle ground
 #   "linear":     Linearly ramp from F_THRUST_1_SL at ignition to F_THRUST_1_VAC at stage-1 burnout,
 #                 updating every THRUST_1_LINEAR_UPDATE_RATE seconds (discrete steps)
+#   "pressure":   F(h) = F_THRUST_1_VAC - p_a(h)*A_E, the ambient-pressure thrust deficit of a
+#                 fixed-geometry nozzle (rocket_specs.A_E, derived from the two thrusts above).
+#                 A function of ALTITUDE, not of time, unlike "linear" — so it holds no ramp
+#                 state and reproduces F_THRUST_1_SL at h=0 and F_THRUST_1_VAC at altitude by
+#                 construction. REQUIRED for the pressure loss of Auxiliary/losses.py to mean
+#                 anything: under the other four modes the flown thrust does not depend on
+#                 ambient pressure, so there is no deficit to integrate and the term is
+#                 reported as not applicable.
 # CAVEAT: "vacuum" over-performs Stage 1 so much that COAST_METHOD="apogee_check"
 # can no longer land the apogee on target for any kick — the kick search raises a
 # ValueError (use COAST_METHOD="pso_coast"/"direct", or "sea_level"/"average" here).
-THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear"
+# "pressure" sits between "sea_level" and "vacuum" and does not trip that.
+THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear", "pressure"
 THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
 
 

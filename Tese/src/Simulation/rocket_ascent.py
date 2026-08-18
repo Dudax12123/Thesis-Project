@@ -773,7 +773,7 @@ def _state_with_lat(state):
     return earth_rot.append_latitude(state, LAUNCH_LATITUDE_RAD, sim_params.ENABLE_EARTH_ROTATION)
 
 
-def _get_stage1_isp(t):
+def _get_stage1_isp(t, alt=None):
     """
     Returns the effective stage-1 Isp based on the ISP_1_MODE setting in simulation_parameters.
 
@@ -784,10 +784,29 @@ def _get_stage1_isp(t):
     "average"    : constant average of ISP_1_SL and ISP_1_VAC
     "linear"     : ramps from ISP_1_SL at t=0 to ISP_1_VAC at estimated stage-1 burnout,
                    updated in discrete steps of ISP_1_LINEAR_UPDATE_RATE seconds
+    "pressure"   : Isp(h) = ISP_1_VAC - p_a(h)/p_0 * (ISP_1_VAC - ISP_1_SL), the altitude
+                   twin of THRUST_1_MODE = "pressure". It reproduces both published
+                   endpoints exactly and, like the thrust mode, is a function of altitude
+                   rather than of time, so it holds no ramp state.
+
+    Pair it with THRUST_1_MODE = "pressure": the two describe the same nozzle. Scaling the
+    thrust up with altitude while holding Isp at its sea-level value would raise the implied
+    mass flow F/(Isp*g0) above the physical one, burning stage-1 propellant too quickly.
+
+    ``alt`` is required by "pressure" only, and is deliberately not defaulted — see
+    _get_stage1_thrust for why a silent sea-level fallback is the wrong failure mode.
     """
     global _isp1_last_update_time, _isp1_current
 
     mode = sim_params.ISP_1_MODE
+
+    if mode == "pressure":
+        if alt is None:
+            raise ValueError(
+                'ISP_1_MODE="pressure" needs the current altitude, but this call site '
+                'did not supply one. Pass alt through thrust_Isp(t, alt).')
+        p_ratio = atm.ambient_pressure(alt) / c.P_0
+        return r.ISP_1_VAC - p_ratio * (r.ISP_1_VAC - r.ISP_1_SL)
 
     if mode == "sea_level":
         return r.ISP_1_SL
@@ -815,7 +834,7 @@ def _get_stage1_isp(t):
     return r.ISP_1_SL
 
 
-def _get_stage1_thrust(t):
+def _get_stage1_thrust(t, alt=None):
     """
     Returns the effective stage-1 thrust based on the THRUST_1_MODE setting in simulation_parameters.
 
@@ -826,10 +845,27 @@ def _get_stage1_thrust(t):
     "average"    : constant average of F_THRUST_1_SL and F_THRUST_1_VAC
     "linear"     : ramps from F_THRUST_1_SL at t=0 to F_THRUST_1_VAC at estimated stage-1 burnout,
                    updated in discrete steps of THRUST_1_LINEAR_UPDATE_RATE seconds
+    "pressure"   : F(h) = F_VAC - p_a(h)*A_E, the ambient-pressure thrust deficit of a
+                   fixed-geometry nozzle. Unlike "linear" this is a function of altitude, not
+                   of time, so it holds no ramp state and needs no per-trajectory reset. It is
+                   also the only mode for which the pressure loss of Auxiliary/losses.py is
+                   meaningful: the other four fly a thrust history that does not depend on the
+                   ambient pressure, so there is no deficit to integrate.
+
+    ``alt`` is required by "pressure" only. It is deliberately not defaulted to sea level:
+    a missed call site would then silently fly the wrong thrust for the whole atmospheric arc,
+    which is exactly the class of bug the shared-force-model rule exists to prevent.
     """
     global _thrust1_last_update_time, _thrust1_current
 
     mode = sim_params.THRUST_1_MODE
+
+    if mode == "pressure":
+        if alt is None:
+            raise ValueError(
+                'THRUST_1_MODE="pressure" needs the current altitude, but this call site '
+                'did not supply one. Pass alt through thrust_Isp(t, alt).')
+        return r.F_THRUST_1_VAC - atm.ambient_pressure(alt) * r.A_E
 
     if mode == "sea_level":
         return r.F_THRUST_1_SL
@@ -857,10 +893,18 @@ def _get_stage1_thrust(t):
     return r.F_THRUST_1_SL
 
 
-def thrust_Isp(t):
+def thrust_Isp(t, alt=None):
     """
     Returns the current thrust and specific impulse based on engine status.
-    
+
+    Parameters:
+    -----------
+    t : float
+        Current time [s]
+    alt : float, optional
+        Current altitude above the surface [m]. Required only by
+        THRUST_1_MODE = "pressure"; every other mode ignores it.
+
     Returns:
     --------
     F_T : float
@@ -871,11 +915,11 @@ def thrust_Isp(t):
     global main_engine_cutoff, second_engine_ignition, second_stage_cutoff
     
     if not main_engine_cutoff:
-        F_T = _get_stage1_thrust(t)
-        Isp = _get_stage1_isp(t)
+        F_T = _get_stage1_thrust(t, alt)
+        Isp = _get_stage1_isp(t, alt)
     elif main_engine_cutoff and not second_engine_ignition:
         F_T = 0
-        Isp = _get_stage1_isp(t)
+        Isp = _get_stage1_isp(t, alt)
     elif main_engine_cutoff and second_stage_cutoff:
         F_T = 0
         Isp = r.ISP_2
@@ -884,8 +928,8 @@ def thrust_Isp(t):
         Isp = r.ISP_2
     else:
         print("Warning: Both first stage and second stage engines are running at the same time.")
-        F_T = _get_stage1_thrust(t)
-        Isp = _get_stage1_isp(t)
+        F_T = _get_stage1_thrust(t, alt)
+        Isp = _get_stage1_isp(t, alt)
         
     return F_T, Isp
 
@@ -1135,7 +1179,8 @@ def rocket_dynamics(t, state):
         event_second_engine_ignition(t)
     
     # --- Get current thrust, Isp ---
-    F_T, Isp = thrust_Isp(t)
+    # alt is computed just above and is required by THRUST_1_MODE = "pressure".
+    F_T, Isp = thrust_Isp(t, alt)
 
     # --- Calculate dynamic pressure (needed for atmosphere exit check and drag) ---
     q = atm.dynamic_pressure(v, alt)
@@ -1372,7 +1417,7 @@ def rocket_dynamics(t, state):
             # Convert acceleration command to force
             F_T_commanded = m * a_thrust_cmd
             # Get the nominal (maximum) thrust available
-            F_T_nominal, _ = thrust_Isp(t)
+            F_T_nominal, _ = thrust_Isp(t, alt)
             # Use commanded thrust but limit to maximum available
             F_T = min(F_T_commanded, F_T_nominal)
         
@@ -1489,7 +1534,7 @@ def rocket_dynamics(t, state):
         # Exponential pitch law: θ(t_rel) = a·exp(b·t_rel), α = θ − γ
         # Optimize (a, b) once at guidance start, then hold fixed.
         if exp_shoot_a is None:
-            isp_active = Isp  # already computed by thrust_Isp(t) for current stage
+            isp_active = Isp  # already computed by thrust_Isp(t, alt) for current stage
             if second_engine_ignition:
                 m_dry_active = r.M_STRUCTURE_2
             elif fairing_jettisoned:

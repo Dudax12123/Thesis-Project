@@ -6,6 +6,7 @@ aerodynamic forces acting on the rocket during flight.
 
 Functions:
 - atmospheric_density: Calculate air density at a given altitude
+- ambient_pressure: Calculate ambient static pressure at a given altitude
 - speed_of_sound: Calculate speed of sound at a given altitude
 - dynamic_pressure: Calculate dynamic pressure at given velocity and altitude
 - drag_force: Calculate aerodynamic drag force
@@ -43,6 +44,31 @@ def atmospheric_density(altitude, RHO_0=c.RHO_0, H=c.H):
     """
     rho = RHO_0 * np.exp(-altitude / H)
     return rho
+
+def ambient_pressure(altitude, P_0=c.P_0, H=c.H):
+    """
+    Calculate ambient static pressure at a given altitude using the same
+    exponential model as the density.
+
+    Parameters:
+    -----------
+    altitude : float
+        Altitude above sea level [m]
+
+    Returns:
+    --------
+    p_a : float
+        Ambient static pressure at given altitude [Pa]
+
+    Notes:
+    ------
+    Uses p = p_0 * exp(-h/H) with the same scale height H as
+    atmospheric_density, which is what makes the two mutually consistent: an
+    isothermal exponential atmosphere has p and rho decaying identically.
+    Supplying a different H here would silently break that consistency.
+    """
+    p_a = P_0 * np.exp(-altitude / H)
+    return p_a
 
 def speed_of_sound(altitude):
     """

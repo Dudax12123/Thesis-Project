@@ -20,6 +20,13 @@ The file includes:
 - Calculated mass ratios for performance analysis
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from Auxiliary import constants as _c
+
 # -------------- Payload Mass --------------
 M_PAYLOAD = 0e3           # payload mass; [kg]
 
@@ -48,6 +55,14 @@ ISP_1 = ISP_1_SL        # backward-compat alias (sea-level value)
 F_THRUST_1_SL  = 7607e3 # thrust at sea level [N]
 F_THRUST_1_VAC = 8227e3 # thrust in vacuum [N]
 F_THRUST_1 = F_THRUST_1_SL  # backward-compat alias (sea-level value)
+
+# Stage-1 nozzle exit area, derived rather than chosen. The pressure-dependent
+# thrust model is F(h) = F_VAC - p_a(h)*A_E, so at sea level
+# F_SL = F_VAC - p_0*A_E, which fixes A_E from the two published thrust figures
+# above. It is therefore not an independent vehicle parameter: editing either
+# thrust moves it, which is the intent.
+# Only read when THRUST_1_MODE = "pressure".
+A_E = (F_THRUST_1_VAC - F_THRUST_1_SL) / _c.P_0  # nozzle exit area [m^2]
 
 # -------------- Mass Properties --------------
 M_STRUCTURE_1 = 25.6e3   # mass structure [kg]

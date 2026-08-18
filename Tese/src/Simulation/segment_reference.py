@@ -140,6 +140,15 @@ def _reference_input_key():
         ("M_PAYLOAD", float(r.M_PAYLOAD)), ("M_FAIRING", float(r.M_FAIRING)),
         ("ISP_1_SL", float(r.ISP_1_SL)), ("ISP_1_VAC", float(r.ISP_1_VAC)),
         ("F_THRUST_1_SL", float(r.F_THRUST_1_SL)), ("F_THRUST_1_VAC", float(r.F_THRUST_1_VAC)),
+        # The two figures above are the endpoints; the MODE decides which of them
+        # Stage 1 actually flies, so it changes the reference trajectory just as
+        # much as they do. Keying only the endpoints meant a mode switch silently
+        # reused a reference built under a different Stage-1 force history.
+        ("ISP_1_MODE", str(sim_params.ISP_1_MODE)),
+        ("THRUST_1_MODE", str(sim_params.THRUST_1_MODE)),
+        # Read only by THRUST_1_MODE = "pressure"; derived from the two thrusts
+        # above, so it is listed for traceability rather than independence.
+        ("A_E", float(getattr(r, "A_E", 0.0))),
         ("M_STRUCTURE_1", float(r.M_STRUCTURE_1)), ("M_PROP_1", float(r.M_PROP_1)),
         ("ISP_2", float(r.ISP_2)), ("F_THRUST_2", float(r.F_THRUST_2)),
         ("M_STRUCTURE_2", float(r.M_STRUCTURE_2)), ("M_PROP_2", float(r.M_PROP_2)),
