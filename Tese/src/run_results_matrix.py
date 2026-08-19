@@ -5,11 +5,13 @@ Runs the designed set of trajectories behind Chapter 6 and writes one tidy row
 per run, so that the results chapter is assembled from a table rather than read
 off twenty plots.
 
-The design is one frozen baseline with **one factor changed at a time**. The
-factors are the guidance law, the optimization architecture, the atmosphere and
-Earth's rotation; everything else in simulation_parameters.py is a fixed
-condition of the experiment and is recorded once, in the manifest, rather than
-swept. See the plan and Chapter 6 §6.1.
+The design is one frozen baseline with **one factor changed at a time**, and
+the factors are varied *within* a guidance law rather than across all nine. Two
+laws are analysed in depth -- the gravity turn as a passive floor and peg_new as
+the closed-loop ceiling -- against indirect_pmp as the optimal reference; the
+remaining six are flown once each for breadth. Everything else in
+simulation_parameters.py is a fixed condition of the experiment and is recorded
+once, in the manifest, rather than swept. See Chapter 6 §6.1.
 
 Usage
 -----
@@ -24,7 +26,7 @@ to it:
 
 One case, in-process, with solver output on screen:
 
-    python Tese/src/run_results_matrix.py --case atm_peg_new
+    python Tese/src/run_results_matrix.py --case peg_baseline
 
 Isolation
 ---------
@@ -55,17 +57,23 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 OUTPUT_DIR = _HERE / "Output" / "results_matrix"
 
-# The eight laws that fly under the coast-parameter architecture. indirect_pmp is
-# not among them: it is its own architecture and enters the matrix as the
-# reference every other run is measured against.
-COAST_LAWS = [
-    "gravity_turn",
+# The two laws the chapter analyses in depth: a passive floor whose trajectory
+# shape comes entirely from the kick and the arc timing, and the strongest
+# closed-loop law, which is also one of only two that close under every
+# architecture. indirect_pmp is neither -- it is its own architecture and enters
+# as the reference the other two are measured against.
+DEPTH_LAWS = ["gravity_turn", "peg_new"]
+
+# Flown once each at the baseline for the capability section, reported as a
+# single summary table with no per-law prose. The thesis claims nine guidance
+# laws; this is what keeps that claim honest without giving six laws sections
+# they do not earn.
+SHOWCASE_LAWS = [
     "cpr",
     "linear_tangent",
     "bilinear_tangent",
     "apollo",
     "peg",
-    "peg_new",
     "exp_shooting",
 ]
 
@@ -104,51 +112,103 @@ SMOKE_BUDGET = {
 
 
 def build_matrix():
-    """The 23 production cases, in chapter order."""
+    """The 20 production cases, in chapter order.
+
+    The design is one frozen baseline with **one factor changed at a time**, but
+    the factors are varied *within* each guidance law rather than across all
+    nine. Sections 6.2 and 6.3 each take one law and move it along the axes that
+    apply to it; 6.4 is the reference; 6.7 shows breadth at reduced depth.
+    Sections 6.5 (losses) and 6.6 (comparison) own no runs -- they re-read the
+    rows below through a different lens, which is why the chapter is shorter
+    than the matrix is wide.
+    """
     cases = []
 
-    # --- Set A: §6.4 With Atmosphere -------------------------------------
-    for law in COAST_LAWS:
-        cases.append(dict(name="atm_" + law, section="6.4", factor="law",
-                          overrides={"GUIDANCE_MODE": law}))
-    cases.append(dict(name="atm_indirect_pmp", section="6.4", factor="law",
-                      overrides={"GUIDANCE_MODE": "indirect_pmp"}))
-
-    # --- Set B: §6.3 No Atmosphere ---------------------------------------
-    # INCLUDE_DRAG=False also drops the fairing and forces the altitude-based
-    # atmosphere-exit marker; both are handled inside the simulator.
-    for law in COAST_LAWS:
-        cases.append(dict(name="vac_" + law, section="6.3", factor="law",
-                          overrides={"GUIDANCE_MODE": law, "INCLUDE_DRAG": False}))
-    cases.append(dict(name="vac_indirect_pmp", section="6.3", factor="law",
-                      overrides={"GUIDANCE_MODE": "indirect_pmp", "INCLUDE_DRAG": False}))
-
-    # --- Set C: §6.5 Earth Rotation --------------------------------------
-    # The rotation-on twins of these are atm_gravity_turn and vac_gravity_turn.
-    # INCLUDE_PSEUDO_FORCES requires ENABLE_EARTH_ROTATION, so both go together.
-    cases.append(dict(name="atm_gravity_turn_norot", section="6.5", factor="rotation",
+    # --- Section 6.2: gravity turn ---------------------------------------
+    # The passive law carries the physics axes. With alpha = 0 after the kick
+    # there is no steering logic to confound the response, which is precisely
+    # the argument for isolating rotation and the engine model here rather than
+    # on a closed-loop law.
+    cases.append(dict(name="gt_baseline", section="6.2", factor="baseline",
+                      overrides={"GUIDANCE_MODE": "gravity_turn"}))
+    cases.append(dict(name="gt_apogee", section="6.2", factor="architecture",
+                      overrides={"GUIDANCE_MODE": "gravity_turn",
+                                 "COAST_METHOD": "apogee_check"}))
+    # Expected to finish SUBORBITAL, and that is the result being collected, not
+    # a failure to be fixed. direct is a single continuous Stage-2 burn with no
+    # coast, which is delta-v-marginal and closes only for the explicit
+    # terminal-constraint laws; the verdict is empirical (identical at 900 and
+    # 5000 evaluations, so a true optimum rather than under-convergence). Paired
+    # with peg_direct below it is the argument of the chapter for why coast arcs
+    # exist. Reported via periapsis_km, which will be negative.
+    cases.append(dict(name="gt_direct", section="6.2", factor="architecture",
+                      overrides={"GUIDANCE_MODE": "gravity_turn",
+                                 "COAST_METHOD": "direct"}))
+    # INCLUDE_DRAG=False is the master no-atmosphere switch: it also drops the
+    # fairing and zeroes ambient pressure, so this run flies vacuum thrust and
+    # vacuum Isp. It differs from the baseline on two counts, not one.
+    cases.append(dict(name="gt_vacuum", section="6.2", factor="atmosphere",
+                      overrides={"GUIDANCE_MODE": "gravity_turn",
+                                 "INCLUDE_DRAG": False}))
+    cases.append(dict(name="gt_norot", section="6.2", factor="rotation",
                       overrides={"GUIDANCE_MODE": "gravity_turn",
                                  "ENABLE_EARTH_ROTATION": False,
                                  "INCLUDE_PSEUDO_FORCES": False,
                                  "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False}))
-    cases.append(dict(name="vac_gravity_turn_norot", section="6.5", factor="rotation",
-                      overrides={"GUIDANCE_MODE": "gravity_turn", "INCLUDE_DRAG": False,
-                                 "ENABLE_EARTH_ROTATION": False,
-                                 "INCLUDE_PSEUDO_FORCES": False,
-                                 "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False}))
+    # Both halves of the nozzle model move together. Scaling thrust with
+    # altitude while holding Isp fixed raises implied mass flow ~8% and burns
+    # Stage 1 too fast. Under a constant mode losses.py reports
+    # pressure_applicable=False rather than a number, and that absence is the
+    # result: a deficit computed against a constant thrust would describe a
+    # vehicle that was not simulated.
+    cases.append(dict(name="gt_const_engine", section="6.2", factor="engine_model",
+                      overrides={"GUIDANCE_MODE": "gravity_turn",
+                                 "ISP_1_MODE": "average",
+                                 "THRUST_1_MODE": "average"}))
 
-    # --- Set D: §6.8 Architectures ---------------------------------------
-    # peg_new is the only law that pairs with every architecture: apollo raises
-    # under apogee_check, and five laws are genuinely suborbital under direct.
-    # Its pso_coast twin is atm_peg_new and its reference is atm_indirect_pmp.
-    cases.append(dict(name="arch_peg_new_apogee", section="6.8", factor="architecture",
-                      overrides={"GUIDANCE_MODE": "peg_new", "COAST_METHOD": "apogee_check"}))
-    cases.append(dict(name="arch_peg_new_direct", section="6.8", factor="architecture",
-                      overrides={"GUIDANCE_MODE": "peg_new", "COAST_METHOD": "direct"}))
-    cases.append(dict(name="arch_peg_new_segmented", section="6.8", factor="architecture",
+    # --- Section 6.3: powered explicit guidance ---------------------------
+    # peg_new takes the architecture axis because it closes under all three, and
+    # the atmosphere axis because that is the one interacting with the guidance
+    # logic. The physics axes stay on the gravity turn.
+    cases.append(dict(name="peg_baseline", section="6.3", factor="baseline",
+                      overrides={"GUIDANCE_MODE": "peg_new"}))
+    cases.append(dict(name="peg_apogee", section="6.3", factor="architecture",
+                      overrides={"GUIDANCE_MODE": "peg_new",
+                                 "COAST_METHOD": "apogee_check"}))
+    cases.append(dict(name="peg_direct", section="6.3", factor="architecture",
+                      overrides={"GUIDANCE_MODE": "peg_new",
+                                 "COAST_METHOD": "direct"}))
+    cases.append(dict(name="peg_vacuum", section="6.3", factor="atmosphere",
+                      overrides={"GUIDANCE_MODE": "peg_new",
+                                 "INCLUDE_DRAG": False}))
+
+    # --- Section 6.4: the reference ---------------------------------------
+    # Needs the large PSO budget; a reduced one leaves it far from a closed
+    # orbit and it is convergence-limited rather than broken. It is also exempt
+    # from the rotating-frame pseudo-forces the other cases carry, because its
+    # costate equations are derived on the drag-free EOM -- see
+    # pseudo_forces_flown in the collected row.
+    cases.append(dict(name="pmp_baseline", section="6.4", factor="reference",
+                      overrides={"GUIDANCE_MODE": "indirect_pmp"}))
+    cases.append(dict(name="pmp_vacuum", section="6.4", factor="reference",
+                      overrides={"GUIDANCE_MODE": "indirect_pmp",
+                                 "INCLUDE_DRAG": False}))
+
+    # --- Section 6.7: capability showcase ---------------------------------
+    for law in SHOWCASE_LAWS:
+        cases.append(dict(name="show_" + law, section="6.7", factor="law_breadth",
+                          overrides={"GUIDANCE_MODE": law}))
+    # MULTI_GUIDANCE_ENABLED overrides GUIDANCE_MODE and COAST_METHOD entirely.
+    # The optimiser selects the hand-off altitude, so the schedule it converges
+    # on is itself a reportable output and not only a trajectory.
+    cases.append(dict(name="show_seg_gt_pegnew", section="6.7", factor="segmented",
                       overrides={"MULTI_GUIDANCE_ENABLED": True,
                                  "GUIDANCE_SEGMENTS": [("gravity_turn", 0.0),
                                                        ("peg_new", 120e3)]}))
+    cases.append(dict(name="show_seg_gt_peg", section="6.7", factor="segmented",
+                      overrides={"MULTI_GUIDANCE_ENABLED": True,
+                                 "GUIDANCE_SEGMENTS": [("gravity_turn", 0.0),
+                                                       ("peg", 120e3)]}))
     return cases
 
 
