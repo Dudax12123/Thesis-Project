@@ -38,21 +38,20 @@ import Plots.new_plot_runner as new_plot_runner
 # Source curve starts at (1.0, 0) and rises as the ratio decreases.
 # Points are (Isp_SL/Isp_VAC, Ka [ft/s]).
 #
-# PROVENANCE — UNRESOLVED. The source of this chart was never recorded, and a
-# search has not identified it. Until it is traced, this value must NOT be
-# quoted in the thesis: an uncited digitised curve cannot be published. The
-# candidates already in the bibliography are Edberg & Costa (whose delta-v
-# budget chapter is cited for the neighbouring loss magnitudes) and Turner;
-# Humble, Henry & Larson is the usual off-bibliography suspect for charts of
-# this kind, and the ft/s units point at an older American design text.
+# PROVENANCE. Reproduced in Edberg & Costa, "Design of Rockets and Space Launch
+# Vehicles" (2nd ed., AIAA, 2022), from the original:
+#   Dergarabedian, P., and Ten Dyke, R. P., "Estimating Performance Capabilities
+#   of Boost Rockets", STL TR-59-00792, Space Technology Labs, Los Angeles, 1959.
+# Cited in the thesis as \cite{Edberg, DergarabedianTenDyke1959}. The ft/s units
+# are the 1959 original's.
 #
-# It remains useful as a developer cross-check. Since 2026-08-19 there is a
-# second, independent estimate of the same quantity: Auxiliary/losses.py
-# integrates the actual deficit along the flown trajectory when
-# THRUST_1_MODE = "pressure". For the baseline vehicle the two agree to within
-# about ten per cent (chart ~77 m/s, integral ~67 m/s), which is what a design
-# chart and a trajectory integral ought to do — the chart is generic in the
-# Isp ratio, the integral knows the actual altitude history.
+# Since 2026-08-19 there is a second, independent estimate of the same quantity:
+# Auxiliary/losses.py integrates the actual deficit along the flown trajectory
+# when THRUST_1_MODE = "pressure". The two are worth keeping side by side —
+# this chart is generic in the Isp ratio alone, whereas the integral knows the
+# altitude history the vehicle actually flew, so agreement between them is a
+# real check on the new engine model rather than a restatement of it.
+# For the baseline vehicle (Isp ratio 0.910) the chart gives 252 ft/s = 76.8 m/s.
 _KA_RATIO = np.array([1.00, 0.95, 0.90, 0.85, 0.80, 0.75, 0.70, 0.65, 0.60, 0.55])
 _KA_FT_S  = np.array([   0,  120,  285,  490,  730,  960, 1130, 1400, 1620, 1900])
 _FT_S_TO_KM_S = 0.0003048   # 1 ft/s = 0.0003048 km/s
