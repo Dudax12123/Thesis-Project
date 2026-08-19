@@ -115,6 +115,26 @@ class TestPressureLoss:
         expected = c.P_0 * r.A_E / MASS * (DURATION / 2.0)
         assert hist["pressure"][-1] == pytest.approx(expected, rel=1e-3)
 
+    def test_suppressed_when_there_is_no_atmosphere(self):
+        """No air means no back-pressure, even under the pressure thrust model.
+
+        The simulator flies vacuum thrust throughout when INCLUDE_DRAG is False,
+        so a pressure loss reported for such a run would be a deficit against an
+        atmosphere that was removed from the model.
+        """
+        case = _flat_case()
+        hist = loss_mod.loss_histories(**case, t_meco=DURATION, include_drag=False,
+                                       thrust_mode="pressure")
+        assert hist["pressure_applicable"] is False
+        assert hist["pressure"][-1] == pytest.approx(0.0)
+
+    def test_no_atmosphere_ideal_is_the_flown_thrust(self):
+        """With the deficit suppressed, the ideal term is just the thrust integral."""
+        case = _flat_case()
+        hist = loss_mod.loss_histories(**case, t_meco=DURATION, include_drag=False,
+                                       thrust_mode="pressure")
+        assert hist["ideal"][-1] == pytest.approx(THRUST / MASS * DURATION)
+
     def test_ideal_is_the_vacuum_integral(self):
         """dv_ideal must exceed the flown thrust integral by exactly the deficit."""
         case = _flat_case()

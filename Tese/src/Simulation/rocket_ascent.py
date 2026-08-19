@@ -773,6 +773,23 @@ def _state_with_lat(state):
     return earth_rot.append_latitude(state, LAUNCH_LATITUDE_RAD, sim_params.ENABLE_EARTH_ROTATION)
 
 
+def _ambient_pressure_for_run(alt):
+    """Ambient pressure the vehicle is actually flying through [Pa].
+
+    INCLUDE_DRAG is the master no-atmosphere switch: when it is False there is no
+    air, so there is no back-pressure on the nozzle either. Evaluating
+    p_0*exp(-h/H) regardless would make Stage 1 pay an over-expansion penalty to
+    an atmosphere the configuration has removed, and would have
+    Auxiliary/losses.py report a pressure loss in a declared vacuum.
+
+    With no atmosphere the two "pressure" modes therefore collapse onto the
+    vacuum thrust and vacuum Isp, which is the physically correct limit.
+    """
+    if not sim_params.INCLUDE_DRAG:
+        return 0.0
+    return atm.ambient_pressure(alt)
+
+
 def _get_stage1_isp(t, alt=None):
     """
     Returns the effective stage-1 Isp based on the ISP_1_MODE setting in simulation_parameters.
@@ -787,7 +804,8 @@ def _get_stage1_isp(t, alt=None):
     "pressure"   : Isp(h) = ISP_1_VAC - p_a(h)/p_0 * (ISP_1_VAC - ISP_1_SL), the altitude
                    twin of THRUST_1_MODE = "pressure". It reproduces both published
                    endpoints exactly and, like the thrust mode, is a function of altitude
-                   rather than of time, so it holds no ramp state.
+                   rather than of time, so it holds no ramp state. With INCLUDE_DRAG=False
+                   it collapses onto ISP_1_VAC — see _ambient_pressure_for_run.
 
     Pair it with THRUST_1_MODE = "pressure": the two describe the same nozzle. Scaling the
     thrust up with altitude while holding Isp at its sea-level value would raise the implied
@@ -805,7 +823,7 @@ def _get_stage1_isp(t, alt=None):
             raise ValueError(
                 'ISP_1_MODE="pressure" needs the current altitude, but this call site '
                 'did not supply one. Pass alt through thrust_Isp(t, alt).')
-        p_ratio = atm.ambient_pressure(alt) / c.P_0
+        p_ratio = _ambient_pressure_for_run(alt) / c.P_0
         return r.ISP_1_VAC - p_ratio * (r.ISP_1_VAC - r.ISP_1_SL)
 
     if mode == "sea_level":
@@ -851,6 +869,8 @@ def _get_stage1_thrust(t, alt=None):
                    also the only mode for which the pressure loss of Auxiliary/losses.py is
                    meaningful: the other four fly a thrust history that does not depend on the
                    ambient pressure, so there is no deficit to integrate.
+                   With INCLUDE_DRAG=False it collapses onto F_VAC — see
+                   _ambient_pressure_for_run.
 
     ``alt`` is required by "pressure" only. It is deliberately not defaulted to sea level:
     a missed call site would then silently fly the wrong thrust for the whole atmospheric arc,
@@ -865,7 +885,7 @@ def _get_stage1_thrust(t, alt=None):
             raise ValueError(
                 'THRUST_1_MODE="pressure" needs the current altitude, but this call site '
                 'did not supply one. Pass alt through thrust_Isp(t, alt).')
-        return r.F_THRUST_1_VAC - atm.ambient_pressure(alt) * r.A_E
+        return r.F_THRUST_1_VAC - _ambient_pressure_for_run(alt) * r.A_E
 
     if mode == "sea_level":
         return r.F_THRUST_1_SL

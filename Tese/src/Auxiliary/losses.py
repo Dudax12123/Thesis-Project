@@ -53,17 +53,26 @@ def _cumulative_trapezoid(f, t):
     return np.concatenate(([0.0], np.cumsum(increments)))
 
 
-def _pressure_deficit_accel(t, alt, m, thrust, t_meco, thrust_mode):
+def _pressure_deficit_accel(t, alt, m, thrust, t_meco, thrust_mode,
+                            include_drag=True):
     """Ambient-pressure thrust deficit per unit mass [m/s^2], and whether it applies.
 
-    The deficit is only a real quantity when the trajectory was *flown* with the
-    pressure-dependent thrust model: under the constant and time-ramped modes the
-    thrust history does not depend on ambient pressure, so there is no deficit to
-    integrate and reporting one would describe a vehicle that was not simulated.
-    In that case this returns zeros and ``False``, and the caller must not present
-    the result as the four-term budget of Chapter 2.
+    Two conditions have to hold for the term to be a real quantity.
+
+    The trajectory must have been *flown* with the pressure-dependent thrust
+    model: under the constant and time-ramped modes the thrust history does not
+    depend on ambient pressure, so there is no deficit to integrate and reporting
+    one would describe a vehicle that was not simulated.
+
+    And there must have been an atmosphere to push back. ``include_drag`` mirrors
+    the master no-atmosphere switch, under which the simulator flies vacuum
+    thrust throughout (rocket_ascent._ambient_pressure_for_run); a pressure loss
+    reported for such a run would be a deficit against air that was not there.
+
+    When either fails this returns zeros and ``False``, and the caller must not
+    present the result as the four-term budget of Chapter 2.
     """
-    if thrust_mode != "pressure":
+    if thrust_mode != "pressure" or not include_drag:
         return np.zeros_like(np.asarray(t, dtype=float)), False
 
     t = np.asarray(t, dtype=float)
@@ -95,8 +104,10 @@ def loss_histories(t, alt, v, gamma, m, thrust, alpha,
         Main-engine cut-off time [s], used to confine the pressure deficit to the
         stage-1 arc. Without it, any thrusting sample is treated as stage 1.
     include_drag : bool
-        Mirrors ``INCLUDE_DRAG``. False zeroes the drag integral, matching the
-        no-atmosphere runs where the force is not in the equations of motion.
+        Mirrors ``INCLUDE_DRAG``, the master no-atmosphere switch. False zeroes
+        the drag integral, matching the no-atmosphere runs where the force is not
+        in the equations of motion, and suppresses the pressure term with it: no
+        air means no back-pressure on the nozzle either.
     thrust_mode : str, optional
         The ``THRUST_1_MODE`` the trajectory was flown under. Only "pressure"
         produces a pressure loss; see ``_pressure_deficit_accel``.
@@ -124,7 +135,7 @@ def loss_histories(t, alt, v, gamma, m, thrust, alpha,
     steering_accel = thrust_accel * (1.0 - np.cos(alpha))
 
     deficit_accel, pressure_applicable = _pressure_deficit_accel(
-        t, alt, m, thrust, t_meco, thrust_mode)
+        t, alt, m, thrust, t_meco, thrust_mode, include_drag=include_drag)
 
     gravity = _cumulative_trapezoid(g * np.sin(gamma), t)
     drag = _cumulative_trapezoid(drag_accel, t)
