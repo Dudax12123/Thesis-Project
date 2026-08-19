@@ -10,8 +10,33 @@ A thesis project: a 3-DOF two-stage launch-vehicle ascent simulator + trajectory
 vehicle, same mission, same physics.
 
 - Simulator source: `Tese/src/`
-- Thesis text & design docs: `Tese/` (see "Documentation map" below)
+- Design docs and superseded drafts: `Tese/` (see "Documentation map" below)
+- **The LaTeX thesis itself is in a second repository** — see "The thesis is a separate repo"
 - `dev-notes/` — session handoffs and scratch scripts, **not** part of the simulator and often stale
+
+## The thesis is a separate repo
+
+The LaTeX thesis is **not** in this repository. It lives at
+`C:\Users\eduar\Desktop\Tese\Thesis_Overleaf`, its own git repo whose remote is the Overleaf git
+bridge. That path is **outside this working directory**, so a session cannot read it until the
+directory is added (`/add-dir` in-session, or `claude --add-dir <path>` at launch).
+
+Chapter order, and the file behind each — `Thesis.tex` is the master that `\input`s them:
+
+1 Introduction · 2 Ascent Flight Mechanics (`Thesis_Ascent_Background.tex`) · 3 Trajectory
+Optimization (`Thesis_Optimization_Background.tex`) · 4 Ascent Guidance Laws
+(`Thesis_Guidance.tex`) · 5 Implementation (**`Thesis_Methodology.tex`** — the filename no longer
+matches the chapter it renders) · 6 Results · 7 Conclusions. Bibliography:
+`Thesis_Bibliography_DB.bib`.
+
+- `Tese/Ongoing_Chapters/` in *this* repo is superseded — do not edit it for thesis work.
+- The user also edits in the Overleaf web UI, which produces "Update on Overleaf." commits, so
+  **`git fetch` and read the incoming diff before editing or rebasing.**
+- **Never handle the user's Overleaf password or git token.** The token is already embedded in the
+  remote URL, so git authenticates without it being typed; mask it out of any command output with
+  `sed -E 's#//[^@]*@#//***@#'`.
+- **No LaTeX toolchain exists on this machine** — Overleaf is the only place the document
+  compiles. Verify edits with `\ref` / `\label` / `\cite` sweeps instead of a build.
 
 ## Commands
 
@@ -35,18 +60,29 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — one pytest file (`Tese/src/tests/test_apollo_tgo.py`); **pytest is not currently
-installed in either environment**, so install it into `pygmo-env` first:
+Tests — `Tese/src/tests/` holds `test_apollo_tgo.py` and `test_losses.py` (31 tests). pytest is
+installed in `pygmo-env` only:
 
 ```bash
-C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m pytest Tese/src/tests/test_apollo_tgo.py -v
+C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m pytest Tese/src/tests/ -q
 ```
 
-Single test: append `::TestApolloTgo::test_nominal_case`.
+Single test: append the file and `::TestApolloTgo::test_nominal_case`.
 
 Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
 `Tese/src/guidance_comparison/compare_guidance_methods.py`.
+
+The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 23 cases, one frozen
+baseline with one factor changed at a time, each case in its **own subprocess** so no module
+global can leak between them. Prove every case dispatches before committing a night to it:
+
+```bash
+C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_results_matrix.py --smoke
+```
+
+Then drop `--smoke` for the real thing (~13-14 h). `--case <name>` runs one case in-process with
+solver output on screen; `--only <substring>` filters.
 
 **Runtimes are long.** A production PSO solve is tens of minutes (documented: coast PSO ~31 min at
 100×250; the indirect-PMP reference build ~1 h at 250×500). Drop `PSO_*_N_PARTICLES` /
@@ -176,5 +212,5 @@ the final segment inserts to orbit. The PMP reference is cached to
   useful for thesis-facing prose.
 - `Tese/Project_Description/` — guidance-mode reference, optimization-process explanation,
   Earth-rotation notes, EOM/kinematics LaTeX.
-- `Tese/Ongoing_Chapters/`, `Tese/Thesis_Outline/` — the thesis itself; `Tese/legacy_*` are
-  superseded.
+- `Tese/Ongoing_Chapters/`, `Tese/Thesis_Outline/`, `Tese/legacy_*` — **all superseded** by the
+  Overleaf repo above; kept only for history.
