@@ -161,26 +161,35 @@ def build_matrix():
     # pressure_applicable=False rather than a number, and that absence is the
     # result: a deficit computed against a constant thrust would describe a
     # vehicle that was not simulated.
-    cases.append(dict(name="gt_const_engine", section="6.2", factor="engine_model",
+    cases.append(dict(name="gt_sea_level_engine", section="6.2", factor="engine_model",
                       overrides={"GUIDANCE_MODE": "gravity_turn",
-                                 "ISP_1_MODE": "average",
-                                 "THRUST_1_MODE": "average"}))
+                                 "ISP_1_MODE": "sea_level",
+                                 "THRUST_1_MODE": "sea_level"}))
 
     # --- Section 6.3: powered explicit guidance ---------------------------
-    # peg_new takes the architecture axis because it closes under all three, and
-    # the atmosphere axis because that is the one interacting with the guidance
-    # logic. The physics axes stay on the gravity turn.
+    # peg_new takes the architecture axis on the two swarm-based strategies,
+    # and the environment is stripped in two steps rather than one: the vacuum
+    # run removes the atmosphere from the baseline, and the run below it removes
+    # the rotation from the vacuum run. Each comparison is still a single factor
+    # against the case directly above it.
     cases.append(dict(name="peg_baseline", section="6.3", factor="baseline",
                       overrides={"GUIDANCE_MODE": "peg_new"}))
-    cases.append(dict(name="peg_apogee", section="6.3", factor="architecture",
-                      overrides={"GUIDANCE_MODE": "peg_new",
-                                 "COAST_METHOD": "apogee_check"}))
     cases.append(dict(name="peg_direct", section="6.3", factor="architecture",
                       overrides={"GUIDANCE_MODE": "peg_new",
                                  "COAST_METHOD": "direct"}))
     cases.append(dict(name="peg_vacuum", section="6.3", factor="atmosphere",
                       overrides={"GUIDANCE_MODE": "peg_new",
                                  "INCLUDE_DRAG": False}))
+    # Read against peg_vacuum, not against peg_baseline: the one factor between
+    # them is the rotation. Together they give the idealised case -- no air, no
+    # rotating frame -- which is the closest the flyable law comes to the
+    # conditions the indirect reference is derived on.
+    cases.append(dict(name="peg_vacuum_norot", section="6.3", factor="rotation",
+                      overrides={"GUIDANCE_MODE": "peg_new",
+                                 "INCLUDE_DRAG": False,
+                                 "ENABLE_EARTH_ROTATION": False,
+                                 "INCLUDE_PSEUDO_FORCES": False,
+                                 "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False}))
 
     # --- Section 6.4: the reference ---------------------------------------
     # Needs the large PSO budget; a reduced one leaves it far from a closed
@@ -198,17 +207,22 @@ def build_matrix():
     for law in SHOWCASE_LAWS:
         cases.append(dict(name="show_" + law, section="6.7", factor="law_breadth",
                           overrides={"GUIDANCE_MODE": law}))
-    # MULTI_GUIDANCE_ENABLED overrides GUIDANCE_MODE and COAST_METHOD entirely.
-    # The optimiser selects the hand-off altitude, so the schedule it converges
-    # on is itself a reportable output and not only a trajectory.
-    cases.append(dict(name="show_seg_gt_pegnew", section="6.7", factor="segmented",
+    # Two runs on ONE law combination, differing only in who picks the hand-off
+    # altitude. The fixed run flies the schedule as written; the optimised run
+    # appends the non-first activation altitudes to the PSO decision vector and
+    # lets the swarm place them. The comparison is the point: whether the
+    # optimiser agrees with the atmospheric/exoatmospheric division of
+    # Chapter 4, and what the hand-off altitude is worth if it does not.
+    cases.append(dict(name="show_seg_fixed_alt", section="6.7", factor="segmented",
                       overrides={"MULTI_GUIDANCE_ENABLED": True,
+                                 "MULTI_GUIDANCE_OPTIMIZE_ALTITUDES": False,
                                  "GUIDANCE_SEGMENTS": [("gravity_turn", 0.0),
                                                        ("peg_new", 120e3)]}))
-    cases.append(dict(name="show_seg_gt_peg", section="6.7", factor="segmented",
+    cases.append(dict(name="show_seg_opt_alt", section="6.7", factor="segmented",
                       overrides={"MULTI_GUIDANCE_ENABLED": True,
+                                 "MULTI_GUIDANCE_OPTIMIZE_ALTITUDES": True,
                                  "GUIDANCE_SEGMENTS": [("gravity_turn", 0.0),
-                                                       ("peg", 120e3)]}))
+                                                       ("peg_new", 120e3)]}))
     return cases
 
 
