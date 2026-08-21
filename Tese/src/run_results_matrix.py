@@ -104,6 +104,14 @@ BASELINE = {
     "LAUNCH_LATITUDE": 28.5,
     "ATMOSPHERE_EXIT_METHOD": "dynamic_pressure",
     "DYNAMIC_PRESSURE_THRESHOLD": 1000.0,
+    # Pinned, and it has to be. Only the legacy run() honours this setting, so
+    # under the config default of "triangular" the one apogee_check case would
+    # fly a 45 s triangular pitch-over while every other case flew the
+    # instantaneous gamma jump of ra.run_stage1() -- which ignores the setting
+    # by design. The architecture comparison of Section 6.2 would then differ in
+    # two factors rather than one, invisibly, since nothing downstream reports
+    # the kick profile.
+    "KICK_PROFILE_MODE": "instantaneous",
     "TGO_ESTIMATOR": "rocket_equation",
     "GUIDANCE_TGO_USE_PSO_PLAN": False,
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.
@@ -452,6 +460,7 @@ def _collect(name, case, sim_params, time_a, data, thrust, alpha, result, J,
         # Both halves of the nozzle model, recorded because the pressure loss is
         # only defined under "pressure" and the figures must be able to say so
         # rather than plotting a zero that looks like a measurement.
+        'kick_profile_mode': str(sim_params.KICK_PROFILE_MODE),
         'isp_1_mode': str(sim_params.ISP_1_MODE),
         'thrust_1_mode': str(sim_params.THRUST_1_MODE),
         # The mission the case was aiming at, so a figure can draw the target
