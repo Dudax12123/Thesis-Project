@@ -62,3 +62,22 @@ Two carry curves, and **neither is simulator output**:
 
 Both should be rebuilt from a real run once the PSO regeneration owed from the
 pseudo-force fix has happened.
+
+## The results figures are elsewhere
+
+The sixteen figures of the results chapter are **not** in this directory. They
+are simulator output, built offline from the results-matrix batch by
+`Tese/src/Plots/results_figures/`, and their filenames all begin `results_`:
+
+```bash
+FIG_OUT="C:/Users/eduar/Desktop/Tese/Thesis_Overleaf/Figures" C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m Plots.results_figures.make_all
+```
+
+(run from `Tese/src`). The thesis reaches them through the `\resultsfig` macro
+in `Thesis_Preamble.tex`, which draws a labelled placeholder when the PNG is not
+there yet, so the chapter compiles before the batch has been run.
+
+They share this directory's palette and rcParams — restated in
+`results_figures/_style.py` rather than imported, because `dev-notes/` is not
+part of the simulator and is not importable from it. **Change one and the other
+does not follow**; the two files have to be edited together.
