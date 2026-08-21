@@ -38,7 +38,10 @@ VARIANT3 = VIOLET
 REFERENCE = GREEN
 FAILED = GREY
 
-VARIANT_CYCLE = [VARIANT, VARIANT2, VARIANT3, GREEN, INK]
+# Six distinct entries, because the capability figure overlays six laws and a
+# five-colour cycle wraps -- putting two different laws in the same red in an
+# eight-entry legend.
+VARIANT_CYCLE = [VARIANT, VARIANT2, VARIANT3, GREEN, INK, THRUST]
 
 # Loss components, in the order they are stacked in the budget bars.
 LOSS_COLORS = {

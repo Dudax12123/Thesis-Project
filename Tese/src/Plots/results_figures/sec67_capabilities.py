@@ -39,9 +39,11 @@ def showcase_laws(cases):
     if not present:
         return _skip("F6.14 showcase laws", SHOWCASE)
 
-    fig = plt.figure(figsize=(6.3, 5.4))
-    grid = fig.add_gridspec(3, 3, height_ratios=[1.5, 1.0, 1.0], hspace=0.55,
-                            wspace=0.35)
+    # Wider than the standard text-width figure: the trajectory legend sits
+    # outside the axes, and the grid keeps its own width regardless.
+    fig = plt.figure(figsize=(7.4, 5.6))
+    grid = fig.add_gridspec(3, 3, height_ratios=[1.45, 1.0, 1.0], hspace=0.62,
+                            wspace=0.35, right=0.80)
     ax_traj = fig.add_subplot(grid[0, :])
 
     for name in ("gt_baseline", "peg_baseline"):
@@ -60,13 +62,22 @@ def showcase_laws(cases):
     ax_traj.set_xlabel("Downrange [km]")
     ax_traj.set_ylabel("Altitude [km]")
     st.panel_tag(ax_traj, "a")
-    st.tidy(ax_traj)
-    ax_traj.legend(loc="lower right", ncol=2, fontsize=6.8)
+    st.tidy(ax_traj, legend=False)
+    # Outside the axes: eight entries over a trajectory panel cover the curves
+    # they are labelling whichever corner they are put in.
+    ax_traj.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=1,
+                   fontsize=6.8)
 
     # Shared limits, so the six small panels compare rather than merely coexist.
-    alpha_lo = min(float(np.nanmin(cases[n].alpha_deg)) for n in present)
-    alpha_hi = max(float(np.nanmax(cases[n].alpha_deg)) for n in present)
-    pad = 0.08 * max(alpha_hi - alpha_lo, 1.0)
+    # Taken from a percentile rather than the extremes: one law transients to
+    # about -140 deg for a few seconds, and letting that set the range flattens
+    # the other five into a band a few pixels high. The clip is drawn as a
+    # marker on the panels it affects rather than hidden.
+    stacked = np.concatenate([np.asarray(cases[n].alpha_deg) for n in present])
+    alpha_lo = float(np.nanpercentile(stacked, 0.5))
+    alpha_hi = float(np.nanpercentile(stacked, 99.5))
+    pad = 0.10 * max(alpha_hi - alpha_lo, 1.0)
+    alpha_lo, alpha_hi = alpha_lo - pad, alpha_hi + pad
     t_hi = max(float(cases[n].time[-1]) for n in present)
 
     for i, name in enumerate(SHOWCASE):
@@ -80,7 +91,20 @@ def showcase_laws(cases):
         ax.plot(t, al, color=colour, linewidth=1.0)
         ax.axhline(0.0, color=st.FAINT, linewidth=0.7)
         ax.set_xlim(0, t_hi)
-        ax.set_ylim(alpha_lo - pad, alpha_hi + pad)
+        ax.set_ylim(alpha_lo, alpha_hi)
+        # Say so when the shared range does not hold this law's full excursion,
+        # rather than letting the curve run off the top or bottom silently.
+        full_lo = float(np.nanmin(case.alpha_deg))
+        full_hi = float(np.nanmax(case.alpha_deg))
+        clipped = []
+        if full_lo < alpha_lo:
+            clipped.append("%.0f" % full_lo)
+        if full_hi > alpha_hi:
+            clipped.append("%.0f" % full_hi)
+        if clipped:
+            ax.annotate("peaks " + ", ".join(clipped) + r"$^\circ$",
+                        xy=(0.97, 0.90), xycoords="axes fraction",
+                        fontsize=6, color=st.GREY, ha="right")
         ax.set_title(st.law_label(case.law), fontsize=7.5, pad=3)
         ax.tick_params(labelsize=6.5)
         if i % 3 == 0:
@@ -89,7 +113,7 @@ def showcase_laws(cases):
             ax.set_xlabel("Time [s]", fontsize=7.5)
         st.tidy(ax, legend=False)
 
-    fig.text(0.008, 0.60, "(b)", fontsize=9, fontweight="bold", color=st.INK)
+    fig.text(0.055, 0.615, "(b)", fontsize=9, fontweight="bold", color=st.INK)
     return st.save(fig, "results_showcase_laws.png")
 
 
