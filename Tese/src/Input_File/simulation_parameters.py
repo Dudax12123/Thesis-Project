@@ -122,7 +122,7 @@ AZIMUTH_ITER_TOL_DEG   = 0.05                 # [deg] inclination tolerance — 
 #                 of THRUST_1_MODE = "pressure", reproducing both published endpoints exactly.
 #                 PAIR THE TWO: scaling thrust up with altitude while holding Isp at sea level
 #                 inflates the implied mass flow F/(Isp*g0) and burns stage 1 too fast.
-ISP_1_MODE = "sea_level"                        # Options: "sea_level", "vacuum", "average", "linear", "pressure"
+ISP_1_MODE = "pressure"                        # Options: "sea_level", "vacuum", "average", "linear", "pressure"
 ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear ramp (only used when ISP_1_MODE = "linear")
 
 # -------------- Stage 1 Thrust Mode --------------
@@ -144,7 +144,7 @@ ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear r
 # can no longer land the apogee on target for any kick — the kick search raises a
 # ValueError (use COAST_METHOD="pso_coast"/"direct", or "sea_level"/"average" here).
 # "pressure" sits between "sea_level" and "vacuum" and does not trip that.
-THRUST_1_MODE = "sea_level"                     # Options: "sea_level", "vacuum", "average", "linear", "pressure"
+THRUST_1_MODE = "pressure"                     # Options: "sea_level", "vacuum", "average", "linear", "pressure"
 THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
 
 
@@ -251,7 +251,7 @@ INITIAL_KICK_ANGLE = - np.deg2rad(3.0)          # Initial kick angle [rad]
 #                   - Objective: burn time + terminal constraint penalties (Eq. 39)
 #                   - See indirect_pso_solver.py and indirect_pmp_guidance.py
 #                   - PSO tuning for this mode lives in §11a (PSO_* constants).
-GUIDANCE_MODE = "indirect_pmp"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
+GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "linear_tangent", "bilinear_tangent", "apollo", "cpr", "peg", "peg_new", "exp_shooting", "indirect_pmp"
 
 # -------------- 8a. Shared guidance parameters --------------
 # (GUIDANCE_UPDATE_RATE is used by apollo and linear_tangent/bilinear_tangent;
@@ -266,7 +266,7 @@ GUIDANCE_UPDATE_RATE = 2                       # How often to recompute guidance
 # Affects apollo / linear_tangent / bilinear_tangent and cpr in "tgo" mode (cpr
 # under pso_coast uses the PSO-optimised θ_dot, so it is unaffected there). peg has
 # its own internal T solver and is NOT affected; peg_new is the source.
-TGO_ESTIMATOR = "rocket_equation"   # Options: "rocket_equation", "peg_new"
+TGO_ESTIMATOR = "peg_new"   # Options: "rocket_equation", "peg_new"
 
 # -------------- PSO-Planned t_go Override (PSO solvers only) --------------
 GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear_tangent/bilinear_tangent/
@@ -291,7 +291,7 @@ GUIDANCE_TGO_USE_PSO_PLAN = False              # If True, t_go for apollo/linear
 #
 # NOTE: When MULTI_GUIDANCE_ENABLED is False (default) NONE of this has any effect
 # — every existing mode/path behaves exactly as before.
-MULTI_GUIDANCE_ENABLED = True
+MULTI_GUIDANCE_ENABLED = False
 
 # Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be strictly
 # increasing. Supported laws:
