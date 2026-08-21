@@ -224,6 +224,46 @@ class Case:
     def __repr__(self):
         return "<Case %s (%s / %s)>" % (self.name, self.law, self.architecture)
 
+    @classmethod
+    def from_arrays(cls, name, time, data, thrust, alpha, row=None, **channels):
+        """A Case built in memory, for a live run that never went through the harness.
+
+        main.py can draw the run card for a single interactive run this way,
+        without writing an .npz first. Channels the caller does not have --
+        typically the pseudo-force diagnostics and the arc times -- are simply
+        absent, and the figures skip whatever depends on them.
+        """
+        store = {"time": np.asarray(time, dtype=float),
+                 "data": np.asarray(data, dtype=float),
+                 "thrust": np.asarray(thrust, dtype=float),
+                 "alpha": np.asarray(alpha, dtype=float)}
+        for key, value in channels.items():
+            if value is not None:
+                store[key] = np.asarray(value)
+        return cls(name, _InMemoryNpz(store), dict(row or {}))
+
+
+class _InMemoryNpz:
+    """The little of numpy's NpzFile interface that Case actually uses.
+
+    Case reads ``.files`` and indexes by key; wrapping a plain dict in that
+    shape keeps one code path for cases loaded from disk and cases handed over
+    in memory, rather than a parallel set of getters that could drift.
+    """
+
+    def __init__(self, store):
+        self._store = store
+
+    @property
+    def files(self):
+        return list(self._store)
+
+    def __getitem__(self, key):
+        return self._store[key]
+
+    def __contains__(self, key):
+        return key in self._store
+
 
 def load(name, root=None):
     """One case, or None if the batch has not produced it yet."""

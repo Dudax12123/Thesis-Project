@@ -655,6 +655,30 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 SAVE_PLOTS = False                            # False = display only, nothing saved
 SAVE_PLOTS_DIR = "Tese/src/Output/plots"      # only used when SAVE_PLOTS = True
 
+# Which plotting suite main.py runs at the end of a single run.
+#
+#   "legacy"  Plots/new_metrics — the twenty per-run diagnostic plots. One
+#             quantity per figure, one trajectory, everything the model
+#             computes. The right tool for finding out why a run did something.
+#   "new"     Plots/results_figures — the four-panel run card in the style of
+#             the Chapter 6 figures: trajectory, altitude and speed, the three
+#             angles together, dynamic pressure and Mach. One page instead of
+#             twenty, and it is what the thesis prints.
+#   "both"    both of the above.
+#   "none"    no figures at all. A long solve otherwise ends by building twenty
+#             windows before it will let go of the console.
+#
+# Only the run card is available here, not the full sixteen: the rest of the
+# chapter set are comparisons ACROSS cases -- a baseline overlaid with the one
+# case that differs from it -- and a single run has nothing to compare against.
+# Those are built from a results-matrix batch by
+#   python -m Plots.results_figures.make_all
+# see Plots/results_figures/make_all.py.
+#
+# SAVE_PLOTS applies to both suites. Under "new" it also writes the run to
+# Output/single_run/<mode>.npz, so the card can be redrawn without re-flying.
+PLOT_SUITE = "legacy"     # Options: "legacy", "new", "both", "none"
+
 # ===================================================================
 # 14. DEBUGGING FLAGS
 # ===================================================================

@@ -193,7 +193,8 @@ reference (rebuilt 2026-07-16 at 250×500) inserts at 500.0 km / 7172 m/s / γ�
 apogee 500 km, stores `alpha_full`, and its key matches the current inputs so segmented runs load it
 from cache.
 
-**Plots.** Renders the SAME 17-plot suite as the single-law modes (channels assembled in
+**Plots.** Honours `PLOT_SUITE` (§2.12) like every other mode. Under the default `"legacy"`
+it renders the SAME 17-plot suite as the single-law modes (channels assembled in
 `run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`). By default nothing is
 written to disk — set `SAVE_PLOTS=True` (§2.12) to also save PNGs to `SAVE_PLOTS_DIR`. The apollo/θ
 steering plots show a brief transient at each intermediate handoff (the law's t_go → 0 right at the
@@ -448,6 +449,7 @@ The segmented solver has its **own** PSO block (`simulation_parameters.py` §11d
 | `EVENTS_PRINT` (L252) | `True`/`False` | `True` | Print mission-event log lines. | none. |
 | `SAVE_PLOTS` | `True`/`False` | `False` | `False` = display the plot suite only (`plt.show`), write nothing. `True` = also save PNGs. Applies to every mode. | gates `SAVE_PLOTS_DIR`. |
 | `SAVE_PLOTS_DIR` | path | `Tese/src/Output/plots` | Where PNGs are written when `SAVE_PLOTS=True`. | requires `SAVE_PLOTS=True`. |
+| `PLOT_SUITE` | `"legacy"`/`"new"`/`"both"`/`"none"` | `"legacy"` | Which suite `main.py` draws at the end of a run. `legacy` = the 20-plot per-run diagnostic suite (`Plots/new_metrics`). `new` = the 4-panel run card of the results chapter (`Plots/results_figures/run_card.py`), plus an `.npz` under `Output/single_run/` when `SAVE_PLOTS=True`. `none` = no figures, which is what to use when a long solve should not end by building 20 windows. An unrecognised value falls back to `legacy` with a printed warning. | **Only the run card is available from a single run.** The other 15 chapter figures are comparisons ACROSS cases and need a results-matrix batch — build them with `python -m Plots.results_figures.make_all`. |
 
 ### 2.13 Vehicle / staging constants (`Auxiliary/rocket_specs.py`)
 

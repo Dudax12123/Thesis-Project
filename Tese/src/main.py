@@ -31,6 +31,121 @@ from Auxiliary import earth_rotation as earth_rot
 from Auxiliary import rocket_specs as r_specs
 import Plots.new_plot_runner as new_plot_runner
 
+
+# ---------------------------------------------------------------------------
+# Plot dispatch
+# ---------------------------------------------------------------------------
+
+def _emit_plots(time, data, thrust_data, time_thrust, alpha_data,
+                alpha_time_data, guidance_label=None, **kwargs):
+    """Draw whichever plot suite PLOT_SUITE asks for.
+
+    Both suites take the same trajectory; they differ in what they do with it.
+    The legacy suite draws one quantity per figure over twenty figures, which is
+    what to look at when a run did something unexpected. The new suite draws the
+    four-panel run card the results chapter uses.
+
+    Only the card is available from a single run. The other fifteen chapter
+    figures are comparisons between cases -- a baseline overlaid with the one
+    case that differs from it -- and one run has nothing to compare against;
+    those come from a results-matrix batch through
+    Plots.results_figures.make_all.
+
+    Unknown values fall back to the legacy suite rather than silently drawing
+    nothing, a typo in the setting being much more likely than a deliberate
+    request for no output.
+    """
+    mode = str(getattr(sim_params, "PLOT_SUITE", "legacy")).lower()
+    if mode not in ("legacy", "new", "both", "none"):
+        print("  [plots] PLOT_SUITE=%r is not a known option; using 'legacy'."
+              % mode)
+        mode = "legacy"
+
+    if mode == "none":
+        print("  [plots] PLOT_SUITE='none' — no figures drawn.")
+        return
+
+    if mode in ("legacy", "both"):
+        new_plot_runner.run_new_plot_suite(
+            time, data, thrust_data, time_thrust, alpha_data, alpha_time_data,
+            output_dir=(sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS
+                        else None),
+            show=False, close_after=False, **kwargs)
+
+    if mode in ("new", "both"):
+        _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
+                       alpha_time_data, guidance_label, kwargs)
+
+
+def _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
+                   alpha_time_data, guidance_label, kwargs):
+    """Build the results-chapter run card for the trajectory just flown.
+
+    The card is built from an in-memory Case rather than from a saved file, so
+    it costs nothing beyond the drawing. Under SAVE_PLOTS the run is also
+    written to Output/single_run/, which makes it re-drawable later without
+    re-flying -- a single solve here is tens of minutes.
+    """
+    from pathlib import Path
+
+    import numpy as _np
+    from Plots.plot_state_utils import interpolate_to_time
+    from Plots.results_figures import _data as rf_data
+    from Plots.results_figures import _style as rf_style
+    from Plots.results_figures import run_card
+
+    time = _np.asarray(time, dtype=float)
+    # The suites take thrust and alpha on their own grids; the card needs them
+    # on the state grid, which is what the harness stores.
+    thrust = interpolate_to_time(time_thrust, thrust_data, time)
+    alpha = interpolate_to_time(alpha_time_data, alpha_data, time)
+
+    label = guidance_label or sim_params.GUIDANCE_MODE
+    row = {
+        "guidance_mode": label,
+        "include_drag": bool(sim_params.INCLUDE_DRAG),
+        "target_alt_km": float(sim_params.TARGET_ORBITAL_ALTITUDE) / 1e3,
+        "thrust_1_mode": str(sim_params.THRUST_1_MODE),
+    }
+    case = rf_data.Case.from_arrays(
+        label, time, data, thrust, alpha, row=row,
+        coriolis=kwargs.get("coriolis_mag_data"),
+        centrifugal=kwargs.get("centrifugal_mag_data"),
+        t_meco=_card_event(ra.time_main_engine_cutoff),
+        t_seco=_card_event(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL),
+        t_coast_start=_card_event(ra.PSO_COAST_ARC2_START_TIME),
+        t_guidance_start=_card_event(ra.time_guidance_start),
+    )
+
+    out_dir = (sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS
+               else str(Path(__file__).resolve().parent / "Output" / "single_run"))
+    rf_style.OUT_DIR = out_dir
+    rf_style.use_thesis_style()
+    run_card.draw(case, "run_card_%s.png" % label,
+                  title="%s  |  %s" % (label, _architecture_label()))
+
+    if sim_params.SAVE_PLOTS:
+        npz_dir = Path(__file__).resolve().parent / "Output" / "single_run"
+        npz_dir.mkdir(parents=True, exist_ok=True)
+        _np.savez_compressed(npz_dir / ("%s.npz" % label), time=time, data=data,
+                             thrust=thrust, alpha=alpha)
+        print("  [plots] run saved to %s" % (npz_dir / ("%s.npz" % label)))
+
+
+def _card_event(value):
+    """npz and the Case loader use NaN for an event that never happened."""
+    import numpy as _np
+    return _np.array(float("nan") if value is None else float(value))
+
+
+def _architecture_label():
+    """The dispatch level in force, in the precedence order of execute()."""
+    if sim_params.MULTI_GUIDANCE_ENABLED:
+        return "segmented"
+    if sim_params.GUIDANCE_MODE == "indirect_pmp":
+        return "indirect_pmp"
+    return sim_params.COAST_METHOD
+
 # ---------------------------------------------------------------------------
 # Back-pressure thrust loss lookup
 # ---------------------------------------------------------------------------
@@ -423,12 +538,11 @@ def execute():
                             if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
                                and len(ra.cross_heading_accel_history) > 0
                             else None)
-            new_plot_runner.run_new_plot_suite(
+            _emit_plots(
                 time, data,
                 seg_out['thrust'], time,        # thrust_data, time_thrust (on `time` grid)
                 seg_out['alpha'],  time,        # alpha_data, alpha_time_data
-                output_dir=(sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS else None),
-                show=False, close_after=False,
+                guidance_label=" -> ".join(m for m, _a in seg_out['segs'].schedule),
                 coriolis_mag_data=seg_out['coriolis'],
                 centrifugal_mag_data=seg_out['centrifugal'],
                 tgo_time_data=_tgo_time, tgo_data=_tgo,
@@ -1133,16 +1247,13 @@ def execute():
         else None
     )
 
-    new_plot_runner.run_new_plot_suite(
+    _emit_plots(
         time,
         data,
         thrust_data,
         time_thrust,
         alpha_data,
         alpha_time_data,
-        output_dir=(sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS else None),
-        show=False,
-        close_after=False,
         coriolis_mag_data=coriolis_mag_data,
         centrifugal_mag_data=centrifugal_mag_data,
         tgo_time_data=_tgo_time,
