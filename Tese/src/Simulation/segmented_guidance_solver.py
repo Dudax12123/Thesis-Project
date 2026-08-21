@@ -43,6 +43,12 @@ import Simulation.rocket_ascent as ra
 import Simulation.pso_coast_solver as pcs
 import Simulation.segment_reference as segref
 
+# Per-generation PSO convergence history, same format and purpose as
+# pso_coast_solver.LAST_PSO_COAST_HISTORY: the evidence that a solve converged
+# rather than merely ran out of generations. Without it a segmented result has
+# no diagnostic tier at all.
+LAST_PSO_MG_HISTORY = None
+
 
 # ---------------------------------------------------------------------------
 # Altitude-crossing event factory (terminal, upward crossing)
@@ -470,6 +476,7 @@ class SegmentedPSOProblem:
 def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbose=True):
     """Run the PSO over the 4 base coast vars (+ the (n-1) activation-altitude
     fractions when ``optimize_alts``)."""
+    global LAST_PSO_MG_HISTORY
     n_particles = getattr(sim_params, "PSO_MG_N_PARTICLES", sim_params.PSO_COAST_N_PARTICLES)
     n_gen       = getattr(sim_params, "PSO_MG_MAX_GENERATIONS", sim_params.PSO_COAST_MAX_GENERATIONS)
 
@@ -509,6 +516,19 @@ def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbo
 
     best_x = list(pop.champion_x)
     best_f = float(pop.champion_f[0])
+
+    uda = algo.extract(pg.pso)
+    log = uda.get_log() if uda is not None else []
+    if log:
+        gens  = [row[0] for row in log]
+        gbest = [row[2] for row in log]
+        if gens[-1] != n_gen:
+            gens.append(n_gen)
+            gbest.append(best_f)
+        LAST_PSO_MG_HISTORY = {'gen': np.array(gens), 'gbest': np.array(gbest)}
+    else:
+        LAST_PSO_MG_HISTORY = None
+
     if verbose:
         print(f"\n[segmented PSO] finished in {time.time()-t0:.1f}s  best J' = {best_f:.4f}")
     return best_x, best_f

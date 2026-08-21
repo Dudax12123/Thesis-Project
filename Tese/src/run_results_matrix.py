@@ -28,6 +28,19 @@ One case, in-process, with solver output on screen:
 
     python Tese/src/run_results_matrix.py --case peg_baseline
 
+Per-case output
+---------------
+Three files per case in Output/results_matrix/: a .json row, the aggregate
+results_matrix.csv, and a .npz holding the trajectory together with the
+channels the Chapter 6 figures need -- the PSO convergence curve, the arc
+boundary times, the pseudo-force diagnostics and, for the segmented cases, the
+schedule that flew. Those four are solver state, not results: they are gone the
+moment the subprocess exits, so anything not captured here costs a re-run of
+the case to recover. The figures themselves are built offline from these files
+by Plots/results_figures/, which is why SAVE_PLOTS stays False -- firing the
+per-run debugging suite for every case would write hundreds of PNGs the chapter
+does not use.
+
 Isolation
 ---------
 Each case runs in its **own subprocess**. rocket_ascent.py keeps guidance and
@@ -256,11 +269,14 @@ def _architecture(sim_params):
 
 
 def _dispatch(sim_params):
-    """Run one trajectory. Returns (time, data, thrust, alpha, result, J, history).
+    """Run one trajectory.
+
+    Returns ``(time, data, thrust, alpha, result, J, history, extra)``.
 
     ``result`` is the solver's result dict where there is one; the apogee_check
     path has no such dict, so one is synthesised from the trajectory it returns
-    to keep the collection code below uniform.
+    to keep the collection code below uniform. ``extra`` carries whatever a
+    particular architecture knows and the others do not; it is empty for most.
     """
     arch = _architecture(sim_params)
 
@@ -269,15 +285,27 @@ def _dispatch(sim_params):
     if arch == "segmented":
         import Simulation.segmented_guidance_solver as seg
         out = seg.run_segmented(verbose=True)
+        # The schedule is the identity of a segmented run and exists nowhere
+        # else once this process exits: GUIDANCE_MODE is ignored entirely under
+        # MULTI_GUIDANCE_ENABLED, so the config cannot be read back to recover
+        # which laws actually flew. Flattened to plain types here because the
+        # _Segments object is neither JSON- nor npz-serialisable.
+        _sched = list(out['segs'].schedule)
+        _alts = out.get('optimized_altitudes')
+        extra = {
+            'segment_laws': [str(m) for m, _a in _sched],
+            'segment_altitudes': [float(a) for _m, a in _sched],
+            'optimized_altitudes': ([float(a) for a in _alts] if _alts else []),
+        }
         return (out['time'], out['data'], out['thrust'], out['alpha'],
-                out['result'], out['best_f'], None)
+                out['result'], out['best_f'], seg.LAST_PSO_MG_HISTORY, extra)
 
     if arch == "indirect_pmp":
         from Simulation.indirect_pso_solver import run_pso_optimization, run_indirect_full
         import Simulation.indirect_pso_solver as ips
         params, J = run_pso_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result = run_indirect_full(params, verbose=True)
-        return time_a, data, thrust, alpha, result, J, ips.LAST_PSO_HISTORY
+        return time_a, data, thrust, alpha, result, J, ips.LAST_PSO_HISTORY, {}
 
     if arch == "pso_coast":
         from Simulation.pso_coast_solver import (run_pso_coast_optimization,
@@ -285,7 +313,7 @@ def _dispatch(sim_params):
         import Simulation.pso_coast_solver as pcs
         params, J = run_pso_coast_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result, _, _ = run_pso_coast_full(params, verbose=True)
-        return time_a, data, thrust, alpha, result, J, pcs.LAST_PSO_COAST_HISTORY
+        return time_a, data, thrust, alpha, result, J, pcs.LAST_PSO_COAST_HISTORY, {}
 
     if arch == "direct":
         from Simulation.direct_pso_solver import (run_pso_direct_optimization,
@@ -293,7 +321,7 @@ def _dispatch(sim_params):
         import Simulation.direct_pso_solver as dps
         params, J = run_pso_direct_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result, _, _ = run_pso_direct_full(params, verbose=True)
-        return time_a, data, thrust, alpha, result, J, dps.LAST_PSO_DIRECT_HISTORY
+        return time_a, data, thrust, alpha, result, J, dps.LAST_PSO_DIRECT_HISTORY, {}
 
     if arch == "apogee_check":
         from Simulation import solver
@@ -307,13 +335,106 @@ def _dispatch(sim_params):
                   'circularisation_dv': float(delta_v)}
         thrust = np.interp(time_a, time_thrust, thrust)
         alpha = np.interp(time_a, alpha_time, alpha)
-        return time_a, data, thrust, alpha, result, None, None
+        return time_a, data, thrust, alpha, result, None, None, {}
 
     raise ValueError("unrecognised architecture: %r" % arch)
 
 
+# PSO budget attribute names per architecture, so the cost table of Section 6.7
+# reports the evaluations spent and not only the wall clock. apogee_check runs
+# no swarm and therefore has none.
+_PSO_BUDGET_ATTRS = {
+    'indirect_pmp': ('PSO_N_PARTICLES', 'PSO_MAX_GENERATIONS'),
+    'pso_coast': ('PSO_COAST_N_PARTICLES', 'PSO_COAST_MAX_GENERATIONS'),
+    'direct': ('PSO_DIRECT_N_PARTICLES', 'PSO_DIRECT_MAX_GENERATIONS'),
+    'segmented': ('PSO_MG_N_PARTICLES', 'PSO_MG_MAX_GENERATIONS'),
+}
+
+
+def _as_float(value):
+    """None-preserving float, for event times that may never have been set."""
+    return None if value is None else float(value)
+
+
+def _nan(value):
+    """npz has no None, so an event that never happened is stored as NaN."""
+    return float('nan') if value is None else float(value)
+
+
+def _n_evaluations(sim_params):
+    """The swarm budget this architecture was given, as function evaluations."""
+    attrs = _PSO_BUDGET_ATTRS.get(_architecture(sim_params))
+    if attrs is None:
+        return None
+    return int(getattr(sim_params, attrs[0]) * getattr(sim_params, attrs[1]))
+
+
+def _guidance_label(sim_params, extra):
+    """What actually flew, which is not always GUIDANCE_MODE.
+
+    Under MULTI_GUIDANCE_ENABLED the dispatcher ignores GUIDANCE_MODE outright,
+    so recording it would label the segmented cases with whatever happens to be
+    left in simulation_parameters.py -- indirect_pmp, as it stands -- in exactly
+    the table Section 6.7 is built from.
+    """
+    if not sim_params.MULTI_GUIDANCE_ENABLED:
+        return sim_params.GUIDANCE_MODE
+    laws = (extra or {}).get('segment_laws')
+    return " -> ".join(laws) if laws else "segmented"
+
+
+def _channels(sim_params, time_a, data, extra, history):
+    """The per-run arrays the chapter figures need and the scalar row cannot hold.
+
+    Everything here is either a solver global that dies with this subprocess or
+    a quantity recomputable only under an exactly reconstructed configuration.
+    It costs a few hundred kB against a run measured in tens of minutes; not
+    saving it costs the run again.
+    """
+    from Simulation import rocket_ascent as ra
+
+    data = np.asarray(data)
+    time_a = np.asarray(time_a, dtype=float)
+
+    # Pseudo-force diagnostics, recomputed on the output grid rather than
+    # spliced from ODE-call history, which is on no particular grid. The helper
+    # gates on the same predicate the EOM uses, so an architecture that flew
+    # without these terms -- indirect_pmp -- gets zeros rather than values that
+    # were never applied. PROPAGATING_IN_INERTIAL_FRAME is left set by the final
+    # ballistic coast and would zero the whole grid, so it is cleared for the
+    # recomputation exactly as pso_coast_solver does.
+    saved_frame_flag = ra.PROPAGATING_IN_INERTIAL_FRAME
+    ra.PROPAGATING_IN_INERTIAL_FRAME = False
+    try:
+        _force, cross_accel, coriolis, centrifugal =             ra.pseudo_force_channels_on_grid(time_a, data[:5])
+    finally:
+        ra.PROPAGATING_IN_INERTIAL_FRAME = saved_frame_flag
+
+    out = {
+        'coriolis': coriolis,
+        'centrifugal': centrifugal,
+        'cross_heading_accel': cross_accel,
+        # Arc boundaries, for the stage and coast markers on every time-axis
+        # figure in the chapter.
+        't_meco': np.array(_nan(ra.time_main_engine_cutoff)),
+        't_seco': np.array(_nan(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL)),
+        't_coast_start': np.array(_nan(ra.PSO_COAST_ARC2_START_TIME)),
+        't_guidance_start': np.array(_nan(ra.time_guidance_start)),
+    }
+
+    # The convergence history, which the row reduces to three scalars. The full
+    # curve is what shows a solve converged rather than merely stopped, and it
+    # is discarded the moment this interpreter exits.
+    if isinstance(history, dict) and len(history.get('gbest', [])):
+        out['pso_gen'] = np.asarray(history['gen'], dtype=float)
+        out['pso_gbest'] = np.asarray(history['gbest'], dtype=float)
+
+    out.update({k: np.asarray(v) for k, v in (extra or {}).items()})
+    return out
+
+
 def _collect(name, case, sim_params, time_a, data, thrust, alpha, result, J,
-             history, wall_clock):
+             history, wall_clock, extra):
     """Reduce one trajectory to the scalars the results table needs."""
     from Auxiliary import constants as c
     from Auxiliary import losses as loss_mod
@@ -325,9 +446,17 @@ def _collect(name, case, sim_params, time_a, data, thrust, alpha, result, J,
         'section': case['section'],
         'factor': case['factor'],
         'architecture': _architecture(sim_params),
-        'guidance_mode': sim_params.GUIDANCE_MODE,
+        'guidance_mode': _guidance_label(sim_params, extra),
         'include_drag': bool(sim_params.INCLUDE_DRAG),
         'earth_rotation': bool(sim_params.ENABLE_EARTH_ROTATION),
+        # Both halves of the nozzle model, recorded because the pressure loss is
+        # only defined under "pressure" and the figures must be able to say so
+        # rather than plotting a zero that looks like a measurement.
+        'isp_1_mode': str(sim_params.ISP_1_MODE),
+        'thrust_1_mode': str(sim_params.THRUST_1_MODE),
+        # The mission the case was aiming at, so a figure can draw the target
+        # without importing the configuration the run was flown under.
+        'target_alt_km': float(sim_params.TARGET_ORBITAL_ALTITUDE) / 1e3,
         'pseudo_forces_requested': bool(sim_params.INCLUDE_PSEUDO_FORCES),
         # What the architecture actually flew, which is not the same thing:
         # indirect_pmp is exempt and flies pseudo-force-free whatever the config
@@ -338,6 +467,9 @@ def _collect(name, case, sim_params, time_a, data, thrust, alpha, result, J,
         # its residual cannot be compared with the direct-insertion paths.
         'circularisation_dv': float(result.get('circularisation_dv', 0.0)),
         'wall_clock_s': round(wall_clock, 1),
+        'n_evaluations': _n_evaluations(sim_params),
+        't_meco': _as_float(ra.time_main_engine_cutoff),
+        't_seco': _as_float(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL),
         'J_prime': None if J is None else float(J),
         'crashed': bool(result.get('crashed', False)),
     }
@@ -421,14 +553,15 @@ def run_case(name, smoke=False):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     started = _time.time()
-    time_a, data, thrust, alpha, result, J, history = _dispatch(sim_params)
+    time_a, data, thrust, alpha, result, J, history, extra = _dispatch(sim_params)
     wall_clock = _time.time() - started
 
     row = _collect(name, case, sim_params, time_a, data, thrust, alpha,
-                   result, J, history, wall_clock)
+                   result, J, history, wall_clock, extra)
 
     np.savez_compressed(OUTPUT_DIR / (name + ".npz"),
-                        time=time_a, data=data, thrust=thrust, alpha=alpha)
+                        time=time_a, data=data, thrust=thrust, alpha=alpha,
+                        **_channels(sim_params, time_a, data, extra, history))
     with open(OUTPUT_DIR / (name + ".json"), "w", encoding="utf-8") as fh:
         json.dump(row, fh, indent=2)
     print("\n[harness] %s done in %.1f s" % (name, wall_clock))
@@ -442,12 +575,14 @@ def run_case(name, smoke=False):
 def _write_csv(rows, path):
     """Write the rows with the union of their keys, stable column order."""
     preferred = ['case', 'section', 'factor', 'architecture', 'guidance_mode',
-                 'include_drag', 'earth_rotation', 'crashed', 'J_prime',
+                 'include_drag', 'earth_rotation', 'thrust_1_mode',
+                 'crashed', 'J_prime',
                  'insertion_alt_km', 'insertion_v_ms', 'insertion_fpa_deg',
                  'eccentricity', 'periapsis_km', 'apoapsis_km',
                  'prop_remaining_kg', 'dv_ideal', 'dv_gravity', 'dv_drag',
                  'dv_steering', 'dv_pressure', 'dv_losses', 'dv_gain',
-                 'dv_achieved', 'residual', 'wall_clock_s']
+                 'dv_achieved', 'residual', 't_meco', 't_seco',
+                 'n_evaluations', 'wall_clock_s']
     seen = set(preferred)
     columns = preferred + sorted(k for row in rows for k in row if k not in seen)
 
