@@ -8,6 +8,7 @@
 
 import sys
 from pathlib import Path
+from time import perf_counter as _perf_counter
 
 # Add current directory to path to enable imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -82,9 +83,9 @@ def _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
     """Build the results-chapter run card for the trajectory just flown.
 
     The card is built from an in-memory Case rather than from a saved file, so
-    it costs nothing beyond the drawing. Under SAVE_PLOTS the run is also
-    written to Output/single_run/, which makes it re-drawable later without
-    re-flying -- a single solve here is tens of minutes.
+    it costs nothing beyond the drawing. Persisting the run is not done here:
+    _archive_run writes every run regardless of PLOT_SUITE and SAVE_PLOTS, and
+    the card can be redrawn from that archive at any time.
     """
     from pathlib import Path
 
@@ -124,13 +125,6 @@ def _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
     run_card.draw(case, "run_card_%s.png" % label,
                   title="%s  |  %s" % (label, _architecture_label()))
 
-    if sim_params.SAVE_PLOTS:
-        npz_dir = Path(__file__).resolve().parent / "Output" / "single_run"
-        npz_dir.mkdir(parents=True, exist_ok=True)
-        _np.savez_compressed(npz_dir / ("%s.npz" % label), time=time, data=data,
-                             thrust=thrust, alpha=alpha)
-        print("  [plots] run saved to %s" % (npz_dir / ("%s.npz" % label)))
-
 
 def _card_event(value):
     """npz and the Case loader use NaN for an event that never happened."""
@@ -145,6 +139,117 @@ def _architecture_label():
     if sim_params.GUIDANCE_MODE == "indirect_pmp":
         return "indirect_pmp"
     return sim_params.COAST_METHOD
+
+
+# ---------------------------------------------------------------------------
+# Run archiving
+# ---------------------------------------------------------------------------
+
+def _suite_channels(thrust_data, time_thrust, alpha_data, alpha_time_data,
+                    coriolis_mag_data, centrifugal_mag_data, pso_history,
+                    gate_on_guidance_mode=True):
+    """The channel set the plot suite takes, read from the rocket_ascent globals.
+
+    Every architecture writes the full-flight theta / t_go / cross-heading
+    histories back into those globals before returning, so gathering them in one
+    place lets the plot suite and the archive be handed the same set instead of
+    each assembling its own and drifting.
+
+    The t_go and Apollo-freeze gates are the plot suite's, not the archive's:
+    only three laws produce a meaningful t_go, and the suite would otherwise
+    draw a panel for a quantity that was never computed. Under segmented
+    guidance GUIDANCE_MODE is ignored entirely, so there is nothing to gate on
+    and gate_on_guidance_mode is False -- whatever the schedule recorded is
+    what flew. The archive keeps whatever it finds either way, because a channel
+    is cheaper to ignore than to re-fly.
+    """
+    _tgo_modes = {"apollo", "linear_tangent", "bilinear_tangent"}
+    _tgo_wanted = (not gate_on_guidance_mode
+                   or sim_params.GUIDANCE_MODE in _tgo_modes)
+    _tgo_time = (np.array(ra.tgo_time_history)
+                 if _tgo_wanted and len(ra.tgo_time_history) > 0 else None)
+    _tgo = (np.array(ra.tgo_history)
+            if _tgo_wanted and len(ra.tgo_history) > 0 else None)
+    _freeze_threshold = (
+        getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None)
+        if (not gate_on_guidance_mode or sim_params.GUIDANCE_MODE == "apollo")
+        else None)
+
+    _theta_time = (np.array(ra.theta_time_history)
+                   if len(ra.theta_time_history) > 0 else None)
+    _theta = (np.array(ra.theta_history)
+              if len(ra.theta_history) > 0 else None)
+
+    _cross_force = (
+        np.array(ra.cross_heading_counter_force_history)
+        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
+           and len(ra.cross_heading_counter_force_history) > 0
+        else None
+    )
+    _cross_accel = (
+        np.array(ra.cross_heading_accel_history)
+        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
+           and len(ra.cross_heading_accel_history) > 0
+        else None
+    )
+    return dict(
+        thrust_data=thrust_data,
+        time_thrust=time_thrust,
+        alpha_data=alpha_data,
+        alpha_time_data=alpha_time_data,
+        coriolis_mag_data=coriolis_mag_data,
+        centrifugal_mag_data=centrifugal_mag_data,
+        tgo_time_data=_tgo_time,
+        tgo_data=_tgo,
+        apollo_freeze_threshold=_freeze_threshold,
+        theta_data=_theta,
+        theta_time_data=_theta_time,
+        cross_heading_counter_force_data=_cross_force,
+        cross_heading_accel_data=_cross_accel,
+        pso_history=pso_history,
+    )
+
+
+def _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                 alpha_time_data, result, J=None, history=None, extra=None,
+                 suite=None, wall_clock=None):
+    """Persist the run just flown, whatever the plot settings say.
+
+    Storing a run and drawing it are different concerns, and until now they were
+    the same switch: an archive appeared only under PLOT_SUITE in {new, both}
+    AND SAVE_PLOTS, so the shipped defaults threw away every trajectory the
+    moment the figure windows were closed. A production solve is tens of
+    minutes and the channels captured here -- the convergence curve, the arc
+    times, the theta and t_go histories -- exist nowhere but this process, so
+    the only way to get them back is to fly the run again.
+
+    Failure to archive must never destroy a completed solve, so everything here
+    is inside one try: a broken archiver costs the archive, not the run.
+    """
+    if not getattr(sim_params, "ARCHIVE_RUNS", True):
+        return None
+    try:
+        from Archive import store
+        from Plots.plot_state_utils import interpolate_to_time
+
+        t = np.asarray(time, dtype=float)
+        # The Case layer wants thrust and alpha on the state grid; the raw
+        # channels go into the archive too, on whatever grid they were produced
+        # on, so the twenty-plot suite can be replayed exactly.
+        thrust = interpolate_to_time(time_thrust, thrust_data, t)
+        alpha = interpolate_to_time(alpha_time_data, alpha_data, t)
+        return store.save_run(
+            sim_params, t, data, thrust, alpha, result or {},
+            J=J, history=history, extra=extra, suite=suite,
+            wall_clock=wall_clock, source="main.py",
+            label=getattr(sim_params, "ARCHIVE_LABEL", ""))
+    except Exception as exc:                       # noqa: BLE001 — never fatal
+        import traceback
+        print("\n  [archive] FAILED to write the archive: %s" % exc)
+        traceback.print_exc()
+        print("  [archive] this run now exists only in this process.\n")
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Back-pressure thrust loss lookup
@@ -381,6 +486,8 @@ def execute():
     4. Returns the time history, state data, and optimal kick angle
     """
     
+    _wall_started = _perf_counter()
+
     print("="*60)
     print("COASTING SINGLE BURN TRAJECTORY OPTIMIZATION")
     print("="*60)
@@ -480,6 +587,12 @@ def execute():
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
     pso_history = None   # set only in indirect_pmp mode; passed to the plot suite
+    # Carried to the archive at the end of the run. Each PSO branch sets its
+    # own; apogee_check has no solver result dict and synthesises one from the
+    # final state, exactly as run_results_matrix._dispatch does, so that one
+    # collector serves every architecture.
+    result_opt = None
+    J_optimal = None
 
     # =========================================================================
     # SEGMENTED (multi-law, altitude-triggered) GUIDANCE
@@ -517,40 +630,48 @@ def execute():
         _report_segmented(result_seg, segs, best_x, best_f, data,
                           optimized_altitudes=seg_out.get('optimized_altitudes'))
 
-        # ---- Plot suite (same as the single-law modes) -------------------
+        # ---- Channels for the archive and the plot suite ------------------
         # run_segmented_full already populated ra.theta_*/tgo_* histories and the
-        # full-flight thrust/alpha/pseudo-force channels; feed them to the suite.
+        # full-flight thrust/alpha/pseudo-force channels; collect them once and
+        # hand the same set to both consumers. GUIDANCE_MODE is ignored under a
+        # schedule, so there is nothing to gate the t_go channel on.
+        _suite = _suite_channels(seg_out['thrust'], time,
+                                 seg_out['alpha'], time,
+                                 seg_out['coriolis'], seg_out['centrifugal'],
+                                 pso_history=None,
+                                 gate_on_guidance_mode=False)
+
+        # The schedule is the identity of a segmented run and exists nowhere
+        # else once this process exits: GUIDANCE_MODE is ignored entirely under
+        # MULTI_GUIDANCE_ENABLED, so the config cannot be read back to recover
+        # which laws actually flew.
+        _sched = list(segs.schedule)
+        _opt_alts = seg_out.get('optimized_altitudes')
+        _seg_extra = {
+            'segment_laws': [str(m) for m, _a in _sched],
+            'segment_altitudes': [float(a) for _m, a in _sched],
+            'optimized_altitudes': ([float(a) for a in _opt_alts] if _opt_alts else []),
+        }
+
+        # Archived before the figures and regardless of the crash flag: a
+        # segmented run that failed is the one hardest to reason about later,
+        # and re-flying it to look again costs the full swarm.
+        _archive_run(time, data, seg_out['thrust'], time,
+                     seg_out['alpha'], time,
+                     result=result_seg, J=best_f,
+                     history=seg.LAST_PSO_MG_HISTORY, extra=_seg_extra,
+                     suite=_suite, wall_clock=_perf_counter() - _wall_started)
+
         if not result_seg['crashed']:
             print("\nGenerating new plot suite (segmented)...")
-            _tgo_time = (np.array(ra.tgo_time_history)
-                         if len(ra.tgo_time_history) > 0 else None)
-            _tgo      = (np.array(ra.tgo_history)
-                         if len(ra.tgo_history) > 0 else None)
-            _theta_time = (np.array(ra.theta_time_history)
-                           if len(ra.theta_time_history) > 0 else None)
-            _theta      = (np.array(ra.theta_history)
-                           if len(ra.theta_history) > 0 else None)
-            _cross_force = (np.array(ra.cross_heading_counter_force_history)
-                            if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
-                               and len(ra.cross_heading_counter_force_history) > 0
-                            else None)
-            _cross_accel = (np.array(ra.cross_heading_accel_history)
-                            if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
-                               and len(ra.cross_heading_accel_history) > 0
-                            else None)
             _emit_plots(
                 time, data,
                 seg_out['thrust'], time,        # thrust_data, time_thrust (on `time` grid)
                 seg_out['alpha'],  time,        # alpha_data, alpha_time_data
                 guidance_label=" -> ".join(m for m, _a in seg_out['segs'].schedule),
-                coriolis_mag_data=seg_out['coriolis'],
-                centrifugal_mag_data=seg_out['centrifugal'],
-                tgo_time_data=_tgo_time, tgo_data=_tgo,
-                apollo_freeze_threshold=getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None),
-                theta_data=_theta, theta_time_data=_theta_time,
-                cross_heading_counter_force_data=_cross_force,
-                cross_heading_accel_data=_cross_accel,
-                pso_history=None,
+                **{k: v for k, v in _suite.items()
+                   if k not in ('thrust_data', 'time_thrust',
+                                'alpha_data', 'alpha_time_data')}
             )
             print("All plots generated.")
 
@@ -676,8 +797,20 @@ def execute():
                   f"({100.0 * p2_used / r_specs.M_PROP_2:.1f}% of {r_specs.M_PROP_2:.0f} kg)")
             print(f"\t  Stage-2 propellant remaining:   {p2_remaining:.1f} kg")
 
-        # Skip the rest of the normal execute() flow if crashed
+        # Skip the rest of the normal execute() flow if crashed -- but archive
+        # it first. A crashed solve is the one it hurts most to lose: it cannot
+        # be diagnosed from the console log alone, and re-flying it to look
+        # again costs the full swarm.
         if _simulation_failed:
+            _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                         alpha_time_data, result=result_opt, J=J_optimal,
+                         history=pso_history,
+                         suite=_suite_channels(thrust_data, time_thrust,
+                                               alpha_data, alpha_time_data,
+                                               coriolis_mag_data,
+                                               centrifugal_mag_data,
+                                               pso_history),
+                         wall_clock=_perf_counter() - _wall_started)
             return time, data, kick_angle_optimal
 
         # Fall through to the shared plotting block (lines further below).
@@ -875,7 +1008,17 @@ def execute():
                 print("SIMULATION COMPLETE")
                 print("="*60 + "\n")
 
+            # Archived even on a crash: see the indirect branch above.
             if _simulation_failed:
+                _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                             alpha_time_data, result=result_opt, J=J_optimal,
+                             history=pso_history,
+                             suite=_suite_channels(thrust_data, time_thrust,
+                                                   alpha_data, alpha_time_data,
+                                                   coriolis_mag_data,
+                                                   centrifugal_mag_data,
+                                                   pso_history),
+                             wall_clock=_perf_counter() - _wall_started)
                 return time, data, kick_angle_optimal
 
             # Fall through to the shared plotting block below.
@@ -1031,7 +1174,17 @@ def execute():
                 print("SIMULATION COMPLETE")
                 print("="*60 + "\n")
 
+            # Archived even on a crash: see the indirect branch above.
             if _simulation_failed:
+                _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                             alpha_time_data, result=result_opt, J=J_optimal,
+                             history=pso_history,
+                             suite=_suite_channels(thrust_data, time_thrust,
+                                                   alpha_data, alpha_time_data,
+                                                   coriolis_mag_data,
+                                                   centrifugal_mag_data,
+                                                   pso_history),
+                             wall_clock=_perf_counter() - _wall_started)
                 return time, data, kick_angle_optimal
 
             # Fall through to the shared plotting block below.
@@ -1128,6 +1281,19 @@ def execute():
                 print("!"*60 + "\n")
                 _simulation_failed = True
 
+            # apogee_check runs no swarm and so returns no solver result dict.
+            # Synthesise the same shape the PSO paths produce, from the final
+            # state, so that one collector serves every architecture -- exactly
+            # what run_results_matrix._dispatch does for this branch. delta_v
+            # here is the impulsive circularisation burn, which is NOT part of
+            # the integrated trajectory and so has to be recorded separately for
+            # the budget residual to mean anything.
+            result_opt = {
+                'crashed': bool(_simulation_failed),
+                'state_final': np.asarray(data)[:, -1],
+                'circularisation_dv': float(delta_v),
+            }
+
             if not _simulation_failed:
                 # Calculate final orbital elements
                 r_final = data[1, -1]
@@ -1216,36 +1382,20 @@ def execute():
                 print("SIMULATION COMPLETE")
                 print("="*60 + "\n")
     
+    _suite = _suite_channels(thrust_data, time_thrust, alpha_data,
+                             alpha_time_data, coriolis_mag_data,
+                             centrifugal_mag_data, pso_history)
+
+    # Archive first, and independently of PLOT_SUITE: the run is worth more than
+    # the figures drawn from it, and PLOT_SUITE='none' -- what a long solve
+    # should be run under -- used to mean nothing was kept at all.
+    _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                 alpha_time_data, result=result_opt, J=J_optimal,
+                 history=pso_history, extra=None, suite=_suite,
+                 wall_clock=_perf_counter() - _wall_started)
+
     # Plot the results
     print("Generating new plot suite...")
-
-    _tgo_modes = {"apollo", "linear_tangent", "bilinear_tangent"}
-    _tgo_time = (np.array(ra.tgo_time_history)
-                 if sim_params.GUIDANCE_MODE in _tgo_modes and len(ra.tgo_time_history) > 0
-                 else None)
-    _tgo = (np.array(ra.tgo_history)
-            if sim_params.GUIDANCE_MODE in _tgo_modes and len(ra.tgo_history) > 0
-            else None)
-    _freeze_threshold = (getattr(sim_params, "APOLLO_FREEZE_THRESHOLD", None)
-                         if sim_params.GUIDANCE_MODE == "apollo" else None)
-
-    _theta_time = (np.array(ra.theta_time_history)
-                   if len(ra.theta_time_history) > 0 else None)
-    _theta = (np.array(ra.theta_history)
-              if len(ra.theta_history) > 0 else None)
-
-    _cross_force = (
-        np.array(ra.cross_heading_counter_force_history)
-        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
-           and len(ra.cross_heading_counter_force_history) > 0
-        else None
-    )
-    _cross_accel = (
-        np.array(ra.cross_heading_accel_history)
-        if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE
-           and len(ra.cross_heading_accel_history) > 0
-        else None
-    )
 
     _emit_plots(
         time,
@@ -1254,16 +1404,9 @@ def execute():
         time_thrust,
         alpha_data,
         alpha_time_data,
-        coriolis_mag_data=coriolis_mag_data,
-        centrifugal_mag_data=centrifugal_mag_data,
-        tgo_time_data=_tgo_time,
-        tgo_data=_tgo,
-        apollo_freeze_threshold=_freeze_threshold,
-        theta_data=_theta,
-        theta_time_data=_theta_time,
-        cross_heading_counter_force_data=_cross_force,
-        cross_heading_accel_data=_cross_accel,
-        pso_history=pso_history,
+        **{k: v for k, v in _suite.items()
+           if k not in ('thrust_data', 'time_thrust',
+                        'alpha_data', 'alpha_time_data')}
     )
 
     print("\nAll plots generated.")

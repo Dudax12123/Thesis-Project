@@ -650,9 +650,11 @@ DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after r
 
 # -------------- Plot output --------------
 # By default the plot suite only DISPLAYS the figures (a single plt.show() at the
-# end of main.py) and writes NOTHING to disk. Set SAVE_PLOTS=True to also save the
-# PNGs to SAVE_PLOTS_DIR. Applies to every guidance mode (single-law + segmented).
-SAVE_PLOTS = False                            # False = display only, nothing saved
+# end of main.py) and writes no IMAGES to disk. Set SAVE_PLOTS=True to also save
+# the PNGs to SAVE_PLOTS_DIR. Applies to every guidance mode (single-law +
+# segmented). It says nothing about whether the run itself is kept -- that is
+# ARCHIVE_RUNS, further down, and it is on by default.
+SAVE_PLOTS = False                            # False = display only, no PNGs
 SAVE_PLOTS_DIR = "Tese/src/Output/plots"      # only used when SAVE_PLOTS = True
 
 # Which plotting suite main.py runs at the end of a single run.
@@ -675,9 +677,39 @@ SAVE_PLOTS_DIR = "Tese/src/Output/plots"      # only used when SAVE_PLOTS = True
 #   python -m Plots.results_figures.make_all
 # see Plots/results_figures/make_all.py.
 #
-# SAVE_PLOTS applies to both suites. Under "new" it also writes the run to
-# Output/single_run/<mode>.npz, so the card can be redrawn without re-flying.
+# SAVE_PLOTS applies to both suites. Neither setting has anything to do with
+# whether the RUN is kept -- see ARCHIVE_RUNS below.
 PLOT_SUITE = "legacy"     # Options: "legacy", "new", "both", "none"
+
+# -------------- Run archiving --------------
+# Every run writes a complete, self-describing archive of itself: the trajectory,
+# every diagnostic channel, the PSO convergence curve, the arc times, and a
+# manifest holding every value in this file, the vehicle constants, and the git
+# commit. Three files sharing a stem, under ARCHIVE_DIR:
+#
+#   <run_id>.npz   <run_id>.json   <run_id>.manifest.json
+#
+# INDEPENDENT of SAVE_PLOTS and PLOT_SUITE, deliberately. Those two are named for
+# images; whether tens of minutes of solving survive the process is a different
+# question, and archiving works under PLOT_SUITE = "none" like any other value.
+#
+# The run id is <architecture>_<law>_<date>_<time>, so a second run of the same
+# configuration never overwrites the first. Browse them with
+#   python Tese/src/run_archive.py list
+# and overlay any two (or five) with
+#   python Tese/src/run_archive.py compare <run_id> <run_id> ...
+#
+# A few hundred kB per run against a solve measured in tens of minutes; turn it
+# off only if you genuinely do not want the run back.
+ARCHIVE_RUNS = True
+# Where archives are written. Unlike SAVE_PLOTS_DIR, a RELATIVE path here is
+# resolved against Tese/src, not the working directory -- so running main.py
+# from Tese/src cannot produce a second archive tree the way it produces a
+# nested Tese/src/Tese/src/Output/plots.
+ARCHIVE_DIR = "Output/runs"
+# Free text stored in the manifest and shown by `run_archive.py list`. Use it to
+# say why a run was flown; nothing else records that.
+ARCHIVE_LABEL = ""
 
 # ===================================================================
 # 14. DEBUGGING FLAGS

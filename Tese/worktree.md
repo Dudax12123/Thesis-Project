@@ -195,8 +195,10 @@ from cache.
 
 **Plots.** Honours `PLOT_SUITE` (§2.12) like every other mode. Under the default `"legacy"`
 it renders the SAME 17-plot suite as the single-law modes (channels assembled in
-`run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`). By default nothing is
-written to disk — set `SAVE_PLOTS=True` (§2.12) to also save PNGs to `SAVE_PLOTS_DIR`. The apollo/θ
+`run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`). By default no PNGs are
+written — set `SAVE_PLOTS=True` (§2.12) to also save them to `SAVE_PLOTS_DIR`. The **run itself** is
+archived either way (§2.12a), including the segment schedule and the optimised hand-off altitudes,
+which exist nowhere else once the process exits. The apollo/θ
 steering plots show a brief transient at each intermediate handoff (the law's t_go → 0 right at the
 waypoint) — harmless to the flight (altitude/γ/orbit stay smooth).
 
@@ -447,9 +449,51 @@ The segmented solver has its **own** PSO block (`simulation_parameters.py` §11d
 | `DURATION_AFTER_SIMULATION` (L245) | float s | `1000.` | Extra propagation after reaching orbit. | none. |
 | `INTERRUPTS_PRINT` (L251) | `True`/`False` | `False` | Print ODE-interrupt debug. | none. |
 | `EVENTS_PRINT` (L252) | `True`/`False` | `True` | Print mission-event log lines. | none. |
-| `SAVE_PLOTS` | `True`/`False` | `False` | `False` = display the plot suite only (`plt.show`), write nothing. `True` = also save PNGs. Applies to every mode. | gates `SAVE_PLOTS_DIR`. |
-| `SAVE_PLOTS_DIR` | path | `Tese/src/Output/plots` | Where PNGs are written when `SAVE_PLOTS=True`. | requires `SAVE_PLOTS=True`. |
-| `PLOT_SUITE` | `"legacy"`/`"new"`/`"both"`/`"none"` | `"legacy"` | Which suite `main.py` draws at the end of a run. `legacy` = the 20-plot per-run diagnostic suite (`Plots/new_metrics`). `new` = the 4-panel run card of the results chapter (`Plots/results_figures/run_card.py`), plus an `.npz` under `Output/single_run/` when `SAVE_PLOTS=True`. `none` = no figures, which is what to use when a long solve should not end by building 20 windows. An unrecognised value falls back to `legacy` with a printed warning. | **Only the run card is available from a single run.** The other 15 chapter figures are comparisons ACROSS cases and need a results-matrix batch — build them with `python -m Plots.results_figures.make_all`. |
+| `SAVE_PLOTS` | `True`/`False` | `False` | `False` = display the plot suite only (`plt.show`), write no PNGs. `True` = also save PNGs. Applies to every mode. **Does not affect whether the run is kept** — that is `ARCHIVE_RUNS`. | gates `SAVE_PLOTS_DIR`. |
+| `SAVE_PLOTS_DIR` | path | `Tese/src/Output/plots` | Where PNGs are written when `SAVE_PLOTS=True`. **cwd-relative** — run from the repo root or you get a nested `Tese/src/Tese/src/Output/plots`. | requires `SAVE_PLOTS=True`. |
+| `PLOT_SUITE` | `"legacy"`/`"new"`/`"both"`/`"none"` | `"legacy"` | Which suite `main.py` draws at the end of a run. `legacy` = the 20-plot per-run diagnostic suite (`Plots/new_metrics`). `new` = the 4-panel run card of the results chapter (`Plots/results_figures/run_card.py`). `none` = no figures, which is what to use when a long solve should not end by building 20 windows. An unrecognised value falls back to `legacy` with a printed warning. | **No longer gates data retention** — every value including `"none"` writes a full archive (§2.12a). **Only the run card is available from a single run**; the other 15 chapter figures are comparisons ACROSS cases and need a results-matrix batch — `python -m Plots.results_figures.make_all`. |
+| `ARCHIVE_RUNS` | `True`/`False` | `True` | Write a complete, self-describing archive of every run — see §2.12a. Independent of `SAVE_PLOTS` and `PLOT_SUITE`. | none. |
+| `ARCHIVE_DIR` | path | `Output/runs` | Where archives go. A **relative** path resolves against `Tese/src`, *not* the cwd — unlike `SAVE_PLOTS_DIR`. Absolute paths are used as given. | requires `ARCHIVE_RUNS=True`. |
+| `ARCHIVE_LABEL` | free text | `""` | Stored in the manifest and shown by `run_archive.py list`. The only place the *reason* a run was flown is recorded. | requires `ARCHIVE_RUNS=True`. |
+
+### 2.12a Run archiving — what is kept, and how to get it back
+
+Every run writes three files sharing a stem under `ARCHIVE_DIR`:
+
+| File | Holds |
+|---|---|
+| `<run_id>.npz` | trajectory (`time`, `data`, `thrust`, `alpha`), the pseudo-force diagnostics, the six arc times, the PSO convergence curve, the θ / t_go / cross-heading histories **on their native cadence**, and for segmented runs the schedule and the optimised hand-off altitudes |
+| `<run_id>.json` | the scalar results row — insertion state, orbital elements, propellant remaining, the full Δv budget. Identical in shape to the results-matrix row, so both feed the same CSV |
+| `<run_id>.manifest.json` | every value in `simulation_parameters.py`, every constant in `rocket_specs.py` and `constants.py`, the git commit and dirty flag, library versions, the wall clock, the timestamp and `ARCHIVE_LABEL` |
+
+`<run_id>` is `<architecture>_<law>_<YYYYmmdd>_<HHMMSS>`, so **runs accumulate — a second run of the
+same configuration never overwrites the first.** The results matrix is the deliberate exception: it
+passes its case name explicitly, because `gt_baseline` *is* the identity of that experiment and
+`make_all.py` looks for it by name.
+
+This is the same three-file layout the results matrix writes, so
+`Plots.results_figures._data.load` is the one loader for a batch case and a hand-flown run alike. An
+archive without a `.manifest.json` — anything written before this existed — still loads, with
+`Case.manifest == {}`.
+
+```bash
+python Tese/src/run_archive.py list                    # every archive, newest first
+python Tese/src/run_archive.py show <run_id> --config  # results, channels, configuration
+python Tese/src/run_archive.py compare <a> <b> [...]   # overlays + a manifest diff
+python Tese/src/run_archive.py replay <run_id>         # redraw the 20-plot legacy suite
+```
+
+Run ids match by **unique prefix**, and `<dir>::<stem>` reaches into any directory, so a
+results-matrix case and an interactive run can go into the same comparison:
+
+```bash
+python Tese/src/run_archive.py compare gt_baseline pso_coast_peg_new_20260824
+```
+
+`compare` writes the standard overlays (trajectory, angles, losses, propellant, PSO convergence) plus
+`compare_manifest.md` — the table of **which settings actually differ** between the runs. That table
+is the point: two trajectories that diverge are easy to draw and hard to explain, and the explanation
+is nearly always a setting nobody wrote down.
 
 ### 2.13 Vehicle / staging constants (`Auxiliary/rocket_specs.py`)
 

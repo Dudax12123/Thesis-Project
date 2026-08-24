@@ -1,8 +1,14 @@
 """Loading layer for the Chapter 6 figures.
 
-One :class:`Case` wraps the pair of files ``run_results_matrix.py`` writes per
-case -- the ``.npz`` trajectory with its captured channels, and the ``.json``
-scalar row -- and derives the plotted quantities on demand.
+One :class:`Case` wraps the archive that ``Archive/store.py`` writes -- the
+``.npz`` trajectory with its captured channels, the ``.json`` scalar row, and
+the optional ``.manifest.json`` describing the configuration it was flown under
+-- and derives the plotted quantities on demand.
+
+That archive is written both by ``run_results_matrix.py``, once per matrix case,
+and by ``main.py``, once per interactive run, so this is the one loader for
+both. The manifest is optional because archives written before it existed must
+still load; an absent one is ``Case.manifest == {}``.
 
 The derived channels are computed with the same helpers the interactive plot
 suite uses (``Plots.plot_state_utils``, ``Auxiliary.losses``) rather than
@@ -42,9 +48,15 @@ def _scalar(z, key):
 class Case:
     """One flown trajectory, with everything a figure needs derived lazily."""
 
-    def __init__(self, name, npz, row):
+    def __init__(self, name, npz, row, manifest=None):
         self.name = name
         self.row = row
+        # The configuration the run was flown under, when the archive carries
+        # one. Archives written before manifests existed -- including the
+        # results-matrix batch -- simply have {}, which is why every reader
+        # must treat an empty manifest as "not recorded" rather than "no
+        # settings differ".
+        self.manifest = dict(manifest or {})
         self._z = npz
 
         self.time = np.asarray(npz["time"], dtype=float)
@@ -237,10 +249,11 @@ class Case:
                  "data": np.asarray(data, dtype=float),
                  "thrust": np.asarray(thrust, dtype=float),
                  "alpha": np.asarray(alpha, dtype=float)}
+        manifest = channels.pop("manifest", None)
         for key, value in channels.items():
             if value is not None:
                 store[key] = np.asarray(value)
-        return cls(name, _InMemoryNpz(store), dict(row or {}))
+        return cls(name, _InMemoryNpz(store), dict(row or {}), manifest=manifest)
 
 
 class _InMemoryNpz:
@@ -266,7 +279,13 @@ class _InMemoryNpz:
 
 
 def load(name, root=None):
-    """One case, or None if the batch has not produced it yet."""
+    """One case, or None if the batch has not produced it yet.
+
+    The optional third file, ``<name>.manifest.json``, carries the configuration
+    the run was flown under. It is read when present and skipped when not, which
+    is what lets one loader serve an interactive archive, a results-matrix case
+    written today, and a case written before the manifest existed.
+    """
     root = Path(root) if root is not None else DEFAULT_ROOT
     npz_path = root / (name + ".npz")
     json_path = root / (name + ".json")
@@ -274,7 +293,12 @@ def load(name, root=None):
         return None
     with open(json_path, encoding="utf-8") as fh:
         row = json.load(fh)
-    return Case(name, np.load(npz_path), row)
+    manifest = {}
+    manifest_path = root / (name + ".manifest.json")
+    if manifest_path.exists():
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    return Case(name, np.load(npz_path), row, manifest=manifest)
 
 
 def load_many(names, root=None):

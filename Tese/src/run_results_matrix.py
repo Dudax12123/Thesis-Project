@@ -30,13 +30,20 @@ One case, in-process, with solver output on screen:
 
 Per-case output
 ---------------
-Three files per case in Output/results_matrix/: a .json row, the aggregate
-results_matrix.csv, and a .npz holding the trajectory together with the
-channels the Chapter 6 figures need -- the PSO convergence curve, the arc
-boundary times, the pseudo-force diagnostics and, for the segmented cases, the
-schedule that flew. Those four are solver state, not results: they are gone the
-moment the subprocess exits, so anything not captured here costs a re-run of
-the case to recover. The figures themselves are built offline from these files
+Each case writes the standard three-file archive into Output/results_matrix/ --
+<case>.npz, <case>.json and <case>.manifest.json -- plus the aggregate
+results_matrix.csv. The .npz holds the trajectory together with the channels the
+Chapter 6 figures need: the PSO convergence curve, the arc boundary times, the
+pseudo-force diagnostics, the theta and t_go histories and, for the segmented
+cases, the schedule that flew. Those are solver state, not results: they are
+gone the moment the subprocess exits, so anything not captured here costs a
+re-run of the case to recover. The manifest records the configuration each case
+was actually flown under, which is what makes a case comparable against a run
+flown six months later.
+
+The writing itself is Archive/store.save_run, the same call main.py makes for an
+interactive run, so a batch case and a hand-flown run are the same kind of
+object and load through the same Plots.results_figures._data.load. The figures themselves are built offline from these files
 by Plots/results_figures/, which is why SAVE_PLOTS stays False -- firing the
 per-run debugging suite for every case would write hundreds of PNGs the chapter
 does not use.
@@ -66,6 +73,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 import numpy as np
+
+from Archive import run_record, store
 
 _HERE = Path(__file__).resolve().parent
 OUTPUT_DIR = _HERE / "Output" / "results_matrix"
@@ -269,11 +278,7 @@ def _apply(sim_params, overrides):
 
 def _architecture(sim_params):
     """The dispatch level actually in force, in main.py's precedence order."""
-    if sim_params.MULTI_GUIDANCE_ENABLED:
-        return "segmented"
-    if sim_params.GUIDANCE_MODE == "indirect_pmp":
-        return "indirect_pmp"
-    return sim_params.COAST_METHOD
+    return run_record.architecture(sim_params)
 
 
 def _dispatch(sim_params):
@@ -348,202 +353,20 @@ def _dispatch(sim_params):
     raise ValueError("unrecognised architecture: %r" % arch)
 
 
-# PSO budget attribute names per architecture, so the cost table of Section 6.7
-# reports the evaluations spent and not only the wall clock. apogee_check runs
-# no swarm and therefore has none.
-_PSO_BUDGET_ATTRS = {
-    'indirect_pmp': ('PSO_N_PARTICLES', 'PSO_MAX_GENERATIONS'),
-    'pso_coast': ('PSO_COAST_N_PARTICLES', 'PSO_COAST_MAX_GENERATIONS'),
-    'direct': ('PSO_DIRECT_N_PARTICLES', 'PSO_DIRECT_MAX_GENERATIONS'),
-    'segmented': ('PSO_MG_N_PARTICLES', 'PSO_MG_MAX_GENERATIONS'),
-}
+# ---------------------------------------------------------------------------
+# Collection
+# ---------------------------------------------------------------------------
+# The row, the channels and the manifest are built by Archive/run_record.py,
+# which is where they now live so that main.py can write the same archive for an
+# interactive run. This file used to own them, and owned them in a form only a
+# matrix case could call: the row builder read case['section'] and
+# case['factor'] straight off the case dict. Those two are the `tags` argument
+# now, and nothing else changed -- a second copy of this logic that could drift
+# from the harness would defeat the point of sharing it.
 
-
-def _as_float(value):
-    """None-preserving float, for event times that may never have been set."""
-    return None if value is None else float(value)
-
-
-def _nan(value):
-    """npz has no None, so an event that never happened is stored as NaN."""
-    return float('nan') if value is None else float(value)
-
-
-def _n_evaluations(sim_params):
-    """The swarm budget this architecture was given, as function evaluations."""
-    attrs = _PSO_BUDGET_ATTRS.get(_architecture(sim_params))
-    if attrs is None:
-        return None
-    return int(getattr(sim_params, attrs[0]) * getattr(sim_params, attrs[1]))
-
-
-def _guidance_label(sim_params, extra):
-    """What actually flew, which is not always GUIDANCE_MODE.
-
-    Under MULTI_GUIDANCE_ENABLED the dispatcher ignores GUIDANCE_MODE outright,
-    so recording it would label the segmented cases with whatever happens to be
-    left in simulation_parameters.py -- indirect_pmp, as it stands -- in exactly
-    the table Section 6.7 is built from.
-    """
-    if not sim_params.MULTI_GUIDANCE_ENABLED:
-        return sim_params.GUIDANCE_MODE
-    laws = (extra or {}).get('segment_laws')
-    return " -> ".join(laws) if laws else "segmented"
-
-
-def _channels(sim_params, time_a, data, extra, history):
-    """The per-run arrays the chapter figures need and the scalar row cannot hold.
-
-    Everything here is either a solver global that dies with this subprocess or
-    a quantity recomputable only under an exactly reconstructed configuration.
-    It costs a few hundred kB against a run measured in tens of minutes; not
-    saving it costs the run again.
-    """
-    from Simulation import rocket_ascent as ra
-
-    data = np.asarray(data)
-    time_a = np.asarray(time_a, dtype=float)
-
-    # Pseudo-force diagnostics, recomputed on the output grid rather than
-    # spliced from ODE-call history, which is on no particular grid. The helper
-    # gates on the same predicate the EOM uses, so an architecture that flew
-    # without these terms -- indirect_pmp -- gets zeros rather than values that
-    # were never applied. PROPAGATING_IN_INERTIAL_FRAME is left set by the final
-    # ballistic coast and would zero the whole grid, so it is cleared for the
-    # recomputation exactly as pso_coast_solver does.
-    saved_frame_flag = ra.PROPAGATING_IN_INERTIAL_FRAME
-    ra.PROPAGATING_IN_INERTIAL_FRAME = False
-    try:
-        _force, cross_accel, coriolis, centrifugal =             ra.pseudo_force_channels_on_grid(time_a, data[:5])
-    finally:
-        ra.PROPAGATING_IN_INERTIAL_FRAME = saved_frame_flag
-
-    out = {
-        'coriolis': coriolis,
-        'centrifugal': centrifugal,
-        'cross_heading_accel': cross_accel,
-        # Arc boundaries, for the stage and coast markers on every time-axis
-        # figure in the chapter.
-        't_meco': np.array(_nan(ra.time_main_engine_cutoff)),
-        't_seco': np.array(_nan(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL)),
-        't_coast_start': np.array(_nan(ra.PSO_COAST_ARC2_START_TIME)),
-        't_guidance_start': np.array(_nan(ra.time_guidance_start)),
-    }
-
-    # The convergence history, which the row reduces to three scalars. The full
-    # curve is what shows a solve converged rather than merely stopped, and it
-    # is discarded the moment this interpreter exits.
-    if isinstance(history, dict) and len(history.get('gbest', [])):
-        out['pso_gen'] = np.asarray(history['gen'], dtype=float)
-        out['pso_gbest'] = np.asarray(history['gbest'], dtype=float)
-
-    out.update({k: np.asarray(v) for k, v in (extra or {}).items()})
-    return out
-
-
-def _collect(name, case, sim_params, time_a, data, thrust, alpha, result, J,
-             history, wall_clock, extra):
-    """Reduce one trajectory to the scalars the results table needs."""
-    from Auxiliary import constants as c
-    from Auxiliary import losses as loss_mod
-    from Auxiliary import rocket_specs as r_specs
-    from Simulation import rocket_ascent as ra
-
-    row = {
-        'case': name,
-        'section': case['section'],
-        'factor': case['factor'],
-        'architecture': _architecture(sim_params),
-        'guidance_mode': _guidance_label(sim_params, extra),
-        'include_drag': bool(sim_params.INCLUDE_DRAG),
-        'earth_rotation': bool(sim_params.ENABLE_EARTH_ROTATION),
-        # Both halves of the nozzle model, recorded because the pressure loss is
-        # only defined under "pressure" and the figures must be able to say so
-        # rather than plotting a zero that looks like a measurement.
-        'kick_profile_mode': str(sim_params.KICK_PROFILE_MODE),
-        'isp_1_mode': str(sim_params.ISP_1_MODE),
-        'thrust_1_mode': str(sim_params.THRUST_1_MODE),
-        # The mission the case was aiming at, so a figure can draw the target
-        # without importing the configuration the run was flown under.
-        'target_alt_km': float(sim_params.TARGET_ORBITAL_ALTITUDE) / 1e3,
-        'pseudo_forces_requested': bool(sim_params.INCLUDE_PSEUDO_FORCES),
-        # What the architecture actually flew, which is not the same thing:
-        # indirect_pmp is exempt and flies pseudo-force-free whatever the config
-        # says. The budget residual is only interpretable against this column.
-        'pseudo_forces_flown': bool(ra._PSEUDO_FORCES_THIS_RUN),
-        # apogee_check inserts with an impulsive circularisation burn that is not
-        # part of the integrated trajectory, so its dv_achieved excludes it and
-        # its residual cannot be compared with the direct-insertion paths.
-        'circularisation_dv': float(result.get('circularisation_dv', 0.0)),
-        'wall_clock_s': round(wall_clock, 1),
-        'n_evaluations': _n_evaluations(sim_params),
-        't_meco': _as_float(ra.time_main_engine_cutoff),
-        't_seco': _as_float(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL),
-        'J_prime': None if J is None else float(J),
-        'crashed': bool(result.get('crashed', False)),
-    }
-
-    if row['crashed'] or result.get('state_final') is None:
-        return row
-
-    sf = np.asarray(result['state_final'], dtype=float)
-    data = np.asarray(data)
-    time_a = np.asarray(time_a, dtype=float)
-
-    row['insertion_alt_km'] = float((sf[1] - c.R_EARTH) / 1e3)
-    row['insertion_v_ms'] = float(sf[2])
-    row['insertion_fpa_deg'] = float(np.rad2deg(sf[3]))
-
-    try:
-        v_in, g_in = ra.get_inertial_state_components(
-            sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
-        a, e, r_apo, r_peri, period = ra.get_orbital_elements(sf[1], v_in, g_in)
-        row.update({
-            'sma_km': float(a / 1e3),
-            'eccentricity': float(e),
-            'apoapsis_km': float((r_apo - c.R_EARTH) / 1e3),
-            'periapsis_km': float((r_peri - c.R_EARTH) / 1e3),
-            'period_min': float(period / 60.0),
-        })
-    except Exception as exc:                      # noqa: BLE001 — recorded, not raised
-        row['orbit_error'] = str(exc)
-
-    m_final = float(data[4, -1])
-    row['prop_remaining_kg'] = max(
-        0.0, m_final - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
-
-    # --- delta-v budget, over the powered ascent only ---------------------
-    t_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
-    idx = len(time_a) if t_seco is None else int(np.searchsorted(time_a, t_seco, 'right'))
-    idx = max(idx, 2)
-    alt = data[1, :idx] - c.R_EARTH
-    budget = loss_mod.delta_v_budget(
-        time_a[:idx], alt, data[2, :idx], data[3, :idx], data[4, :idx],
-        np.asarray(thrust, dtype=float)[:idx], np.asarray(alpha, dtype=float)[:idx],
-        t_meco=ra.time_main_engine_cutoff,
-        include_drag=sim_params.INCLUDE_DRAG,
-        thrust_mode=sim_params.THRUST_1_MODE,
-    )
-    row.update({k: (v if isinstance(v, bool) else round(float(v), 3))
-                for k, v in budget.items()})
-
-    # Convergence history, the evidence that the budget was adequate. The
-    # solvers record it as {'gen': array, 'gbest': array}; apogee_check has none.
-    if isinstance(history, dict) and len(history.get('gbest', [])):
-        gbest = np.asarray(history['gbest'], dtype=float)
-        gens = np.asarray(history['gen'], dtype=float)
-        row['pso_generations'] = int(gens[-1])
-        row['pso_gbest_first'] = float(gbest[0])
-        row['pso_gbest_last'] = float(gbest[-1])
-        # Fraction of the total improvement still being made over the final
-        # quarter of the run: near zero means converged, large means the budget
-        # ran out before the swarm did.
-        tail = max(1, len(gbest) // 4)
-        span = gbest[0] - gbest[-1]
-        row['pso_tail_improvement_frac'] = (
-            float((gbest[-tail] - gbest[-1]) / span) if span > 0 else 0.0)
-
-    return row
+# Nothing is re-exported here on purpose: a wrapper kept "for compatibility" is
+# the second copy this move was meant to remove. Call Archive.run_record
+# directly.
 
 
 def run_case(name, smoke=False):
@@ -565,16 +388,20 @@ def run_case(name, smoke=False):
     time_a, data, thrust, alpha, result, J, history, extra = _dispatch(sim_params)
     wall_clock = _time.time() - started
 
-    row = _collect(name, case, sim_params, time_a, data, thrust, alpha,
-                   result, J, history, wall_clock, extra)
-
-    np.savez_compressed(OUTPUT_DIR / (name + ".npz"),
-                        time=time_a, data=data, thrust=thrust, alpha=alpha,
-                        **_channels(sim_params, time_a, data, extra, history))
-    with open(OUTPUT_DIR / (name + ".json"), "w", encoding="utf-8") as fh:
-        json.dump(row, fh, indent=2)
+    # One writer for the whole simulator. The case name is passed explicitly, so
+    # re-running a case replaces it -- the matrix case names ARE the identity of
+    # the experiment, and a timestamped id per attempt would leave make_all.py
+    # unable to find "gt_baseline". An interactive run gets the timestamped id
+    # instead and never overwrites anything.
+    saved = store.save_run(
+        sim_params, time_a, data, thrust, alpha, result,
+        J=J, history=history, extra=extra, wall_clock=wall_clock,
+        name=name, root=OUTPUT_DIR, source="matrix:" + name,
+        label="%s / %s" % (case['section'], case['factor']),
+        tags={'section': case['section'], 'factor': case['factor']},
+        verbose=False)
     print("\n[harness] %s done in %.1f s" % (name, wall_clock))
-    return row
+    return saved['row']
 
 
 # =========================================================================

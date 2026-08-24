@@ -15,8 +15,23 @@ python Tese/src/main.py
 
 `main.py` adds `Tese/src` to `sys.path` itself, so it can also be run from
 inside `Tese/src` as `python main.py`. On completion it prints a mission
-summary and writes a suite of plots (trajectory, steering angles, dynamic
+summary and draws a suite of plots (trajectory, steering angles, dynamic
 pressure, etc.) via `Plots/new_plot_runner.py`.
+
+It also **archives the run** to `Tese/src/Output/runs/`: the trajectory, every
+diagnostic channel, the optimizer's convergence curve, and a manifest recording
+the full configuration, the vehicle constants and the git commit. This happens
+whatever `PLOT_SUITE` and `SAVE_PLOTS` are set to, and runs accumulate rather
+than overwrite, so a solve never has to be flown twice to be looked at again:
+
+```bash
+python Tese/src/run_archive.py list
+python Tese/src/run_archive.py compare <run_id> <run_id>
+```
+
+`compare` overlays any number of archived runs and prints the settings on which
+they differ. `replay <run_id>` redraws the full plot suite from disk. Turn
+archiving off with `ARCHIVE_RUNS = False`.
 
 ### Dependencies
 

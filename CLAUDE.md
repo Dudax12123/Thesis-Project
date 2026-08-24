@@ -69,6 +69,21 @@ C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m pytest Tese/src/tests/ -q
 
 Single test: append the file and `::TestApolloTgo::test_nominal_case`.
 
+**Every run archives itself.** `main.py` writes `<arch>_<law>_<date>_<time>.npz` + `.json` +
+`.manifest.json` to `Tese/src/Output/runs/` regardless of `PLOT_SUITE` and `SAVE_PLOTS` (switch:
+`ARCHIVE_RUNS`, default `True`). The manifest holds the whole of `simulation_parameters.py`, the
+vehicle constants and the git commit, so a run stays interpretable months later. Runs accumulate;
+nothing is overwritten. Browse and compare them with:
+
+```bash
+C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_archive.py list
+```
+
+`show <id> [--config]`, `compare <id> <id> [...]` (overlays + a table of the settings that actually
+differ), `replay <id>` (redraws the legacy 20-plot suite from the archive). Ids match by unique
+prefix; `<dir>::<stem>` reaches into any directory, so a results-matrix case and a hand-flown run go
+into one comparison. See `Tese/worktree.md` §2.12a.
+
 Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
 `Tese/src/guidance_comparison/compare_guidance_methods.py`.
@@ -134,6 +149,10 @@ Simulation/
 Guidance/                one module per law, pure functions returning α (or coefficients)
 Auxiliary/               constants, atmosphere, gravity, earth_rotation, rocket_specs
 Plots/new_metrics/       one file per metric; new_plot_runner.py runs the ~20-plot suite
+Plots/results_figures/   the Chapter 6 figure set; _data.Case is THE loader for any archive
+Archive/                 run_record (row + channels + manifest, shared with the harness),
+                         store (naming, writing, finding), compare (generic N-way overlay
+                         + manifest diff), cli; entry point Tese/src/run_archive.py
 ```
 
 ### Two parallel guidance dispatchers — the thing to know
