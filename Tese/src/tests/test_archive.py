@@ -104,11 +104,15 @@ def test_every_channel_survives_the_round_trip(flown, tmp_path):
         assert np.allclose(z['data'], flown['data'])
         assert np.allclose(z['thrust'], flown['thrust'])
         assert np.allclose(z['alpha'], flown['alpha'])
-        # The histories come back on the cadence they were recorded on, not
-        # resampled onto the state grid.
+        # A history with its OWN time axis comes back on the cadence it was
+        # recorded at, not resampled onto the state grid.
         assert len(z['suite_theta']) == 77
         assert len(z['suite_tgo']) == 41
-        assert len(z['suite_cross_force']) == 63
+        # The cross-heading channels have no axis of their own -- the suite
+        # plots them against the shared time_thrust -- so the 63-sample history
+        # cannot be kept, and the state-grid equivalent is stored instead. See
+        # test_every_replay_channel_fits_the_axis_it_is_plotted_against.
+        assert len(z['suite_cross_force']) == N
         assert np.allclose(z['pso_gbest'], flown['history']['gbest'])
 
     # Arc times, including the two the results matrix never captured.
@@ -349,3 +353,87 @@ def test_a_run_without_a_manifest_is_named_not_diffed_against():
     assert [case.name for case in compared] == ["a"]
     assert unrecorded == ["no_manifest"]
     assert rows == []
+
+
+# =========================================================================
+#  Directory layouts
+# =========================================================================
+
+def test_a_case_in_its_own_folder_loads_the_same_way(flown, tmp_path):
+    """The results-matrix layout: <root>/<case>/<case>.npz.
+
+    Twenty cases as sixty-one files in one directory is unreadable, so the
+    harness gives each its own folder. Nothing downstream may need to know:
+    the figures, the CLI and the comparison all go through one resolver.
+    """
+    case_root = tmp_path / "gt_baseline"
+    _save(flown, case_root, name="gt_baseline")
+
+    assert (case_root / "gt_baseline.npz").exists()
+    assert store.case_dir(tmp_path, "gt_baseline") == case_root
+
+    case = rf_data.load("gt_baseline", root=tmp_path)
+    assert case is not None
+    assert len(case.time) == N
+    assert case.manifest                       # the sidecar came with it
+
+    found_root, stem = store.resolve("gt_baseline", root=tmp_path)
+    assert (found_root, stem) == (tmp_path, "gt_baseline")
+    assert store.load_run("gt_baseline", root=tmp_path).name == "gt_baseline"
+
+
+def test_flat_and_nested_archives_coexist(flown, tmp_path):
+    """A directory holding both layouts lists and loads completely.
+
+    Interactive archives stay flat -- their timestamped id is already unique and
+    a folder per run would only add a level -- so a root can legitimately hold
+    both at once.
+    """
+    _save(flown, tmp_path / "gt_baseline", name="gt_baseline")
+    flat = _save(flown, tmp_path)
+
+    listed = {entry['run_id'] for entry in store.list_runs(root=tmp_path)}
+    assert listed == {"gt_baseline", flat['name']}
+    assert rf_data.load("gt_baseline", root=tmp_path) is not None
+    assert rf_data.load(flat['name'], root=tmp_path) is not None
+
+
+def test_a_stray_npz_in_a_case_folder_is_not_an_archive(flown, tmp_path):
+    """Only the folder's own case counts, or any scratch file becomes a run."""
+    _save(flown, tmp_path / "gt_baseline", name="gt_baseline")
+    np.savez(tmp_path / "gt_baseline" / "scratch.npz", x=np.arange(3))
+
+    listed = {entry['run_id'] for entry in store.list_runs(root=tmp_path)}
+    assert listed == {"gt_baseline"}
+
+
+def test_every_replay_channel_fits_the_axis_it_is_plotted_against(flown, tmp_path):
+    """The archive must not store a channel the suite cannot plot.
+
+    Five channels share one ``time_thrust`` axis, and they do not all arrive on
+    the same grid: the fixture records the cross-heading history at ODE cadence
+    while thrust comes in on the state grid, exactly as the results-matrix
+    worker produces them for apogee_check. Stored unreconciled, that archive
+    loads fine and only dies at replay -- long after the run is gone.
+    """
+    saved = _save(flown, tmp_path)
+    with np.load(tmp_path / (saved['name'] + ".npz")) as z:
+        resolved = {}
+        for npz_key, kwarg in run_record.REPLAY_KEYS.items():
+            if npz_key in z.files:
+                resolved[kwarg] = np.asarray(z[npz_key])
+        for entry in z.get('suite_aliases', []):
+            npz_key, _, target = str(entry).partition("=")
+            resolved[run_record.REPLAY_KEYS[npz_key]] = np.asarray(z[target])
+
+    for channel, axis_name in run_record.SUITE_AXIS.items():
+        if channel not in resolved or axis_name not in resolved:
+            continue
+        assert len(resolved[channel]) == len(resolved[axis_name]), (
+            "%s does not fit %s" % (channel, axis_name))
+
+    # The cross-heading pair was recorded at 63 samples against a 201-sample
+    # axis, so it must have been replaced by its state-grid equivalent rather
+    # than stored as-is or silently dropped.
+    assert len(resolved['cross_heading_counter_force_data']) == N
+    assert len(resolved['cross_heading_accel_data']) == N

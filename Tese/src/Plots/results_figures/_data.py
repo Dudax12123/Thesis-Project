@@ -285,16 +285,28 @@ def load(name, root=None):
     the run was flown under. It is read when present and skipped when not, which
     is what lets one loader serve an interactive archive, a results-matrix case
     written today, and a case written before the manifest existed.
+
+    Both directory layouts are accepted -- ``<root>/<name>/<name>.npz`` as the
+    results matrix writes it, and ``<root>/<name>.npz`` flat as an interactive
+    archive does -- so a figure never has to know which produced the case.
     """
+    # Imported here rather than at module scope: Archive.store pulls in the
+    # collector, and the results-matrix harness deliberately keeps matplotlib
+    # and everything downstream of it out of a batch worker.
+    from Archive.store import case_dir
+
     root = Path(root) if root is not None else DEFAULT_ROOT
-    npz_path = root / (name + ".npz")
-    json_path = root / (name + ".json")
+    # The results matrix gives each case its own folder; interactive archives
+    # sit flat. One helper decides which, so no caller has to know.
+    holder = case_dir(root, name)
+    npz_path = holder / (name + ".npz")
+    json_path = holder / (name + ".json")
     if not npz_path.exists() or not json_path.exists():
         return None
     with open(json_path, encoding="utf-8") as fh:
         row = json.load(fh)
     manifest = {}
-    manifest_path = root / (name + ".manifest.json")
+    manifest_path = holder / (name + ".manifest.json")
     if manifest_path.exists():
         with open(manifest_path, encoding="utf-8") as fh:
             manifest = json.load(fh)

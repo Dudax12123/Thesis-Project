@@ -30,9 +30,9 @@ One case, in-process, with solver output on screen:
 
 Per-case output
 ---------------
-Each case writes the standard three-file archive into Output/results_matrix/ --
-<case>.npz, <case>.json and <case>.manifest.json -- plus the aggregate
-results_matrix.csv. The .npz holds the trajectory together with the channels the
+Each case writes the standard three-file archive into its own folder --
+Output/results_matrix/<case>/<case>.npz, .json and .manifest.json -- plus one
+aggregate results_matrix.csv at the top of results_matrix/. The .npz holds the trajectory together with the channels the
 Chapter 6 figures need: the PSO convergence curve, the arc boundary times, the
 pseudo-force diagnostics, the theta and t_go histories and, for the segmented
 cases, the schedule that flew. Those are solver state, not results: they are
@@ -346,6 +346,12 @@ def _dispatch(sim_params):
         # final state so the collector does not need a special case.
         result = {'crashed': False, 'state_final': np.asarray(data)[:, -1],
                   'circularisation_dv': float(delta_v)}
+        # Latitude is derived, not integrated, and ra.run() does not append it --
+        # the PSO solvers do it themselves and main.py does it for this branch.
+        # Without it the archived case carries five state rows where every other
+        # case carries six, and gt_apogee would be the one case in Chapter 6
+        # with no latitude channel to plot.
+        data = ra.append_latitude_row(data)
         thrust = np.interp(time_a, time_thrust, thrust)
         alpha = np.interp(time_a, alpha_time, alpha)
         return time_a, data, thrust, alpha, result, None, None, {}
@@ -393,10 +399,13 @@ def run_case(name, smoke=False):
     # the experiment, and a timestamped id per attempt would leave make_all.py
     # unable to find "gt_baseline". An interactive run gets the timestamped id
     # instead and never overwrites anything.
+    # Each case gets its own folder. Twenty cases as sixty-one files in one
+    # directory is unreadable, and a folder per case also means a single case
+    # can be copied, compared or thrown away on its own.
     saved = store.save_run(
         sim_params, time_a, data, thrust, alpha, result,
         J=J, history=history, extra=extra, wall_clock=wall_clock,
-        name=name, root=OUTPUT_DIR, source="matrix:" + name,
+        name=name, root=OUTPUT_DIR / name, source="matrix:" + name,
         label="%s / %s" % (case['section'], case['factor']),
         tags={'section': case['section'], 'factor': case['factor']},
         verbose=False)
@@ -462,7 +471,7 @@ def main():
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         proc = subprocess.run(cmd, env=env)
 
-        row_path = OUTPUT_DIR / (name + ".json")
+        row_path = OUTPUT_DIR / name / (name + ".json")
         if proc.returncode != 0 or not row_path.exists():
             print("  FAILED (exit %d)" % proc.returncode)
             failures.append(name)

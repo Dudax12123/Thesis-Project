@@ -70,6 +70,31 @@ def plots_root(sim_params=None):
     return path if path.is_absolute() else (_SRC / path)
 
 
+def case_dir(root, stem):
+    """The directory actually holding ``<stem>.npz`` under *root*.
+
+    Two layouts are in use and both are read the same way rather than by the
+    caller knowing which producer wrote the files. The results matrix gives each
+    case its own folder, so twenty cases do not land as sixty-one files in one
+    directory:
+
+        results_matrix/gt_baseline/gt_baseline.npz  .json  .manifest.json
+
+    while interactive archives sit flat, because each already carries a unique
+    timestamped id and a folder per run would only add a level:
+
+        runs/pso_coast_peg_new_20260825_0930.npz  .json  .manifest.json
+
+    Nested is checked first; anything else falls back to flat, which is also
+    what makes archives written before the split keep loading.
+    """
+    root = Path(root)
+    nested = root / stem
+    if (nested / (stem + ".npz")).exists():
+        return nested
+    return root
+
+
 def run_plots_dir(run_id, sim_params=None):
     """Every figure drawn for one run, under that run's own id.
 
@@ -203,7 +228,7 @@ def resolve(name, root=None, sim_params=None):
 
     roots = [Path(root)] if root is not None else search_roots(sim_params)
     for candidate in roots:
-        if (candidate / (text + ".npz")).exists():
+        if (case_dir(candidate, text) / (text + ".npz")).exists():
             return candidate, text
 
     matches = []
@@ -223,19 +248,27 @@ def resolve(name, root=None, sim_params=None):
 
 
 def _stems(root):
-    """Every archive stem in a directory, newest first, older layouts included."""
+    """Every archive stem in a directory, newest first, both layouts included.
+
+    Globs the flat form and the one-folder-per-case form, so a directory holding
+    either -- or a mix, which a half-migrated batch would be -- lists completely.
+    """
     root = Path(root)
     if not root.is_dir():
         return []
-    stems = sorted((p.stem for p in root.glob("*.npz")),
-                   key=lambda s: (root / (s + ".npz")).stat().st_mtime,
-                   reverse=True)
-    return stems
+    found = {}
+    for path in list(root.glob("*.npz")) + list(root.glob("*/*.npz")):
+        # A nested file only counts when it is the folder's own case, so a
+        # stray npz dropped into a case folder is not mistaken for an archive.
+        if path.parent != root and path.stem != path.parent.name:
+            continue
+        found[path.stem] = path.stat().st_mtime
+    return sorted(found, key=found.get, reverse=True)
 
 
 def read_manifest(root, stem):
     """The manifest, or ``{}`` for an archive written before manifests existed."""
-    path = Path(root) / (stem + ".manifest.json")
+    path = case_dir(root, stem) / (stem + ".manifest.json")
     if not path.exists():
         return {}
     with open(path, encoding="utf-8") as fh:
@@ -277,7 +310,7 @@ def describe(root, stem):
     """One index line for one archive, tolerating a missing manifest or row."""
     root = Path(root)
     row = {}
-    json_path = root / (stem + ".json")
+    json_path = case_dir(root, stem) / (stem + ".json")
     if json_path.exists():
         try:
             with open(json_path, encoding="utf-8") as fh:
@@ -298,7 +331,7 @@ def describe(root, stem):
 
 
 def _mtime(root, stem):
-    path = Path(root) / (stem + ".npz")
+    path = case_dir(root, stem) / (stem + ".npz")
     if not path.exists():
         return None
     return datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec='seconds')

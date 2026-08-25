@@ -91,7 +91,9 @@ Multi-mode batch scripts (older, cover only the four classical laws):
 
 The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 23 cases, one frozen
 baseline with one factor changed at a time, each case in its **own subprocess** so no module
-global can leak between them. Prove every case dispatches before committing a night to it:
+global can leak between them, and each writing its archive into its **own folder**
+(`Output/results_matrix/<case>/<case>.npz` + `.json` + `.manifest.json`), with one
+`results_matrix.csv` at the top. Prove every case dispatches before committing a night to it:
 
 ```bash
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_results_matrix.py --smoke

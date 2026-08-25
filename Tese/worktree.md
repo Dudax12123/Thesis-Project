@@ -467,8 +467,9 @@ and their sidecars.
 Tese/src/Output/                     DATA  (ARCHIVE_DIR)
 ├── runs/<run_id>.npz  .json  .manifest.json     one trio per interactive run
 ├── runs/index.csv                               browsable index, rebuildable by scan
-├── results_matrix/<case>.npz  .json  .manifest.json   the Chapter 6 batch
-├── results_matrix/results_matrix.csv
+├── results_matrix/<case>/<case>.npz  .json  .manifest.json   the Chapter 6 batch,
+│                                                             one folder per case
+├── results_matrix/results_matrix.csv            all 20 rows, at the top level
 └── pmp_reference.npz                            the segmented waypoint cache (TRACKED in git)
 
 Tese/src/Output_Plots/               FIGURES  (SAVE_PLOTS_DIR)
@@ -501,10 +502,17 @@ same configuration never overwrites the first.** The results matrix is the delib
 passes its case name explicitly, because `gt_baseline` *is* the identity of that experiment and
 `make_all.py` looks for it by name.
 
-This is the same three-file layout the results matrix writes, so
-`Plots.results_figures._data.load` is the one loader for a batch case and a hand-flown run alike. An
-archive without a `.manifest.json` — anything written before this existed — still loads, with
+This is the same three-file archive the results matrix writes, so
+`Plots.results_figures._data.load` is the one loader for a batch case and a hand-flown run alike.
+An archive without a `.manifest.json` — anything written before this existed — still loads, with
 `Case.manifest == {}`.
+
+**Two directory layouts, one resolver.** The matrix gives each case its own folder
+(`results_matrix/gt_baseline/gt_baseline.npz`), because twenty cases as sixty-one files in one
+directory is unreadable and a folder can be copied or discarded on its own. Interactive archives
+stay **flat** in `runs/`, since a timestamped id is already unique and a folder per run would only
+add a level. `Archive.store.case_dir()` decides which, and every reader — the figures, the CLI,
+`compare`, `replay` — goes through it, so nothing downstream knows or cares. A root may hold both.
 
 ```bash
 python Tese/src/run_archive.py list                    # every archive, newest first

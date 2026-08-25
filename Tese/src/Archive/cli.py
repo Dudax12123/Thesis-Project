@@ -135,7 +135,7 @@ def cmd_replay(args):
     from Plots import new_plot_runner
 
     root, stem = store.resolve(args.name, root=args.root, sim_params=_sim_params())
-    with np.load(root / (stem + ".npz")) as z:
+    with np.load(store.case_dir(root, stem) / (stem + ".npz")) as z:
         time = np.asarray(z["time"], dtype=float)
         data = np.asarray(z["data"], dtype=float)
         kwargs = {}

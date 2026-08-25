@@ -115,6 +115,22 @@ SUITE_KEYS = {
 # The reverse map, for replay: npz key -> the keyword run_new_plot_suite expects.
 REPLAY_KEYS = {v: k for k, v in SUITE_KEYS.items()}
 
+# Which time axis the suite plots each channel against. FIVE channels share
+# ``time_thrust``, which is the trap: a channel and its axis can arrive from
+# different grids and nothing notices until a replay months later dies on
+# "x and y must have same first dimension". The archive reconciles them at write
+# time instead, because that is the only moment both grids are still in hand.
+SUITE_AXIS = {
+    'thrust_data': 'time_thrust',
+    'coriolis_mag_data': 'time_thrust',
+    'centrifugal_mag_data': 'time_thrust',
+    'cross_heading_counter_force_data': 'time_thrust',
+    'cross_heading_accel_data': 'time_thrust',
+    'alpha_data': 'alpha_time_data',
+    'theta_data': 'theta_time_data',
+    'tgo_data': 'tgo_time_data',
+}
+
 
 def _list_or_none(seq):
     """A history global as an array, or None when the run never appended to it."""
@@ -160,6 +176,41 @@ def _default_suite(sim_params, time_a, thrust, alpha, coriolis=None,
     return suite
 
 
+def _reconcile_suite(merged, time_a, grid_fallbacks):
+    """Make every replay channel agree in length with the axis it is plotted on.
+
+    The legacy suite plots thrust, both pseudo-force magnitudes and both
+    cross-heading channels against one shared ``time_thrust``. Nothing upstream
+    guarantees they came from the same grid: the results-matrix worker hands
+    back thrust already interpolated onto the state grid while the cross-heading
+    history is still at ODE-call cadence, so an apogee_check archive used to
+    store a 2528-sample channel against a 40686-sample axis. It wrote and loaded
+    perfectly and only failed at replay, which is the worst possible time to
+    find out -- the run is long gone by then.
+
+    Write time is the one moment both grids are in hand, so the fix belongs
+    here. A mismatched channel is replaced by its state-grid equivalent where
+    one exists, and dropped with a note where it does not. Dropping loses a
+    panel; keeping would lose the whole replay.
+    """
+    for channel, axis_name in SUITE_AXIS.items():
+        values = merged.get(channel)
+        axis = merged.get(axis_name)
+        if values is None or axis is None:
+            continue
+        if len(np.asarray(values)) == len(np.asarray(axis)):
+            continue
+        fallback = grid_fallbacks.get(channel)
+        if (fallback is not None
+                and len(np.asarray(fallback)) == len(np.asarray(axis))):
+            merged[channel] = fallback
+        else:
+            merged[channel] = None
+            print("  [archive] %s (%d samples) does not fit %s (%d); not stored"
+                  % (channel, len(np.asarray(values)), axis_name,
+                     len(np.asarray(axis))))
+
+
 def channels(sim_params, time_a, data, extra, history,
              thrust=None, alpha=None, suite=None):
     """The per-run arrays the chapter figures need and the scalar row cannot hold.
@@ -187,7 +238,7 @@ def channels(sim_params, time_a, data, extra, history,
     saved_frame_flag = ra.PROPAGATING_IN_INERTIAL_FRAME
     ra.PROPAGATING_IN_INERTIAL_FRAME = False
     try:
-        _force, cross_accel, coriolis, centrifugal = \
+        cross_force, cross_accel, coriolis, centrifugal = \
             ra.pseudo_force_channels_on_grid(time_a, data[:5])
     finally:
         ra.PROPAGATING_IN_INERTIAL_FRAME = saved_frame_flag
@@ -225,6 +276,12 @@ def channels(sim_params, time_a, data, extra, history,
     merged = _default_suite(sim_params, time_a, thrust, alpha,
                             coriolis=coriolis, centrifugal=centrifugal)
     merged.update({k: v for k, v in (suite or {}).items() if v is not None})
+    _reconcile_suite(merged, time_a, grid_fallbacks={
+        'cross_heading_counter_force_data': cross_force,
+        'cross_heading_accel_data': cross_accel,
+        'coriolis_mag_data': coriolis,
+        'centrifugal_mag_data': centrifugal,
+    })
     duplicate_of = {
         'suite_thrust': ('thrust', None if thrust is None else np.asarray(thrust)),
         'suite_time_thrust': ('time', time_a),
