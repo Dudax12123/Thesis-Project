@@ -470,6 +470,7 @@ Tese/src/Output/                     DATA  (ARCHIVE_DIR)
 ├── results_matrix/<case>/<case>.npz  .json  .manifest.json   the Chapter 6 batch,
 │                                                             one folder per case
 ├── results_matrix/results_matrix.csv            all 20 rows, at the top level
+├── results_matrix_*/                            a batch run with --out, same layout
 └── pmp_reference.npz                            the segmented waypoint cache (TRACKED in git)
 
 Tese/src/Output_Plots/               FIGURES  (SAVE_PLOTS_DIR)

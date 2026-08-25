@@ -28,6 +28,20 @@ One case, in-process, with solver output on screen:
 
     python Tese/src/run_results_matrix.py --case peg_baseline
 
+A subset at a reduced budget, into its own root so the production set is not
+touched (--only takes a comma-separated list of substrings; gt_,peg_ is exactly
+the ten cases of Chapter 6 sections 6.2 and 6.3):
+
+    python Tese/src/run_results_matrix.py --only gt_,peg_ --budget 50,100 \
+        --out Output/results_matrix_r50x100
+
+Note what --budget does NOT reach. COAST_METHOD="apogee_check" runs no PSO at
+all -- its cost is the Ns=1000 brute grid in solver.py, and every grid point is
+a complete ra.run() ascent -- so gt_apogee costs the same at any budget and is
+usually the most expensive case in the set. PSO_DIRECT_* is already 50x100 in
+the shipped config, so --budget 50,100 leaves the two "direct" cases at full
+production fidelity.
+
 Per-case output
 ---------------
 Each case writes the standard three-file archive into its own folder --
@@ -78,6 +92,20 @@ from Archive import run_record, store
 
 _HERE = Path(__file__).resolve().parent
 OUTPUT_DIR = _HERE / "Output" / "results_matrix"
+
+
+def _set_output_dir(path):
+    """Point the batch at a different root.
+
+    A rehearsal at a reduced budget must not be mistaken for, or overwrite, the
+    production set: the case folder names are identical, and only the manifest
+    records which budget flew. Giving the rehearsal its own root removes the
+    question instead of relying on anyone reading the manifest.
+    """
+    global OUTPUT_DIR
+    candidate = Path(path)
+    OUTPUT_DIR = candidate if candidate.is_absolute() else _HERE / candidate
+    return OUTPUT_DIR
 
 # The two laws the chapter analyses in depth: a passive floor whose trajectory
 # shape comes entirely from the kick and the arc timing, and the strongest
@@ -132,13 +160,59 @@ BASELINE = {
 
 # Token budgets for --smoke. Enough to exercise every dispatch path and every
 # collection branch; far too few to mean anything numerically.
+#
+# PMP_REFERENCE_CACHE is redirected, and that redirect is load-bearing. The two
+# lines below it drop the reference PSO to 8x4, and those two settings are part
+# of the reference CACHE KEY: without the redirect, a smoke run reaching either
+# segmented case rebuilds the reference at a token budget and overwrites
+# Tese/src/Output/pmp_reference.npz -- which is TRACKED IN GIT, took ~1 h to
+# build at 250x500, and is the waypoint source every segmented run is measured
+# against. That is the whole point of a smoke test destroying the one artefact a
+# smoke test must not destroy, and it has happened before. Sending smoke's
+# reference to its own file keeps the token build fast AND the tracked one
+# untouched.
 SMOKE_BUDGET = {
+    "PMP_REFERENCE_CACHE": "Tese/src/Output/pmp_reference_smoke.npz",
     "PSO_N_PARTICLES": 8, "PSO_MAX_GENERATIONS": 4,
     "PSO_COAST_N_PARTICLES": 8, "PSO_COAST_MAX_GENERATIONS": 4,
     "PSO_DIRECT_N_PARTICLES": 8, "PSO_DIRECT_MAX_GENERATIONS": 4,
     "PSO_MG_N_PARTICLES": 8, "PSO_MG_MAX_GENERATIONS": 4,
     "PMP_REFERENCE_PSO_PARTICLES": 8, "PMP_REFERENCE_PSO_GENERATIONS": 4,
 }
+
+
+def budget_overrides(particles, generations):
+    """A uniform PSO budget for every swarm-based architecture.
+
+    This is how --budget applies a reduced budget WITHOUT hand-editing
+    simulation_parameters.py: an edited config outlives the experiment and
+    silently contaminates every later run, which is why nothing here writes to
+    that file.
+
+    PMP_REFERENCE_PSO_* is deliberately excluded. Those two are part of the PMP
+    reference cache key, so changing them rebuilds and overwrites the tracked
+    Output/pmp_reference.npz -- a ~1 h build, and one that has been triggered by
+    accident before. A reduced budget is for the cases being flown, never for
+    the cached reference they are measured against.
+    """
+    p, g = int(particles), int(generations)
+    return {
+        "PSO_N_PARTICLES": p, "PSO_MAX_GENERATIONS": g,
+        "PSO_COAST_N_PARTICLES": p, "PSO_COAST_MAX_GENERATIONS": g,
+        "PSO_DIRECT_N_PARTICLES": p, "PSO_DIRECT_MAX_GENERATIONS": g,
+        "PSO_MG_N_PARTICLES": p, "PSO_MG_MAX_GENERATIONS": g,
+    }
+
+
+def _parse_budget(text):
+    """'50,100' -> (50, 100)."""
+    parts = text.split(",")
+    if len(parts) != 2:
+        raise SystemExit("--budget wants PARTICLES,GENERATIONS (e.g. 50,100), got %r" % text)
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        raise SystemExit("--budget wants two integers, got %r" % text)
 
 
 def build_matrix():
@@ -375,7 +449,7 @@ def _dispatch(sim_params):
 # directly.
 
 
-def run_case(name, smoke=False):
+def run_case(name, smoke=False, budget=None):
     """Run one case in this process and write its row and trajectory."""
     cases = {c['name']: c for c in build_matrix()}
     if name not in cases:
@@ -387,6 +461,8 @@ def run_case(name, smoke=False):
     _apply(sim_params, case['overrides'])
     if smoke:
         _apply(sim_params, SMOKE_BUDGET)
+    elif budget:
+        _apply(sim_params, budget_overrides(*budget))
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -443,22 +519,46 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--case", help="run a single case in this process")
-    parser.add_argument("--only", help="substring filter over case names")
+    parser.add_argument("--only",
+                        help="comma-separated substring filter over case names "
+                             "(e.g. gt_,peg_ for sections 6.2 and 6.3)")
     parser.add_argument("--smoke", action="store_true",
                         help="token PSO budget — proves dispatch, means nothing numerically")
+    parser.add_argument("--budget", metavar="P,G",
+                        help="reduced PSO budget, PARTICLES,GENERATIONS (e.g. 50,100). "
+                             "Applies to every swarm architecture but NOT to the PMP "
+                             "reference cache. Trajectories are the right shape; the "
+                             "numbers are not reportable.")
+    parser.add_argument("--out", metavar="DIR",
+                        help="write into this root instead of Output/results_matrix "
+                             "(relative paths resolve against Tese/src)")
     args = parser.parse_args()
 
+    if args.smoke and args.budget:
+        raise SystemExit("--smoke and --budget both set the PSO budget; pick one.")
+    budget = _parse_budget(args.budget) if args.budget else None
+    if args.out:
+        _set_output_dir(args.out)
+
     if args.case:
-        run_case(args.case, smoke=args.smoke)
+        run_case(args.case, smoke=args.smoke, budget=budget)
         return
 
     cases = build_matrix()
     if args.only:
-        cases = [c for c in cases if args.only in c['name']]
+        wanted = [s for s in args.only.split(",") if s]
+        cases = [c for c in cases if any(s in c['name'] for s in wanted)]
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    if args.smoke:
+        tag = "  [SMOKE]"
+    elif budget:
+        tag = "  [budget %d x %d]" % budget
+    else:
+        tag = ""
     print("=" * 70)
-    print("RESULTS MATRIX — %d case(s)%s" % (len(cases), "  [SMOKE]" if args.smoke else ""))
+    print("RESULTS MATRIX — %d case(s)%s" % (len(cases), tag))
+    print("into %s" % OUTPUT_DIR)
     print("=" * 70)
 
     rows, failures = [], []
@@ -468,6 +568,14 @@ def main():
         cmd = [sys.executable, str(Path(__file__).resolve()), "--case", name]
         if args.smoke:
             cmd.append("--smoke")
+        if args.budget:
+            cmd += ["--budget", args.budget]
+        # The child re-imports this module, so OUTPUT_DIR is back at its default
+        # unless --out is forwarded. Passing the resolved path rather than the
+        # user's string keeps parent and child writing to the same place however
+        # the parent was invoked.
+        if args.out:
+            cmd += ["--out", str(OUTPUT_DIR)]
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         proc = subprocess.run(cmd, env=env)
 

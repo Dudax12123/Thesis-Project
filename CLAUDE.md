@@ -89,7 +89,7 @@ Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
 `Tese/src/guidance_comparison/compare_guidance_methods.py`.
 
-The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 23 cases, one frozen
+The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 20 cases, one frozen
 baseline with one factor changed at a time, each case in its **own subprocess** so no module
 global can leak between them, and each writing its archive into its **own folder**
 (`Output/results_matrix/<case>/<case>.npz` + `.json` + `.manifest.json`), with one
@@ -100,7 +100,20 @@ C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_results_matrix.
 ```
 
 Then drop `--smoke` for the real thing (~13-14 h). `--case <name>` runs one case in-process with
-solver output on screen; `--only <substring>` filters.
+solver output on screen; `--only` takes a **comma-separated** list of substrings
+(`--only gt_,peg_` is exactly the ten cases of §6.2 and §6.3, in one invocation — filtering across
+two invocations would leave `results_matrix.csv` holding only the second one's rows).
+
+Two flags exist so a subset can be rehearsed without editing config or endangering the real batch:
+`--budget P,G` sets every swarm architecture's PSO budget in memory (`--budget 50,100`), and
+`--out DIR` writes into a different root. `--budget` deliberately does **not** touch
+`PMP_REFERENCE_PSO_*`, which is part of the PMP cache key — changing it rebuilds and overwrites
+the tracked `pmp_reference.npz`.
+
+Note what `--budget` cannot reach. `apogee_check` runs no PSO at all: its cost is the `Ns=1000`
+brute grid in `solver.py`, and every grid point is a complete `ra.run()` ascent, so `gt_apogee`
+costs the same at any budget (**measured: 48 s**). And `PSO_DIRECT_*` ships at 50×100 already, so
+`--budget 50,100` leaves the two `direct` cases at full production fidelity.
 
 **Runtimes are long.** A production PSO solve is tens of minutes (documented: coast PSO ~31 min at
 100×250; the indirect-PMP reference build ~1 h at 250×500). Drop `PSO_*_N_PARTICLES` /
@@ -191,6 +204,20 @@ would mislabel it).
 **When adding a new term to the equations of motion, put it in `diff_eom_base`, not in
 `rocket_dynamics`** — otherwise it silently misses every population-based architecture, which is
 exactly how the pseudo-force gap arose. There is no test that would catch it.
+
+**Never latch an event out of the ODE right-hand side.** `solve_ivp` calls `rocket_dynamics` at
+speculative times well beyond the step it goes on to accept, so a flag set there records a time the
+trajectory may never reach — and the instantaneous kick splits Stage 1A into *two* `solve_ivp`
+calls, so a flag thrown during the first is already true when the second starts. That is how the
+payload fairing came to be jettisoned at T+7.5 s at 144 m altitude for every atmospheric case,
+with the vehicle flying its whole max-q phase (38–52× the threshold) without one. An event belongs
+in an `interrupt_*` function as a **signed function of the state passed in**, with `direction` set
+so only the intended crossing counts — `interrupt_fairing_jettison` returns `q − threshold` with
+`direction = -1`, because q is below the threshold early in flight as well as late.
+
+**The fairing is only shed on the legacy path once Stage 2 begins.** The PSO Stage-2 ODEs carry no
+jettison event, so if the atmosphere-exit criterion is not met before MECO the fairing is carried
+to orbit as 1900 kg of dead mass. Reachable when a poorly converged solve gives a low, fast MECO.
 
 ### Segmented (multi-law) guidance
 

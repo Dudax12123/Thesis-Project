@@ -351,10 +351,24 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         # without importing the configuration the run was flown under.
         'target_alt_km': float(sim_params.TARGET_ORBITAL_ALTITUDE) / 1e3,
         'pseudo_forces_requested': bool(sim_params.INCLUDE_PSEUDO_FORCES),
-        # What the architecture actually flew, which is not the same thing:
+        # What the trajectory actually flew, which is not the same thing:
         # indirect_pmp is exempt and flies pseudo-force-free whatever the config
-        # says. The budget residual is only interpretable against this column.
-        'pseudo_forces_flown': bool(ra._PSEUDO_FORCES_THIS_RUN),
+        # says, and a case with the rotation switched off carries no pseudo-
+        # forces however willing its architecture was. The budget residual is
+        # only interpretable against this column.
+        #
+        # This must mirror ra._pseudo_forces_active(), which is the gate the EOM
+        # actually consults -- MINUS its PROPAGATING_IN_INERTIAL_FRAME term.
+        # That term is a transient phase state (true only on the final ballistic
+        # coast, once the state has been converted to the inertial frame), so
+        # reading it here would report whichever phase happened to be current
+        # when the run ended rather than a property of the run. Reading only
+        # _PSEUDO_FORCES_THIS_RUN, as this line used to, reported the
+        # architecture's willingness and labelled gt_norot -- the one case whose
+        # entire purpose is having the rotation off -- as having flown them.
+        'pseudo_forces_flown': bool(sim_params.ENABLE_EARTH_ROTATION
+                                    and sim_params.INCLUDE_PSEUDO_FORCES
+                                    and ra._PSEUDO_FORCES_THIS_RUN),
         # apogee_check inserts with an impulsive circularisation burn that is not
         # part of the integrated trajectory, so its dv_achieved excludes it and
         # its residual cannot be compared with the direct-insertion paths.

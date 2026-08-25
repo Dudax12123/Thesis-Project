@@ -48,6 +48,24 @@ def _overlay_trajectory(ax, entries):
     ax.set_ylabel("Altitude [km]")
 
 
+def _derivative(time, values):
+    """d(values)/d(time), tolerant of the repeated timestamps at arc joins.
+
+    An archived time axis is the concatenation of separately propagated arcs, so
+    the last sample of one arc and the first of the next share a timestamp --
+    six or seven of them in a typical ascent, at the kick, at staging, at the
+    coast boundaries and at SECO. np.gradient divides by the local step, so each
+    duplicate becomes a division by zero and a NaN in the middle of an otherwise
+    good curve. Dropping the repeats costs one sample each and leaves the
+    derivative finite everywhere.
+    """
+    time = np.asarray(time, dtype=float)
+    values = np.asarray(values, dtype=float)
+    keep = np.ones(time.size, dtype=bool)
+    keep[1:] = np.diff(time) > 0.0
+    return time[keep], np.gradient(values[keep], time[keep])
+
+
 def architecture(cases):
     """F6.2 -- the same law under three optimization architectures.
 
@@ -158,11 +176,15 @@ def rotation(cases):
         (norot, st.VARIANT, "Non-rotating", "-"),
     ])
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a)
+    # The legend is pinned rather than left on loc="best". Matplotlib scores the
+    # artists in the axes and knows nothing about an inset_axes child, so "best"
+    # picked the same lower-right corner as the latitude inset and drew the
+    # legend straight through it.
+    st.tidy(ax_a, legend_loc="center")
 
     lat = base.latitude_deg
     if lat is not None:
-        ax_lat = ax_a.inset_axes([0.58, 0.14, 0.38, 0.30])
+        ax_lat = ax_a.inset_axes([0.58, 0.08, 0.38, 0.26])
         t, lat_t = st.thin(base.time, lat)
         ax_lat.plot(t, lat_t, color=st.BASELINE, linewidth=1.0)
         ax_lat.set_title("Latitude [deg]", fontsize=6.5, pad=2)
@@ -214,8 +236,8 @@ def engine(cases):
         ax_a.plot(t, thr / 1e3, color=colour, label=label)
         # Mass flow from the mass trace itself, so it reflects the Isp actually
         # flown rather than a nominal value.
-        mdot = -np.gradient(case.mass[sel], case.time[sel])
-        t2, mdot = st.thin(case.time[sel], mdot)
+        t_d, mdot = _derivative(case.time[sel], case.mass[sel])
+        t2, mdot = st.thin(t_d, -mdot)
         ax_mdot.plot(t2, mdot, color=colour, linestyle=":", linewidth=1.0)
     ax_a.set_xlabel("Time [s]")
     ax_a.set_ylabel("Stage-1 thrust [kN]  (solid)")

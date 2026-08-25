@@ -230,17 +230,48 @@ def interrupt_stage_separation(t, y):
 
 
 def interrupt_fairing_jettison(t, y):
-    """
-    Returns zero when the atmosphere is exited (fairing jettison point).
-    Fires once; stays at 1.0 afterwards via the fairing_jettisoned flag.
+    """Signed distance to atmosphere exit, for solve_ivp to root-find.
+
+    Computed from the state passed in, NOT from a module flag, and registered
+    with direction=-1 so that only a DOWNWARD crossing counts. Both properties
+    are load-bearing, and each fixes a separate bug.
+
+    This used to return 0.0 the moment ``atmosphere_exited`` -- a global that
+    rocket_dynamics latched as a side effect -- became True.
+
+    1. solve_ivp calls the RHS at speculative times well beyond the step it
+       eventually accepts, so that latch was being thrown from trial evaluations
+       at times the trajectory had not yet reached. The instantaneous kick then
+       splits Stage 1A into two solve_ivp calls (see _run_stage1a_with_kick), so
+       by the time the second one began at T+7.5 s the flag was already True and
+       the event fired on its very first evaluation.
+    2. "q below threshold" is true TWICE in a flight: briefly after lift-off
+       while the vehicle is still slow, and again for good once it has climbed
+       out of the air. Only the second is atmosphere exit.
+
+    Together those jettisoned the payload fairing at T+7.5 s at 144 m altitude,
+    with q at 923 Pa against a 1000 Pa threshold -- 8% of margin was all that
+    separated the two cases, which is why it survived so long. The vehicle then
+    flew its entire max-q phase, peaking 38-52x the threshold, without a fairing.
+
+    A pure function of state fixes (1): no ordering, no side effects, and
+    solve_ivp brackets the true crossing itself. direction=-1 fixes (2): the
+    early upward crossing is ignored and only the fall-off at the top of the
+    atmosphere fires.
     """
     if fairing_jettisoned:
         return 1.0
-    if atmosphere_exited:
-        if sim_params.INTERRUPTS_PRINT:
-            print("Interrupt Fairing Jettison happened at time", t)
-        return 0.0
-    return 1.0
+    alt = y[1] - c.R_EARTH
+    # No-atmosphere mode forces the deterministic altitude marker -- the q and
+    # aerothermal criteria are physically meaningless without air.
+    method = "altitude" if not sim_params.INCLUDE_DRAG else sim_params.ATMOSPHERE_EXIT_METHOD
+    if method == "altitude":
+        # Positive below the marker, negative above it, so an ascent crosses
+        # downward exactly once.
+        return sim_params.ALT_NO_ATMOSPHERE - alt
+    if method == "aerothermal_flux":
+        return atm.aerothermal_flux(y[2], alt) - sim_params.AEROTHERMAL_FLUX_THRESHOLD
+    return atm.dynamic_pressure(y[2], alt) - sim_params.DYNAMIC_PRESSURE_THRESHOLD
 
 
 def interrupt_stage_2_burnt(t, y):
@@ -1205,24 +1236,16 @@ def rocket_dynamics(t, state):
     # --- Calculate dynamic pressure (needed for atmosphere exit check and drag) ---
     q = atm.dynamic_pressure(v, alt)
 
-    # --- Check atmosphere exit condition based on selected method ---
-    # No-atmosphere mode (INCLUDE_DRAG=False) forces the deterministic altitude
-    # marker — the q / aerothermal methods are physically meaningless without air.
-    atmosphere_exit_detected = False
-    _exit_method = "altitude" if not sim_params.INCLUDE_DRAG else sim_params.ATMOSPHERE_EXIT_METHOD
-    if _exit_method == "altitude":
-        atmosphere_exit_detected = (alt > sim_params.ALT_NO_ATMOSPHERE)
-    elif _exit_method == "dynamic_pressure":
-        atmosphere_exit_detected = (q < sim_params.DYNAMIC_PRESSURE_THRESHOLD)
-    elif _exit_method == "aerothermal_flux":
-        phi = atm.aerothermal_flux(v, alt)
-        atmosphere_exit_detected = (phi < sim_params.AEROTHERMAL_FLUX_THRESHOLD)
 
-    # --- Record atmosphere exit event (independent of guidance start) ---
-    # Guard with kick_performed to avoid false trigger at t=0 when q=0 (v=0)
-    if kick_performed and atmosphere_exit_detected and not atmosphere_exited:
-        atmosphere_exited = True
-        time_atmosphere_exit = t
+    # --- Atmosphere exit is recorded by the EVENT, not from here ---
+    # This block used to latch atmosphere_exited/time_atmosphere_exit straight
+    # out of the RHS. It cannot: solve_ivp evaluates the RHS at speculative times
+    # well beyond the step it goes on to accept, so the latch was thrown at times
+    # the trajectory had not reached and recorded one of them as the exit. The
+    # criterion now lives entirely in interrupt_fairing_jettison, where solve_ivp
+    # brackets the real crossing, and the two globals are assigned from that
+    # event's time at the jettison sites in run() and run_stage1(). Keeping a
+    # second, weaker copy of the test here is what let the two disagree.
 
     # --- Get current angle of attack (GUIDANCE LOGIC) ---
     # Three-mode guidance system based on simulation_parameters.GUIDANCE_MODE
@@ -1761,6 +1784,12 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
     # already exceeds the target apogee (direction=0 would fire on the downward crossing too).
     if stage_2_flag:
         interrupt_single_burn_traj.direction = 1
+
+    # Fairing jettison is a DOWNWARD crossing of the atmosphere-exit criterion.
+    # Dynamic pressure and aerothermal flux are both below their thresholds early
+    # in flight as well as late, so direction=0 would fire on the way up -- which
+    # is precisely the bug documented on interrupt_fairing_jettison.
+    interrupt_fairing_jettison.direction = -1
     
     return solve_ivp(rocket_dynamics, y0=state_init, t_span=t_span, t_eval=t_eval,
                     max_step=1, events=interrupt_list, atol=1e-8)
@@ -2078,6 +2107,10 @@ def run(initial_kick_angle, azimuth_override=None):
         # dynamic_pressure / altitude methods (atmosphere exit during Stage 1 burn).
         fairing_jettisoned = True
         time_fairing_jettison = sol_1a.t[-1]
+        # The jettison IS the atmosphere exit, and this event time is the only
+        # trustworthy record of it -- see the note in rocket_dynamics.
+        atmosphere_exited = True
+        time_atmosphere_exit = time_fairing_jettison
         initial_state_1b = sol_1a.y[:, -1].copy()
         initial_state_1b[4] -= r.M_FAIRING
         if sim_params.EVENTS_PRINT:
@@ -2159,6 +2192,8 @@ def run(initial_kick_angle, azimuth_override=None):
         if len(sol_2a.t_events[0]) > 0:  # fairing jettison fired in Stage 2A
             fairing_jettisoned = True
             time_fairing_jettison = sol_2a.t[-1]
+            atmosphere_exited = True
+            time_atmosphere_exit = time_fairing_jettison
             initial_state_2b = sol_2a.y[:, -1].copy()
             initial_state_2b[4] -= r.M_FAIRING
             if sim_params.EVENTS_PRINT:
@@ -2606,6 +2641,10 @@ def run_stage1(initial_kick_angle):
         # Fairing jettison fired before stage separation (normal case)
         fairing_jettisoned = True
         time_fairing_jettison = sol_1a.t[-1]
+        # The jettison IS the atmosphere exit, and this event time is the only
+        # trustworthy record of it -- see the note in rocket_dynamics.
+        atmosphere_exited = True
+        time_atmosphere_exit = time_fairing_jettison
         initial_state_1b = sol_1a.y[:, -1].copy()
         initial_state_1b[4] -= r.M_FAIRING
 

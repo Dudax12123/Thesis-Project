@@ -151,6 +151,38 @@ def test_tags_reach_the_row_without_a_matrix_case(flown, tmp_path):
     assert saved['row']['factor'] == 'baseline'
 
 
+@pytest.mark.parametrize("rotation,include,architecture_carries,expected", [
+    (True,  True,  True,  True),    # the baseline: everything on
+    (False, False, True,  False),   # gt_norot / peg_vacuum_norot
+    (True,  True,  False, False),   # indirect_pmp, exempt by architecture
+    (True,  False, True,  False),   # pseudo-forces off, rotation left on
+])
+def test_pseudo_forces_flown_reports_the_trajectory_not_the_architecture(
+        flown, tmp_path, rotation, include, architecture_carries, expected):
+    """The column must mirror ra._pseudo_forces_active(), not one term of it.
+
+    It used to read only ra._PSEUDO_FORCES_THIS_RUN -- the architecture switch --
+    so a case that had switched the rotation off in config was archived as having
+    flown pseudo-forces. That is inverted for gt_norot and peg_vacuum_norot,
+    whose entire purpose in Section 6.2/6.3 is having the rotation off, and the
+    row is written at collection time so a wrong value is permanent.
+    """
+    was = (sim_params.ENABLE_EARTH_ROTATION, sim_params.INCLUDE_PSEUDO_FORCES,
+           ra._PSEUDO_FORCES_THIS_RUN)
+    try:
+        sim_params.ENABLE_EARTH_ROTATION = rotation
+        sim_params.INCLUDE_PSEUDO_FORCES = include
+        ra._PSEUDO_FORCES_THIS_RUN = architecture_carries
+        saved = _save(flown, tmp_path)
+        assert saved['row']['pseudo_forces_flown'] is expected
+        # The config-only column keeps asking a different question, so that the
+        # pair distinguishes what was requested from what actually flew.
+        assert saved['row']['pseudo_forces_requested'] is include
+    finally:
+        (sim_params.ENABLE_EARTH_ROTATION, sim_params.INCLUDE_PSEUDO_FORCES,
+         ra._PSEUDO_FORCES_THIS_RUN) = was
+
+
 # =========================================================================
 #  The replay set
 # =========================================================================
