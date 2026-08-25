@@ -96,6 +96,9 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct, verbose=False):
     # Strip to 5-element physical state (handles INCLUDE_PSEUDO_FORCES)
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    # run_stage1 hands Stage 2 a state that still carries the fairing;
+    # shed it here if the jettison criterion is already met.
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     t_ignition = t2_start + _T_IGNITION_DELAY
 
@@ -117,6 +120,9 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct, verbose=False):
                 't_burn': t_burn, 't_stage2_start': t2_start, 't_ignition': t_ignition,
                 't_stage1': t_stage1, 'y_stage1': y_stage1}
     state_at_ign = sol_pre.y[:5, -1].copy()
+    # Second chance, for a trajectory that staged below the criterion:
+    # the pre-ignition coast climbs fast, so the crossing lands here.
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, state_at_ign)
 
     # ---- Single continuous thrust arc (t_ignition -> t_ignition + t_burn) ----
     gs = GuidanceState()
@@ -360,6 +366,9 @@ def run_pso_direct_full(optimal_params, verbose=True):
     t_ignition  = t2_start + _T_IGNITION_DELAY
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    # run_stage1 hands Stage 2 a state that still carries the fairing;
+    # shed it here if the jettison criterion is already met.
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     t_burn     = (t_burn_pct / 100.0) * _T_MAX_2
     t_burn_end = t_ignition + t_burn
@@ -382,6 +391,9 @@ def run_pso_direct_full(optimal_params, verbose=True):
         events=_event_crash,
     )
     state_at_ign = sol_pre.y[:5, -1].copy()
+    # Second chance, for a trajectory that staged below the criterion:
+    # the pre-ignition coast climbs fast, so the crossing lands here.
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, state_at_ign)
 
     # ---- Single thrust arc (dense) ----
     gs_full = GuidanceState()

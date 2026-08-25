@@ -261,17 +261,83 @@ def interrupt_fairing_jettison(t, y):
     """
     if fairing_jettisoned:
         return 1.0
+    return _fairing_margin(y)
+
+
+def _fairing_criterion():
+    """Which quantity decides the jettison, after both switches are applied.
+
+    FAIRING_JETTISON_MODE picks the rule; INCLUDE_DRAG=False overrides it to the
+    altitude marker, because the q and aerothermal criteria are meaningless
+    without air. (That path never actually jettisons -- a no-atmosphere run
+    launches without the fairing at all -- but the criterion must still be
+    well defined for anything that asks.)
+    """
+    if not sim_params.INCLUDE_DRAG:
+        return "altitude"
+    if getattr(sim_params, "FAIRING_JETTISON_MODE", "altitude") == "altitude":
+        return "altitude"
+    return sim_params.ATMOSPHERE_EXIT_METHOD
+
+
+def _fairing_margin(y):
+    """Signed distance to jettison: positive before, negative after.
+
+    A single expression of the criterion, shared by the solve_ivp event on the
+    legacy path and by shed_fairing_if_due() on the PSO paths, so the two cannot
+    drift. Sign convention is "positive while the fairing is still needed", so
+    the event crosses DOWNWARD through zero exactly once.
+    """
     alt = y[1] - c.R_EARTH
-    # No-atmosphere mode forces the deterministic altitude marker -- the q and
-    # aerothermal criteria are physically meaningless without air.
-    method = "altitude" if not sim_params.INCLUDE_DRAG else sim_params.ATMOSPHERE_EXIT_METHOD
-    if method == "altitude":
-        # Positive below the marker, negative above it, so an ascent crosses
-        # downward exactly once.
+    criterion = _fairing_criterion()
+    if criterion == "altitude":
         return sim_params.ALT_NO_ATMOSPHERE - alt
-    if method == "aerothermal_flux":
+    if criterion == "aerothermal_flux":
         return atm.aerothermal_flux(y[2], alt) - sim_params.AEROTHERMAL_FLUX_THRESHOLD
     return atm.dynamic_pressure(y[2], alt) - sim_params.DYNAMIC_PRESSURE_THRESHOLD
+
+
+def shed_fairing_if_due(t, state):
+    """Drop the fairing at a Stage-2 arc boundary if it is due and still attached.
+
+    The PSO architectures need this and the legacy path does not. run_stage1()
+    hands Stage 2 a state that still INCLUDES the fairing (only
+    M_STRUCTURE_1 - M_FAIRING comes off at separation, see the note there), and
+    the PSO Stage-2 propagations carry no jettison event of their own -- their
+    inner loop runs thousands of trajectories, so a root-found event on every
+    arc would be paid tens of millions of times for a discontinuity that, under
+    the default altitude criterion, has already happened during Stage 1. Before
+    this existed, a trajectory that staged below the criterion simply carried
+    1900 kg of dead mass to orbit for ever.
+
+    Called only at arc boundaries, never from an ODE right-hand side: solve_ivp
+    evaluates the RHS at speculative times, and latching a discontinuity there is
+    the exact bug that jettisoned the fairing at T+7.5 s.
+
+    Accuracy: exact whenever the criterion was met before staging, which under
+    ALT_NO_ATMOSPHERE = 65 km is every trajectory that reaches a normal MECO
+    (71-135 km in the measured set). A trajectory that stages lower sheds at the
+    next arc boundary instead of at the crossing itself -- late by at most one
+    arc, rather than never.
+
+    Returns the state, with M_FAIRING removed from element 4 if it fired. Works
+    on the 5-element physical state and on the indirect solver's 8-element
+    augmented state alike, since mass is element 4 in both.
+    """
+    global fairing_jettisoned, time_fairing_jettison
+    global atmosphere_exited, time_atmosphere_exit
+
+    if fairing_jettisoned or _fairing_margin(state) > 0.0:
+        return state
+    state = np.asarray(state, dtype=float).copy()
+    state[4] -= r.M_FAIRING
+    fairing_jettisoned = True
+    time_fairing_jettison = float(t)
+    atmosphere_exited = True
+    time_atmosphere_exit = float(t)
+    if sim_params.EVENTS_PRINT:
+        print(f"Fairing jettisoned at t = {float(t):.1f} s (Stage-2 arc boundary)")
+    return state
 
 
 def interrupt_stage_2_burnt(t, y):

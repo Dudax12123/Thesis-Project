@@ -701,6 +701,9 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     # Strip to 5-element physical state (handles INCLUDE_PSEUDO_FORCES)
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    # run_stage1 hands Stage 2 a state that still carries the fairing;
+    # shed it here if the jettison criterion is already met.
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     if verbose:
         h2 = state2_init[1] - c.R_EARTH
@@ -728,6 +731,9 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
                 't_arc2_start': 0.0, 't_arc3_end': 0.0,
                 't_stage1': t_stage1, 'y_stage1': y_stage1}
     state_at_ign = sol_pre.y[:5, -1].copy()
+    # Second chance, for a trajectory that staged below the criterion:
+    # the pre-ignition coast climbs fast, so the crossing lands here.
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, state_at_ign)
 
     # Fresh GuidanceState: persists across Arc 1 → coast → Arc 3
     gs = GuidanceState()
@@ -1068,6 +1074,9 @@ def run_pso_coast_full(optimal_params, verbose=True):
     t_ignition  = t2_start + _T_IGNITION_DELAY
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    # run_stage1 hands Stage 2 a state that still carries the fairing;
+    # shed it here if the jettison criterion is already met.
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     T_burn_total  = (delta_tr_pct   / 100.0) * _T_MAX_2
     t_coast_start = (coast_start_pct / 100.0) * T_burn_total
@@ -1091,6 +1100,9 @@ def run_pso_coast_full(optimal_params, verbose=True):
         events=_event_crash,
     )
     state_at_ign = sol_pre.y[:5, -1].copy()
+    # Second chance, for a trajectory that staged below the criterion:
+    # the pre-ignition coast climbs fast, so the crossing lands here.
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, state_at_ign)
 
     # Single GuidanceState persists through Arc 1 → coast → Arc 3
     gs_full = GuidanceState()

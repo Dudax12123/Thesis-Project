@@ -273,6 +273,9 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE)
     )
+    # run_stage1 hands Stage 2 a state that still carries the fairing;
+    # shed it here if the jettison criterion is already met.
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     if verbose:
         h2 = state2_init[1] - c.R_EARTH
@@ -315,6 +318,12 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         }
 
     state_at_ignition = sol_pre.y[:n_state, -1].copy()
+
+    # Second chance, for a trajectory that staged below the criterion:
+
+    # the pre-ignition coast climbs fast, so the crossing lands here.
+
+    state_at_ignition = ra.shed_fairing_if_due(t_ignition, state_at_ignition)
 
     # -----------------------------------------------------------------
     # Initialise augmented state with PSO-provided costates
@@ -747,6 +756,9 @@ def run_indirect_full(optimal_params, verbose=True):
     state2_init = _strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE)
     )
+    # run_stage1 hands Stage 2 a state that still carries the fairing;
+    # shed it here if the jettison criterion is already met.
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     # Sanity check: _T_MAX_2 is built from M_PROP_2, so a full burn assumes the
     # mass handed over by Stage 1 equals the Stage-2 wet mass. Warn if it drifts.
@@ -787,6 +799,9 @@ def run_indirect_full(optimal_params, verbose=True):
         rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP, events=_event_crash,
     )
     state_at_ign = sol_pre.y[:n_state, -1].copy()
+    # Second chance, for a trajectory that staged below the criterion:
+    # the pre-ignition coast climbs fast, so the crossing lands here.
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, state_at_ign)
     aug_ign = list(state_at_ign) + [lambda0_r, lambda0_v, lambda0_g]
 
     # --- Arc 1 (thrust) ---

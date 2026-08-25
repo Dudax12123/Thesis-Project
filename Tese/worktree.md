@@ -315,7 +315,8 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
 | `ATMOSPHERE_EXIT_METHOD` (L199) | `altitude`, `dynamic_pressure`, `aerothermal_flux` | `dynamic_pressure` | Criterion to detect atmosphere exit / guidance start. | Gates activation time for 5 of 7 guidance modes (not cpr/exp_shooting). Selects which one threshold below applies. |
-| `ALT_NO_ATMOSPHERE` (L200) | float m | `65e3` | Altitude threshold. | `altitude` method only. |
+| `ALT_NO_ATMOSPHERE` (L200) | float m | `65e3` | Altitude threshold. | Used by the `altitude` exit method **and** by `FAIRING_JETTISON_MODE="altitude"`, which is the default — so this value now affects every atmospheric run, not only the `altitude` method. |
+| `FAIRING_JETTISON_MODE` | `altitude`, `atmosphere_exit` | `altitude` | When the 1900 kg fairing (`M_FAIRING`) is dropped. | `altitude` drops it crossing `ALT_NO_ATMOSPHERE` (65 km) — a planned event, identical for every architecture and every PSO particle. `atmosphere_exit` follows `ATMOSPHERE_EXIT_METHOD` instead (the old behaviour). Ignored when `INCLUDE_DRAG=False`, which launches without a fairing at all. |
 | `DYNAMIC_PRESSURE_THRESHOLD` (L202) | float Pa | `1000.0` | Dynamic-pressure threshold. | `dynamic_pressure` method only. |
 | `AEROTHERMAL_FLUX_THRESHOLD` (L205) | float W/m² | `1135.0` | Aerothermal-flux threshold. | `aerothermal_flux` method only. |
 

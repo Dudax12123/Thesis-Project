@@ -215,9 +215,19 @@ in an `interrupt_*` function as a **signed function of the state passed in**, wi
 so only the intended crossing counts — `interrupt_fairing_jettison` returns `q − threshold` with
 `direction = -1`, because q is below the threshold early in flight as well as late.
 
-**The fairing is only shed on the legacy path once Stage 2 begins.** The PSO Stage-2 ODEs carry no
-jettison event, so if the atmosphere-exit criterion is not met before MECO the fairing is carried
-to orbit as 1900 kg of dead mass. Reachable when a poorly converged solve gives a low, fast MECO.
+**Fairing jettison is a planned altitude crossing, and all five architectures share it.**
+`FAIRING_JETTISON_MODE` defaults to `"altitude"` — `ALT_NO_ATMOSPHERE`, 65 km — rather than to
+whatever `ATMOSPHERE_EXIT_METHOD` happens to be. Under the old q-based rule the jettison landed
+12–34 s before MECO and sometimes after it (`gt_apogee` crossed 3.7 s late; `gt_direct` never
+crossed), which put a 1900 kg step inside the PSO search space keyed on a variable the swarm was
+optimising, and left the architectures of §6.2 differing in fairing mass as well as in optimiser.
+
+The legacy `run()` sheds it via the `interrupt_fairing_jettison` event in Stage 1 or Stage 2. The
+PSO Stage-2 propagations carry no such event — their inner loop runs thousands of trajectories, so
+root-finding one on every arc would be paid tens of millions of times — and instead call
+`ra.shed_fairing_if_due(t, state)` at each Stage-2 arc boundary. Both share one criterion,
+`ra._fairing_margin()`, so they cannot drift. Before that helper existed a trajectory staging below
+the criterion carried 1900 kg of dead mass to orbit for ever.
 
 ### Segmented (multi-law) guidance
 

@@ -157,7 +157,28 @@ THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear r
 #   "aerothermal_flux": Use aerothermal flux threshold (Phi = 0.5*rho*v^3)
 ATMOSPHERE_EXIT_METHOD = "dynamic_pressure"     # Options: "altitude", "dynamic_pressure", "aerothermal_flux"
 ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosphere exit; [m]
-                                                #   (only used if ATMOSPHERE_EXIT_METHOD = "altitude")
+                                                #   (used if ATMOSPHERE_EXIT_METHOD = "altitude",
+                                                #    and by FAIRING_JETTISON_MODE = "altitude")
+
+# --- Payload fairing jettison ------------------------------------------------
+# WHEN the 1900 kg fairing (rocket_specs.M_FAIRING) is dropped.
+#
+#   "altitude":        drop it crossing ALT_NO_ATMOSPHERE (65 km) on the way up.
+#                      A planned event, exactly as a real vehicle flies it: the
+#                      same altitude for every architecture and every particle,
+#                      so it cannot move with the trajectory.
+#   "atmosphere_exit": follow ATMOSPHERE_EXIT_METHOD, i.e. drop it wherever the
+#                      guidance-start criterion happens to be met. The old
+#                      behaviour, kept so the choice can be shown to matter.
+#
+# Why the default changed to "altitude". Under "atmosphere_exit" with the
+# dynamic-pressure criterion the jettison lands 12-34 s before MECO and, for
+# some trajectories, AFTER it -- gt_apogee crossed 3.7 s late and gt_direct never
+# crossed at all. That put a 1900 kg step inside the PSO search space, keyed on a
+# variable the swarm is actively optimising, and left the architectures of
+# Section 6.2 differing in fairing mass as well as in optimiser. An altitude
+# marker is crossed once, monotonically, well before staging in every case.
+FAIRING_JETTISON_MODE = "altitude"              # Options: "altitude", "atmosphere_exit"
 DYNAMIC_PRESSURE_THRESHOLD = 1000.0             # dynamic pressure threshold [Pa]
                                                 #   (only used if ATMOSPHERE_EXIT_METHOD = "dynamic_pressure")
                                                 #   Typical value: 1000 Pa (fairly low, indicating thin atmosphere)
