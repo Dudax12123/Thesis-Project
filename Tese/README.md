@@ -18,6 +18,9 @@ inside `Tese/src` as `python main.py`. On completion it prints a mission
 summary and draws a suite of plots (trajectory, steering angles, dynamic
 pressure, etc.) via `Plots/new_plot_runner.py`.
 
+Figures go to `Tese/src/Output_Plots/<run_id>/`, one folder per run. Data never
+mixes with them.
+
 It also **archives the run** to `Tese/src/Output/runs/`: the trajectory, every
 diagnostic channel, the optimizer's convergence curve, and a manifest recording
 the full configuration, the vehicle constants and the git commit. This happens

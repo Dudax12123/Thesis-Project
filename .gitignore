@@ -1,3 +1,11 @@
-# Regenerable build artifacts: PMP reference cache (pmp_reference.npz) and any
-# opt-in saved plots (SAVE_PLOTS=True writes PNGs to Tese/src/Output/plots).
+# Simulation output. Two roots, deliberately separate: Output/ is the data
+# (run archives, the results-matrix batch, the PMP reference cache) and
+# Output_Plots/ is every figure drawn from it. Both are regenerable, except
+# pmp_reference.npz which is force-added because rebuilding it costs an hour.
 Tese/src/Output/
+Tese/src/Output_Plots/
+
+# The nested tree that a cwd-relative SAVE_PLOTS_DIR used to create when main.py
+# was run from inside Tese/src. It got committed once; ignored so it cannot
+# again.
+Tese/src/Tese/

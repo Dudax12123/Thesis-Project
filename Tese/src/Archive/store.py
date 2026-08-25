@@ -5,11 +5,15 @@ first. The id is ``<architecture>_<law>_<date>_<time>``, so runs sort
 chronologically, read at a glance, and collide only if two finish in the same
 second (in which case a counter is appended).
 
-The directory is resolved against the project source root, not the working
-directory. ``SAVE_PLOTS_DIR`` is cwd-relative and that is a documented trap --
-running main.py from Tese/src produced the nested Tese/src/Tese/src/Output/plots
-that is still in the repository. An archive is worth more than a PNG, so this
-one resolves the way segment_reference.py resolves its cache.
+Directories resolve against the project source root, never the working
+directory. Both roots do: ``ARCHIVE_DIR`` for the data and ``SAVE_PLOTS_DIR``
+for the figures. That used not to be true of the plot root, and running main.py
+from inside Tese/src accordingly produced a nested Tese/src/Tese/src/Output/plots
+tree that got committed to the repository before anyone noticed.
+
+Data and pictures live in separate roots -- ``Output/`` and ``Output_Plots/`` --
+so an archive directory can be copied, compared or cleared without dragging a
+few hundred PNGs behind it.
 """
 
 import csv
@@ -24,6 +28,7 @@ from . import run_record
 _SRC = Path(__file__).resolve().parent.parent
 
 DEFAULT_ARCHIVE_DIR = "Output/runs"
+DEFAULT_PLOTS_DIR = "Output_Plots"
 INDEX_NAME = "index.csv"
 
 # Directories a bare name is looked up in, in order, when the caller does not
@@ -47,6 +52,31 @@ def archive_root(sim_params=None):
         configured = getattr(sim_params, "ARCHIVE_DIR", DEFAULT_ARCHIVE_DIR)
     path = Path(configured)
     return path if path.is_absolute() else (_SRC / path)
+
+
+def plots_root(sim_params=None):
+    """Where figures are written. Relative SAVE_PLOTS_DIR is project-root-relative.
+
+    Output/ holds the data and Output_Plots/ holds the pictures, so an archive
+    directory can be copied, compared or deleted without dragging a few hundred
+    PNGs along with it. The two roots resolve the same way, which also retires
+    the cwd-relative behaviour that produced the nested
+    Tese/src/Tese/src/Output/plots tree.
+    """
+    configured = DEFAULT_PLOTS_DIR
+    if sim_params is not None:
+        configured = getattr(sim_params, "SAVE_PLOTS_DIR", DEFAULT_PLOTS_DIR)
+    path = Path(configured)
+    return path if path.is_absolute() else (_SRC / path)
+
+
+def run_plots_dir(run_id, sim_params=None):
+    """Every figure drawn for one run, under that run's own id.
+
+    A run and its pictures share a name, so ``Output/runs/<id>.npz`` and
+    ``Output_Plots/<id>/`` are obviously the same run without a lookup table.
+    """
+    return plots_root(sim_params) / str(run_id)
 
 
 # =========================================================================

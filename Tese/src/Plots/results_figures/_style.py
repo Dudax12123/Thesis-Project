@@ -5,9 +5,10 @@ figures built from simulator output sit beside the hand-drawn conceptual ones
 without a visible seam. They are restated here rather than imported because
 ``dev-notes/`` is not part of the simulator and is not importable from it.
 
-Output goes to ``FIG_OUT`` when set, so drafts render to a scratch directory and
-a final pass writes straight into the thesis repository, exactly as the
-conceptual figures do.
+Output goes to ``FIG_OUT`` when set, so a final pass can write straight into the
+thesis repository, exactly as the conceptual figures do. Otherwise the figures
+land in ``Output_Plots/chapter_figures/``, alongside every other picture the
+simulator draws -- data lives in ``Output/`` and never mixes with it.
 """
 
 import os
@@ -57,9 +58,12 @@ WIDE_2 = (6.3, 2.9)      # two panels side by side
 WIDE_4 = (6.3, 5.0)      # 2x2 card
 TALL_1 = (6.3, 4.2)      # one panel, ranking bars
 
+# Tese/src, three levels up from Plots/results_figures/_style.py.
+_SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 OUT_DIR = os.environ.get(
     "FIG_OUT",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "_preview"),
+    os.path.join(_SRC, "Output_Plots", "chapter_figures"),
 )
 
 # Pretty names for the guidance laws, used in every legend and table.

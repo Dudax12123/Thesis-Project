@@ -163,7 +163,10 @@ def cmd_replay(args):
         alpha_data = kwargs.pop("alpha_data", np.asarray(z["alpha"]))
         alpha_time_data = kwargs.pop("alpha_time_data", time)
 
-    out_dir = args.out or str(root / ("replay_" + stem))
+    # Into the run's own plot folder, not next to its data: Output/ is the
+    # trajectory, Output_Plots/<run_id>/ is everything drawn from it. Replaying
+    # a results-matrix case therefore lands in Output_Plots/<case_name>/.
+    out_dir = args.out or str(store.run_plots_dir(stem, _sim_params()))
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     new_plot_runner.run_new_plot_suite(
         time, data, thrust_data, time_thrust, alpha_data, alpha_time_data,

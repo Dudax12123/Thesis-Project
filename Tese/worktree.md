@@ -197,7 +197,7 @@ from cache.
 it renders the SAME 17-plot suite as the single-law modes (channels assembled in
 `run_segmented_full`; displayed by the `plt.show()` at the end of `main.py`). By default no PNGs are
 written — set `SAVE_PLOTS=True` (§2.12) to also save them to `SAVE_PLOTS_DIR`. The **run itself** is
-archived either way (§2.12a), including the segment schedule and the optimised hand-off altitudes,
+archived either way (§2.12b), including the segment schedule and the optimised hand-off altitudes,
 which exist nowhere else once the process exits. The apollo/θ
 steering plots show a brief transient at each intermediate handoff (the law's t_go → 0 right at the
 waypoint) — harmless to the flight (altitude/γ/orbit stay smooth).
@@ -450,13 +450,43 @@ The segmented solver has its **own** PSO block (`simulation_parameters.py` §11d
 | `INTERRUPTS_PRINT` (L251) | `True`/`False` | `False` | Print ODE-interrupt debug. | none. |
 | `EVENTS_PRINT` (L252) | `True`/`False` | `True` | Print mission-event log lines. | none. |
 | `SAVE_PLOTS` | `True`/`False` | `False` | `False` = display the plot suite only (`plt.show`), write no PNGs. `True` = also save PNGs. Applies to every mode. **Does not affect whether the run is kept** — that is `ARCHIVE_RUNS`. | gates `SAVE_PLOTS_DIR`. |
-| `SAVE_PLOTS_DIR` | path | `Tese/src/Output/plots` | Where PNGs are written when `SAVE_PLOTS=True`. **cwd-relative** — run from the repo root or you get a nested `Tese/src/Tese/src/Output/plots`. | requires `SAVE_PLOTS=True`. |
-| `PLOT_SUITE` | `"legacy"`/`"new"`/`"both"`/`"none"` | `"legacy"` | Which suite `main.py` draws at the end of a run. `legacy` = the 20-plot per-run diagnostic suite (`Plots/new_metrics`). `new` = the 4-panel run card of the results chapter (`Plots/results_figures/run_card.py`). `none` = no figures, which is what to use when a long solve should not end by building 20 windows. An unrecognised value falls back to `legacy` with a printed warning. | **No longer gates data retention** — every value including `"none"` writes a full archive (§2.12a). **Only the run card is available from a single run**; the other 15 chapter figures are comparisons ACROSS cases and need a results-matrix batch — `python -m Plots.results_figures.make_all`. |
-| `ARCHIVE_RUNS` | `True`/`False` | `True` | Write a complete, self-describing archive of every run — see §2.12a. Independent of `SAVE_PLOTS` and `PLOT_SUITE`. | none. |
+| `SAVE_PLOTS_DIR` | path | `Output_Plots` | The root for **every** figure the simulator writes — the 20-plot suite, the run card, the comparison overlays and the Chapter 6 set. A relative path resolves against `Tese/src`, *not* the cwd (it used to be cwd-relative, which is where the committed `Tese/src/Tese/src/Output/plots` tree came from). | read whenever any figure is drawn, not only under `SAVE_PLOTS`. |
+| `PLOT_SUITE` | `"legacy"`/`"new"`/`"both"`/`"none"` | `"legacy"` | Which suite `main.py` draws at the end of a run. `legacy` = the 20-plot per-run diagnostic suite (`Plots/new_metrics`). `new` = the 4-panel run card of the results chapter (`Plots/results_figures/run_card.py`). `none` = no figures, which is what to use when a long solve should not end by building 20 windows. An unrecognised value falls back to `legacy` with a printed warning. | **No longer gates data retention** — every value including `"none"` writes a full archive (§2.12b). **Only the run card is available from a single run**; the other 15 chapter figures are comparisons ACROSS cases and need a results-matrix batch — `python -m Plots.results_figures.make_all`. |
+| `ARCHIVE_RUNS` | `True`/`False` | `True` | Write a complete, self-describing archive of every run — see §2.12b. Independent of `SAVE_PLOTS` and `PLOT_SUITE`. | none. |
 | `ARCHIVE_DIR` | path | `Output/runs` | Where archives go. A **relative** path resolves against `Tese/src`, *not* the cwd — unlike `SAVE_PLOTS_DIR`. Absolute paths are used as given. | requires `ARCHIVE_RUNS=True`. |
 | `ARCHIVE_LABEL` | free text | `""` | Stored in the manifest and shown by `run_archive.py list`. The only place the *reason* a run was flown is recorded. | requires `ARCHIVE_RUNS=True`. |
 
-### 2.12a Run archiving — what is kept, and how to get it back
+### 2.12a Two output roots — data and pictures never mix
+
+`Output/` holds what was simulated, `Output_Plots/` holds what was drawn from it. Keeping them
+apart is what lets an archive directory be copied, compared or cleared without dragging a few
+hundred PNGs behind it — and what lets `Output/` be, as intended, nothing but `.npz` trajectories
+and their sidecars.
+
+```
+Tese/src/Output/                     DATA  (ARCHIVE_DIR)
+├── runs/<run_id>.npz  .json  .manifest.json     one trio per interactive run
+├── runs/index.csv                               browsable index, rebuildable by scan
+├── results_matrix/<case>.npz  .json  .manifest.json   the Chapter 6 batch
+├── results_matrix/results_matrix.csv
+└── pmp_reference.npz                            the segmented waypoint cache (TRACKED in git)
+
+Tese/src/Output_Plots/               FIGURES  (SAVE_PLOTS_DIR)
+├── <run_id>/run_card.png                        PLOT_SUITE = "new" / "both"
+├── <run_id>/new_01..new_19.png                  the 20-plot suite: SAVE_PLOTS=True, or `replay`
+├── comparisons/<timestamp>_a_vs_b/              run_archive.py compare
+└── chapter_figures/                             Plots/results_figures/make_all.py (or FIG_OUT)
+```
+
+A run and its figures **share a name**: `Output/runs/<id>.npz` and `Output_Plots/<id>/` are
+obviously the same run, with no lookup table. With `ARCHIVE_RUNS=False` there is no archive to
+borrow an id from, so one is minted the same way anyway — figures still land under what flew rather
+than piling into a shared folder.
+
+Both roots are gitignored (`pmp_reference.npz` is force-added), and both resolve **relative to
+`Tese/src`**, so neither depends on the working directory.
+
+### 2.12b Run archiving — what is kept, and how to get it back
 
 Every run writes three files sharing a stem under `ARCHIVE_DIR`:
 

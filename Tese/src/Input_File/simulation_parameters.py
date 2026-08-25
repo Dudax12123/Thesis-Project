@@ -649,13 +649,26 @@ TIME_STEP = 0.01                              # output sampling interval for t_e
 DURATION_AFTER_SIMULATION = 1000.               # duration of simulation after reaching desired orbit; [s]
 
 # -------------- Plot output --------------
-# By default the plot suite only DISPLAYS the figures (a single plt.show() at the
-# end of main.py) and writes no IMAGES to disk. Set SAVE_PLOTS=True to also save
-# the PNGs to SAVE_PLOTS_DIR. Applies to every guidance mode (single-law +
-# segmented). It says nothing about whether the run itself is kept -- that is
-# ARCHIVE_RUNS, further down, and it is on by default.
+# By default the twenty-plot suite only DISPLAYS its figures (a single plt.show()
+# at the end of main.py) and writes no PNGs. Set SAVE_PLOTS=True to also save
+# them. Applies to every guidance mode (single-law + segmented). It says nothing
+# about whether the run itself is kept -- that is ARCHIVE_RUNS, further down, and
+# it is on by default.
 SAVE_PLOTS = False                            # False = display only, no PNGs
-SAVE_PLOTS_DIR = "Tese/src/Output/plots"      # only used when SAVE_PLOTS = True
+
+# The root for EVERY figure the simulator writes -- the twenty-plot suite, the
+# run card, the comparison overlays and the Chapter 6 figure set. Data goes to
+# ARCHIVE_DIR, pictures go here, and the two never mix: an archive directory can
+# then be copied, compared or cleared without dragging PNGs behind it.
+#
+#   Output_Plots/<run_id>/            every figure drawn for one run
+#   Output_Plots/comparisons/         run_archive.py compare
+#   Output_Plots/chapter_figures/     Plots/results_figures/make_all.py
+#
+# A RELATIVE path is resolved against Tese/src, not the working directory. It
+# used to be cwd-relative, which is how the nested Tese/src/Tese/src/Output/plots
+# tree in this repository came to exist.
+SAVE_PLOTS_DIR = "Output_Plots"
 
 # Which plotting suite main.py runs at the end of a single run.
 #
@@ -702,10 +715,10 @@ PLOT_SUITE = "legacy"     # Options: "legacy", "new", "both", "none"
 # A few hundred kB per run against a solve measured in tens of minutes; turn it
 # off only if you genuinely do not want the run back.
 ARCHIVE_RUNS = True
-# Where archives are written. Unlike SAVE_PLOTS_DIR, a RELATIVE path here is
-# resolved against Tese/src, not the working directory -- so running main.py
-# from Tese/src cannot produce a second archive tree the way it produces a
-# nested Tese/src/Tese/src/Output/plots.
+# Where archives are written -- DATA only; figures go to SAVE_PLOTS_DIR. As
+# there, a RELATIVE path is resolved against Tese/src rather than the working
+# directory, so running main.py from inside Tese/src cannot produce a second
+# output tree the way it once produced a nested Tese/src/Tese/src/Output/plots.
 ARCHIVE_DIR = "Output/runs"
 # Free text stored in the manifest and shown by `run_archive.py list`. Use it to
 # say why a run was flown; nothing else records that.

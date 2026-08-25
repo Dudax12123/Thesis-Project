@@ -38,7 +38,7 @@ import Plots.new_plot_runner as new_plot_runner
 # ---------------------------------------------------------------------------
 
 def _emit_plots(time, data, thrust_data, time_thrust, alpha_data,
-                alpha_time_data, guidance_label=None, **kwargs):
+                alpha_time_data, guidance_label=None, run_id=None, **kwargs):
     """Draw whichever plot suite PLOT_SUITE asks for.
 
     Both suites take the same trajectory; they differ in what they do with it.
@@ -66,20 +66,25 @@ def _emit_plots(time, data, thrust_data, time_thrust, alpha_data,
         print("  [plots] PLOT_SUITE='none' — no figures drawn.")
         return
 
+    # Figures for one run go under that run's own id, beside no data at all:
+    # Output/ holds trajectories, Output_Plots/ holds pictures. The id is the
+    # archive's, so Output/runs/<id>.npz and Output_Plots/<id>/ are visibly the
+    # same run.
+    run_dir = _run_plots_dir(run_id)
+
     if mode in ("legacy", "both"):
         new_plot_runner.run_new_plot_suite(
             time, data, thrust_data, time_thrust, alpha_data, alpha_time_data,
-            output_dir=(sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS
-                        else None),
+            output_dir=(str(run_dir) if sim_params.SAVE_PLOTS else None),
             show=False, close_after=False, **kwargs)
 
     if mode in ("new", "both"):
         _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
-                       alpha_time_data, guidance_label, kwargs)
+                       alpha_time_data, guidance_label, kwargs, run_dir)
 
 
 def _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
-                   alpha_time_data, guidance_label, kwargs):
+                   alpha_time_data, guidance_label, kwargs, run_dir):
     """Build the results-chapter run card for the trajectory just flown.
 
     The card is built from an in-memory Case rather than from a saved file, so
@@ -118,11 +123,11 @@ def _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
         t_guidance_start=_card_event(ra.time_guidance_start),
     )
 
-    out_dir = (sim_params.SAVE_PLOTS_DIR if sim_params.SAVE_PLOTS
-               else str(Path(__file__).resolve().parent / "Output" / "single_run"))
-    rf_style.OUT_DIR = out_dir
+    # The card is named for the panel, not for the law: the run id is already on
+    # the folder, so repeating it in the filename only makes the path longer.
+    rf_style.OUT_DIR = str(run_dir)
     rf_style.use_thesis_style()
-    run_card.draw(case, "run_card_%s.png" % label,
+    run_card.draw(case, "run_card.png",
                   title="%s  |  %s" % (label, _architecture_label()))
 
 
@@ -210,6 +215,25 @@ def _suite_channels(thrust_data, time_thrust, alpha_data, alpha_time_data,
     )
 
 
+def _run_plots_dir(run_id):
+    """Where this run's figures go: Output_Plots/<run_id>/.
+
+    With ARCHIVE_RUNS off there is no id to borrow, so one is minted exactly as
+    the archive would have. Figures still land in a folder named after what
+    flew, instead of piling into a shared directory where the next run
+    overwrites them.
+    """
+    from Archive import store
+
+    if not run_id:
+        try:
+            run_id = store.make_run_id(sim_params,
+                                       root=store.plots_root(sim_params))
+        except Exception:                          # noqa: BLE001 — naming, not physics
+            run_id = _architecture_label()
+    return store.plots_root(sim_params) / str(run_id)
+
+
 def _archive_run(time, data, thrust_data, time_thrust, alpha_data,
                  alpha_time_data, result, J=None, history=None, extra=None,
                  suite=None, wall_clock=None):
@@ -238,11 +262,14 @@ def _archive_run(time, data, thrust_data, time_thrust, alpha_data,
         # on, so the twenty-plot suite can be replayed exactly.
         thrust = interpolate_to_time(time_thrust, thrust_data, t)
         alpha = interpolate_to_time(alpha_time_data, alpha_data, t)
-        return store.save_run(
+        saved = store.save_run(
             sim_params, t, data, thrust, alpha, result or {},
             J=J, history=history, extra=extra, suite=suite,
             wall_clock=wall_clock, source="main.py",
             label=getattr(sim_params, "ARCHIVE_LABEL", ""))
+        # The id is handed on to the plot dispatch so this run's figures land in
+        # Output_Plots/<id>/ -- same name as the archive, different root.
+        return saved['name']
     except Exception as exc:                       # noqa: BLE001 — never fatal
         import traceback
         print("\n  [archive] FAILED to write the archive: %s" % exc)
@@ -656,11 +683,12 @@ def execute():
         # Archived before the figures and regardless of the crash flag: a
         # segmented run that failed is the one hardest to reason about later,
         # and re-flying it to look again costs the full swarm.
-        _archive_run(time, data, seg_out['thrust'], time,
-                     seg_out['alpha'], time,
-                     result=result_seg, J=best_f,
-                     history=seg.LAST_PSO_MG_HISTORY, extra=_seg_extra,
-                     suite=_suite, wall_clock=_perf_counter() - _wall_started)
+        _run_id = _archive_run(
+            time, data, seg_out['thrust'], time,
+            seg_out['alpha'], time,
+            result=result_seg, J=best_f,
+            history=seg.LAST_PSO_MG_HISTORY, extra=_seg_extra,
+            suite=_suite, wall_clock=_perf_counter() - _wall_started)
 
         if not result_seg['crashed']:
             print("\nGenerating new plot suite (segmented)...")
@@ -669,6 +697,7 @@ def execute():
                 seg_out['thrust'], time,        # thrust_data, time_thrust (on `time` grid)
                 seg_out['alpha'],  time,        # alpha_data, alpha_time_data
                 guidance_label=" -> ".join(m for m, _a in seg_out['segs'].schedule),
+                run_id=_run_id,
                 **{k: v for k, v in _suite.items()
                    if k not in ('thrust_data', 'time_thrust',
                                 'alpha_data', 'alpha_time_data')}
@@ -1389,10 +1418,10 @@ def execute():
     # Archive first, and independently of PLOT_SUITE: the run is worth more than
     # the figures drawn from it, and PLOT_SUITE='none' -- what a long solve
     # should be run under -- used to mean nothing was kept at all.
-    _archive_run(time, data, thrust_data, time_thrust, alpha_data,
-                 alpha_time_data, result=result_opt, J=J_optimal,
-                 history=pso_history, extra=None, suite=_suite,
-                 wall_clock=_perf_counter() - _wall_started)
+    _run_id = _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                           alpha_time_data, result=result_opt, J=J_optimal,
+                           history=pso_history, extra=None, suite=_suite,
+                           wall_clock=_perf_counter() - _wall_started)
 
     # Plot the results
     print("Generating new plot suite...")
@@ -1404,6 +1433,7 @@ def execute():
         time_thrust,
         alpha_data,
         alpha_time_data,
+        run_id=_run_id,
         **{k: v for k, v in _suite.items()
            if k not in ('thrust_data', 'time_thrust',
                         'alpha_data', 'alpha_time_data')}

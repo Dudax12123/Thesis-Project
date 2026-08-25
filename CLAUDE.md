@@ -82,7 +82,8 @@ C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_archive.py list
 `show <id> [--config]`, `compare <id> <id> [...]` (overlays + a table of the settings that actually
 differ), `replay <id>` (redraws the legacy 20-plot suite from the archive). Ids match by unique
 prefix; `<dir>::<stem>` reaches into any directory, so a results-matrix case and a hand-flown run go
-into one comparison. See `Tese/worktree.md` §2.12a.
+into one comparison. Figures land in `Tese/src/Output_Plots/<run_id>/`, never beside the data.
+See `Tese/worktree.md` §2.12a (the two roots) and §2.12b (the archive format).
 
 Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
@@ -211,9 +212,12 @@ the final segment inserts to orbit. The PMP reference is cached to
   `_IN_PSO_STAGE1` (suppresses legacy CPR Stage-1 behaviour that otherwise crashes `brentq` event
   bracketing), `_stage1_kick_handled_by_gamma_jump` (prevents a double kick),
   `_SEGMENTED_ALPHA_HOOK` (`None` on every non-segmented run). Preserve that property when editing.
-- **cwd matters for saved plots.** `SAVE_PLOTS_DIR = "Tese/src/Output/plots"` is cwd-relative;
-  running from `Tese/src` produces the nested `Tese/src/Tese/src/Output/plots` already in the repo.
-  Run from the repo root. `Tese/src/Output/` is gitignored (regenerable cache + PNGs).
+- **Two output roots, and neither depends on cwd.** `Tese/src/Output/` is **data only** — run
+  archives, the results-matrix batch, `pmp_reference.npz`. `Tese/src/Output_Plots/` is **every
+  figure** — `<run_id>/` per run, plus `comparisons/` and `chapter_figures/`. Both are gitignored
+  (`pmp_reference.npz` is force-added) and both resolve relative to `Tese/src`, so running from
+  inside `Tese/src` is no longer a trap. It used to be: `SAVE_PLOTS_DIR` was cwd-relative and
+  produced a nested `Tese/src/Tese/src/Output/plots` tree that reached git before anyone noticed.
 - **UTF-8 stdout is forced in `main.py`** because prints use Greek letters and `°`. Standalone
   scripts that print those need `PYTHONIOENCODING=utf-8` on this Windows console.
 - **`main.py` is mostly reporting.** Most of its ~1100 lines are per-branch result printing; new

@@ -24,9 +24,6 @@ import numpy as np
 
 from . import store
 
-_SRC = Path(__file__).resolve().parent.parent
-
-
 def _style():
     from Plots.results_figures import _style as st
     return st
@@ -382,13 +379,14 @@ def write_diff(cases, labels, out_dir):
 #  Driver
 # =========================================================================
 
-def _out_dir_for(labels, base=None):
+def _out_dir_for(labels, base=None, sim_params=None):
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if len(labels) == 2:
         tail = "%s_vs_%s" % (_slug(labels[0]), _slug(labels[1]))
     else:
         tail = "%d_runs" % len(labels)
-    base = Path(base) if base is not None else (_SRC / "Output" / "comparisons")
+    base = (Path(base) if base is not None
+            else store.plots_root(sim_params) / "comparisons")
     return base / ("%s_%s" % (stamp, tail))
 
 
@@ -414,7 +412,8 @@ def compare(names, root=None, out_dir=None, labels=None, cards=False,
         raise SystemExit("%d labels for %d archives" % (len(labels), len(cases)))
 
     st = _style()
-    out_dir = Path(out_dir) if out_dir is not None else _out_dir_for(labels)
+    out_dir = (Path(out_dir) if out_dir is not None
+               else _out_dir_for(labels, sim_params=sim_params))
     out_dir.mkdir(parents=True, exist_ok=True)
     st.OUT_DIR = str(out_dir)
     st.use_thesis_style()
