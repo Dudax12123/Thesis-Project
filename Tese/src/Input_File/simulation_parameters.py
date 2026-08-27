@@ -601,7 +601,20 @@ PSO_DIRECT_UB = [1.57, 100.0]
 PSO_DIRECT_W_J           = 1.0     # burn-time term (J normalised by T_MAX_2)
 PSO_DIRECT_W_ALTITUDE    = 100.0   # relative altitude error  (1% error -> 1.0)
 PSO_DIRECT_W_VELOCITY    = 100.0   # relative velocity error  (1% error -> 1.0)
-PSO_DIRECT_W_FPA         = 10.0    # FPA error in deg         (1 deg  -> 10.0)
+# Deliberately LOWER than PSO_COAST_W_FPA (10.0), and the asymmetry is the
+# point. Under a single continuous burn the terminal altitude and flight-path
+# angle are not independently reachable: with alpha == 0 the only term through
+# which thrust touches gammadot is (F_T/m)*sin(alpha) (see diff_eom_base), so
+# gamma is an uncontrolled state and its floor rises with altitude -- 0.33 deg
+# at 190 km, 13.2 deg at 502 km. The weight therefore does not tune a solution,
+# it CHOOSES WHICH MISS TO REPORT. At 10.0 the swarm returned 190 km at
+# 0.37 deg; at <= 4.0 it returns 502 km at 13.2 deg, and that branch is flat all
+# the way to 0.0 (measured on a 651-point grid over the whole decision box), so
+# 3.0 sits inside the plateau rather than on its edge. Neither result is an
+# orbit -- the 502 km one is a ballistic arc through 2371 km apoapsis with
+# periapsis 899 km below the surface -- and the altitude is what Section 6.2
+# compares, which is why this is set to prefer it.
+PSO_DIRECT_W_FPA         = 3.0     # FPA error in deg         (1 deg  ->  3.0)
 PSO_DIRECT_GAMMA_REF_DEG = 1.0     # FPA non-dimensionalisation reference [deg]
 
 

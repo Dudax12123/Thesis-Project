@@ -414,8 +414,31 @@ atmospheric arc.
 | `PSO_DIRECT_MAX_GENERATIONS` (L352) | `100` | Max generations. |
 | `PSO_DIRECT_C1`/`C2`/`OMEGA`/`VMAX`/`SEED` (L353–357) | `2.05`/`2.05`/`0.7298`/`0.5`/`42` | Standard PSO hyperparameters. |
 | `PSO_DIRECT_LB` / `PSO_DIRECT_UB` (L360–361) | `[1.54, 50.0]` / `[1.57, 100.0]` | Bounds for `[γ_p (rad), t_burn% of T_MAX_2]`. |
-| `PSO_DIRECT_W_J`/`W_ALTITUDE`/`W_VELOCITY`/`W_FPA` (L365–368) | `1.0`/`100.0`/`100.0`/`10.0` | Objective penalty weights (4-term, no transversality). |
-| `PSO_DIRECT_GAMMA_REF_DEG` (L369) | `1.0` | FPA non-dimensionalization reference [deg]. |
+| `PSO_DIRECT_W_J`/`W_ALTITUDE`/`W_VELOCITY`/`W_FPA` | `1.0`/`100.0`/`100.0`/**`3.0`** | Objective penalty weights (4-term, no transversality). Summed into ONE scalar — `get_nobj()` is 1 and there are no PyGMO constraints — so the terms **trade**: 1 objective unit = 5 km of altitude = 71.7 m/s = 0.1° of FPA = the whole maximum Stage-2 burn. Equivalently the objective declares **50 km ≡ 1°**. |
+| `PSO_DIRECT_GAMMA_REF_DEG` | `1.0` | FPA non-dimensionalization reference [deg]. |
+
+**`W_FPA` is 3.0 here and 10.0 in `pso_coast`, deliberately.** Under a single
+continuous burn the terminal altitude and flight-path angle are not
+independently reachable. With `gravity_turn` the angle of attack is identically
+zero, and the only term through which thrust touches γ̇ is `(F_T/m)·sin α`
+(`diff_eom_base`, `rocket_ascent.py:1786`) — so γ is an *uncontrolled state*,
+and its attainable floor rises with altitude: **0.33° at 190 km, 13.2° at
+502 km**. The floor exists because γ̇ = −(1/v)(g − v²/r)·cos γ changes sign at
+local circular velocity: burning longer to gain altitude is the same act that
+drives v past circular, after which γ *increases* again.
+
+So this weight does not tune a solution — it chooses **which miss to report**.
+Measured on a 651-point grid over the whole decision box: at `10.0` the optimum
+is 190 km at 0.37°; at **≤ 4.0** it is 502 km at 13.2°, and that branch is flat
+all the way down to `0.0`, so `3.0` sits inside the plateau rather than on its
+edge. Neither is an orbit (the 502 km one is a ballistic arc through 2371 km
+apoapsis with periapsis 899 km below the surface); the altitude is what
+Section 6.2 compares, which is why the setting prefers it. `pso_coast` keeps
+`10.0` because a coast arc *does* separate the two — `gt_baseline` flies the same
+α ≡ 0 law and inserts at 500.000 km with e = 2×10⁻⁶.
+
+Changing this invalidates the two `direct` cases (`gt_direct`, `peg_direct`) and
+nothing else.
 
 ### 2.11 Optimizer — `pso_coast` PSO (only when `COAST_METHOD="pso_coast"`)
 
