@@ -515,6 +515,32 @@ def _write_csv(rows, path):
             writer.writerow(row)
 
 
+def _rows_for_csv(rows_run, root):
+    """Every case archived under `root`, in matrix order.
+
+    The CSV must describe the DIRECTORY, not the invocation that happened to
+    write it last. A batch is naturally run in stages -- Sections 6.2 and 6.3
+    one night, 6.4 and 6.7 the next -- and this used to be written from the
+    current run's rows alone, so the second invocation silently truncated the
+    file to its own cases and discarded the ones already on disk.
+
+    Rows from this run win over what is on disk, so re-running a case replaces
+    its row rather than duplicating it.
+    """
+    fresh = {row.get('case'): row for row in rows_run if row.get('case')}
+    merged = []
+    for case in build_matrix():
+        name = case['name']
+        if name in fresh:
+            merged.append(fresh[name])
+            continue
+        path = root / name / (name + ".json")
+        if path.exists():
+            with open(path, encoding="utf-8") as fh:
+                merged.append(json.load(fh))
+    return merged
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -591,9 +617,14 @@ def main():
             rows.append(json.load(fh))
 
     csv_path = OUTPUT_DIR / "results_matrix.csv"
-    _write_csv(rows, csv_path)
+    all_rows = _rows_for_csv(rows, OUTPUT_DIR)
+    _write_csv(all_rows, csv_path)
     print("\n" + "=" * 70)
-    print("wrote %s  (%d rows)" % (csv_path, len(rows)))
+    if len(all_rows) > len(rows):
+        print("wrote %s  (%d rows: %d from this run, %d already archived)"
+              % (csv_path, len(all_rows), len(rows), len(all_rows) - len(rows)))
+    else:
+        print("wrote %s  (%d rows)" % (csv_path, len(all_rows)))
     if failures:
         print("FAILED: %s" % ", ".join(failures))
     print("=" * 70)
