@@ -2427,7 +2427,14 @@ def run(initial_kick_angle, azimuth_override=None):
             # ----- Simulate the rest of the trajectory -----
             # 1. Coasting
             second_stage_cutoff = True
-            initial_state_3 = sol_2.y[:, -1]
+            # .copy() -- NOT a view. The frame conversion just below writes v and
+            # gamma back through this array, and sol_2.y is concatenated into the
+            # returned trajectory, so a view silently rewrote the ASCENT's own
+            # last sample into the inertial frame: v stepped 7457 -> 7878 m/s at
+            # SECO (the ECEF->ECI term at 28.5 deg latitude) and the delta-v
+            # budget, which integrates up to t_seco, read the converted value as
+            # the achieved velocity.
+            initial_state_3 = sol_2.y[:, -1].copy()
 
             # If Earth rotation is enabled, the ascent state is in rotating-frame
             # speed/flight-path-angle. Convert to inertial components before coast
@@ -2486,7 +2493,11 @@ def run(initial_kick_angle, azimuth_override=None):
                   f"gamma={np.rad2deg(sol_3.y[3,-1]):.3f} deg")
 
             # 2. Circularization burn (instantaneous delta-v)
-            initial_state_4 = sol_3.y[:, -1]
+            # .copy() for the same reason: the impulsive burn and the propellant
+            # debit below would otherwise be written onto the COAST's last
+            # sample, which is a point the vehicle passes through before the
+            # burn, not after it.
+            initial_state_4 = sol_3.y[:, -1].copy()
             initial_state_4[2] += delta_v
 
             burn_time_delta_v = calculate_burn_time(initial_state_4[4], delta_v)

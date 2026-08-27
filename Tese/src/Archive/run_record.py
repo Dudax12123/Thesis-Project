@@ -320,6 +320,41 @@ def channels(sim_params, time_a, data, extra, history,
 #  The scalar row
 # =========================================================================
 
+def objective_terms(sim_params, result):
+    """The solver's own decomposition of J' into its weighted terms.
+
+    J' on its own cannot say whether a case is reporting COST or CONSTRAINT
+    VIOLATION, and the two are not comparable. Measured on the Section 6.2 set:
+    gt_baseline's 0.783 is 100% burn time with all three miss terms at zero,
+    while gt_direct's 64.836 is 98.9% altitude miss over a burn-time term of
+    0.736 -- a SHORTER burn than gt_baseline's. Ranking those two by J' would
+    rank a cost against a penalty and call the cheaper trajectory 83x worse.
+
+    Each architecture's own breakdown function is called rather than the weights
+    being re-applied here, so this cannot drift from what the swarm actually
+    minimised. Returns None where there is no J' to decompose: apogee_check runs
+    no swarm, and the result dict synthesised for it carries none of the timing
+    keys the breakdowns read.
+    """
+    if result is None or result.get('crashed') or result.get('state_final') is None:
+        return None
+    arch = architecture(sim_params)
+    try:
+        if arch in ("pso_coast", "segmented"):
+            # segmented minimises compute_coast_objective and builds a result
+            # dict with the t_f / t_cf the coast breakdown reads.
+            from Simulation.pso_coast_solver import breakdown_coast_objective as fn
+        elif arch == "direct":
+            from Simulation.direct_pso_solver import breakdown_direct_objective as fn
+        elif arch == "indirect_pmp":
+            from Simulation.indirect_pso_solver import breakdown_objective as fn
+        else:
+            return None
+        return {k: float(v) for k, v in fn(result).items()}
+    except Exception:                     # noqa: BLE001 -- optional detail, never fatal
+        return None
+
+
 def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
                 history, wall_clock, extra, tags=None):
     """Reduce one trajectory to the scalars the results table needs.
@@ -393,8 +428,23 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
     row['insertion_fpa_deg'] = float(np.rad2deg(sf[3]))
 
     try:
-        v_in, g_in = ra.get_inertial_state_components(
-            sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
+        if result.get('state_final_inertial'):
+            # Already inertial -- converting again compounds the rotation term.
+            # apogee_check's full simulation is the case that needs this:
+            # rocket_ascent converts the state before propagating the post-SECO
+            # coast, so the trajectory's last column is in the inertial frame.
+            # Double-converting a circular 499 km orbit reports a=7807 km,
+            # e=0.119, apoapsis 2359 km.
+            #
+            # The flag is set by the CALLER and never inferred here. The obvious
+            # inference -- "the trajectory runs past t_seco, so the state must be
+            # post-coast" -- is wrong on every PSO path, where state_final is the
+            # solver's own burn-end state in the rotating frame while the
+            # archived trajectory carries on past it for the plots.
+            v_in, g_in = float(sf[2]), float(sf[3])
+        else:
+            v_in, g_in = ra.get_inertial_state_components(
+                sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
         a, e, r_apo, r_peri, period = ra.get_orbital_elements(sf[1], v_in, g_in)
         row.update({
             'sma_km': float(a / 1e3),
@@ -440,6 +490,19 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         span = gbest[0] - gbest[-1]
         row['pso_tail_improvement_frac'] = (
             float((gbest[-tail] - gbest[-1]) / span) if span > 0 else 0.0)
+
+    # The terms J' is the sum of, so a reader can tell cost from miss distance
+    # without reconstructing them from the insertion state.
+    #
+    # For an archive written before this existed: the three MISS terms are a
+    # pure function of the insertion state and the weights, so they back-fill
+    # exactly (verified against gt_baseline and peg_direct). The burn-time term
+    # is not -- it needs the solver's own t_burn / t_f / t_cf, which the archive
+    # keeps only as arc times -- but it is recoverable by subtraction, since
+    # J_prime is stored: obj_J = J_prime - (obj_alt + obj_vel + obj_fpa).
+    terms = objective_terms(sim_params, result)
+    if terms:
+        row.update({'obj_' + k: v for k, v in terms.items()})
 
     return row
 

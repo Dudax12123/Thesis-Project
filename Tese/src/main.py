@@ -1317,10 +1317,16 @@ def execute():
             # here is the impulsive circularisation burn, which is NOT part of
             # the integrated trajectory and so has to be recorded separately for
             # the budget residual to mean anything.
+            # state_final_inertial mirrors the state_already_inertial guard a
+            # few lines below, which has always protected the PRINTED orbit but
+            # not the ARCHIVED one: SINGLE_BURN_FULL_SIMULATION is True on this
+            # branch, so data[:, -1] is post-circularisation and already in the
+            # inertial frame, and Archive/run_record converted it a second time.
             result_opt = {
                 'crashed': bool(_simulation_failed),
                 'state_final': np.asarray(data)[:, -1],
                 'circularisation_dv': float(delta_v),
+                'state_final_inertial': bool(sim_params.ENABLE_EARTH_ROTATION),
             }
 
             if not _simulation_failed:

@@ -413,13 +413,41 @@ def _dispatch(sim_params):
     if arch == "apogee_check":
         from Simulation import solver
         from Simulation import rocket_ascent as ra
+        # The kick SEARCH must run with SINGLE_BURN_FULL_SIMULATION False -- that
+        # is the optimiser's inner loop, and it is what makes each of the 1000
+        # brute-grid points a bare ascent instead of an ascent plus a ~3600 s
+        # coast and circularisation.
+        ra.SINGLE_BURN_FULL_SIMULATION = False
         kick = solver.find_initial_kick_angle_coast_single_burn()
+
+        # The FINAL run must not. Left False -- the module default, and what this
+        # branch used to do -- ra.run() returns at the early exit inside its
+        # apogee-match block, handing back the state at SECO on the TRANSFER
+        # ELLIPSE: 190 km, e=0.023, still climbing. The coast to apogee and the
+        # circularisation burn never happen, so the case was archived as a
+        # suborbital insertion and compared against pso_coast cases that had
+        # flown theirs. main.py has always set this for its own apogee_check
+        # branch; only the harness did not. Fingerprint of the bug in an old
+        # archive: t_seco is null, because
+        # TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is assigned only in the
+        # full-simulation branch.
+        ra.SINGLE_BURN_FULL_SIMULATION = True
         (time_a, data, _alt_stopped, delta_v, _m_prop, thrust, time_thrust,
          alpha, alpha_time, _cor, _cen) = ra.run(kick)
         # No solver result dict on this path; rebuild the same shape from the
         # final state so the collector does not need a special case.
+        #
+        # state_final_inertial is load-bearing and cannot be inferred by the
+        # collector. rocket_ascent converts the state to the inertial frame
+        # BEFORE it propagates the post-SECO coast, so data[:, -1] is already
+        # inertial here -- converting it again yields a=7807 km, e=0.119,
+        # apoapsis 2359 km for what is really a circular 499 km orbit. The
+        # collector cannot work this out from the trajectory, because on the PSO
+        # paths state_final is the solver's burn-end state (rotating frame) even
+        # though the archived trajectory runs long past it.
         result = {'crashed': False, 'state_final': np.asarray(data)[:, -1],
-                  'circularisation_dv': float(delta_v)}
+                  'circularisation_dv': float(delta_v),
+                  'state_final_inertial': bool(sim_params.ENABLE_EARTH_ROTATION)}
         # Latitude is derived, not integrated, and ra.run() does not append it --
         # the PSO solvers do it themselves and main.py does it for this branch.
         # Without it the archived case carries five state rows where every other
@@ -504,8 +532,13 @@ def _write_csv(rows, path):
                  'dv_steering', 'dv_pressure', 'dv_losses', 'dv_gain',
                  'dv_achieved', 'residual', 't_meco', 't_seco',
                  'n_evaluations', 'wall_clock_s']
+    # A set, because `seen` is never added to: the generator this replaced
+    # yielded each optional key once PER ROW THAT CARRIED IT, so a key present in
+    # all ten rows became ten identical columns. The shipped
+    # results_matrix.csv shows it -- circularisation_dv, isp_1_mode and the rest
+    # each repeat ten times.
     seen = set(preferred)
-    columns = preferred + sorted(k for row in rows for k in row if k not in seen)
+    columns = preferred + sorted({k for row in rows for k in row if k not in seen})
 
     import csv
     with open(path, "w", encoding="utf-8", newline="") as fh:
