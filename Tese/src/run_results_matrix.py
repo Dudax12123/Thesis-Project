@@ -149,8 +149,20 @@ BASELINE = {
     # two factors rather than one, invisibly, since nothing downstream reports
     # the kick profile.
     "KICK_PROFILE_MODE": "instantaneous",
+    # The guidance laws that consume a scalar t_go are given the PSO's own
+    # planned burn-arc countdown (deadline - t) rather than estimating it
+    # themselves. Reaches exactly four cases -- show_linear_tangent,
+    # show_bilinear_tangent, show_apollo, show_peg. gravity_turn computes no
+    # guidance at all and peg_new solves its own t_go internally, so every case
+    # in Sections 6.2 and 6.3 is bit-identical either way (verified: J and the
+    # full state vector agree to 16 digits with the flag off and on).
+    #
+    # TGO_ESTIMATOR is therefore INERT across the whole matrix: _tgo_for_guidance
+    # returns the planned countdown before it ever reaches _compute_tgo_stage2.
+    # It is left pinned so the manifest records a definite value rather than
+    # whatever the shipped config happens to be.
     "TGO_ESTIMATOR": "rocket_equation",
-    "GUIDANCE_TGO_USE_PSO_PLAN": False,
+    "GUIDANCE_TGO_USE_PSO_PLAN": True,
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.
     # Required for the pressure loss of Auxiliary/losses.py to be meaningful.
     "ISP_1_MODE": "pressure",
@@ -202,6 +214,24 @@ def budget_overrides(particles, generations):
         "PSO_DIRECT_N_PARTICLES": p, "PSO_DIRECT_MAX_GENERATIONS": g,
         "PSO_MG_N_PARTICLES": p, "PSO_MG_MAX_GENERATIONS": g,
     }
+
+
+def _parse_sets(pairs):
+    """["K=V", ...] -> {K: value}. Values are Python literals where possible."""
+    import ast
+    out = {}
+    for item in pairs:
+        if "=" not in item:
+            raise SystemExit("--set expects KEY=VALUE, got %r" % item)
+        k, _, v = item.partition("=")
+        k = k.strip()
+        if not k.isupper():
+            raise SystemExit("--set key must be an uppercase setting name, got %r" % k)
+        try:
+            out[k] = ast.literal_eval(v.strip())
+        except (ValueError, SyntaxError):
+            out[k] = v.strip()
+    return out
 
 
 def _parse_budget(text):
@@ -477,7 +507,7 @@ def _dispatch(sim_params):
 # directly.
 
 
-def run_case(name, smoke=False, budget=None):
+def run_case(name, smoke=False, budget=None, sets=None):
     """Run one case in this process and write its row and trajectory."""
     cases = {c['name']: c for c in build_matrix()}
     if name not in cases:
@@ -491,6 +521,10 @@ def run_case(name, smoke=False, budget=None):
         _apply(sim_params, SMOKE_BUDGET)
     elif budget:
         _apply(sim_params, budget_overrides(*budget))
+    # Applied last so it beats the case's own overrides too: --set is for the
+    # arm of an A/B, not for a factor the matrix already varies.
+    if sets:
+        _apply(sim_params, sets)
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -588,6 +622,14 @@ def main():
                              "Applies to every swarm architecture but NOT to the PMP "
                              "reference cache. Trajectories are the right shape; the "
                              "numbers are not reportable.")
+    parser.add_argument("--set", metavar="K=V", action="append", default=[],
+                        help="override one BASELINE setting for every case in this "
+                             "run, e.g. --set GUIDANCE_TGO_USE_PSO_PLAN=False. "
+                             "Repeatable. Values are parsed as Python literals, "
+                             "falling back to the bare string. Recorded in each "
+                             "case's manifest like any other setting, which is what "
+                             "makes an A/B pair self-describing -- pair it with "
+                             "--out so the two arms land in different roots.")
     parser.add_argument("--out", metavar="DIR",
                         help="write into this root instead of Output/results_matrix "
                              "(relative paths resolve against Tese/src)")
@@ -596,11 +638,12 @@ def main():
     if args.smoke and args.budget:
         raise SystemExit("--smoke and --budget both set the PSO budget; pick one.")
     budget = _parse_budget(args.budget) if args.budget else None
+    sets = _parse_sets(args.set)
     if args.out:
         _set_output_dir(args.out)
 
     if args.case:
-        run_case(args.case, smoke=args.smoke, budget=budget)
+        run_case(args.case, smoke=args.smoke, budget=budget, sets=sets)
         return
 
     cases = build_matrix()
@@ -615,6 +658,8 @@ def main():
         tag = "  [budget %d x %d]" % budget
     else:
         tag = ""
+    if sets:
+        tag += "  [set %s]" % ", ".join("%s=%r" % kv for kv in sorted(sets.items()))
     print("=" * 70)
     print("RESULTS MATRIX — %d case(s)%s" % (len(cases), tag))
     print("into %s" % OUTPUT_DIR)
@@ -629,6 +674,8 @@ def main():
             cmd.append("--smoke")
         if args.budget:
             cmd += ["--budget", args.budget]
+        for item in args.set:
+            cmd += ["--set", item]
         # The child re-imports this module, so OUTPUT_DIR is back at its default
         # unless --out is forwarded. Passing the resolved path rather than the
         # user's string keeps parent and child writing to the same place however
