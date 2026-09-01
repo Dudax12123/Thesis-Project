@@ -55,7 +55,8 @@ def find_initial_kick_angle_coast_single_burn():
     Finds the initial kick angle for the gravity turn using brute force optimization.
 
     When ``KICK_PROFILE_MODE == "instantaneous"``, the search is performed over
-    gamma_p in [1.54, 1.57] rad (the pso_coast pitch-over convention) and the
+    gamma_p in PSO_COAST_LB[3]..PSO_COAST_UB[3] (the pso_coast pitch-over
+    convention, shared so the two cannot drift) and the
     result is converted back to a kick angle (kick_angle = gamma_p - pi/2)
     before being returned, so callers (ra.run(kick_angle_optimal, ...)) need no
     changes.
@@ -68,7 +69,12 @@ def find_initial_kick_angle_coast_single_burn():
     instantaneous = getattr(sim_params, 'KICK_PROFILE_MODE', 'triangular') == 'instantaneous'
 
     if instantaneous:
-        bounds = [(1.54, 1.57)]   # gamma_p [rad]
+        # Read from the config rather than hardcoded, so the apogee_check brute
+        # grid searches the same gamma_p interval as every swarm. It did not:
+        # both said 1.54 by coincidence, and widening the swarms' lower bound
+        # would have left this one behind, silently making gt_apogee the only
+        # case still solving the old problem.
+        bounds = [(sim_params.PSO_COAST_LB[3], sim_params.PSO_COAST_UB[3])]  # gamma_p [rad]
         objective = lambda x: abs(coasting_single_burn_objective(x[0] - np.pi / 2.0))
     else:
         bounds = [(sim_params.ALPHA_LOWEST, sim_params.ALPHA_HIGHEST)]

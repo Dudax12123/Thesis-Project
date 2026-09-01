@@ -500,7 +500,7 @@ PSO_SEED            = 42        # RNG seed for reproducible PSO runs
 
 # -------------- Decision-variable bounds (Table 6 of paper) ------------------
 # x = [lambda0_r, lambda0_v, lambda0_g, delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
-PSO_LB = [-1.0,  -1.0,  -1.0,   0.0,   0.0,   0.0,  1.54]   # lower bounds
+PSO_LB = [-1.0,  -1.0,  -1.0,   0.0,   0.0,   0.0,  1.50]   # lower bounds
 PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
 # lambda0_{r,v,g}   : initial costate values for Stage 2     [−1, 1]
 # delta_tc          : coast phase duration                    [0, 2000] s
@@ -546,9 +546,23 @@ PSO_COAST_SEED            = 42      # RNG seed for reproducible runs
 
 # Decision-variable bounds for the 4-variable coast PSO:
 # x = [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
-# gamma_p is bounded to [1.54, 1.57] rad (~88.2°–89.9°), a narrow near-vertical
+# gamma_p is bounded to [1.50, 1.57] rad (~85.9°–89.9°). The lower end was 1.54
+# until it was measured to be BINDING: six of the twenty results-matrix cases
+# converged to it exactly, and every one of them was a vacuum case
+# (INCLUDE_DRAG=False also zeroes ambient pressure, so Stage 1 flies vacuum
+# thrust -- higher T/W, so the vehicle wants to pitch over harder and sooner).
+# The bound refused, the trajectory flew too steep, and the cost appeared as
+# gravity loss. gt_vacuum at full budget, 1.54 -> 1.50: gravity loss
+# 2376 -> 1749 m/s, propellant remaining 17758 -> 22025 kg (+4267), J' 0.808 ->
+# 0.770, and the optimum moved to 1.5220 -- interior, 0.022 clear of the new
+# bound. It also fixed an ordering that had been backwards: the vacuum case now
+# finishes CHEAPER than the atmospheric one, as it must.
+#
+# Keep the four LB lists and Simulation/solver.py in step -- solver.py reads
+# this same value now, so the apogee_check brute grid cannot drift from the
+# swarms again. A narrow near-vertical
 # pitch-over band — standalone constants (not derived from ALPHA_LOWEST/HIGHEST).
-PSO_COAST_LB = [  0.0,   50,   0.0,  1.54]
+PSO_COAST_LB = [  0.0,   50,   0.0,  1.50]
 PSO_COAST_UB = [1000.0, 100.0, 100.0,  1.57]
 # delta_tc          : coast phase duration                    [0, 2000] s
 # delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
@@ -593,7 +607,7 @@ PSO_DIRECT_VMAX            = 0.5
 PSO_DIRECT_SEED            = 42
 
 # x = [gamma_p (rad), t_burn_pct (% of T_MAX_2)]
-PSO_DIRECT_LB = [1.54,  50.0]
+PSO_DIRECT_LB = [1.50,  50.0]
 PSO_DIRECT_UB = [1.57, 100.0]
 
 # -------------- Penalty weights for direct PSO objective --------------
@@ -639,7 +653,7 @@ PSO_MG_SEED            = 42      # RNG seed for reproducible runs
 
 # Bounds for the 4 base decision vars [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
 # (same meaning/units as PSO_COAST_LB/UB, §11b).
-PSO_MG_LB = [  0.0,   50,   0.0,  1.54]
+PSO_MG_LB = [  0.0,   50,   0.0,  1.50]
 PSO_MG_UB = [1000.0, 100.0, 100.0,  1.57]
 
 # --- Activation-altitude optimisation (segmented mode only) -----------------

@@ -96,7 +96,7 @@ no-ops. Walk them top-to-bottom.
 │  "triangular" is a SILENT NO-OP under pso_coast / direct / indirect_pmp.     │
 │  Convention also switches: triangular searches kick over                    │
 │  [ALPHA_LOWEST, ALPHA_HIGHEST]; instantaneous searches gamma_p in           │
-│  [1.54, 1.57] rad with kick_angle = gamma_p − pi/2.                          │
+│  [1.50, 1.57] rad with kick_angle = gamma_p − pi/2.                          │                          │
 └─────────────────────────────────────────────────────────────────────────────┘
         │
 ┌─ STEP 5 ── ATMOSPHERE_EXIT_METHOD ──────────────────────────────────────────┐
@@ -294,7 +294,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `KICK_PROFILE_MODE` (L20) | `triangular`, `instantaneous` | `triangular` | Kick shape: ramped alpha-kick vs. discontinuous gamma jump. | honored **only under `apogee_check`**; **silently ignored** by all PSO solvers (always instantaneous, `rocket_ascent.py:2514`); switches kick-angle convention (alpha vs. gamma_p). |
 | `TIME_TO_START_KICK` (L8) | float s | `7.5` | When the kick begins after liftoff. | all kick paths. |
 | `DURATION_INITIAL_KICK` (L9) | float s | `45.` | Triangular ramp duration. | `KICK_PROFILE_MODE="triangular"` only. |
-| `ALPHA_LOWEST` / `ALPHA_HIGHEST` (L210–211) | float rad | `-deg2rad(5.5)` / `-deg2rad(2.5)` | Kick-angle search bounds (triangular convention). | brute-force search + triangular only; **not** linked to the `[1.54,1.57]` gamma_p PSO bounds. |
+| `ALPHA_LOWEST` / `ALPHA_HIGHEST` (L210–211) | float rad | `-deg2rad(5.5)` / `-deg2rad(2.5)` | Kick-angle search bounds (triangular convention). | brute-force search + triangular only; **not** linked to the `[1.50,1.57]` gamma_p PSO bounds. |
 | `MAX_ACCEPTED_BURN_TIME` (L212) | float s | `100.` | Max accepted delta-v burn time during search. | apogee_check/brute-force search. |
 | `APOGEE_MATCH_TOL_FRAC` (L216) | float (fraction of r_target) | `0.0002` | Apogee-match acceptance tolerance. | `apogee_check` only. |
 | `RUN_FAST` (L220) | `True`/`False` | `False` | Skip kick optimisation, use `OPTIMAL_KICK_ANGLES`. | `apogee_check` only; **silently ignored** under PSO paths; needs an entry in `OPTIMAL_KICK_ANGLES`. |
@@ -394,7 +394,7 @@ atmospheric arc.
 | `PSO_OMEGA` (L265) | float | `0.7298` | Inertia weight. |
 | `PSO_VMAX` (L266) | float | `0.5` | Max normalized particle velocity. |
 | `PSO_SEED` (L267) | int | `42` | RNG seed. |
-| `PSO_LB` / `PSO_UB` (L271–272) | list[7] floats | `[-1,-1,-1,0,0,0,1.54]` / `[1,1,1,2000,100,100,1.57]` | Bounds for `[λ0_r, λ0_v, λ0_γ, Δt_c, Δt_r%, coast_start%, γ_p]`. |
+| `PSO_LB` / `PSO_UB` (L271–272) | list[7] floats | `[-1,-1,-1,0,0,0,1.50]` / `[1,1,1,2000,100,100,1.57]` | Bounds for `[λ0_r, λ0_v, λ0_γ, Δt_c, Δt_r%, coast_start%, γ_p]`. |
 | `PENALTY_W_J` (L286) | float | `1.0` | Burn-time term weight. |
 | `PENALTY_W_ALTITUDE` (L287) | float | `100.0` | Altitude-error penalty. |
 | `PENALTY_W_VELOCITY` (L288) | float | `100.0` | Velocity-error penalty. |
@@ -413,7 +413,7 @@ atmospheric arc.
 | `PSO_DIRECT_N_PARTICLES` (L351) | `50` | Swarm size. |
 | `PSO_DIRECT_MAX_GENERATIONS` (L352) | `100` | Max generations. |
 | `PSO_DIRECT_C1`/`C2`/`OMEGA`/`VMAX`/`SEED` (L353–357) | `2.05`/`2.05`/`0.7298`/`0.5`/`42` | Standard PSO hyperparameters. |
-| `PSO_DIRECT_LB` / `PSO_DIRECT_UB` (L360–361) | `[1.54, 50.0]` / `[1.57, 100.0]` | Bounds for `[γ_p (rad), t_burn% of T_MAX_2]`. |
+| `PSO_DIRECT_LB` / `PSO_DIRECT_UB` | `[1.50, 50.0]` / `[1.57, 100.0]` | Bounds for `[γ_p (rad), t_burn% of T_MAX_2]`. |
 | `PSO_DIRECT_W_J`/`W_ALTITUDE`/`W_VELOCITY`/`W_FPA` | `1.0`/`100.0`/`100.0`/**`3.0`** | Objective penalty weights (4-term, no transversality). Summed into ONE scalar — `get_nobj()` is 1 and there are no PyGMO constraints — so the terms **trade**: 1 objective unit = 5 km of altitude = 71.7 m/s = 0.1° of FPA = the whole maximum Stage-2 burn. Equivalently the objective declares **50 km ≡ 1°**. |
 | `PSO_DIRECT_GAMMA_REF_DEG` | `1.0` | FPA non-dimensionalization reference [deg]. |
 
@@ -440,6 +440,32 @@ Section 6.2 compares, which is why the setting prefers it. `pso_coast` keeps
 Changing this invalidates the two `direct` cases (`gt_direct`, `peg_direct`) and
 nothing else.
 
+
+**The gamma_p lower bound was 1.54 until 2026-09-01, and it was BINDING.** Six of
+the twenty results-matrix cases converged to it exactly — `gt_vacuum`,
+`peg_vacuum`, `pmp_vacuum`, `peg_vacuum_norot` (near), `show_bilinear_tangent`
+and `gt_apogee` — and the split falls almost exactly on the atmosphere factor.
+The mechanism: `INCLUDE_DRAG=False` is the master no-atmosphere switch, so it
+also zeroes ambient pressure and Stage 1 flies **vacuum thrust**. Higher T/W
+means the vehicle wants to pitch over harder and sooner; the bound refused, it
+flew too steep, and the cost surfaced as gravity loss. Measured on `gt_vacuum` at
+full budget, 1.54 → 1.50:
+
+| | 1.54 | 1.50 |
+|---|---|---|
+| gravity loss | 2376 m/s | **1749 m/s** |
+| propellant remaining | 17758 kg | **22025 kg** |
+| J' | 0.808 | **0.770** |
+| converged gamma_p | 1.539945 (at bound) | 1.522032 (0.022 clear) |
+
+It also corrected an ordering that had been backwards: the vacuum case now
+finishes cheaper than the atmospheric one, as it must. **All four LB lists and
+`Simulation/solver.py` must stay in step** — solver.py's apogee_check brute grid
+now reads `PSO_COAST_LB[3]`/`PSO_COAST_UB[3]` rather than its own hardcoded
+`(1.54, 1.57)`, which had matched only by coincidence and would have been left
+behind by this change. Widening invalidates every archived case, since the search
+space is shared.
+
 ### 2.11 Optimizer — `pso_coast` PSO (only when `COAST_METHOD="pso_coast"`)
 
 > Requires PyGMO — `pso_coast_solver.py:843` raises `ImportError` if absent.
@@ -449,7 +475,7 @@ nothing else.
 | `PSO_COAST_N_PARTICLES` (L373) | `100` | Swarm size. |
 | `PSO_COAST_MAX_GENERATIONS` (L374) | `250` | Max generations. |
 | `PSO_COAST_C1`/`C2`/`OMEGA`/`VMAX`/`SEED` (L375–379) | `2.05`/`2.05`/`0.7298`/`0.5`/`42` | Standard PSO hyperparameters. |
-| `PSO_COAST_LB` / `PSO_COAST_UB` (L385–386) | `[0, 50, 0, 1.54]` / `[1000, 100, 100, 1.57]` | Bounds for `[Δt_c, Δt_r%, coast_start%, γ_p]`. |
+| `PSO_COAST_LB` / `PSO_COAST_UB` | `[0, 50, 0, 1.50]` / `[1000, 100, 100, 1.57]` | Bounds for `[Δt_c, Δt_r%, coast_start%, γ_p]`. |
 | `PSO_COAST_W_J`/`W_ALTITUDE`/`W_VELOCITY`/`W_FPA` (L394–397) | `1.0`/`100.0`/`100.0`/`10.0` | Objective penalty weights (4-term, no transversality). |
 | `PSO_COAST_GAMMA_REF_DEG` (L398) | `1.0` | FPA non-dimensionalization reference [deg]. |
 
@@ -463,7 +489,7 @@ The segmented solver has its **own** PSO block (`simulation_parameters.py` §11d
 |---|---|---|
 | `PSO_MG_N_PARTICLES` / `PSO_MG_MAX_GENERATIONS` | `100` / `250` | Swarm size / generations. |
 | `PSO_MG_C1`/`C2`/`OMEGA`/`VMAX`/`SEED` | `2.05`/`2.05`/`0.7298`/`0.5`/`42` | Standard PSO hyperparameters. |
-| `PSO_MG_LB` / `PSO_MG_UB` | `[0,50,0,1.54]` / `[1000,100,100,1.57]` | Bounds for the 4 base vars `[Δt_c, Δt_r%, coast_start%, γ_p]`. Under `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§1b), `(n−1)` altitude-fraction vars ∈ `[0,1]` are appended. |
+| `PSO_MG_LB` / `PSO_MG_UB` | `[0,50,0,1.50]` / `[1000,100,100,1.57]` | Bounds for the 4 base vars `[Δt_c, Δt_r%, coast_start%, γ_p]`. Under `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§1b), `(n−1)` altitude-fraction vars ∈ `[0,1]` are appended. |
 
 ### 2.12 Numerical / output
 
