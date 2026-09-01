@@ -149,20 +149,39 @@ BASELINE = {
     # two factors rather than one, invisibly, since nothing downstream reports
     # the kick profile.
     "KICK_PROFILE_MODE": "instantaneous",
-    # The guidance laws that consume a scalar t_go are given the PSO's own
-    # planned burn-arc countdown (deadline - t) rather than estimating it
-    # themselves. Reaches exactly four cases -- show_linear_tangent,
-    # show_bilinear_tangent, show_apollo, show_peg. gravity_turn computes no
-    # guidance at all and peg_new solves its own t_go internally, so every case
-    # in Sections 6.2 and 6.3 is bit-identical either way (verified: J and the
-    # full state vector agree to 16 digits with the flag off and on).
+    # Each guidance law estimates its own t_go rather than being handed the
+    # swarm's planned burn-arc countdown. Set True once and measured at full
+    # budget on the four cases it reaches -- show_linear_tangent,
+    # show_bilinear_tangent, show_apollo, show_peg -- and it does not pay:
     #
-    # TGO_ESTIMATOR is therefore INERT across the whole matrix: _tgo_for_guidance
-    # returns the planned countdown before it ever reaches _compute_tgo_stage2.
-    # It is left pinned so the manifest records a definite value rather than
-    # whatever the shipped config happens to be.
+    #   law                J' plan / own      propellant plan / own [kg]
+    #   linear_tangent       0.779 / 0.786      19434 / 20282
+    #   bilinear_tangent     0.783 / 0.769      19643 / 21236
+    #   apollo               0.925 / 0.915      11110 / 11101
+    #   peg                 (invalid) / 1.003     ---- /  5925
+    #
+    # Two of the three valid comparisons favour the law's own estimate, and it
+    # wins on propellant by 848 and 1593 kg. A reduced-budget rehearsal had
+    # suggested a large gain for the planned countdown; that was
+    # under-convergence, not signal.
+    #
+    # peg is worse than unhelpful under the planned countdown: the swarm
+    # reported J'=0.888 and the replayed trajectory scored 7.679 against the
+    # same objective -- the optimum was not reproducible, and the archived orbit
+    # was e=0.032 with periapsis 80.6 km. Under its own estimate the same case
+    # reconciles exactly (1.003) and inserts at 499.82 km, e=9e-5. Suspected
+    # cause, NOT yet isolated: GuidanceState is mutated inside the ODE
+    # right-hand side, which solve_ivp calls at speculative times, and the
+    # planned path builds peg's coefficients from a direct compute_peg_AB rather
+    # than the iterative converge_peg, so it is far more sensitive to step
+    # timing. Same hazard class as the fairing latch.
+    #
+    # Sections 6.2 and 6.3 are unaffected either way: gravity_turn computes no
+    # guidance at all and peg_new solves its own t_go internally (verified
+    # bit-identical to 16 digits). TGO_ESTIMATOR is live again with the flag
+    # off, and applies to apollo / linear_tangent / bilinear_tangent.
     "TGO_ESTIMATOR": "rocket_equation",
-    "GUIDANCE_TGO_USE_PSO_PLAN": True,
+    "GUIDANCE_TGO_USE_PSO_PLAN": False,
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.
     # Required for the pressure loss of Auxiliary/losses.py to be meaningful.
     "ISP_1_MODE": "pressure",
