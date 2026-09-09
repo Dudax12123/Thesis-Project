@@ -97,7 +97,12 @@ def loss_budget(cases):
     ax.invert_yaxis()
     ax.axvline(0.0, color=st.INK, linewidth=0.8)
     ax.set_xlabel(r"$\Delta v$ [m/s]   (losses right of zero, gain left)")
-    st.tidy(ax, legend_loc="lower right")
+    # Below the axes in one row, not inside them: the bars span the full width
+    # at every row, so there is no interior corner a legend can occupy without
+    # covering a segment or one of the total labels.
+    st.tidy(ax, legend_loc="upper center",
+            legend_kw={"bbox_to_anchor": (0.5, -0.18), "ncol": 5,
+                       "columnspacing": 1.4, "handlelength": 1.4})
 
     fig.tight_layout()
     return st.save(fig, "results_loss_budget.png")
@@ -177,19 +182,34 @@ def law_ranking(cases):
                     color=st.INK if ok else st.FAILED)
 
     ref = cases.get("pmp_baseline")
+    note = None
     if ref is not None and ref.row.get("prop_remaining_kg") is not None:
         ref_t = ref.row["prop_remaining_kg"] / 1e3
+        note = _data.force_model_note(ref, [cases[n] for n in present])
+        # Named a comparison, not a reference, whenever the PMP did not fly the
+        # same equations of motion as the bars: three of these laws finish above
+        # the line, and a reader who takes the line for an optimality bound
+        # reads that as a converged optimiser being beaten rather than as two
+        # force models being compared.
         ax.axvline(ref_t, color=st.REFERENCE, linestyle="--", linewidth=1.1,
-                   label="Indirect PMP reference (%.2f t)" % ref_t)
+                   label="Indirect PMP%s (%.2f t)"
+                         % ("" if note else " reference", ref_t))
 
     ax.set_yticks(np.arange(len(records)))
     ax.set_yticklabels([r[0] for r in records])
     ax.set_xlabel("Propellant remaining at insertion [t]")
-    n_invalid = len(invalid)
-    if n_invalid:
-        ax.annotate("hatched: target orbit not reached, not ranked",
-                    xy=(0.02, 0.02), xycoords="axes fraction", fontsize=7,
-                    color=st.FAILED)
+    # Under the axes, not in the lower-left corner: the bars start at zero on
+    # every row, so any note placed inside sits on top of one of them or ends
+    # up crowding the legend.
+    footnotes = []
+    if invalid:
+        footnotes.append("hatched: target orbit not reached, not ranked")
+    if note:
+        footnotes.append("dashed line is a comparison, not a bound: "
+                         "indirect PMP is %s" % note)
+    for i, text in enumerate(footnotes):
+        ax.annotate(text, xy=(0.0, -0.16 - 0.075 * i), xycoords="axes fraction",
+                    fontsize=6.5, color=st.FAILED, va="top")
     st.tidy(ax, legend_loc="lower right")
     fig.tight_layout()
     return st.save(fig, "results_law_ranking.png")
@@ -212,7 +232,7 @@ def accuracy_vs_propellant(cases):
         target = ref.row.get("insertion_alt_km")
 
     fig, ax = plt.subplots(figsize=st.WIDE_1)
-    plotted = 0
+    plotted, labels, any_failed = 0, [], False
     for i, name in enumerate(present):
         case = cases[name]
         prop = case.row.get("prop_remaining_kg")
@@ -227,25 +247,45 @@ def accuracy_vs_propellant(cases):
         ax.scatter(spread, prop / 1e3, s=34, color=colour,
                    edgecolor="white", linewidth=0.6, zorder=3,
                    marker="o" if case.reached_orbit else "X")
-        ax.annotate(st.law_label(case.law), xy=(spread, prop / 1e3),
-                    xytext=(5, 4), textcoords="offset points", fontsize=7,
-                    color=st.INK)
+        labels.append(ax.annotate(
+            st.law_label(case.law), xy=(spread, prop / 1e3),
+            xytext=(5, 4), textcoords="offset points", fontsize=7,
+            color=st.INK, zorder=4))
+        any_failed = any_failed or not case.reached_orbit
         plotted += 1
 
     if not plotted:
         return _skip("F6.13 accuracy vs propellant", ["any case with orbit elements"])
 
+    note = None
     if ref is not None and ref.row.get("prop_remaining_kg") is not None:
+        note = _data.force_model_note(ref, [cases[n] for n in present])
         ax.axhline(ref.row["prop_remaining_kg"] / 1e3, color=st.REFERENCE,
-                   linestyle="--", linewidth=1.1, label="Indirect PMP reference")
+                   linestyle="--", linewidth=1.1,
+                   label="Indirect PMP%s" % ("" if note else " reference"))
 
     ax.set_xscale("symlog", linthresh=1.0)
     ax.set_xlabel("Apoapsis-periapsis spread at insertion [km]   (lower is better)")
     ax.set_ylabel("Propellant remaining [t]")
-    ax.annotate("X: target orbit not reached", xy=(0.02, 0.04),
-                xycoords="axes fraction", fontsize=7, color=st.FAILED)
+
+    # The footnotes go under the axes rather than inside them. Half the laws
+    # land in the linear region of the symlog axis, so the lower-left corner
+    # they used to occupy is where the densest cluster of points and labels is.
+    footnotes = []
+    if any_failed:
+        footnotes.append("X: target orbit not reached")
+    if note:
+        footnotes.append("dashed line is a comparison, not a bound: "
+                         "indirect PMP is %s" % note)
+    if footnotes:
+        ax.annotate("   ".join(footnotes), xy=(0.0, -0.22),
+                    xycoords="axes fraction", fontsize=6.5, color=st.FAILED,
+                    va="top")
     st.tidy(ax, legend_loc="lower left")
     fig.tight_layout()
+    # Placed last: the de-collider measures rendered extents, so it has to run
+    # after every artist that moves them -- the legend and tight_layout both.
+    st.dodge_labels(fig, labels)
     return st.save(fig, "results_accuracy_vs_propellant.png")
 
 

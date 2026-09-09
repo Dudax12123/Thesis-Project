@@ -46,12 +46,17 @@ def showcase_laws(cases):
                             wspace=0.35, right=0.80)
     ax_traj = fig.add_subplot(grid[0, :])
 
-    for name in ("gt_baseline", "peg_baseline"):
-        if name in cases:
-            case = cases[name]
-            s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
-            ax_traj.plot(s_km, alt_km, color=st.FAINT, linewidth=1.0,
-                         label=st.law_label(case.law), zorder=1)
+    # Both context traces share the faint grey that marks them as background,
+    # so the linestyle is what tells them apart -- drawn in the same colour and
+    # the same style they would be two legend entries a reader cannot match to
+    # a curve.
+    for i, name in enumerate(n for n in ("gt_baseline", "peg_baseline")
+                             if n in cases):
+        case = cases[name]
+        s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
+        ax_traj.plot(s_km, alt_km, color=st.FAINT, linewidth=1.0,
+                     linestyle=st.context_style(i),
+                     label=st.law_label(case.law), zorder=1)
 
     for i, name in enumerate(present):
         case = cases[name]
@@ -132,12 +137,15 @@ def segmented_handoff(cases):
     fixed, opt = cases["show_seg_fixed_alt"], cases["show_seg_opt_alt"]
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
 
-    for name in ("gt_baseline", "peg_baseline"):
-        if name in cases:
-            case = cases[name]
-            s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
-            ax_a.plot(s_km, alt_km, color=st.FAINT, linewidth=1.0,
-                      label="%s alone" % st.law_label(case.law), zorder=1)
+    # Linestyle, not colour, separates the two background traces: see the note
+    # in showcase_laws.
+    for i, name in enumerate(n for n in ("gt_baseline", "peg_baseline")
+                             if n in cases):
+        case = cases[name]
+        s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
+        ax_a.plot(s_km, alt_km, color=st.FAINT, linewidth=1.0,
+                  linestyle=st.context_style(i),
+                  label="%s alone" % st.law_label(case.law), zorder=1)
 
     for case, colour, label in ((fixed, st.BASELINE, "Hand-off fixed"),
                                 (opt, st.VARIANT, "Hand-off optimised")):

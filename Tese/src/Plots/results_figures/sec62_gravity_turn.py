@@ -229,7 +229,7 @@ def engine(cases):
     ax_mdot.set_ylabel("Mass flow [kg/s]  (dotted)")
     ax_mdot.spines["top"].set_visible(False)
     for case, colour in ((base, st.BASELINE), (sl, st.VARIANT)):
-        label = "%s nozzle" % case.row.get("thrust_1_mode", "?")
+        label = st.nozzle_label(case.row.get("thrust_1_mode", "?"))
         end = case.t_meco if case.t_meco else case.time[-1]
         sel = case.time <= end
         t, thr = st.thin(case.time[sel], case.thrust[sel])
@@ -244,22 +244,46 @@ def engine(cases):
     st.panel_tag(ax_a, "a")
     st.tidy(ax_a, legend_loc="lower right")
 
+    # The two nozzle models are compared on what reaches orbit, and that
+    # difference is a couple of tonnes against a 517 t launch mass -- invisible
+    # on an axis scaled to the launch mass. The inset zooms the post-MECO tail,
+    # where the whole of the difference is.
+    ax_zoom = ax_b.inset_axes([0.42, 0.38, 0.55, 0.56])
+    end_labels = []
     for case, colour in ((base, st.BASELINE), (sl, st.VARIANT)):
         t, m = st.thin(case.time, case.mass)
         ax_b.plot(t, m / 1e3, color=colour,
-                  label="%s" % case.row.get("thrust_1_mode", "?"))
+                  label=st.nozzle_label(case.row.get("thrust_1_mode", "?")))
         if case.t_meco is not None:
             ax_b.axvline(case.t_meco, color=colour, linestyle=":", linewidth=0.9)
             ax_b.annotate("MECO %.0f s" % case.t_meco,
                           xy=(case.t_meco, 1.0), xycoords=("data", "axes fraction"),
                           xytext=(2, -9), textcoords="offset points",
                           fontsize=6.5, color=colour, rotation=90, va="top")
+
+        tail = case.time >= (case.t_meco or 0.0)
+        t_tail, m_tail = st.thin(case.time[tail], case.mass[tail])
+        ax_zoom.plot(t_tail, m_tail / 1e3, color=colour, linewidth=1.0)
+        end_labels.append(ax_zoom.annotate(
+            "%.1f t" % (m_tail[-1] / 1e3),
+            xy=(t_tail[-1], m_tail[-1] / 1e3), xytext=(3, 0),
+            textcoords="offset points", fontsize=6.5, color=colour))
+
+    ax_zoom.set_title("After MECO", fontsize=6.5, pad=2)
+    ax_zoom.tick_params(labelsize=6)
+    ax_zoom.margins(x=0.22)
+    for side in ("top", "right"):
+        ax_zoom.spines[side].set_visible(False)
+
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel("Total mass [t]")
     st.panel_tag(ax_b, "b")
-    st.tidy(ax_b)
+    # No legend here: it would repeat panel (a)'s in the same two colours, and
+    # the only corner with room for it is the one the inset occupies.
+    st.tidy(ax_b, legend=False)
 
     fig.tight_layout()
+    st.dodge_labels(fig, end_labels)
     return st.save(fig, "results_gt_engine.png")
 
 

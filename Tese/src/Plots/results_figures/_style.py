@@ -87,6 +87,21 @@ ARCH_LABELS = {
     "segmented": "Segmented",
 }
 
+# The Stage-1 nozzle models, as THRUST_1_MODE spells them. A raw config
+# identifier is a fine dictionary key and a poor axis label: "sea_level" in a
+# legend reads as a leaked variable name rather than as a modelling choice.
+NOZZLE_LABELS = {
+    "pressure": "Pressure-dependent nozzle",
+    "sea_level": "Constant sea-level nozzle",
+    "vacuum": "Constant vacuum nozzle",
+}
+
+# Linestyles for the faint background traces a figure draws for orientation.
+# The colour carries "this is context, not the subject"; the linestyle is what
+# separates one context trace from another, because two of them in the same
+# faint grey produce two legend entries a reader cannot tell apart.
+CONTEXT_STYLES = ["-", "-."]
+
 
 def law_label(name):
     return LAW_LABELS.get(name, str(name))
@@ -94,6 +109,15 @@ def law_label(name):
 
 def arch_label(name):
     return ARCH_LABELS.get(name, str(name))
+
+
+def nozzle_label(name):
+    return NOZZLE_LABELS.get(name, str(name))
+
+
+def context_style(index):
+    """Linestyle for the *index*-th faint background trace."""
+    return CONTEXT_STYLES[index % len(CONTEXT_STYLES)]
 
 
 def use_thesis_style():
@@ -119,8 +143,13 @@ def use_thesis_style():
     })
 
 
-def tidy(ax, legend=True, legend_loc="best"):
-    """The house treatment: light grid, no top/right spines, optional legend."""
+def tidy(ax, legend=True, legend_loc="best", legend_kw=None):
+    """The house treatment: light grid, no top/right spines, optional legend.
+
+    *legend_kw* is passed through to ``ax.legend``, which is how a figure whose
+    data fills the axes puts the legend outside them instead of letting
+    ``loc="best"`` drop it on top of a bar.
+    """
     ax.grid(True, color=FAINT, linewidth=0.5, alpha=0.8)
     ax.set_axisbelow(True)
     for side in ("top", "right"):
@@ -128,7 +157,43 @@ def tidy(ax, legend=True, legend_loc="best"):
     for side in ("left", "bottom"):
         ax.spines[side].set_color(INK)
     if legend and ax.get_legend_handles_labels()[0]:
-        ax.legend(loc=legend_loc)
+        ax.legend(loc=legend_loc, **(legend_kw or {}))
+
+
+def dodge_labels(fig, annotations, pad=1.0):
+    """Nudge point labels apart vertically until none of them overlap.
+
+    Several of the laws land within a few hundred kilograms and a few hundred
+    metres of each other, so the single fixed offset every label starts from
+    puts two or three of them on the same pixels. The overlaps are resolved
+    from the rendered extents rather than from hand-tuned per-case offsets,
+    which would silently rot the next time the batch is re-flown and the
+    numbers move.
+
+    Labels are placed from the bottom up, each pushed clear of every label
+    already placed that shares its horizontal span.
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    to_points = 72.0 / fig.dpi
+
+    placed = []
+    for ann in sorted(annotations, key=lambda a: a.xy[1]):
+        box = ann.get_window_extent(renderer=renderer)
+        # One pass is enough: `placed` is in ascending order, so clearing the
+        # highest overlapping box clears every box below it too.
+        rise = 0.0
+        for other in placed:
+            horizontal_overlap = (box.x1 + pad > other.x0
+                                  and box.x0 - pad < other.x1)
+            if horizontal_overlap and other.y1 + pad > box.y0 + rise:
+                rise = other.y1 + pad - box.y0
+        if rise > 0.0:
+            dx, dy = ann.get_position()
+            ann.set_position((dx, dy + rise * to_points))
+            fig.canvas.draw()
+            box = ann.get_window_extent(renderer=renderer)
+        placed.append(box)
 
 
 def panel_tag(ax, letter):

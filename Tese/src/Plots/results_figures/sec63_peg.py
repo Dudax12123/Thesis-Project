@@ -129,21 +129,41 @@ def peg_environment(cases):
     st.panel_tag(ax_a, "a")
     st.tidy(ax_a)
 
+    # Stage 1 burns roughly 460 t of the 489 t on board, so on an axis that has
+    # to show the launch mass the quantity being compared -- what is left at
+    # insertion, some 2 t apart across the three cases -- occupies the bottom
+    # few percent and the three end labels land on each other. The main panel
+    # keeps the depletion for context; the inset carries the comparison.
+    ax_zoom = ax_b.inset_axes([0.40, 0.36, 0.57, 0.58])
+    end_labels = []
     for name, colour, label in zip(names, colours, labels):
         case = cases[name]
         t, prop = st.thin(case.time, case.prop_kg)
         ax_b.plot(t, prop / 1e3, color=colour, label=label)
+
+        tail = case.time >= (case.t_meco or 0.0)
+        t_tail, prop_tail = st.thin(case.time[tail], case.prop_kg[tail])
+        ax_zoom.plot(t_tail, prop_tail / 1e3, color=colour, linewidth=1.0)
         remaining = case.row.get("prop_remaining_kg")
         if remaining is not None:
-            ax_b.annotate("%.1f t" % (remaining / 1e3),
-                          xy=(t[-1], prop[-1] / 1e3), xytext=(3, 0),
-                          textcoords="offset points", fontsize=7, color=colour)
+            end_labels.append(ax_zoom.annotate(
+                "%.1f t" % (remaining / 1e3),
+                xy=(t_tail[-1], prop_tail[-1] / 1e3), xytext=(3, 0),
+                textcoords="offset points", fontsize=6.5, color=colour))
+
+    ax_zoom.set_title("After MECO", fontsize=6.5, pad=2)
+    ax_zoom.tick_params(labelsize=6)
+    ax_zoom.margins(x=0.22)
+    for side in ("top", "right"):
+        ax_zoom.spines[side].set_visible(False)
+
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel("Propellant remaining [t]")
     st.panel_tag(ax_b, "b")
     st.tidy(ax_b, legend=False)
 
     fig.tight_layout()
+    st.dodge_labels(fig, end_labels)
     return st.save(fig, "results_peg_environment.png")
 
 
@@ -164,8 +184,13 @@ def reference_trajectory(cases):
     if "pmp_vacuum" in cases:
         primary.append((cases["pmp_vacuum"], st.REFERENCE, "--",
                         "Indirect PMP, no atmosphere"))
-    context = [(cases[n], st.FAINT, "-", st.law_label(cases[n].law))
-               for n in ("gt_baseline", "peg_baseline") if n in cases]
+    # The two background traces share the faint grey; the linestyle is what
+    # distinguishes them, since two identical faint entries in the legend
+    # cannot be matched to their curves.
+    context = [(case, st.FAINT, st.context_style(i), st.law_label(case.law))
+               for i, case in enumerate(
+                   cases[n] for n in ("gt_baseline", "peg_baseline")
+                   if n in cases)]
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
     for case, colour, style, label in context + primary:

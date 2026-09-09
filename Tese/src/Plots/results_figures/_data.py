@@ -330,3 +330,51 @@ def missing_from(cases, *names):
     of failing on the first case that has not been flown yet.
     """
     return [n for n in names if n not in cases]
+
+
+# The physics switches that decide whether two cases were flown under the same
+# equations of motion, and how to name each one when it differs.
+_FORCE_MODEL_KEYS = (
+    ("pseudo_forces_flown", "without the rotating-frame pseudo-forces",
+     "with the rotating-frame pseudo-forces"),
+    ("include_drag", "without drag", "with drag"),
+)
+
+
+def force_model_note(ref, others):
+    """How *ref*'s force model differs from the cases it is drawn against.
+
+    The indirect-PMP architecture integrates costate equations derived for the
+    drag-free, non-rotating equations of motion, so ``ra.set_pseudo_forces_for_run``
+    switches Coriolis and centrifugal off for it even on a case that requests
+    them -- which is why ``pseudo_forces_flown`` is False there while every
+    ``pso_coast`` case has it True.
+
+    That makes the PMP result a comparison and not an optimality bound: some of
+    any gap between it and a closed-loop law is the force model rather than the
+    guidance. Every figure that draws the line asks for this note and prints it,
+    so the distinction cannot be lost between the figure and its caption.
+
+    Returns a phrase naming the difference, or None when the models agree (in
+    which case the line really is a like-for-like reference and says so).
+    """
+    peers = [c for c in others if c is not None and c is not ref]
+    if ref is None or not peers:
+        return None
+
+    differences = []
+    for key, when_false, when_true in _FORCE_MODEL_KEYS:
+        ref_value = ref.row.get(key)
+        peer_values = {c.row.get(key) for c in peers}
+        # Only a switch every peer agrees on can be said to differ from the
+        # reference; a mixed field is the figure's own business to explain.
+        if ref_value is None or len(peer_values) != 1:
+            continue
+        peer_value = peer_values.pop()
+        if peer_value is None or bool(ref_value) == bool(peer_value):
+            continue
+        differences.append(when_true if ref_value else when_false)
+
+    if not differences:
+        return None
+    return "flown " + " and ".join(differences)
