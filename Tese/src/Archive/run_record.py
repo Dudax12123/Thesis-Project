@@ -45,6 +45,60 @@ def architecture(sim_params):
     return sim_params.COAST_METHOD
 
 
+def powered_arc_ends_in_rotating_frame(arch):
+    """Whether the delta-v budget window closes on a rotating-frame sample.
+
+    ``dv_achieved`` is ``v[-1] - v[0]`` over the powered arc, so which FRAME
+    that endpoint sits in decides what the number means. Every architecture
+    that propagates a post-SECO coast has had its state converted to the
+    inertial frame by then, and the budget window --
+    ``searchsorted(t_seco, 'right')`` -- lands on a converted sample, so their
+    dv_achieved is already inertial and must be left alone.
+
+    ``indirect_pmp`` records no ``t_seco`` and carries no post-SECO arc, so its
+    window ends on the last integrated sample, still rotating. Its dv_achieved
+    came out 440.77 m/s short -- the whole of omega*r*cos(lat_launch) at the
+    insertion radius -- and the residual absorbed it, reporting +312 m/s where
+    every other case sits near -128. That number was being read as evidence
+    about the missing pseudo-forces rather than as the frame bookkeeping it is.
+
+    Keyed on the architecture rather than sniffed from the data: the obvious
+    test -- "is v[-1] near circular speed?" -- would silently flip on any case
+    that inserts off-target, which is exactly when the budget matters most.
+    """
+    return arch == "indirect_pmp"
+
+
+def _correct_dv_achieved_frame(row, sim_params, data, idx):
+    """Put ``dv_achieved`` in the inertial frame where the budget left it rotating.
+
+    Applied in place, and idempotent: it fires only while the recorded
+    dv_achieved still matches the raw rotating-frame difference, so re-running
+    it over an already-corrected archive is a no-op. ``residual`` absorbs the
+    same shift with the opposite sign, keeping the budget identity closed.
+    """
+    from Simulation import rocket_ascent as ra
+
+    if not powered_arc_ends_in_rotating_frame(row.get('architecture')):
+        return
+    # With the rotation off there is no rotating/inertial distinction to fix.
+    if not sim_params.ENABLE_EARTH_ROTATION:
+        return
+    if row.get('dv_achieved') is None or row.get('residual') is None:
+        return
+
+    v_start, v_end = float(data[2, 0]), float(data[2, idx - 1])
+    if abs(row['dv_achieved'] - (v_end - v_start)) > 1e-3:
+        return                                    # already corrected
+
+    v_inertial, _gamma = ra.get_inertial_state_components(
+        float(data[1, idx - 1]), v_end, float(data[3, idx - 1]),
+        np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    corrected = v_inertial - v_start
+    row['residual'] = round(row['residual'] + row['dv_achieved'] - corrected, 3)
+    row['dv_achieved'] = round(corrected, 3)
+
+
 def guidance_label(sim_params, extra):
     """What actually flew, which is not always GUIDANCE_MODE.
 
@@ -474,6 +528,7 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
     )
     row.update({k: (v if isinstance(v, bool) else round(float(v), 3))
                 for k, v in budget.items()})
+    _correct_dv_achieved_frame(row, sim_params, data, idx)
 
     # Convergence history, the evidence that the budget was adequate. The
     # solvers record it as {'gen': array, 'gbest': array}; apogee_check has none.
