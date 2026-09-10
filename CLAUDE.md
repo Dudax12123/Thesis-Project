@@ -215,6 +215,19 @@ in an `interrupt_*` function as a **signed function of the state passed in**, wi
 so only the intended crossing counts — `interrupt_fairing_jettison` returns `q − threshold` with
 `direction = -1`, because q is below the threshold early in flight as well as late.
 
+MECO had the same defect and was fixed the same way (`interrupt_main_engine_cutoff`, returning
+`m − _stage1_burnout_mass()`): burnout masses scattered from −701 to +235 kg around the 120270.0 kg
+every case should share, ~936 kg across the matrix, on a quantity no guidance law controls. Read
+the crossing out of `t_events`/`y_events`, **not** `sol.t[-1]`/`sol.y[:, -1]` — with a terminal
+event scipy truncates `t_eval` at the last grid point at or before the root and never appends the
+root, so the grid endpoint quantises the cutoff to `TIME_STEP` (~27 kg at `mdot_1`). Stage 1 is now
+flown by one shared `_fly_stage1()` for both dispatchers: burn → fairing → root-found MECO →
+unpowered coast to separation, the separation being a planned interval integrated to exactly.
+`event_second_engine_ignition` is **still latched** from the RHS — left deliberately, since it
+compares against a planned time rather than an integrated state and is reached only on the legacy
+`apogee_check` path (measured: ~49 ms late; every PSO architecture uses an explicit
+`_T_IGNITION_DELAY` instead).
+
 **Fairing jettison is a planned altitude crossing, and all five architectures share it.**
 `FAIRING_JETTISON_MODE` defaults to `"altitude"` — `ALT_NO_ATMOSPHERE`, 65 km — rather than to
 whatever `ATMOSPHERE_EXIT_METHOD` happens to be. Under the old q-based rule the jettison landed

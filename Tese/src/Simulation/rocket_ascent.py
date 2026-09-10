@@ -204,29 +204,48 @@ def interrupt_radius_check(t, y):
     return 1
 
 
-def interrupt_stage_separation(t, y):
-    """
-    Returns zero if the stage separation should be performed.
-    
-    Parameters:
-    -----------
-    t : float
-        Current time since launch [s]
-    y : array
-        Current state vector
-        
-    Returns:
-    --------
-    int : 0 if interrupt triggered, 1 otherwise
-    """
-    global time_main_engine_cutoff, main_engine_cutoff
+def _stage1_burnout_mass():
+    """Vehicle mass at which the Stage-1 tank is empty -- the MECO criterion.
 
-    if main_engine_cutoff:
-        if t >= (time_main_engine_cutoff + r.TIME_First_STAGE_SEPARATION):
-            if sim_params.INTERRUPTS_PRINT:
-                print("Interrupt Stage Separation happened at time ", t)
-            return 0
-    return 1
+    A single expression of it, shared by the event below and by anything that
+    reports against it, exactly as _fairing_margin() is shared, so the two
+    cannot drift. For the shipped vehicle this is 120270.0 kg once the fairing
+    has gone.
+
+    ``fairing_jettisoned`` is read here, but it only ever changes at a segment
+    boundary and never inside an ODE right-hand side, so within any one
+    solve_ivp call this is a constant -- which is what keeps
+    interrupt_main_engine_cutoff a pure function of the state passed in.
+    """
+    stage1_dry = r.M_STRUCTURE_1 - (r.M_FAIRING if fairing_jettisoned else 0.0)
+    return stage1_dry + r.M_STRUCTURE_2 + r.M_PROP_2 + r.M_PAYLOAD
+
+
+def interrupt_main_engine_cutoff(t, y):
+    """Signed Stage-1 propellant remaining, for solve_ivp to root-find.
+
+    Positive while the first stage still has propellant, negative once it is
+    dry, computed from the state passed in and setting nothing. Registered with
+    direction=-1 so only the downward crossing counts.
+
+    This replaces event_main_engine_cutoff(), which was called from INSIDE
+    rocket_dynamics and latched main_engine_cutoff / time_main_engine_cutoff as
+    a side effect -- the exact anti-pattern that had already been repaired for
+    the payload fairing (see the long note on interrupt_fairing_jettison). MECO
+    was simply left behind.
+
+    solve_ivp evaluates the right-hand side at speculative times up to max_step
+    (1 s here) beyond the step it goes on to accept, so the latch fired at
+    whichever trial sample first showed a dry tank, and thrust then stayed off
+    for every later evaluation -- including ones the integrator did accept. At
+    mdot_1 ~ 2740 kg/s a sub-step sampling lead is hundreds of kilograms of
+    mass. Measured burnout masses scattered from -701 to +235 kg around the
+    120270.0 kg they should all share: pmp_baseline burned 459 kg more Stage-1
+    propellant than its tank holds, while gt_baseline cut off 179 kg early and
+    was handed the difference as free Stage-2 propellant. That is ~936 kg of
+    spread across the results matrix, on a quantity no guidance law controls.
+    """
+    return y[4] - _stage1_burnout_mass()
 
 
 def interrupt_fairing_jettison(t, y):
@@ -537,41 +556,27 @@ def interrupt_direct_insertion(t, y):
 # Event functions
 #===================================================
 
-def event_main_engine_cutoff(t, y):
-    """
-    Checks if there is still propellant in the first stage and 
-    triggers engine cutoff event when there isn't.
-    
-    Parameters:
-    -----------
-    t : float
-        Current time since launch [s]
-    y : array
-        Current state vector
-    """
-    global main_engine_cutoff, time_main_engine_cutoff
-    
-    if main_engine_cutoff == True:
-        return
-    
-    stage1_dry = r.M_STRUCTURE_1 - (r.M_FAIRING if fairing_jettisoned else 0.0)
-    first_stage_leftover_propellant = y[4] - (stage1_dry + r.M_STRUCTURE_2 +
-                                               r.M_PROP_2 + r.M_PAYLOAD)
-    
-    if first_stage_leftover_propellant <= 0 and main_engine_cutoff == False:
-        main_engine_cutoff = True
-        time_main_engine_cutoff = t
-
-        if sim_params.EVENTS_PRINT:
-            print("Main engine cutoff at t = ", t)
-
-    return
+# event_main_engine_cutoff() used to live here. It was called from inside
+# rocket_dynamics and latched main_engine_cutoff/time_main_engine_cutoff from
+# whatever time solve_ivp happened to sample. It is now
+# interrupt_main_engine_cutoff, root-found as a terminal event on the Stage-1
+# burn and assigned at the segment boundary in _fly_stage1().
 
 
 def event_second_engine_ignition(t):
     """
     Triggers second stage engine ignition.
-    
+
+    STILL LATCHED FROM THE ODE RIGHT-HAND SIDE, and so still able to light the
+    second stage up to max_step (1 s) early -- the same defect
+    interrupt_main_engine_cutoff was written to remove. It is left in place
+    because its blast radius is far smaller: this is a comparison against a
+    planned time rather than against an integrated state, and it is reached
+    only on the legacy apogee_check path. Every PSO architecture ignites at an
+    explicit _T_IGNITION_DELAY offset computed in Python, never here. Fixing it
+    means splitting the Stage-2 propagation at t_meco + TIME_SECOND_ENGINE_IGNITION
+    the way _fly_stage1() splits Stage 1 at MECO.
+
     Parameters:
     -----------
     t : float
@@ -587,6 +592,19 @@ def event_second_engine_ignition(t):
                 print("Second engine ignited at t = ", t)
         
     return
+
+#---------------------------------------------------
+# Stage-1 burn event list.
+#
+# Shared by every Stage-1 burn segment -- Stage 1A, the post-fairing Stage 1B,
+# and the kick-split halves inside _run_stage1a_with_kick -- so t_events
+# indexing is identical everywhere and no segment can silently be flown with a
+# different set of terminal conditions from its neighbour.
+#---------------------------------------------------
+STAGE1_BURN_EVENTS = [interrupt_fairing_jettison, interrupt_ground_collision,
+                      interrupt_velocity_exceeded, interrupt_main_engine_cutoff]
+EV_FAIRING, EV_CRASH, EV_VELOCITY, EV_MECO = range(4)
+
 
 #===================================================
 # Utility Functions
@@ -1290,8 +1308,14 @@ def rocket_dynamics(t, state):
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
 
-    # Check main engine state and second engine state
-    event_main_engine_cutoff(t, state)
+    # --- MECO is recorded by the EVENT, not from here ---
+    # This used to call event_main_engine_cutoff(t, state), which latched
+    # main_engine_cutoff/time_main_engine_cutoff straight out of the RHS at
+    # whatever time solve_ivp happened to sample -- speculative times included.
+    # The criterion now lives entirely in interrupt_main_engine_cutoff, where
+    # solve_ivp brackets the real crossing, and the globals are assigned from
+    # that event at the segment boundary in _fly_stage1(). Keeping a second,
+    # weaker copy of the test here is what let the two disagree.
     if main_engine_cutoff:
         event_second_engine_ignition(t)
     
@@ -1830,8 +1854,7 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
         interrupt_list = override_events
 
     elif stage_1_flag:
-        interrupt_list = [interrupt_stage_separation, interrupt_ground_collision,
-                         interrupt_velocity_exceeded]
+        interrupt_list = list(STAGE1_BURN_EVENTS)
 
     elif stage_2_flag:
         # Coasting single burn trajectory
@@ -1856,18 +1879,28 @@ def simulate_trajectory(init_time, time_stamp, state_init, stage_1_flag,
     # in flight as well as late, so direction=0 would fire on the way up -- which
     # is precisely the bug documented on interrupt_fairing_jettison.
     interrupt_fairing_jettison.direction = -1
-    
+
+    # MECO is likewise a DOWNWARD crossing -- of zero Stage-1 propellant. The
+    # margin is positive for the whole burn and negative after, so direction=-1
+    # is belt-and-braces here; it is set for the same reason as above, to say
+    # which crossing is meant.
+    interrupt_main_engine_cutoff.direction = -1
+
     return solve_ivp(rocket_dynamics, y0=state_init, t_span=t_span, t_eval=t_eval,
                     max_step=1, events=interrupt_list, atol=1e-8)
 
 
 class _MergedSol:
     """Lightweight stand-in for a scipy.OdeResult, used by the Stage-1A kick split."""
-    __slots__ = ("t", "y", "t_events")
-    def __init__(self, t, y, t_events):
+    __slots__ = ("t", "y", "t_events", "y_events")
+    def __init__(self, t, y, t_events, y_events=None):
         self.t = t
         self.y = y
         self.t_events = t_events
+        # y_events holds the interpolated state AT each root. The Stage-1
+        # hand-offs read it rather than y[:, -1], which is only the last t_eval
+        # grid point at or before the root -- see the note in _fly_stage1().
+        self.y_events = y_events
 
 
 def pitch_program_linear(t, initial_kick_angle):
@@ -1931,6 +1964,7 @@ def _run_stage1a_with_kick(init_time, time_horizon, state_init, base_events):
             # Some other terminal event fired first (crash, fairing, separation, ...).
             # Drop the unused kick channel so downstream indexing matches base_events.
             sol_seg1.t_events = sol_seg1.t_events[:kick_idx]
+            sol_seg1.y_events = sol_seg1.y_events[:kick_idx]
             return sol_seg1
 
         # --- Apply the instantaneous γ jump ---
@@ -1957,7 +1991,142 @@ def _run_stage1a_with_kick(init_time, time_horizon, state_init, base_events):
     # The duplicate timestamp is what materialises the γ discontinuity in plots.
     t_merged = np.concatenate([sol_seg1.t, sol_seg2.t])
     y_merged = np.concatenate([sol_seg1.y, sol_seg2.y], axis=1)
-    return _MergedSol(t_merged, y_merged, sol_seg2.t_events)
+    return _MergedSol(t_merged, y_merged, sol_seg2.t_events, sol_seg2.y_events)
+
+
+class _Stage1Flight:
+    """What Stage 1 produced: the merged trajectory and where it ended."""
+    __slots__ = ("t", "y", "t_meco", "t_separation", "crashed", "crash_time")
+
+    def __init__(self, t, y, t_meco, t_separation, crashed, crash_time):
+        self.t = t
+        self.y = y
+        self.t_meco = t_meco
+        self.t_separation = t_separation
+        self.crashed = crashed
+        self.crash_time = crash_time
+
+
+def _coast_to_stage_separation(t_meco, state_meco):
+    """Unpowered coast from MECO to stage separation.
+
+    Separation is a planned interval after MECO (TIME_First_STAGE_SEPARATION),
+    so once MECO itself is known exactly there is nothing left to root-find:
+    the segment is integrated to that instant and t_eval is closed on it. That
+    is why interrupt_stage_separation -- a 1/0 step function that read the
+    latched MECO global -- is gone rather than merely rewritten.
+
+    thrust_Isp() returns F_T = 0 for the whole segment (main_engine_cutoff is
+    set and the second engine has not lit), so nothing is burned here and the
+    mass at separation is the mass at MECO.
+    """
+    t0 = float(t_meco)
+    t_sep = t0 + r.TIME_First_STAGE_SEPARATION
+    t_eval = np.arange(t0, t_sep, sim_params.TIME_STEP)
+    if t_eval.size and t_eval[-1] >= t_sep - 1e-12:
+        t_eval = t_eval[:-1]
+    t_eval = np.append(t_eval, t_sep)      # close the grid exactly on separation
+
+    interrupt_ground_collision.terminal = True
+    interrupt_ground_collision.direction = 0
+    return solve_ivp(rocket_dynamics,
+                     y0=np.asarray(state_meco, dtype=float).copy(),
+                     t_span=(t0, t_sep), t_eval=t_eval, max_step=1,
+                     events=[interrupt_ground_collision], atol=1e-8)
+
+
+def _fly_stage1(initial_state, time_horizon=500.0, use_kick_helper=True):
+    """Fly Stage 1 from lift-off to stage separation, in root-found segments.
+
+    Three phases, each its own solve_ivp call, because each ends at a
+    discontinuity that must not be latched out of the ODE right-hand side:
+
+        burn    lift-off -> fairing jettison       (STAGE1_BURN_EVENTS)
+        burn    fairing jettison -> MECO           (STAGE1_BURN_EVENTS)
+        coast   MECO -> MECO + TIME_First_STAGE_SEPARATION, unpowered
+
+    Both hand-offs are read from ``t_events``/``y_events``, NOT from
+    ``sol.t[-1]`` / ``sol.y[:, -1]``. With a terminal event scipy truncates
+    t_eval at the last grid point at or before the root and does not append the
+    root itself, so the grid endpoint would quantise the cutoff to TIME_STEP --
+    0.01 s, about 27 kg at mdot_1 -- even with the event working perfectly. The
+    y_events state is the interpolated crossing and lands on
+    _stage1_burnout_mass() to solver tolerance.
+
+    Shared by run() and run_stage1() so the legacy (apogee_check) and PSO
+    architectures cannot stage differently. They previously held two copies of
+    this sequence, which is exactly the arrangement CLAUDE.md warns about: a
+    fix applied to one dispatcher and not the other.
+
+    Returns a _Stage1Flight. On a crash the trajectory flown so far is still
+    returned, so callers can report it.
+    """
+    global fairing_jettisoned, time_fairing_jettison
+    global atmosphere_exited, time_atmosphere_exit
+    global main_engine_cutoff, time_main_engine_cutoff
+
+    events = list(STAGE1_BURN_EVENTS)
+    segments = []
+
+    def merged(t_meco, t_separation, crashed, crash_time):
+        return _Stage1Flight(
+            np.concatenate([s.t for s in segments]),
+            np.concatenate([s.y for s in segments], axis=1),
+            t_meco, t_separation, crashed, crash_time)
+
+    # --- Burn segment A: lift-off ------------------------------------------
+    if use_kick_helper:
+        sol = _run_stage1a_with_kick(0, time_horizon, initial_state,
+                                     base_events=events)
+    else:
+        sol = simulate_trajectory(0, time_horizon, initial_state, False, False,
+                                  override_events=events)
+    segments.append(sol)
+    if len(sol.t_events[EV_CRASH]) > 0:
+        return merged(None, None, True, float(sol.t_events[EV_CRASH][0]))
+
+    # --- Burn segment B: after fairing jettison ----------------------------
+    if len(sol.t_events[EV_FAIRING]) > 0:
+        t_fair = float(sol.t_events[EV_FAIRING][0])
+        state_fair = np.asarray(sol.y_events[EV_FAIRING][0], dtype=float).copy()
+        state_fair[4] -= r.M_FAIRING
+        fairing_jettisoned = True
+        time_fairing_jettison = t_fair
+        # The jettison IS the atmosphere exit, and this event time is the only
+        # trustworthy record of it -- see the note in rocket_dynamics.
+        atmosphere_exited = True
+        time_atmosphere_exit = t_fair
+        if sim_params.EVENTS_PRINT:
+            print(f"Fairing jettisoned at t = {t_fair:.2f} s, "
+                  f"alt = {(state_fair[1] - c.R_EARTH)/1e3:.1f} km")
+
+        sol = simulate_trajectory(t_fair, time_horizon - t_fair, state_fair,
+                                  False, False, override_events=events)
+        segments.append(sol)
+        if len(sol.t_events[EV_CRASH]) > 0:
+            return merged(None, None, True, float(sol.t_events[EV_CRASH][0]))
+
+    # --- MECO ---------------------------------------------------------------
+    if len(sol.t_events[EV_MECO]) == 0:
+        # The velocity ceiling or the time horizon ended Stage 1 before the tank
+        # ran dry, so there is no cutoff to coast from. Hand back what was flown.
+        return merged(None, float(sol.t[-1]), False, None)
+
+    t_meco = float(sol.t_events[EV_MECO][0])
+    state_meco = np.asarray(sol.y_events[EV_MECO][0], dtype=float)
+    main_engine_cutoff = True
+    time_main_engine_cutoff = t_meco
+    if sim_params.EVENTS_PRINT:
+        print(f"Main engine cutoff at t = {t_meco:.4f} s "
+              f"(m = {state_meco[4]:.3f} kg, target {_stage1_burnout_mass():.3f} kg)")
+
+    # --- Coast to stage separation -----------------------------------------
+    sol_coast = _coast_to_stage_separation(t_meco, state_meco)
+    segments.append(sol_coast)
+    if len(sol_coast.t_events[0]) > 0:
+        return merged(t_meco, None, True, float(sol_coast.t_events[0][0]))
+
+    return merged(t_meco, float(sol_coast.t[-1]), False, None)
 
 
 def run(initial_kick_angle, azimuth_override=None):
@@ -2134,86 +2303,28 @@ def run(initial_kick_angle, azimuth_override=None):
     # Define time of simulation 1
     time_1 = 500.
 
-    # === Stage 1A: ascent until fairing jettison OR stage separation ===
-    # interrupt_stage_separation is included so Stage 1A never runs past MECO when
-    # the atmosphere exit (and thus fairing jettison) happens after MECO — e.g. when
-    # ATMOSPHERE_EXIT_METHOD = "aerothermal_flux" with a threshold crossed at ~137 km.
-    #
-    # KICK_PROFILE_MODE == "triangular": use a plain simulate_trajectory so the kick is
-    # handled continuously inside the ODE RHS via pitch_program_linear (triangular
-    # alpha profile). t_events indexing: 0=fairing, 1=crash, 2=velocity, 3=stage_sep.
-    #
-    # KICK_PROFILE_MODE == "instantaneous": _run_stage1a_with_kick performs an
-    # internal two-segment integration around the instantaneous pitch-over (γ jump at
-    # TIME_TO_START_KICK); the kick event is consumed inside the helper so the returned
-    # t_events list keeps the same 0=fairing / 1=crash / 2=velocity / 3=stage_sep indexing.
-    _stage1a_events = [interrupt_fairing_jettison, interrupt_ground_collision,
-                       interrupt_velocity_exceeded, interrupt_stage_separation]
-    if getattr(sim_params, 'KICK_PROFILE_MODE', 'triangular') == 'triangular':
-        sol_1a = simulate_trajectory(0, time_1, initial_state_1, False, False,
-                                     override_events=_stage1a_events)
-    else:
-        sol_1a = _run_stage1a_with_kick(0, time_1, initial_state_1,
-                                        base_events=_stage1a_events)
-    # event indices: 0=fairing, 1=crash, 2=velocity, 3=stage_sep
+    # === Stage 1: lift-off to stage separation ===
+    # Flown by the shared helper, so this path and run_stage1() cannot diverge.
+    # KICK_PROFILE_MODE is honoured here and only here -- run_stage1() is always
+    # the instantaneous gamma jump.
+    _instantaneous_kick = (
+        getattr(sim_params, 'KICK_PROFILE_MODE', 'triangular') != 'triangular')
+    stage1 = _fly_stage1(initial_state_1, time_1,
+                         use_kick_helper=_instantaneous_kick)
 
-    if len(sol_1a.t_events[1]) > 0:  # crash before any other event
+    if stage1.crashed:
         CRASH_DETECTED = True
-        CRASH_TIME = sol_1a.t_events[1][0]
+        CRASH_TIME = stage1.crash_time
         thrust_data = np.array(thrust_history)
         time_thrust = np.array(time_history)
         alpha_data = np.array(alpha_history)
         alpha_time_data = np.array(alpha_time_history)
         coriolis_mag_data = np.array(coriolis_mag_history)
         centrifugal_mag_data = np.array(centrifugal_mag_history)
-        return sol_1a.t, sol_1a.y, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
+        return stage1.t, stage1.y, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
 
-    if len(sol_1a.t_events[0]) > 0:
-        # Fairing jettison fired before stage separation — normal case for
-        # dynamic_pressure / altitude methods (atmosphere exit during Stage 1 burn).
-        fairing_jettisoned = True
-        time_fairing_jettison = sol_1a.t[-1]
-        # The jettison IS the atmosphere exit, and this event time is the only
-        # trustworthy record of it -- see the note in rocket_dynamics.
-        atmosphere_exited = True
-        time_atmosphere_exit = time_fairing_jettison
-        initial_state_1b = sol_1a.y[:, -1].copy()
-        initial_state_1b[4] -= r.M_FAIRING
-        if sim_params.EVENTS_PRINT:
-            print(f"Fairing jettisoned at t = {time_fairing_jettison:.1f} s, "
-                  f"alt = {(initial_state_1b[1] - c.R_EARTH)/1e3:.1f} km")
-
-        # === Stage 1B: continue burn from fairing jettison until stage separation ===
-        sol_1b = simulate_trajectory(time_fairing_jettison, time_1, initial_state_1b,
-                                      True, False)
-
-        if len(sol_1b.t_events[1]) > 0:  # crash after fairing jettison
-            CRASH_DETECTED = True
-            CRASH_TIME = sol_1b.t_events[1][0]
-            thrust_data = np.array(thrust_history)
-            time_thrust = np.array(time_history)
-            alpha_data = np.array(alpha_history)
-            alpha_time_data = np.array(alpha_time_history)
-            coriolis_mag_data = np.array(coriolis_mag_history)
-            centrifugal_mag_data = np.array(centrifugal_mag_history)
-            t_combined = np.concatenate([sol_1a.t, sol_1b.t])
-            y_combined = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
-            return t_combined, y_combined, None, None, 9999999.0, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
-
-        # Merge Stage 1A and 1B into a single result for downstream code
-        class _Sol1:
-            t = np.concatenate([sol_1a.t, sol_1b.t])
-            y = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
-            t_events = sol_1b.t_events  # stage sep is t_events[0]; crash handled above
-
-        sol_1 = _Sol1()
-
-    else:
-        # Stage separation fired before fairing jettison — atmosphere exit has not
-        # occurred during Stage 1 (e.g. aerothermal flux threshold crossed in Stage 2).
-        # Use Stage 1A directly as the complete Stage 1 result; the fairing mass is
-        # already part of M_STRUCTURE_1 and will be dropped with it at staging.
-        sol_1 = sol_1a
+    # Kept under the old name: everything below reads only .t and .y.
+    sol_1 = stage1
 
     #===================================================
     # Simulation after stage separation
@@ -2703,53 +2814,20 @@ def run_stage1(initial_kick_angle):
 
     time_1 = 500.
 
-    # --- Stage 1A: until fairing jettison OR stage separation ----------------
-    sol_1a = _run_stage1a_with_kick(
-        0, time_1, initial_state_1,
-        base_events=[interrupt_fairing_jettison, interrupt_ground_collision,
-                     interrupt_velocity_exceeded, interrupt_stage_separation])
+    # --- Stage 1: lift-off to stage separation -------------------------------
+    # Same helper as run(); always the instantaneous gamma-jump kick here.
+    stage1 = _fly_stage1(initial_state_1, time_1, use_kick_helper=True)
 
-    if len(sol_1a.t_events[1]) > 0:          # crash before any other event
+    if stage1.crashed:
         CRASH_DETECTED = True
-        CRASH_TIME = sol_1a.t_events[1][0]
-        return None, None, None, sol_1a.t, sol_1a.y, True
-
-    if len(sol_1a.t_events[0]) > 0:
-        # Fairing jettison fired before stage separation (normal case)
-        fairing_jettisoned = True
-        time_fairing_jettison = sol_1a.t[-1]
-        # The jettison IS the atmosphere exit, and this event time is the only
-        # trustworthy record of it -- see the note in rocket_dynamics.
-        atmosphere_exited = True
-        time_atmosphere_exit = time_fairing_jettison
-        initial_state_1b = sol_1a.y[:, -1].copy()
-        initial_state_1b[4] -= r.M_FAIRING
-
-        sol_1b = simulate_trajectory(time_fairing_jettison, time_1,
-                                     initial_state_1b, True, False)
-
-        if len(sol_1b.t_events[1]) > 0:      # crash after fairing jettison
-            CRASH_DETECTED = True
-            CRASH_TIME = sol_1b.t_events[1][0]
-            t_c = np.concatenate([sol_1a.t, sol_1b.t])
-            y_c = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
-            return None, None, None, t_c, y_c, True
-
-        class _Sol1:
-            t = np.concatenate([sol_1a.t, sol_1b.t])
-            y = np.concatenate([sol_1a.y, sol_1b.y], axis=1)
-
-        sol_1 = _Sol1()
-
-    else:
-        # Stage separation fired before fairing jettison
-        sol_1 = sol_1a
+        CRASH_TIME = stage1.crash_time
+        return None, None, None, stage1.t, stage1.y, True
 
     # --- Build Stage-2 initial state (mass-adjusted for staging) ------------
-    state2_init = sol_1.y[:, -1].copy()
+    state2_init = stage1.y[:, -1].copy()
     state2_init[4] -= (r.M_STRUCTURE_1 - r.M_FAIRING)
-    t2_start = float(sol_1.t[-1])
-    t_meco = time_main_engine_cutoff        # set by event_main_engine_cutoff()
+    t2_start = float(stage1.t[-1])
+    t_meco = stage1.t_meco       # root-found by interrupt_main_engine_cutoff
 
-    return t2_start, state2_init, t_meco, sol_1.t, sol_1.y, False
+    return t2_start, state2_init, t_meco, stage1.t, stage1.y, False
 
