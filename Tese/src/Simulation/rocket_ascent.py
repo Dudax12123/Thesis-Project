@@ -1440,7 +1440,9 @@ def rocket_dynamics(t, state):
                                                                use_downrange_constraint=False)
             apollo_freeze_time = t  # Initialize freeze time
             apollo_coefficients_frozen = False
-            alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
+            alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(
+                t, apollo_freeze_time, state, guidance_coefficients,
+                a_thrust_available=F_T / m)
             
             if sim_params.EVENTS_PRINT:
                 print(f"\nGuidance start at t = {t:.2f} s, alt = {alt/1000:.2f} km, q = {q:.2f} Pa")
@@ -1529,8 +1531,13 @@ def rocket_dynamics(t, state):
             tgo_time_history.append(t)
             apollo_coeffs_just_updated = True
 
-        # Compute guidance angle using current or frozen coefficients
-        alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(t, apollo_freeze_time, state, guidance_coefficients)
+        # Compute guidance angle using current or frozen coefficients. The
+        # available acceleration lets the law resolve the thrust-magnitude
+        # constraint the Apollo way (vertical channel first, downrange takes
+        # the remainder) instead of flying the direction of an infeasible vector.
+        alpha, a_thrust_cmd = apollo_guidance_module.apollo_guidance(
+            t, apollo_freeze_time, state, guidance_coefficients,
+            a_thrust_available=F_T / m)
 
         if apollo_coeffs_just_updated and sim_params.EVENTS_PRINT:
             thrust_angle_inertial_dbg = alpha + gamma
@@ -1579,7 +1586,9 @@ def rocket_dynamics(t, state):
             tol=_peg_tol, damping=_peg_damping,
             v_theta_T=_v_circular_rotating(r_tgt))
 
-        alpha = peg_guidance_mod.peg_alpha(0.0, peg_A, peg_B, gamma)
+        alpha = peg_guidance_mod.peg_alpha(
+            0.0, peg_A, peg_B, gamma,
+            peg_guidance_mod.compute_gravity_term(state[:5], F_T, c.MU_EARTH))
 
     # --- PEG per-step ---
     elif guidance_phase_active and sim_params.GUIDANCE_MODE == "peg" and F_T > 0:
@@ -1609,7 +1618,11 @@ def rocket_dynamics(t, state):
             last_guidance_update_time = t
 
         t_since = t - peg_t_epoch
-        alpha   = peg_guidance_mod.peg_alpha(t_since, peg_A, peg_B, gamma)
+        # C at the current state on every call (reference: "sin(pitch) at
+        # current time"), see peg_guidance.peg_alpha.
+        alpha   = peg_guidance_mod.peg_alpha(
+            t_since, peg_A, peg_B, gamma,
+            peg_guidance_mod.compute_gravity_term(state[:5], F_T, c.MU_EARTH))
 
     # --- PEG_NEW initialisation ---
     elif (kick_performed and sim_params.GUIDANCE_MODE == "peg_new"

@@ -2,14 +2,57 @@
 Powered Explicit Guidance (PEG)
 
 Closed-loop orbital-insertion guidance originally developed for the Saturn V.
-Maintains a linear pitch program  sin(pitch[t]) = A + B*t  and updates the
+Maintains a linear pitch program  sin(pitch[t]) = A + B*t + C  and updates the
 steering constants A, B and burn-time estimate T every major-loop cycle to
 drive the predicted burnout state to the target orbit.
+
+The split between the constants and C is the whole point of the reference
+algorithm and is easy to lose. The guide step solves the radial channel with
+gravity and the centrifugal term left OUT: it asks only what net radial
+acceleration profile A + B*t closes the radius and radial-rate gap. The part of
+the thrust that has to cancel gravity is put back in the steering command,
+
+    sin(pitch) = A + B*t + C,     C = (mu/r^2 - omega^2 r) / a,   omega = v_theta / r,
+
+"the portion of vehicle acceleration used to counteract gravity and centrifugal
+force" (reference, estimate step). Flying A + B*t alone, as this module did until
+2026-09-10, leaves gravity out of the radial channel altogether: at a Stage-2
+ignition with T/m ~ 9.7 m/s^2 and gamma ~ 49 deg the omission was 469 km of
+radial prediction over a 326 s burn, and the command was pitch -48 deg
+(alpha -97 deg, thrust with a rearward component) where the reference gives
+pitch +10 deg. C is evaluated at the CURRENT state on every minor-loop call,
+which is what the reference means by "sin(pitch) at current time".
 
 Reference: https://www.orbiterwiki.org/wiki/Powered_Explicit_Guidance
 """
 
 import numpy as np
+
+
+def compute_gravity_term(state, F_T, mu):
+    """C = (mu/r^2 - omega^2 r) / a0 at the current state (reference, estimate step).
+
+    The fraction of the current thrust acceleration a0 = F_T/m that a purely
+    radial thrust would need just to hold the vehicle against gravity net of the
+    centrifugal relief omega^2 r, with omega = v_theta / r from the current
+    tangential speed. It is the C added to A + B*t in the steering command and
+    used as f_r = A + C in the burn-time estimate. Greater than 1 means the
+    stage cannot even hold altitude with the thrust vertical.
+
+    Parameters
+    ----------
+    state : array-like [s, r, v, gamma, m, ...]
+    F_T   : float  current thrust [N]
+    mu    : float  gravitational parameter [m^3/s^2]
+    """
+    r     = float(state[1])
+    v     = float(state[2])
+    gamma = float(state[3])
+    m     = float(state[4])
+    a0      = F_T / m
+    v_theta = v * np.cos(gamma)
+    omega   = v_theta / r
+    return float((mu / r ** 2 - omega ** 2 * r) / a0)
 
 
 def compute_peg_integrals(T, v_e, tau):
@@ -128,22 +171,50 @@ def estimate_peg_T(A, B, T, state, v_e, F_T, r_T, mu, v_theta_T=None):
     delta_h = h_T - h
     r_bar   = (r_T + r) / 2.0
 
-    # Gravity/centrifugal correction (wiki: C = (μ/r̄²−ω²r̄)/a₀)
-    # At the circular target orbit C_T = 0 exactly (μ/r_T² = ω_T²·r_T),
-    # so f_{r,T} = A+B·T requires no correction.
-    omega = v_theta / r
-    C     = (mu / r_bar ** 2 - omega ** 2 * r_bar) / a0
+    # Reference, estimate step, term by term.
+    #   C   = (μ/r² − ω²r)/a₀            at the CURRENT point, ω = v_θ/r
+    #   f_r = A + C                       sin(pitch) at current time
+    #   C_T = (μ/r_T² − ω_T² r_T)/a[T]    at cutoff, a[T] = acceleration at burnout
+    #   f_{r,T} = A + B·T + C_T           sin(pitch) at burnout
+    # Before 2026-09-10 this used f_r = A·(1+C) with C evaluated at r̄, and the
+    # Δv numerator below dropped its last term; none of that is in the source.
+    # C_T vanishes for the inertial circular target (μ/r_T² = ω_T² r_T); with the
+    # rotating-frame target v_θ,T = √(μ/r_T) − v_rot it is small but non-zero, and
+    # is kept as the reference writes it.
+    omega   = v_theta / r
+    C       = (mu / r ** 2 - omega ** 2 * r) / a0
+    a_T     = v_e / (tau - T)                  # a[T] = a₀ / (1 − T/τ)
+    omega_T = v_theta_T / r_T
+    C_T     = (mu / r_T ** 2 - omega_T ** 2 * r_T) / a_T
 
-    # Gravity-corrected radial thrust fraction at t=0:
-    #   sin(pitch[t=0]) = A  →  f_r = A + C·A = A·(1+C)
-    f_r     = A * (1.0 + C)
-    f_r_dot = (A + B * T - f_r) / T if T > 1e-3 else B  # (f_{r,T} - f_r) / T
+    # sin(pitch) cannot exceed 1 in magnitude; the minor loop clips the same way.
+    #
+    # Validity, measured 2026-09-10 on this vehicle: at Stage-2 ignition
+    # C = 0.85-0.91 (T/W barely above 1), and for the shallower kicks the guide
+    # step returns A + C of 1.2-1.6 -- the stage cannot hold altitude even
+    # thrusting vertically. The reference's f_theta = 1 - f_r^2/2 is a small-
+    # pitch expansion; with f_r clipped to 1 it reads 0.5 where cos(90 deg) is
+    # 0, the denominator below can turn negative, and the guide-estimate map
+    # T -> T_est(T) is then non-monotonic (T_est(275) = 294, T_est(284) = 266
+    # at one archived state), so neither the damped nor the undamped iteration
+    # has a unique fixed point there. Where A + C < 1 (the steeper kicks, e.g.
+    # the archived show_peg ignition) both converge to the same T in 4-9
+    # iterations. This is a property of the classical algorithm on a T/W ~ 1
+    # stage and is reported as such; the guards below hand T back unchanged
+    # rather than invent a value, and the caller's per-cycle countdown
+    # (peg_T - dt) then carries it.
+    f_r   = float(np.clip(A + C, -1.0, 1.0))
+    f_r_T = float(np.clip(A + B * T + C_T, -1.0, 1.0))
+    f_r_dot = (f_r_T - f_r) / T if T > 1e-3 else B
 
     f_theta      = 1.0 - f_r ** 2 / 2.0
     f_theta_dot  = -(f_r * f_r_dot)
     f_theta_ddot = -(f_r_dot ** 2) / 2.0
 
-    num = delta_h / r_bar + v_e * T * (f_theta_dot + f_theta_ddot * T)
+    # Δv = [Δh/r̄ + v_e T (ḟ_θ + f̈_θ τ) + f̈_θ v_e T²/2] / [f_θ + ḟ_θ τ + f̈_θ τ²]
+    num = (delta_h / r_bar
+           + v_e * T * (f_theta_dot + f_theta_ddot * tau)
+           + f_theta_ddot * v_e * T ** 2 / 2.0)
     den = f_theta + f_theta_dot * tau + f_theta_ddot * tau ** 2
 
     if abs(den) < 1e-6 or num <= 0.0:
@@ -209,8 +280,17 @@ def converge_peg(state, T_init, v_e, F_T, r_T, mu,
     return A, B, T
 
 
-def peg_alpha(t_since_epoch, A, B, gamma):
+def peg_alpha(t_since_epoch, A, B, gamma, C):
     """Minor loop: compute steering angle α from the PEG pitch program.
+
+        sin(pitch) = A + B·t + C
+
+    ``C`` is the gravity/centrifugal term of :func:`compute_gravity_term`,
+    evaluated at the current state by the caller on every call (the reference's
+    "sin(pitch) at current time"). It is a required argument on purpose: the
+    guide step that produced A and B left gravity out of the radial channel, so
+    a call without C flies a different law from the one A and B were solved
+    for. Pass ``C = 0.0`` only to reproduce the pre-2026-09-10 behaviour.
 
     Parameters
     ----------
@@ -220,12 +300,14 @@ def peg_alpha(t_since_epoch, A, B, gamma):
         Current steering constants
     gamma : float
         Current flight-path angle [rad]
+    C : float
+        Gravity/centrifugal thrust fraction at the current state [-]
 
     Returns
     -------
     alpha : float
         Angle of attack (thrust vs velocity) [rad]
     """
-    sin_pitch = float(np.clip(A + B * t_since_epoch, -1.0, 1.0))
+    sin_pitch = float(np.clip(A + B * t_since_epoch + C, -1.0, 1.0))
     pitch = np.arcsin(sin_pitch)
     return pitch - gamma

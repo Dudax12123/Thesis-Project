@@ -535,7 +535,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.last_guidance_update_time = t
 
             alpha, _ = apollo_guidance_module.apollo_guidance(
-                t, gs.apollo_freeze_time, state, gs.guidance_coefficients)
+                t, gs.apollo_freeze_time, state, gs.guidance_coefficients,
+                a_thrust_available=F_T / m)
 
         elif mode == "peg":
             _use_pso_plan = (sim_params.GUIDANCE_TGO_USE_PSO_PLAN
@@ -566,7 +567,11 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                     gs.peg_t_epoch = t
                 gs.last_guidance_update_time = t
             t_since = t - gs.peg_t_epoch if gs.peg_t_epoch is not None else 0.0
-            alpha   = peg_guidance_mod.peg_alpha(t_since, gs.peg_A, gs.peg_B, gamma)
+            # C at the current state on every call — the reference's
+            # "sin(pitch) at current time", see peg_guidance.peg_alpha.
+            alpha   = peg_guidance_mod.peg_alpha(
+                t_since, gs.peg_A, gs.peg_B, gamma,
+                peg_guidance_mod.compute_gravity_term(state[:5], F_T, c.MU_EARTH))
 
         elif mode == "peg_new":
             if (not gs.peg_new_frozen
@@ -743,6 +748,21 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     gs.pso_exp_b = exp_b
 
     # ---- Arc 1: Thrust (t_ignition → t_ignition + t_coast_start) ----
+    #
+    # KNOWN SOURCE OF ERROR, documented rather than fixed (decision 2026-09-10).
+    # Every closed-loop law steers this arc, and all of them aim at the FINAL
+    # orbit (r_T, v_circ, gamma = 0) at their own t_go from ignition -- a
+    # direct-insertion plan -- while the swarm then inserts a coast of
+    # 100-540 s and a second burn that the law never planned for. The arc-1
+    # command is therefore made for a trajectory that is not flown: peg_new
+    # opens at pitch 0 deg (alpha -34 deg) to bend a 34 deg state into a
+    # single-burn insertion, and after the coast Arc 3 re-targets from
+    # scratch. Nothing in the law knows the coast exists; only exp_shooting's
+    # documentation says so, but it holds for peg, peg_new and apollo alike.
+    # Under this architecture a passive gravity turn can therefore beat a
+    # closed-loop law on propellant (stale batch: peg_new 18.79 t vs gt
+    # 20.29 t). The segmented mode is the only place arc 1 is given an
+    # intermediate target of its own (a PMP waypoint, see SegmentTarget).
     t_arc1_end = t_ignition + t_coast_start
     if t_coast_start > 0.01:
         sol_arc1 = solve_ivp(

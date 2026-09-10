@@ -319,22 +319,76 @@ def compute_apollo_coefficients(state, target_altitude, t_go, use_downrange_cons
     return [k1, k2, k3, k4]
 
 
-def apollo_guidance(t, t_epoch, state, coefficients):
+def local_frame_accelerations(state):
+    """Non-thrust accelerations of (vx, vy) = (v cos γ, v sin γ) in the local frame.
+
+    The polynomial of compute_apollo_coefficients is written in the local
+    downrange/altitude frame: y is the altitude r − R_E and (vx, vy) are the
+    horizontal and vertical components of the velocity at the CURRENT point.
+    Differentiating those components with the planar equations of motion (no
+    aerodynamics, no rotating-frame terms — the same model every other law's
+    internal prediction uses) gives
+
+        d(vy)/dt = a_y_thrust − g + vx²/r
+        d(vx)/dt = a_x_thrust − vx·vy/r
+
+    so the "gravity" the polynomial has to be corrected for is not the gravity
+    vector alone but the local-frame kinematics: gravity net of the centrifugal
+    relief vx²/r vertically, and the turning of the local horizontal, −vx·vy/r,
+    horizontally. Near orbital speed the relief cancels almost all of g — a
+    vehicle in circular orbit needs no thrust to hold altitude — which is exactly
+    the case a gravity-only correction gets wrong.
+
+    Until 2026-09-10 this routine rotated the gravity vector by the central
+    angle s/R_E instead (ax = g sin(s/R), ay = −g cos(s/R)), which is the
+    decomposition for a launch-fixed Cartesian frame, not for the local one the
+    velocity components are taken in. Along a flown ascent the discrepancy grew
+    to +1.9 m/s² horizontally and −7.3 m/s² vertically at cutoff.
+
+    Returns
+    -------
+    (ax_frame, ay_frame) : floats  [m/s²]
+    """
+    s, r_val, v, gamma, m = state[:5]
+    a_grav = grav.gravitational_acceleration(r_val)
+    vx = v * np.cos(gamma)
+    vy = v * np.sin(gamma)
+    ax_frame = -vx * vy / r_val
+    ay_frame = -a_grav + vx ** 2 / r_val
+    return float(ax_frame), float(ay_frame)
+
+
+def apollo_guidance(t, t_epoch, state, coefficients, a_thrust_available=None):
     """
     Apollo polynomial explicit guidance for thrust angle control.
-    
+
     Implements equation 2.41: commanded accelerations as linear functions of time.
     Converts total acceleration commands to thrust angle commands and required
     thrust magnitude.
-    
-    The guidance commands total accelerations (including gravity), then extracts
-    the thrust component by subtracting gravitational acceleration. Returns both
-    the angle of attack and the required thrust magnitude.
-    
-    Justification: Follows classical Apollo implementation. Accounts for gravity
-    to extract thrust-only contribution, then converts to angle of attack and
-    magnitude for independent control of horizontal and vertical accelerations.
-    
+
+    The guidance commands total accelerations of the local velocity components
+    (vx, vy), then extracts the thrust component by subtracting the non-thrust
+    accelerations of those components (see local_frame_accelerations). Returns
+    both the angle of attack and the acceleration magnitude the polynomial asked
+    for.
+
+    Thrust-magnitude constraint
+    ---------------------------
+    The polynomial asks for two independent accelerations, which a fixed-thrust
+    stage cannot deliver: at a Stage-2 ignition it asked for ~19 m/s² against
+    ~10 available. Before 2026-09-10 the magnitude was simply discarded and the
+    direction of the infeasible vector flown, which serves neither channel. The
+    Apollo ascent guidance (Luminary P12, Bennett 1970) resolves this by giving
+    the radial channel priority and letting the downrange channel take whatever
+    thrust remains, ATP = sqrt(AT² − ATR² − ATY²), with time-to-go coming from
+    the velocity to be gained rather than from a downrange polynomial. When
+    ``a_thrust_available`` (= F_T/m) is given, that is what is done here: the
+    vertical thrust component is the polynomial's, clipped to the available
+    acceleration, and the horizontal component is the remainder, with the sign
+    of the horizontal demand. The horizontal coefficients k1, k2 then enter only
+    through t_go and the returned magnitude. When ``a_thrust_available`` is
+    None the pre-2026-09-10 direction-only behaviour is reproduced.
+
     Parameters:
     -----------
     t : float
@@ -350,64 +404,63 @@ def apollo_guidance(t, t_epoch, state, coefficients):
         - m: current mass [kg]
     coefficients : list
         Apollo coefficients [k1, k2, k3, k4]
-        
+    a_thrust_available : float, optional
+        Thrust acceleration the stage can actually deliver, F_T/m [m/s²].
+
     Returns:
     --------
     alpha : float
         Commanded angle of attack [rad]
     a_thrust_magnitude : float
-        Required thrust acceleration magnitude [m/s²]
+        Thrust acceleration magnitude the polynomial asked for [m/s²]
+        (before the magnitude constraint is applied)
     """
     s, r_val, v, gamma, m = state[:5]
     k1, k2, k3, k4 = coefficients
-    
+
     # Time since epoch (for frozen coefficients)
     dt = t - t_epoch
-    
-    # Commanded total accelerations (equation 2.41)
-    # These include all accelerations (thrust + gravity)
+
+    # Commanded total accelerations (equation 2.41) of the local velocity
+    # components — thrust plus everything else.
     ax_total = k1 * dt + k2
     ay_total = k3 * dt + k4
-    
-    # Compute gravitational acceleration components
-    # Gravity acts radially inward toward Earth center
-    a_grav = grav.gravitational_acceleration(r_val)
-    
-    # Gravity components in downrange-altitude (x-y) frame
-    # Angle from vertical to position vector
-    theta_from_vertical = s / c.R_EARTH
-    
-    # Gravity components (note: gravity acts toward Earth center)
-    ax_gravity = a_grav * np.sin(theta_from_vertical)
-    ay_gravity = -a_grav * np.cos(theta_from_vertical)  # Negative because downward
-    
-    # Extract thrust acceleration (remove gravity contribution)
-    # Total acceleration = thrust acceleration + gravity acceleration
-    # Therefore: thrust acceleration = total acceleration - gravity acceleration
-    ax_thrust = ax_total - ax_gravity
-    ay_thrust = ay_total - ay_gravity
-    
+
+    # Non-thrust accelerations of (vx, vy) in the local frame
+    ax_frame, ay_frame = local_frame_accelerations(state)
+
+    # Extract thrust acceleration (remove the non-thrust contribution)
+    ax_thrust = ax_total - ax_frame
+    ay_thrust = ay_total - ay_frame
+
+    # Magnitude the polynomial asked for, before any constraint
+    a_thrust_magnitude = np.sqrt(ax_thrust**2 + ay_thrust**2)
+
+    if a_thrust_available is not None:
+        # Apollo P12 resolution: vertical channel first, downrange takes the rest.
+        a_T = float(a_thrust_available)
+        ay_cmd = float(np.clip(ay_thrust, -a_T, a_T))
+        ax_cmd = float(np.copysign(np.sqrt(max(a_T ** 2 - ay_cmd ** 2, 0.0)), ax_thrust))
+    else:
+        ay_cmd, ax_cmd = ay_thrust, ax_thrust
+
     # Convert thrust acceleration to angle of attack
-    # Thrust direction in inertial frame
-    thrust_angle_inertial = np.arctan2(ay_thrust, ax_thrust)
-    
-    # Velocity direction in inertial frame
+    # Thrust direction in the local frame
+    thrust_angle_local = np.arctan2(ay_cmd, ax_cmd)
+
+    # Velocity direction in the local frame
     velocity_angle = np.arctan2(v * np.sin(gamma), v * np.cos(gamma))
-    
+
     # Angle of attack = thrust direction - velocity direction
-    alpha = thrust_angle_inertial - velocity_angle
-    
+    alpha = thrust_angle_local - velocity_angle
+
     # Normalize to [-pi, pi]
     alpha = np.arctan2(np.sin(alpha), np.cos(alpha))
-    
+
     # Safety limits (prevent excessive maneuvers)
     # Justification: Physical limits of vehicle control authority
    # alpha = np.clip(alpha, -np.deg2rad(15), np.deg2rad(15))
-    
-    # Calculate required thrust magnitude
-    # This is the magnitude of the thrust acceleration vector
-    a_thrust_magnitude = np.sqrt(ax_thrust**2 + ay_thrust**2)
-    
+
     return alpha, a_thrust_magnitude
 
 

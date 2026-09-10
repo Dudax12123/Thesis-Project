@@ -190,6 +190,25 @@ PSO path). When fixing a guidance bug, check whether both dispatchers need the f
 All three PSO solvers share Stage 1 via `ra.run_stage1()` (always the instantaneous γ-jump kick);
 only the legacy `run()` honours `KICK_PROFILE_MODE`.
 
+**Two laws were re-aligned with their sources on 2026-09-10** (`dev-notes/guidance-audit-2026-09-10.md`
+has the audit of all nine). Classical `peg` now flies `sin(pitch) = A + B·t + C`, where
+`C = (μ/r² − ω²r)/a₀` is the gravity/centrifugal fraction the Orbiter-wiki reference adds in the
+steering because its guide step leaves gravity out; `peg_alpha` takes `C` as a required argument
+(`peg_guidance.compute_gravity_term`, evaluated at the current state on every call). Without it
+the law opened Stage 2 at α = −97°. Its estimate step is now term-for-term the reference; note
+that at this vehicle's Stage-2 ignition `C ≈ 0.85–0.91` and for the shallower kicks `A + C > 1`,
+where the reference's small-pitch expansion `f_θ = 1 − f_r²/2` is outside its validity and the
+guide–estimate iteration has no unique fixed point — a property of the classical algorithm on a
+T/W ≈ 1 stage, to be reported, not patched. `apollo` now subtracts the local-frame kinematics of
+`(v cos γ, v sin γ)` — `−g + v_x²/r` vertically, `−v_x v_y/r` horizontally
+(`apollo_guidance.local_frame_accelerations`, tested against `diff_eom_base`) — instead of a
+gravity vector rotated by `s/R_E`, and resolves the thrust-magnitude constraint the way Luminary
+P12 does: vertical channel first, downrange takes `sqrt(a_T² − a_y²)`; pass
+`a_thrust_available=F_T/m` from both dispatchers. **Documented, deliberately not fixed:** under
+the coast architecture every closed-loop law steers the pre-coast Stage-2 burn towards the *final*
+orbit as a direct insertion, then the swarm's coast discards that plan (comment above Arc 1 in
+`run_pso_coast_trajectory`). Only the segmented mode gives that arc an intermediate target.
+
 **The force model is now shared, and that took a fix.** `diff_eom_base` is documented as the EOM
 *"WITHOUT Earth rotation"* — the rotating-frame pseudo-forces were added one layer up, in
 `rocket_dynamics`. The PSO Stage-2 ODEs call the kernel directly (they cannot use the 500-line
