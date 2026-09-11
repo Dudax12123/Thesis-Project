@@ -383,3 +383,37 @@ Both families contain solutions at least as good as the passive gravity turn —
 optimum is at least linear's; the local search from this seed stopped on a neighbouring optimum.)
 Whether the swarm finds these from random initialisation at the production budget is tested by
 the 100×250 runs below.
+
+## Fix 3 — production budget (100×250, seed 42) and the old-law comparison
+
+| case | J′ | prop. left | γ at ignition | α at ignition | Stage-2 structure |
+|---|---|---|---|---|---|
+| gt_baseline | 0.7806 | 20.35 t | 25.9° | 0° | 229 + 35 s, 323 s coast |
+| show_linear_tangent | 0.7826 | 20.41 t | 18.4° | +13.4° | 216 + 48 s, 334 s coast |
+| show_bilinear_tangent | 0.8213 | 16.60 t | 46.1° | −39.9° | 147 + 131 s, 123 s coast |
+
+Bilinear's gbest was still falling at generation 250 (0.8254 → 0.8213 over the last 25).
+
+Local refinement (Nelder–Mead, current code, same bounds and objective):
+
+| starting point | refined J′ | prop. left | constants |
+|---|---|---|---|
+| OLD closed-loop bilinear at its stale-batch vector | 0.7701 | 21.31 t | — |
+| NEW bilinear, seed fitted to that old trajectory | 0.7699 | 21.32 t | θ0 +21.8°, θf −1.0°, μ 0.510 |
+| NEW linear, same seed | 0.7699 | 21.32 t | θ0 +22.0°, θf −0.7° (γ_ign 16.5°, α_ign +5.5°) |
+
+All insert exactly (h 500.00 km, γ 0.0000°).
+
+- **Both families contain a 21.32 t solution** — shallow kick (γ_p ≈ 88.2°), ~537 s coast,
+  ~18 s second burn — about 1 t above the gravity turn's swarm result. The bilinear optimum is
+  essentially the linear law (μ = 0.51).
+- **The old closed-loop bilinear reached the same regime** (21.31 t) in the stale batch at the
+  same budget, because it searched four variables. The MECO fix did not change that value.
+- **At production budget the swarm is search-limited under the new form:** it leaves 0.91 t
+  (linear) and 4.72 t (bilinear) below solutions known to exist in each family. As they stand,
+  the open-loop tangent rows would understate both laws in the matrix.
+- **The failure basin is the steep kick** (γ at ignition 39–49° in every failed run); the good
+  basin has γ_ign ≈ 16.5° and a small positive α at ignition.
+- **Decision pending (user):** more PSO budget for the two tangent cases; parametrise the initial
+  pitch as an angle of attack at ignition with modest bounds instead of an absolute pitch;
+  multi-start; or report the rows as search-limited.
