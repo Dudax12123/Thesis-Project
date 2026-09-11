@@ -349,3 +349,37 @@ own steering fits 0.26–0.94° in absolute time. Changing it is a separate deci
 "Both forms are implemented, and both depart … re-derive them from the current state at every
 guidance update", Eq. `lts_alpha` and the 0.7/0.3 `bts_blend` paragraph are superseded under
 `pso_coast`; the continuity-through-coast convention and the `μ` parametrisation need a sentence.
+
+## Fix 3 — check runs and a representability test (2026-09-11)
+
+**60×120 swarm (seed 42), BASELINE config, post-MECO-fix code.** Every run, the gravity turn
+included, was still improving at its last generation, so these bound what the laws can do rather
+than measure it.
+
+| case | J′ | prop. left | Stage-2 structure | γ at ignition |
+|---|---|---|---|---|
+| gt_baseline | 0.8775 | 20.39 t | 232 + 32 s burns, 338 s coast | 25.7° |
+| show_linear_tangent | 0.8617 | 17.29 t | 56 + 219 s burns, 55 s coast | 39.3° |
+| show_bilinear_tangent | 0.8961 | 15.27 t | single 283 s burn | 49.1° |
+
+gbest by generation (1 / 26 / 51 / 76 / 101 / 120): gt 14.03 / 7.04 / 2.87 / 1.31 / 1.00 / 0.878;
+linear 61.98 / 2.81 / 2.81 / 1.08 / 0.862 / 0.862; bilinear 44.41 / 2.25 / 2.25 / 1.34 / 0.896 /
+0.896. The tangent swarms settled into a steep-kick basin by generation ~100.
+
+**Representability test.** Is a gravity-turn-quality solution inside each family? Took the gravity
+turn's 60×120 decision vector, fitted each law's constants to that trajectory's own pitch history
+(local frame, continuous time), then refined all three cases locally with Nelder–Mead under the
+same bounds and objective (one method for all three, ≤ 466 evaluations each):
+
+| law | seed J′ | refined J′ | prop. left | insertion |
+|---|---|---|---|---|
+| gravity_turn | 0.8699 | 0.7798 | 20.41 t | h 500.00 km, γ 0.0000° |
+| linear_tangent | 7.8559 | **0.7782** | **20.56 t** | h 500.00 km, γ 0.0000° (θ0 +19.6°, θf −2.8°) |
+| bilinear_tangent | 0.9216 | 0.7796 | 20.42 t | h 500.00 km, γ 0.0000° (θ0 +26.4°, θf −0.1°, μ 0.81) |
+
+Both families contain solutions at least as good as the passive gravity turn — linear beats it by
+~150 kg, the expected ordering for an active law — so the 60×120 results are search failures in
+6–7 dimensions, not properties of the laws. (Bilinear nests linear at μ = 0.5, so its global
+optimum is at least linear's; the local search from this seed stopped on a neighbouring optimum.)
+Whether the swarm finds these from random initialisation at the production budget is tested by
+the 100×250 runs below.
