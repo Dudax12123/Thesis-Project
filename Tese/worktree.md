@@ -75,6 +75,12 @@ no-ops. Walk them top-to-bottom.
 │  exp_shooting + pso_coast      → SUPPORTED: PSO optimises the pitch-law       │
 │                                  coeffs (a, b) as 2 extra decision vars,     │
 │                                  re-epoched per arc (no per-arc fsolve).      │
+│  lin/biln_tangent + pso_coast  → OPEN-LOOP (2026-09-11): PSO optimises θ0,  │
+│                                  θf (+ mid-span μ for bilinear); tan θ is    │
+│                                  linear/bilinear in time from first ignition │
+│                                  to planned final cutoff, NOT re-epoched.    │
+│                                  No t_go. Other architectures keep the old   │
+│                                  closed-loop form as a fallback.             │
 │  apollo + apogee_check         → now RAISES ValueError (main.py): apollo's   │
 │                                  vy=0/alt-at-burnout endpoint ≠ the apogee   │
 │                                  cut. Use peg_new here, or apollo+direct.    │
@@ -272,13 +278,14 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `GUIDANCE_MODE` (L119) | `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`, `peg_new`, `exp_shooting`, `indirect_pmp` | `indirect_pmp` | The ascent steering law (post-kick / Stage-2). | Drives **everything**: `indirect_pmp` overrides `COAST_METHOD`; `cpr`/`exp_shooting` add extra PSO vars under `pso_coast`; `apollo` **raises** under `apogee_check` (use `peg_new`); under `direct` only `apollo`/`peg`/`peg_new` reach orbit (others → suborbital); `cpr` skips the kick under apogee_check. Invalid value **raises** (`main.py:201`). |
-| `GUIDANCE_UPDATE_RATE` (L124) | float s | `2` | Recompute interval for apollo/linear/bilinear coefficients. | Only matters if `GUIDANCE_COEFFICIENTS_FIXED=False`. |
+| `GUIDANCE_MODE` (L119) | `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`, `peg_new`, `exp_shooting`, `indirect_pmp` | `indirect_pmp` | The ascent steering law (post-kick / Stage-2). | Drives **everything**: `indirect_pmp` overrides `COAST_METHOD`; `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent` add extra PSO vars under `pso_coast`; `apollo` **raises** under `apogee_check` (use `peg_new`); under `direct` only `apollo`/`peg`/`peg_new` reach orbit (others → suborbital); `cpr` skips the kick under apogee_check. Invalid value **raises** (`main.py:201`). |
+| `GUIDANCE_UPDATE_RATE` (L124) | float s | `2` | Recompute interval for apollo/linear/bilinear coefficients. | Only matters if `GUIDANCE_COEFFICIENTS_FIXED=False`. **No effect on the tangent laws under `pso_coast`** (open-loop since 2026-09-11). |
 | `APOLLO_FREEZE_THRESHOLD` (L125) | float s | `10.0` | t_go below which apollo/peg coefficients freeze (stability). | apollo, peg, peg_new only. |
 | `APOLLO_THRUST_MAGNITUDE_CONTROL` (L127) | `True`/`False` | `False` | If True, apollo also commands thrust magnitude. | apollo only. |
-| `GUIDANCE_COEFFICIENTS_FIXED` (L132) | `True`/`False` | `True` | Compute linear/bilinear coeffs once vs. every update; `t_go` always recomputed each step. | linear/bilinear tangent only; gates `GUIDANCE_UPDATE_RATE`. |
-| `GUIDANCE_TGO_USE_PSO_PLAN` (L140) | `True`/`False` | `False` | Use PSO-planned burn countdown for t_go instead of rocket-equation estimate. | **silently ignored** outside `pso_coast`/`direct(pso)`; excludes `peg_new`; affects apollo/linear/bilinear/cpr/peg. |
-| `TGO_ESTIMATOR` | `rocket_equation`, `peg_new` | `rocket_equation` | t_go estimator for the scalar-t_go modes: gravity-blind rocket-equation vs. peg_new's gravity-aware estimate. | affects apollo/linear/bilinear/cpr(`"tgo"`); **excludes peg** (own T solver) and peg_new (source); cpr under `pso_coast` unaffected (PSO θ_dot). |
+| `GUIDANCE_COEFFICIENTS_FIXED` (L132) | `True`/`False` | `True` | Compute linear/bilinear coeffs once vs. every update; `t_go` always recomputed each step. | linear/bilinear tangent only; gates `GUIDANCE_UPDATE_RATE`. **Silently ignored under `pso_coast`**, where both tangent laws fly open-loop from PSO constants; still live under `apogee_check`/`direct`/segmented. Note the closed-loop form it gates matches the current γ, so with `False` linear tangent returns α ≡ 0 (audit 2026-09-10). |
+| `GUIDANCE_TGO_USE_PSO_PLAN` (L140) | `True`/`False` | `False` | Use PSO-planned burn countdown for t_go instead of rocket-equation estimate. | **silently ignored** outside `pso_coast`/`direct(pso)`; excludes `peg_new`; affects apollo/linear/bilinear/cpr/peg — but under `pso_coast` the tangent laws no longer use t_go (open-loop), so there it reaches apollo/cpr/peg only. |
+| `TGO_ESTIMATOR` | `rocket_equation`, `peg_new` | `rocket_equation` | t_go estimator for the scalar-t_go modes: gravity-blind rocket-equation vs. peg_new's gravity-aware estimate. | affects apollo/linear/bilinear/cpr(`"tgo"`); **excludes peg** (own T solver) and peg_new (source); cpr under `pso_coast` unaffected (PSO θ_dot); linear/bilinear under `pso_coast` unaffected (open-loop PSO constants, no t_go). |
+| `PSO_COAST_TAN_THETA0_{LB,UB}_DEG`, `PSO_COAST_TAN_THETAF_{LB,UB}_DEG`, `PSO_COAST_BTS_MID_{LB,UB}` | deg / deg / (0,1) | `[-20,70]`, `[-40,30]`, `[0.1,0.9]` | Bounds of the open-loop tangent-law constants under `pso_coast`: pitch (α+γ, from the local horizontal) at first Stage-2 ignition and at the planned final cutoff, and bilinear's mid-span fraction of the change in tan θ (0.5 = linear). | `linear_tangent` appends `θ0, θf` (6 vars), `bilinear_tangent` appends `θ0, θf, μ` (7 vars). The law runs in continuous time across the coast (not re-epoched, unlike `exp_shooting`). Measured basis in `Guidance/linear_tangent_steering.py`. |
 | `CPR_THETA_DOT_MODE` (L150) | `tgo`, `manual` | `manual` | How CPR's constant pitch rate is set. | cpr + **`apogee_check` only**; `manual` activates `CPR_THETA_DOT`. Under `pso_coast` the rate is the PSO var `PSO_COAST_CPR_THETA_DOT_*`. |
 | `CPR_THETA_DOT` (L154) | float deg/s (rec. 0.1–0.5) | `0.4` | Manual CPR pitch rate (duration = 90°/rate). | cpr + `apogee_check` + `manual` only. |
 | `PEG_MAJOR_LOOP_RATE` (L159) | float s | `2.0` | PEG major-loop A,B,T recompute period. | peg only. |
@@ -305,7 +312,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`; `direct` reaches orbit **only** for `apollo`/`peg`/`peg_new` (others → suborbital — solver warns). |
+| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent`; `direct` reaches orbit **only** for `apollo`/`peg`/`peg_new` (others → suborbital — solver warns). |
 | `DIRECT_INSERTION_VELOCITY_TOL_MS` (L337) | float m/s | `10.0` | "Clean insertion" velocity tolerance. | `COAST_METHOD="direct"` only (else unused). |
 | `DIRECT_INSERTION_FPA_TOL_DEG` (L338) | float deg | `0.5` | "Clean insertion" FPA tolerance. | `COAST_METHOD="direct"` only. |
 | `DIRECT_INSERTION_ALTITUDE_TOL_KM` (L339) | float km | `5.0` | "Clean insertion" altitude tolerance. | `COAST_METHOD="direct"` only. |
@@ -624,8 +631,8 @@ cells re-run at higher PSO budget to separate "needs more budget" from "structur
 | GUIDANCE_MODE | `apogee_check` | `pso_coast` | `direct` (always PSO) |
 |---|---|---|---|
 | `gravity_turn` | OK | OK | ✗ **suborbital** — see note |
-| `linear_tangent` | OK | OK | ✗ **suborbital** — see note |
-| `bilinear_tangent` | OK | OK | ✗ **suborbital** — see note |
+| `linear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf` (5th/6th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) |
+| `bilinear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf, μ` (5th–7th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) |
 | `apollo` | ✗ **raises `ValueError`** — incompatible (`main.py`, apogee_check branch); use `peg_new` here, or `apollo` under `direct`/`pso_coast` | OK | OK |
 | `cpr` | OK — kick forced to 0 (`main.py:761`) | OK — gamma_p kick + PSO `θ_dot` (5th var); Stage-1 branch gated off (`_IN_PSO_STAGE1`) | ✗ **suborbital** — see note |
 | `peg` | OK | OK | OK |
@@ -670,7 +677,9 @@ Each is legal to set but does something other than what you'd expect. With `file
 
 - **`GUIDANCE_TGO_USE_PSO_PLAN` only affects the PSO solvers and skips `peg_new`.** It has no effect
   in the legacy `run()` (always uses the rocket-equation t_go estimate); inside the PSO solvers it
-  affects apollo/linear/bilinear/cpr/peg but explicitly not `peg_new`.
+  affects apollo/linear/bilinear/cpr/peg but explicitly not `peg_new`. Since 2026-09-11 the two
+  tangent laws consult no t_go under `pso_coast` (open-loop PSO constants), so there it reaches
+  apollo/cpr/peg only; it still reaches the tangent laws under `direct` and segmented.
 
 - **`indirect_pmp` (and every PSO path) hard-requires PyGMO.** No scipy fallback despite docstring
   wording; missing PyGMO raises `ImportError` (`indirect_pso_solver.py:687`,

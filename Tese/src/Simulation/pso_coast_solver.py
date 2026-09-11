@@ -176,6 +176,17 @@ class GuidanceState:
     pso_exp_a: Optional[float] = None
     pso_exp_b: Optional[float] = None
 
+    # linear_tangent / bilinear_tangent open-loop constants (pso_coast). When
+    # pso_tan_theta0 is set the law is flown open-loop from them instead of the
+    # closed-loop t_go form. tan_t0 / tan_tf are the first ignition and the
+    # PLANNED final cutoff: the law runs in continuous time between them, through
+    # the coast, so none of these is touched by restart_for_new_burn.
+    pso_tan_theta0: Optional[float] = None
+    pso_tan_thetaf: Optional[float] = None
+    pso_tan_mu: Optional[float] = None
+    tan_t0: Optional[float] = None
+    tan_tf: Optional[float] = None
+
     # Alpha / time log for dense-output post-processing
     alpha_log: List[float] = field(default_factory=list)
     time_log: List[float] = field(default_factory=list)
@@ -355,6 +366,11 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
     r_tgt = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     Ve    = Isp * c.G_0
 
+    # Open-loop tangent law with swarm-chosen constants (pso_coast). No t_go,
+    # no coefficient refresh: see Guidance/linear_tangent_steering.py.
+    open_loop_tan = (mode in ("linear_tangent", "bilinear_tangent")
+                     and gs.pso_tan_theta0 is not None)
+
     # --- Resolve the per-segment terminal target ---------------------------
     # The segmented driver sets gs.target (a SegmentTarget) to aim this segment at
     # a PMP-reference waypoint with a possibly non-zero terminal flight-path angle.
@@ -413,7 +429,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 gs.cpr_theta_dot = gs.cpr_theta_initial / max(tgo, 0.1)
             gs.cpr_t_start = t
 
-        elif mode in ("linear_tangent", "bilinear_tangent", "apollo"):
+        elif (mode in ("linear_tangent", "bilinear_tangent", "apollo")
+                and not open_loop_tan):
             tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, None)
             if mode == "apollo":
                 gs.apollo_previous_tgo = tgo
@@ -481,7 +498,17 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
     if gs.guidance_phase_active and F_T > 0:
 
-        if mode == "gravity_turn":
+        if open_loop_tan:
+            if mode == "linear_tangent":
+                alpha = lts_guidance.open_loop_alpha(
+                    t, gs.tan_t0, gs.tan_tf, gamma,
+                    gs.pso_tan_theta0, gs.pso_tan_thetaf)
+            else:
+                alpha = bts_guidance.open_loop_alpha(
+                    t, gs.tan_t0, gs.tan_tf, gamma,
+                    gs.pso_tan_theta0, gs.pso_tan_thetaf, gs.pso_tan_mu)
+
+        elif mode == "gravity_turn":
             alpha = 0.0
 
         elif mode == "cpr":
@@ -670,6 +697,7 @@ _event_crash.direction = -1
 
 def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
                               cpr_theta_dot=None, exp_a=None, exp_b=None,
+                              tan_theta0=None, tan_thetaf=None, tan_mu=None,
                               verbose=False):
     """
     Simulate a thrust–coast–thrust Stage-2 trajectory for one PSO particle.
@@ -746,6 +774,11 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     gs.pso_cpr_theta_dot = cpr_theta_dot   # cpr: PSO-optimised pitch rate
     gs.pso_exp_a = exp_a                    # exp_shooting: PSO-optimised coeffs
     gs.pso_exp_b = exp_b
+    # linear/bilinear tangent: open-loop constants over first ignition ->
+    # planned final cutoff (coast included when the arcs below include one).
+    gs.pso_tan_theta0, gs.pso_tan_thetaf, gs.pso_tan_mu = tan_theta0, tan_thetaf, tan_mu
+    gs.tan_t0 = t_ignition
+    gs.tan_tf = t_ignition + T_burn_total + (delta_tc if delta_tc > 0.01 else 0.0)
 
     # ---- Arc 1: Thrust (t_ignition → t_ignition + t_coast_start) ----
     #
@@ -922,6 +955,14 @@ def _coast_bounds():
     elif mode == "exp_shooting":
         lb += [sim_params.PSO_COAST_EXP_A_LB, sim_params.PSO_COAST_EXP_B_LB]
         ub += [sim_params.PSO_COAST_EXP_A_UB, sim_params.PSO_COAST_EXP_B_UB]
+    elif mode in ("linear_tangent", "bilinear_tangent"):
+        lb += [np.deg2rad(sim_params.PSO_COAST_TAN_THETA0_LB_DEG),
+               np.deg2rad(sim_params.PSO_COAST_TAN_THETAF_LB_DEG)]
+        ub += [np.deg2rad(sim_params.PSO_COAST_TAN_THETA0_UB_DEG),
+               np.deg2rad(sim_params.PSO_COAST_TAN_THETAF_UB_DEG)]
+        if mode == "bilinear_tangent":
+            lb.append(sim_params.PSO_COAST_BTS_MID_LB)
+            ub.append(sim_params.PSO_COAST_BTS_MID_UB)
     return lb, ub
 
 
@@ -935,6 +976,11 @@ def _unpack_coast_x(x):
     elif mode == "exp_shooting" and len(x) >= 6:
         extras["exp_a"] = float(x[4])
         extras["exp_b"] = float(x[5])
+    elif mode in ("linear_tangent", "bilinear_tangent") and len(x) >= 6:
+        extras["tan_theta0"] = float(x[4])
+        extras["tan_thetaf"] = float(x[5])
+        if mode == "bilinear_tangent" and len(x) >= 7:
+            extras["tan_mu"] = float(x[6])
     return delta_tc, delta_tr_pct, coast_start_pct, gamma_p, extras
 
 
@@ -958,7 +1004,10 @@ class CoastPSOProblem:
             result = run_pso_coast_trajectory(
                 dtc, dtr, cs, gp,
                 cpr_theta_dot=extras.get("cpr_theta_dot"),
-                exp_a=extras.get("exp_a"), exp_b=extras.get("exp_b"))
+                exp_a=extras.get("exp_a"), exp_b=extras.get("exp_b"),
+                tan_theta0=extras.get("tan_theta0"),
+                tan_thetaf=extras.get("tan_thetaf"),
+                tan_mu=extras.get("tan_mu"))
             return [compute_coast_objective(result)]
         except Exception:
             return [CRASH_PENALTY]
@@ -1130,6 +1179,13 @@ def run_pso_coast_full(optimal_params, verbose=True):
     gs_full.pso_cpr_theta_dot = _extras.get("cpr_theta_dot")
     gs_full.pso_exp_a = _extras.get("exp_a")
     gs_full.pso_exp_b = _extras.get("exp_b")
+    # Same planned span as run_pso_coast_trajectory, so the replay flies the
+    # law the swarm scored.
+    gs_full.pso_tan_theta0 = _extras.get("tan_theta0")
+    gs_full.pso_tan_thetaf = _extras.get("tan_thetaf")
+    gs_full.pso_tan_mu     = _extras.get("tan_mu")
+    gs_full.tan_t0 = t_ignition
+    gs_full.tan_tf = t_ignition + T_burn_total + (delta_tc if delta_tc > 0.01 else 0.0)
 
     # ---- Arc 1 (thrust, dense) ----
     t_arc1_end = t_ignition + t_coast_start
@@ -1361,4 +1417,9 @@ def _print_coast_solution(x, J_prime):
         print(f"  CPR pitch rate   = {np.rad2deg(extras['cpr_theta_dot']):.4f}°/s")
     if "exp_a" in extras:
         print(f"  exp-shoot a, b   = {extras['exp_a']:.4f}, {extras['exp_b']:.6f}")
+    if "tan_theta0" in extras:
+        print(f"  tangent θ0, θf   = {np.rad2deg(extras['tan_theta0']):+.3f}°, "
+              f"{np.rad2deg(extras['tan_thetaf']):+.3f}°  (pitch from local horizontal)")
+        if "tan_mu" in extras:
+            print(f"  bilinear mid-span fraction μ = {extras['tan_mu']:.4f}  (0.5 = linear)")
     print(f"  J'               = {J_prime:.4f}")

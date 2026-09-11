@@ -25,6 +25,83 @@ import numpy as np
 from Auxiliary import constants as c
 
 
+# ---------------------------------------------------------------------------
+# Open-loop form with optimiser-chosen constants (pso_coast, since 2026-09-11)
+# ---------------------------------------------------------------------------
+#
+# This is the form the bibliography gives the law. In the flat-Earth, constant-
+# gravity, no-drag problem the thrust direction that is optimal with the final
+# downrange free satisfies tan(theta) = a*t_go + b, and the two constants are
+# fixed by the TERMINAL boundary conditions of that problem (Perkins 1966, by
+# the Lagrange technique; Bryson & Ho; Chapter 4: "a separate numerical
+# optimisation ... determines the optimal gamma(t) and t_f; the linear or
+# bilinear tangent law then provides the steering history"). The law has no
+# targeting content of its own: whatever solves for its constants supplies it.
+# Here that is the swarm, exactly as the exponential law is treated.
+#
+# The legacy closed-loop routine further down derives the constants from the
+# CURRENT flight-path angle instead, with the terminal pitch pinned at zero.
+# That boundary condition is this implementation's, not the literature's; it
+# leaves the law nothing to target, and re-deriving it at every update returns
+# alpha = 0 identically. It is kept only as the fallback for the architectures
+# that supply no constants (apogee_check, direct, segmented waypoints).
+#
+# Two conventions, both measured against the indirect-PMP optimum of the
+# archived results batch before being adopted:
+#
+#   Time runs CONTINUOUSLY from the first Stage-2 ignition t0 to the planned
+#   final cutoff tf, through the coast. In the flat-Earth derivation the
+#   costates propagate through a coast exactly as through a burn
+#   (dlambda_vy/dt = -lambda_y in both), so tan(theta) is linear in absolute
+#   time, not in powered time. Fitting the PMP steering: absolute time 0.69-0.84
+#   deg rms, powered-only (re-epoched per arc) 4.4-8.1 deg rms.
+#
+#   Pitch is measured from the LOCAL horizontal, theta = alpha + gamma, as in
+#   Chapter 4's equation. The flat-Earth derivation measures it from a fixed
+#   horizontal; on the archived PMP optimum the two frames fit comparably
+#   (linear 0.84 vs 0.69 deg, bilinear 0.03 vs 0.17 deg), so the chapter's frame
+#   is kept.
+#
+# Parametrised by the pitch at the two ends of the span rather than by (a, b),
+# so the swarm's bounds are physical angles:
+#
+#   tan theta(sigma) = (1 - sigma) tan theta0 + sigma tan thetaf,
+#   sigma = (t - t0)/(tf - t0),
+#
+# which is tan(theta) = a*t_go + b with t_go = tf - t, b = tan thetaf and
+# a = (tan theta0 - tan thetaf)/(tf - t0).
+
+def open_loop_tan_pitch(sigma, theta0, thetaf):
+    """Commanded pitch from the local horizontal at normalised time ``sigma``.
+
+    ``sigma`` is clamped to [0, 1]: past the planned cutoff (an integrator
+    endpoint a hair beyond tf) the law holds its terminal value.
+    """
+    sigma = min(max(float(sigma), 0.0), 1.0)
+    return float(np.arctan((1.0 - sigma) * np.tan(theta0) + sigma * np.tan(thetaf)))
+
+
+def open_loop_alpha(t, t0, tf, gamma, theta0, thetaf):
+    """Angle of attack of the open-loop linear tangent law.
+
+    Parameters
+    ----------
+    t      : float  current time [s]
+    t0     : float  first Stage-2 ignition [s]
+    tf     : float  planned final cutoff [s] (coast included)
+    gamma  : float  current flight-path angle [rad]
+    theta0 : float  commanded pitch at t0 [rad]
+    thetaf : float  commanded pitch at tf [rad]
+    """
+    sigma = (t - t0) / (tf - t0) if tf > t0 else 0.0
+    return open_loop_tan_pitch(sigma, theta0, thetaf) - gamma
+
+
+def open_loop_coefficients(T, theta0, thetaf):
+    """Chapter-4 form ``[a, b]`` of tan(alpha + gamma) = a*t_go + b over a span T."""
+    return [(np.tan(theta0) - np.tan(thetaf)) / T, float(np.tan(thetaf))]
+
+
 def compute_lts_coefficients(current_state, target_altitude, t_go):
     """
     Compute linear tangent steering coefficients from boundary conditions.

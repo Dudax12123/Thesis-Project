@@ -592,6 +592,27 @@ PSO_COAST_EXP_A_LB = 0.0     # exp_shooting a (initial commanded pitch ≈ [rad]
 PSO_COAST_EXP_A_UB = 1.6
 PSO_COAST_EXP_B_LB = -0.05   # exp_shooting b (pitch decay rate [1/s])
 PSO_COAST_EXP_B_UB = 0.005
+#   linear_tangent   -> + theta0, thetaf       (open-loop tangent law, tan θ linear
+#   bilinear_tangent -> + theta0, thetaf, mu    in time; bilinear adds curvature)
+# θ = α + γ is the commanded pitch from the local horizontal at the first
+# Stage-2 ignition (theta0) and at the planned final cutoff (thetaf); the law
+# runs in continuous time between them, THROUGH the coast, and is not re-epoched
+# per arc. mu is the fraction of the change in tan θ completed at mid-span
+# (0.5 = linear). See Guidance/linear_tangent_steering.py for the derivation and
+# the measurements behind both conventions. Under pso_coast these replace the
+# closed-loop t_go form entirely, so GUIDANCE_COEFFICIENTS_FIXED,
+# GUIDANCE_UPDATE_RATE, TGO_ESTIMATOR and GUIDANCE_TGO_USE_PSO_PLAN no longer
+# reach either tangent law there (they still do under apogee_check / direct /
+# segmented, which keep the closed-loop fallback).
+# Bounds from the archived batch, pitch from the local horizontal: at ignition
+# +0.2..+26.3 deg (steep kicks reach ~63 deg), at cutoff -14.9..+6.9 deg; the
+# PMP optimum runs +26.3 -> -14.9 deg. Margins of ~20 deg either side.
+PSO_COAST_TAN_THETA0_LB_DEG = -20.0   # [deg] pitch at first Stage-2 ignition
+PSO_COAST_TAN_THETA0_UB_DEG = 70.0
+PSO_COAST_TAN_THETAF_LB_DEG = -40.0   # [deg] pitch at planned final cutoff
+PSO_COAST_TAN_THETAF_UB_DEG = 30.0
+PSO_COAST_BTS_MID_LB = 0.1            # bilinear mid-span fraction mu (0.5 = linear)
+PSO_COAST_BTS_MID_UB = 0.9
 
 # -------------------------------------------------------------------
 # 11c. Direct PSO   (only used when COAST_METHOD == "direct")

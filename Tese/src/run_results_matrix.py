@@ -180,6 +180,12 @@ BASELINE = {
     # guidance at all and peg_new solves its own t_go internally (verified
     # bit-identical to 16 digits). TGO_ESTIMATOR is live again with the flag
     # off, and applies to apollo / linear_tangent / bilinear_tangent.
+    #
+    # Since 2026-09-11 it applies to apollo alone under pso_coast: the two
+    # tangent laws are flown open-loop from swarm-chosen constants and consult
+    # no t_go at all (Guidance/linear_tangent_steering.py). The plan-vs-own
+    # table above was measured on the old closed-loop tangent form and no
+    # longer describes them.
     "TGO_ESTIMATOR": "rocket_equation",
     "GUIDANCE_TGO_USE_PSO_PLAN": False,
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.

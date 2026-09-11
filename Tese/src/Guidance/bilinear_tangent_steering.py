@@ -28,6 +28,86 @@ import numpy as np
 from Auxiliary import constants as c
 
 
+# ---------------------------------------------------------------------------
+# Open-loop form with optimiser-chosen constants (pso_coast, since 2026-09-11)
+# ---------------------------------------------------------------------------
+#
+# The bibliographic form of the law: the flat-Earth optimal thrust direction
+# with the final downrange constrained, tan(theta) = (c1 t_go + c2)/(c1' t_go
+# + c2'), its constants fixed by the terminal boundary conditions. Federici,
+# Zavoli & Colasurdo (arXiv 1910.03268) fly it with the three free constants
+# expressed through the initial and final angles and a curvature measure,
+# chosen by the optimiser; that is what is done here. See
+# linear_tangent_steering for the two conventions (continuous time from first
+# ignition to planned final cutoff; pitch from the local horizontal) and the
+# measurements behind them. On the archived indirect-PMP optimum this form, in
+# these conventions, fits the optimal steering to 0.03 deg rms.
+#
+# It replaces, for pso_coast, the legacy routine below, whose initial condition
+# was a 0.7/0.3 blend of the current and a geometric target flight-path angle
+# and whose terminal rate was a fixed -0.02 1/s -- tuned constants with no
+# counterpart in the literature. That routine remains the fallback wherever no
+# constants are supplied (apogee_check, direct, segmented waypoints).
+#
+# Parametrisation, with sigma = (t - t0)/(tf - t0):
+#
+#   tan theta(sigma) = tan theta0 + (tan thetaf - tan theta0) * s(sigma),
+#   s(sigma)         = (1 + k) sigma / (1 + k sigma),
+#
+# a ratio of two linear functions of time, i.e. exactly the bilinear law. The
+# curvature k is set through the fraction of the total change in tan(theta)
+# completed at mid-span, mu = s(1/2) in (0, 1): k = (2 mu - 1)/(1 - mu). mu = 1/2
+# gives k = 0 and the linear tangent law, which is therefore nested at the
+# centre of the bounds rather than at an edge, and 1 + k sigma > 0 on [0, 1]
+# for every mu in (0, 1).
+
+def midpoint_to_kappa(mu):
+    """Curvature k of the bilinear shape from its mid-span fraction ``mu``."""
+    mu = float(mu)
+    return (2.0 * mu - 1.0) / (1.0 - mu)
+
+
+def open_loop_tan_pitch(sigma, theta0, thetaf, mu):
+    """Commanded pitch from the local horizontal at normalised time ``sigma``.
+
+    ``sigma`` is clamped to [0, 1]: past the planned cutoff the law holds its
+    terminal value.
+    """
+    sigma = min(max(float(sigma), 0.0), 1.0)
+    k = midpoint_to_kappa(mu)
+    shape = (1.0 + k) * sigma / (1.0 + k * sigma)
+    return float(np.arctan(np.tan(theta0) + (np.tan(thetaf) - np.tan(theta0)) * shape))
+
+
+def open_loop_alpha(t, t0, tf, gamma, theta0, thetaf, mu):
+    """Angle of attack of the open-loop bilinear tangent law.
+
+    Parameters
+    ----------
+    t      : float  current time [s]
+    t0     : float  first Stage-2 ignition [s]
+    tf     : float  planned final cutoff [s] (coast included)
+    gamma  : float  current flight-path angle [rad]
+    theta0 : float  commanded pitch at t0 [rad]
+    thetaf : float  commanded pitch at tf [rad]
+    mu     : float  mid-span fraction of the change in tan(theta), (0, 1)
+    """
+    sigma = (t - t0) / (tf - t0) if tf > t0 else 0.0
+    return open_loop_tan_pitch(sigma, theta0, thetaf, mu) - gamma
+
+
+def open_loop_coefficients(T, theta0, thetaf, mu):
+    """Chapter-4 form ``[c1, c2, c1', c2']`` of
+    tan(alpha + gamma) = (c1 t_go + c2)/(c1' t_go + c2') over a span T, c2' = 1."""
+    k = midpoint_to_kappa(mu)
+    p, pf = np.tan(theta0), np.tan(thetaf)
+    delta = pf - p
+    c2 = float(pf)
+    c1 = -(p * k + delta * (1.0 + k)) / ((1.0 + k) * T)
+    c1_prime = -k / ((1.0 + k) * T)
+    return [float(c1), c2, float(c1_prime), 1.0]
+
+
 def compute_bilinear_coefficients(current_state, target_altitude, t_go, terminal_gamma=None):
     """
     Compute bilinear tangent steering coefficients from boundary conditions.

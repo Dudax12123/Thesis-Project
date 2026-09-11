@@ -282,3 +282,70 @@ What the corrected laws do, and why it is the algorithm and not the code:
   only because their gravity handling was wrong in a direction that mimicked a shallower plan.
 - The two remaining large-α openings are the hand-over problem of Bibliography check 2, not
   a residual defect: the laws are engaged on a state their sources would never hand them.
+
+---
+
+# Fix 3 — tangent laws open-loop under pso_coast (2026-09-11)
+
+User decision (2026-09-11): adopt the open-loop tangent laws with swarm-chosen constants.
+Report updates on hold.
+
+**Form.** With `σ = (t − t0)/(tf − t0)`, `t0` the first Stage-2 ignition and `tf` the planned
+final cutoff (coast included), and `θ = α + γ` from the local horizontal:
+
+- linear: `tan θ = (1 − σ) tan θ0 + σ tan θf`
+- bilinear: `tan θ = tan θ0 + (tan θf − tan θ0)·(1 + k)σ/(1 + kσ)`, `k = (2μ − 1)/(1 − μ)`
+
+`μ` is the fraction of the change in `tan θ` completed at mid-span; `μ = 0.5` gives `k = 0`, the
+linear law, nested at the centre of the bounds. Both are exactly Chapter 4's `tan(α+γ) = a·t_go + b`
+and `(c1 t_go + c2)/(c1' t_go + c2')` with `t_go = tf − t` (`open_loop_coefficients` in each module
+converts; tested). Decision vector: linear `+[θ0, θf]` (6 vars), bilinear `+[θ0, θf, μ]` (7).
+Bounds `θ0 ∈ [−20°, 70°]`, `θf ∈ [−40°, 30°]`, `μ ∈ [0.1, 0.9]`, set from the archived pitch
+ranges (ignition +0.2…+26.3°, steep kicks to ~63°; cutoff −14.9…+6.9°) with ~20° margin.
+
+**Bibliographic basis.** Constants from the terminal conditions of the flat-Earth problem, never
+from the current γ (Perkins 1966; Bryson & Ho; Chapter 4 via Ulrich/Edberg: "a separate numerical
+optimization … determines the optimal γ(t) and t_f"); Federici, Zavoli & Colasurdo (arXiv
+1910.03268) fly the bilinear law with its three constants expressed through initial/final angles
+and a curvature measure, chosen by the optimiser — the same family as here.
+
+**Two conventions, measured before adoption.** Least-squares fits of the archived steering
+(`tan θ` against `σ` over the Stage-2 burn samples), rms error in degrees:
+
+| case | frame | time | linear | bilinear |
+|---|---|---|---|---|
+| pmp_baseline | fixed @ ignition | absolute | 0.69 | 0.17 |
+| pmp_baseline | fixed @ ignition | powered only | 8.14 | 5.09 |
+| pmp_baseline | local | absolute | 0.84 | **0.03** |
+| pmp_baseline | local | powered only | 4.43 | 3.01 |
+| gt_baseline | local | absolute | 2.79 | 0.17 |
+| gt_baseline | local | powered only | 1.56 | 1.60 |
+
+- *Time continuous through the coast.* In the flat-Earth derivation the costates propagate
+  through a coast exactly as through a burn (`λ̇_vy = −λ_y` in both), so `tan θ` is linear in
+  absolute time. The indirect optimum agrees: absolute time fits it to 0.03–0.84°, re-epoching
+  per arc (what `exp_shooting` does) to 3–8°. `GuidanceState.tan_t0/tan_tf` are set by the
+  trajectory runner and survive `restart_for_new_burn`.
+- *Frame.* The derivation measures θ from a fixed horizontal; on the PMP optimum the local and
+  fixed frames fit comparably, the local one better for bilinear. Chapter 4's frame (local) kept.
+- In the local frame the bilinear law with absolute time reproduces the indirect-PMP steering to
+  0.03° rms: the law can represent the optimum, so any gap the swarm leaves is convergence or
+  the arc-1 structure, not the law's shape.
+
+**Scope.** `pso_coast` only, as for `cpr`/`exp_shooting`. `apogee_check`, `direct` and segmented
+supply no constants and keep the closed-loop form (a test pins its α = 0-at-engagement property).
+`GUIDANCE_COEFFICIENTS_FIXED`, `GUIDANCE_UPDATE_RATE`, `TGO_ESTIMATOR` and
+`GUIDANCE_TGO_USE_PSO_PLAN` no longer reach the tangent laws under `pso_coast`
+(`worktree.md` updated).
+
+**Verification.** 25 new tests (`tests/test_tangent_open_loop.py`; suite 113). Smoke flight per
+law: replay objective equals the swarm's fitness to 1e-13; the first command after the coast
+equals the law at absolute σ (not re-epoched).
+
+**Flagged, not done.** The same evidence argues against `exp_shooting`'s per-arc re-epoch — its
+own steering fits 0.26–0.94° in absolute time. Changing it is a separate decision.
+
+**Thesis (on hold).** Table 4.1 `t_go` column → "—" for both tangent laws; the §4.x paragraph
+"Both forms are implemented, and both depart … re-derive them from the current state at every
+guidance update", Eq. `lts_alpha` and the 0.7/0.3 `bts_blend` paragraph are superseded under
+`pso_coast`; the continuity-through-coast convention and the `μ` parametrisation need a sentence.

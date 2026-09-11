@@ -907,8 +907,9 @@ def execute():
              coriolis_mag_data, centrifugal_mag_data) = run_pso_coast_full(
                 optimal_params, verbose=True)
 
-            # Unpack for the shared display / plotting block below (cpr/exp_shooting
-            # append extra decision variables after the base 4 — slice defensively).
+            # Unpack for the shared display / plotting block below (cpr, exp_shooting
+            # and the two tangent laws append extra decision variables after the
+            # base 4 — slice defensively).
             delta_tc_opt, delta_tr_pct_opt, coast_start_pct_opt, gamma_p_opt = optimal_params[:4]
             kick_angle_optimal     = gamma_p_opt - np.pi / 2.0
             best_azimuth_override  = None

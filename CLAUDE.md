@@ -209,6 +209,19 @@ the coast architecture every closed-loop law steers the pre-coast Stage-2 burn t
 orbit as a direct insertion, then the swarm's coast discards that plan (comment above Arc 1 in
 `run_pso_coast_trajectory`). Only the segmented mode gives that arc an intermediate target.
 
+**The tangent laws are open-loop under `pso_coast` since 2026-09-11**, in the form the
+bibliography gives them: `tan θ` linear (`linear_tangent`) or a ratio of linear functions
+(`bilinear_tangent`) in time, with the constants chosen by the swarm (`θ0`, `θf`, plus the
+mid-span fraction `μ` for bilinear, appended to the decision vector) rather than derived from the
+current γ. The old closed-loop form matched `tan θ = tan γ_now` with the terminal pitch pinned at
+zero, which leaves nothing to target and returns α ≡ 0 on refresh; it survives only as the
+fallback for architectures that supply no constants (`apogee_check`, `direct`, segmented). Two
+conventions, both measured against the indirect-PMP optimum: time runs **continuously from first
+Stage-2 ignition to the planned final cutoff, through the coast** — unlike `exp_shooting`, it is
+not re-epoched (re-epoching fits the PMP steering 4–8° worse) — and pitch is from the local
+horizontal, as in Chapter 4's equation. `GuidanceState.tan_t0`/`tan_tf` carry the span and are not
+touched by `restart_for_new_burn`.
+
 **The force model is now shared, and that took a fix.** `diff_eom_base` is documented as the EOM
 *"WITHOUT Earth rotation"* — the rotating-frame pseudo-forces were added one layer up, in
 `rocket_dynamics`. The PSO Stage-2 ODEs call the kernel directly (they cannot use the 500-line
