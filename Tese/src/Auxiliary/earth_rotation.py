@@ -175,6 +175,30 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, lat_rad, r_val):
     return v_eci, gamma_eci
 
 
+def rotating_to_inertial_planar(v_rel, gamma_rel, lat_rad, r_val):
+    """
+    Exact planar transform of a ground-relative (v, gamma) to inertial.
+
+    The rotation credit omega*r*cos(lat) is added to the horizontal component, the
+    same convention as ``ecef_to_eci_velocity`` and the rotating-frame targets, but
+    the flight-path angle is rotated with the vector instead of being kept. The two
+    agree at gamma = 0; away from it ``ecef_to_eci_velocity`` invents radial speed
+    (~170 m/s at a 27 deg Stage-2 hand-off). Accepts scalars or arrays.
+    """
+    v_rot = c.OMEGA_EARTH * r_val * np.cos(lat_rad)
+    v_h = v_rel * np.cos(gamma_rel) + v_rot
+    v_r = v_rel * np.sin(gamma_rel)
+    return np.hypot(v_h, v_r), np.arctan2(v_r, v_h)
+
+
+def inertial_to_rotating_planar(v_in, gamma_in, lat_rad, r_val):
+    """Inverse of ``rotating_to_inertial_planar``. Accepts scalars or arrays."""
+    v_rot = c.OMEGA_EARTH * r_val * np.cos(lat_rad)
+    v_h = v_in * np.cos(gamma_in) - v_rot
+    v_r = v_in * np.sin(gamma_in)
+    return np.hypot(v_h, v_r), np.arctan2(v_r, v_h)
+
+
 def v_circular_rotating(r_target, lat_rad, enable_rotation=True):
     """
     Rotating-frame circular velocity: sqrt(mu/r_target) - omega*r_target*cos(lat_rad).

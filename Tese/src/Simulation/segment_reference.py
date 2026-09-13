@@ -122,7 +122,15 @@ def _reference_input_key():
         #       Caches built before that are stale. Note that INCLUDE_PSEUDO_FORCES
         #       is deliberately NOT a key input: the reference is pseudo-force-free
         #       by construction now, so the flag cannot affect it.
-        ("SCHEMA", "v2-pseudo-force-gating"),
+        #   v3: MECO is root-found (df7a781) and the Stage-2 arc is flown in the
+        #       inertial frame against the inertial circular speed
+        #       (INDIRECT_PMP_STAGE2_FRAME, 2026-09-13). Both move the reference
+        #       trajectory, and v2 caches predate both.
+        ("SCHEMA", "v3-meco-root-found-inertial-stage2"),
+        ("INDIRECT_PMP_STAGE2_FRAME",
+         str(getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial"))),
+        ("INDIRECT_PMP_TRANSVERSALITY",
+         str(getattr(sim_params, "INDIRECT_PMP_TRANSVERSALITY", "duration_stationarity"))),
         ("TARGET_ORBITAL_ALTITUDE", float(sim_params.TARGET_ORBITAL_ALTITUDE)),
         ("TARGET_ORBIT_INCLINATION", float(sim_params.TARGET_ORBIT_INCLINATION)),
         ("LAUNCH_LATITUDE", float(sim_params.LAUNCH_LATITUDE)),

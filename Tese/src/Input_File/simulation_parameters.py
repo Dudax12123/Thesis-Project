@@ -522,6 +522,34 @@ PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
 PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
 GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 
+# -------------- Frame of the Stage-2 PMP arc ---------------------------------
+# indirect_pmp flies without pseudo-forces, so its Stage-2 equations are correct only
+# in a non-rotating frame.
+#   "inertial" : at stage separation the ground-relative (v, gamma) is converted to
+#                inertial -- exact planar transform, rotation credit
+#                omega*r*cos(LAUNCH_LATITUDE) added along-track -- and the terminal
+#                speed target is the inertial circular speed sqrt(mu/r).
+#   "rotating" : the formulation flown until 2026-09-13: the ground-relative state
+#                propagated with those rotation-free equations against
+#                sqrt(mu/r) - v_rot. In them that target is the APOAPSIS of an ellipse
+#                whose periapsis is ~-890 km, reachable with no circularisation burn.
+#                Kept only to reproduce archived rows.
+# Dense output and the reported state_final are ground-relative either way.
+# Inert when ENABLE_EARTH_ROTATION is False. Part of the PMP reference cache key.
+INDIRECT_PMP_STAGE2_FRAME = "inertial"
+
+# -------------- Transversality condition penalised (weight PENALTY_W_TRANSVERS)
+#   "duration_stationarity" : the conditions for this solver's own decision variables
+#       (burn D1 - coast Dc - burn D3), written with the reduced Hamiltonian:
+#       H_coast_end = 0 (one-sided at a coast bound), H_burn1_end = H_last_burn_start
+#       (engine on), H_burn_end < 0. Finite-difference verified and satisfiable
+#       (dev-notes/pmp_duration_conditions.py, 2026-09-13).
+#   "pontani_eq38" : |H_burn_end + H_coast_end - H_burn_start|, flown until 2026-09-13.
+#       H_burn_start is taken at Stage-2 ignition, which no condition involves; it cannot
+#       be satisfied together with the orbit constraints. Kept only to reproduce archived
+#       rows (bit-identical). Part of the PMP reference cache key.
+INDIRECT_PMP_TRANSVERSALITY = "duration_stationarity"
+
 # -------------- indirect_pmp is STAGE-2-ONLY ---------------------------------
 # The full-ascent PMP extension (INDIRECT_PMP_FULL_ASCENT + drag/alpha-clamp/mass-
 # costate/warm-start knobs) was WOUND BACK to the pre-full-ascent solver: the

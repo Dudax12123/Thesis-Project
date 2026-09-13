@@ -233,6 +233,18 @@ and are all-or-nothing per architecture — carried for the whole ascent everywh
 config** (building the segmented PMP reference runs the *indirect* solver, so a config-derived gate
 would mislabel it).
 
+Because the PMP flies without them, its Stage-2 arc is propagated **inertial** since 2026-09-13
+(`INDIRECT_PMP_STAGE2_FRAME`): the ground-relative hand-off is converted at separation with an exact
+planar transform and the target is √(μ/r); `state_final` and `run_indirect_full`'s dense output are
+converted back to ground-relative, so no consumer changes meaning (the flown state is
+`state_final_propagated`). The old form — ground-relative state, rotation-free equations, target
+√(μ/r) − v_rot — made the target the apoapsis of an Earth-intersecting ellipse, reachable with no
+circularisation burn. Note `ecef_to_eci_velocity` keeps γ and is only valid near γ = 0.
+The swarm's transversality penalty is `INDIRECT_PMP_TRANSVERSALITY`: since 2026-09-13 the
+stationarity conditions of its own burn/coast/burn durations (`H_coast_end = 0`,
+`H_burn1_end = H_last_burn_start`, `H_burn_end < 0`), which need no mass costate. The older
+Eq. 38 form took H at Stage-2 ignition and cannot be satisfied.
+
 **When adding a new term to the equations of motion, put it in `diff_eom_base`, not in
 `rocket_dynamics`** — otherwise it silently misses every population-based architecture, which is
 exactly how the pseudo-force gap arose. There is no test that would catch it.

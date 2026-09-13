@@ -406,8 +406,10 @@ atmospheric arc.
 | `PENALTY_W_ALTITUDE` (L287) | float | `100.0` | Altitude-error penalty. |
 | `PENALTY_W_VELOCITY` (L288) | float | `100.0` | Velocity-error penalty. |
 | `PENALTY_W_FPA` (L289) | float | `10.0` | FPA-error penalty. |
-| `PENALTY_W_TRANSVERS` (L290) | float | `10.0` | Transversality penalty (needs ‖λ₀‖=1). |
+| `PENALTY_W_TRANSVERS` (L290) | float | `10.0` | Transversality penalty weight; which condition is penalised is `INDIRECT_PMP_TRANSVERSALITY` (needs ‖λ₀‖=1). |
 | `GAMMA_REF_DEG` (L291) | float deg | `1.0` | FPA non-dimensionalization reference. |
+| `INDIRECT_PMP_STAGE2_FRAME` | `"inertial"`, `"rotating"` | `"inertial"` | Frame the Stage-2 PMP arc is propagated and scored in. `"inertial"`: the ground-relative hand-off state is converted at separation (exact planar transform, credit ω·r·cos(`LAUNCH_LATITUDE`) along-track, `earth_rotation.rotating_to_inertial_planar`) and the terminal speed target is √(μ/r). `"rotating"`: the formulation flown until 2026-09-13 — rotation-free equations against √(μ/r)−v_rot, in which that target is the apoapsis of an ellipse with periapsis ≈ −890 km (a refinement deleted the circularisation burn to reach it); kept only to reproduce archived rows. Either way `state_final` and the dense output of `run_indirect_full` are **ground-relative** (α re-referenced, downrange corrected), so the archive, figures and segmented waypoints read them unchanged; the flown state is `state_final_propagated`. **Inert** when `ENABLE_EARTH_ROTATION=False`; **raises** on any other value. Part of the PMP reference cache key (schema v3). |
+| `INDIRECT_PMP_TRANSVERSALITY` | `"duration_stationarity"`, `"pontani_eq38"` | `"duration_stationarity"` | Transversality condition the swarm penalises (`indirect_pso_solver.transversality_residual`). `"duration_stationarity"`: stationarity of the burn time in the solver's own decision variables (burn D1, coast Dc, burn D3), written with the reduced Hamiltonian — `H_coast_end = 0` (one-sided when the coast is at a bound), `H_burn1_end = H_last_burn_start` (engine on), hinge on `H_burn_end < 0`; no mass costate needed, finite-difference verified and satisfiable (`dev-notes/pmp_duration_conditions.py`). `"pontani_eq38"`: the form flown until 2026-09-13, `\|H_burn_end + H_coast_end − H_burn_start\|`, with H at Stage-2 ignition — cannot be satisfied with the orbit constraints; kept to reproduce archived rows bit-identically. **Raises** on any other value. Part of the PMP reference cache key. |
 
 **Full-ascent PMP (REVERTED).** An opt-in full-ascent extension (`INDIRECT_PMP_FULL_ASCENT` + drag-aware adjoints, angle-of-attack clamp, mass costate, full-ascent γ_p bounds) was explored and then **reverted** (commit `d20ac94`): its Stage-1 arc never reproduced the validated `run_stage1` gravity turn (α=0 reached MECO γ ~15–19° too steep and lofted). `indirect_pmp` is therefore **Stage-2-only** — the costates are born at Stage-2 ignition and Stage 1 is the fixed gravity turn. None of the `INDIRECT_PMP_FULL_ASCENT*` knobs exist in the code any more. An `indirect_pmp` `GUIDANCE_SEGMENTS` law (§1b) replays the stored optimal α from the Stage-2-only reference (whose atmospheric portion is the gravity turn); the npz cache stores `alpha_full`.
 
@@ -706,6 +708,13 @@ Each is legal to set but does something other than what you'd expect. With `file
     propagated costate, Eqs. 30b–30d and the transversality condition would need re-deriving, and the
     decision vector would grow from 7 to 8. That is a change to the published formulation, so the law
     is left as is. (The control law, Eq. 34, would survive — α does not appear in the pseudo-forces.)
+  - **Hence its Stage-2 frame (2026-09-13).** Without pseudo-forces those equations are correct only
+    in a non-rotating frame, so the arc is flown inertial (`INDIRECT_PMP_STAGE2_FRAME`, §2.9): hand-off
+    converted at separation, target √(μ/r). Before that it propagated the ground-relative state against
+    √(μ/r) − v_rot — in its own equations the apoapsis of an Earth-intersecting ellipse — and a local
+    refinement (`dev-notes/pmp_local_refine.py`) deleted the circularisation burn to reach it. Stage 1
+    of `indirect_pmp` is still flown pseudo-force-free in the rotating frame: a remaining difference from
+    every other architecture, not addressed by the frame change.
   - **The switch is `rocket_ascent.set_pseudo_forces_for_run()`, set by the driving solver and NEVER
     inferred from config.** `segment_reference` builds the PMP reference by running the *indirect*
     solver, so a config-derived gate would mislabel it. For the same reason the segmented solver sets

@@ -801,9 +801,9 @@ def execute():
                   f"(target {v_target:.2f} m/s; circular {v_c:.2f}, "
                   f"Earth-rot credit {v_rot:.2f})")
             print(f"\t* Final FPA:\t\t\t\t{g_f:.4f}°  (target 0°)")
-            H_tv = (result_opt['H_burn_end'] + result_opt['H_coast_end']
-                    - result_opt['H_burn_start'])
-            print(f"\t* Transversality residual:\t\t{H_tv:.6f}  (target 0)")
+            H_tv = ips.transversality_residual(result_opt)
+            print(f"\t* Transversality residual:\t\t{H_tv:.6f}  (target 0; "
+                  f"{getattr(sim_params, 'INDIRECT_PMP_TRANSVERSALITY', 'duration_stationarity')})")
             bd = breakdown_objective(result_opt)
             burn_s = result_opt['t_f'] - result_opt['t_cf']
             print(f"\n\t  J' breakdown:")

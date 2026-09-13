@@ -51,6 +51,7 @@ from Guidance.indirect_pmp_guidance import (
     compute_hamiltonian,
 )
 import Simulation.rocket_ascent as ra
+from Auxiliary import earth_rotation as earth_rot
 
 
 # ---------------------------------------------------------------------------
@@ -98,16 +99,78 @@ def _normalize_costates(lam_r, lam_v, lam_g):
 
 
 def _strip_to_pmp_state(state, lat_fallback_rad):
-    """Return [s, r, v, γ, m]; velocity stays in the rotating (ground-relative)
-    frame.
+    """Return [s, r, v, γ, m] as Stage 1 hands it over — ground-relative.
 
-    Earth rotation is accounted for ONCE — in the objective velocity target
-    (``v_circular = √(μ/r) − v_rot``).  No ECEF→ECI conversion is applied here,
-    so the trajectory velocity and the objective target are both rotating-frame
-    and the rotation credit is not double-counted.  (``lat_fallback_rad`` is
-    retained for call-site compatibility.)
+    Any frame change is ``_to_stage2_frame``'s job, applied after the fairing
+    check.  (``lat_fallback_rad`` is retained for call-site compatibility.)
     """
     return np.array(state[:5], dtype=float)
+
+
+# ===========================================================================
+# Stage-2 frame
+# ===========================================================================
+# The Stage-2 equations below carry no rotation terms (indirect_pmp is the one
+# architecture flown pseudo-force-free), so they are correct only in a non-
+# rotating frame. Until 2026-09-13 they propagated the ground-relative state
+# against the rotating-frame target √(μ/r) − v_rot; in those equations that
+# target is the apoapsis of an ellipse whose periapsis is ~890 km below the
+# surface, and a local refinement reached it ballistically by deleting the
+# circularisation burn (dev-notes/pmp_local_refine.py). INDIRECT_PMP_STAGE2_FRAME
+# = "inertial" converts the hand-off state and targets √(μ/r) instead.
+# Everything reported outward stays ground-relative (see _from_stage2_frame).
+
+def _stage2_inertial():
+    """True when the Stage-2 arc is propagated and targeted in the inertial frame."""
+    frame = getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial")
+    if frame not in ("inertial", "rotating"):
+        raise ValueError("INDIRECT_PMP_STAGE2_FRAME must be 'inertial' or "
+                         f"'rotating', got {frame!r}")
+    return frame == "inertial" and bool(sim_params.ENABLE_EARTH_ROTATION)
+
+
+def terminal_speed_target(r_target=None):
+    """Terminal speed the Stage-2 arc is scored against, in the frame it is flown in.
+
+    √(μ/r) when inertial (or with the rotation off); √(μ/r) − v_rot under the
+    legacy "rotating" form."""
+    if r_target is None:
+        r_target = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    if _stage2_inertial():
+        return float(np.sqrt(c.MU_EARTH / r_target))
+    return float(earth_rot.v_circular_rotating(
+        r_target, np.deg2rad(sim_params.LAUNCH_LATITUDE), sim_params.ENABLE_EARTH_ROTATION))
+
+
+def _to_stage2_frame(state):
+    """Ground-relative hand-off state -> the frame the Stage-2 arc is flown in.
+
+    Exact planar transform, rotation credit ω·r·cos(LAUNCH_LATITUDE) along-track:
+    the credit convention of the target and the archive, but with the flight-path
+    angle rotated too (``ecef_to_eci_velocity`` keeps it, harmless at insertion and
+    not at a ~27° hand-off). Identity under the legacy "rotating" form."""
+    if not _stage2_inertial():
+        return state
+    out = np.array(state, dtype=float)
+    out[2], out[3] = earth_rot.rotating_to_inertial_planar(
+        out[2], out[3], np.deg2rad(sim_params.LAUNCH_LATITUDE), out[1])
+    return out
+
+
+def _from_stage2_frame(state, t, t_stage2_start):
+    """Stage-2 state(s) -> the ground-relative convention every consumer reads.
+
+    Takes one state or a (5, N) array with times ``t``. Downrange is corrected too:
+    ṡ differs between the frames by (R_E/r)·ω·r·cos(lat) = R_E·ω·cos(lat), a
+    constant. Identity under the legacy "rotating" form."""
+    if not _stage2_inertial():
+        return state
+    lat_rad = np.deg2rad(sim_params.LAUNCH_LATITUDE)
+    out = np.array(state, dtype=float)
+    out[2], out[3] = earth_rot.inertial_to_rotating_planar(out[2], out[3], lat_rad, out[1])
+    out[0] = out[0] - (c.R_EARTH * c.OMEGA_EARTH * np.cos(lat_rad)
+                       * (np.asarray(t, dtype=float) - t_stage2_start))
+    return out
 
 
 # ===========================================================================
@@ -283,6 +346,9 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
               f"v={state2_init[2]:.0f}m/s, gam={np.rad2deg(state2_init[3]):.2f}deg, "
               f"m={state2_init[4]:.0f}kg")
 
+    # Into the frame the rotation-free Stage-2 equations are correct in.
+    state2_init = _to_stage2_frame(state2_init)
+
     # -----------------------------------------------------------------
     # Timing calculations for Stage 2
     # -----------------------------------------------------------------
@@ -367,6 +433,16 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         aug_state_arc2 = aug_state_ign
         t_arc2_start = t_ignition
 
+    # H at the END of the first thrust arc, engine still on. Diagnostic only:
+    # stationarity of the burn time in the first-burn duration equates it with
+    # H_last_burn_start (dev-notes/pmp_duration_conditions.py).
+    H_burn1_end = compute_hamiltonian(
+        aug_state_arc2[1], aug_state_arc2[2], aug_state_arc2[3],
+        r.F_THRUST_2, aug_state_arc2[4],
+        pmp_control_law(aug_state_arc2[6], aug_state_arc2[7], aug_state_arc2[2]),
+        aug_state_arc2[5], aug_state_arc2[6], aug_state_arc2[7],
+    )
+
     # Paper Eq. 27: J = t_f - t_cf = total powered time = T_burn_total
     # t_f  = total Stage-2 flight time (powered + coast), computed from plan
     # t_cf = coast duration only
@@ -423,6 +499,17 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
             aug_state_arc3[5], aug_state_arc3[6], aug_state_arc3[7],
         )
 
+    # H at the start of the LAST thrust arc: the coast-end state with the engine
+    # on. Diagnostic only -- Pontani (2014) writes the transversality condition
+    # with this instant as H_0^last, while the objective below uses Stage-2
+    # ignition (H_burn_start).
+    H_last_burn_start = compute_hamiltonian(
+        aug_state_arc3[1], aug_state_arc3[2], aug_state_arc3[3],
+        r.F_THRUST_2, aug_state_arc3[4],
+        pmp_control_law(aug_state_arc3[6], aug_state_arc3[7], aug_state_arc3[2]),
+        aug_state_arc3[5], aug_state_arc3[6], aug_state_arc3[7],
+    )
+
     # ------------------------------------------------------------------
     # Arc 3: thrust  (t_arc3_start → t_arc3_start + t_arc3_burn)
     # ------------------------------------------------------------------
@@ -447,8 +534,10 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
                 't_stage1': t_stage1, 'y_stage1': y_stage1,
             }
         aug_final = sol_arc3.y[:, -1]
+        t_final_abs = float(sol_arc3.t[-1])
     else:
         aug_final = np.array(aug_state_arc3)
+        t_final_abs = t_arc3_start
 
     state_final = aug_final[:5]
 
@@ -464,16 +553,25 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         h_f = state_final[1] - c.R_EARTH
         t_end_abs = t_ignition + t_f_result  # absolute end time for display
         print(f"  Stage 2 end: t={t_end_abs:.1f}s, h={h_f/1e3:.1f}km, "
-              f"v={state_final[2]:.0f}m/s, gam={np.rad2deg(state_final[3]):.2f}deg")
+              f"v={state_final[2]:.0f}m/s, gam={np.rad2deg(state_final[3]):.2f}deg "
+              f"({'inertial' if _stage2_inertial() else 'ground-relative'})")
         print(f"  H_burn_start={H_burn_start:.4f}  H_coast_end={H_coast_end:.4f}  "
               f"H_burn_end={H_burn_end:.4f}")
 
     return {
         'crashed': False,
-        'state_final': state_final,
+        # Ground-relative, like every other PSO architecture's burn-end state, so
+        # the archive's insertion columns and orbit conversion read it unchanged.
+        'state_final': _from_stage2_frame(state_final, t_final_abs, t2_start),
+        # As propagated (and scored): inertial unless the legacy form is selected.
+        'state_final_propagated': state_final,
+        'stage2_frame': 'inertial' if _stage2_inertial() else 'rotating',
         'H_burn_start': H_burn_start,
         'H_coast_end':  H_coast_end,
         'H_burn_end':   H_burn_end,
+        'H_last_burn_start': H_last_burn_start,
+        'H_burn1_end': H_burn1_end,
+        'costates_final': np.array(aug_final[5:8], dtype=float),   # λ_r, λ_v, λ_γ at t_f
         't_f':  t_f_result,
         't_cf': t_cf_result,
         't_stage2_start': t2_start,
@@ -490,6 +588,45 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 CRASH_PENALTY = 1e20
 
 
+def transversality_residual(result):
+    """Non-negative transversality residual [H units] for INDIRECT_PMP_TRANSVERSALITY.
+
+    "duration_stationarity": stationarity of the burn time in this solver's own
+    decision variables — burn D1, coast Dc, burn D3 — written with the reduced
+    Hamiltonian. No mass costate is needed: control variations drop out because
+    the PMP steering makes ∂H/∂α = 0, and the shift of the mass profile in the
+    last burn integrates to H_burn_end − H_last_burn_start.
+
+        ∂J'/∂Dc : H_coast_end = 0     (≤ 0 with Dc at its upper bound, ≥ 0 at its lower)
+        ∂J'/∂D3 : H_burn_end = −λ0 < 0                     (hinge)
+        ∂J'/∂D1 : H_burn1_end = H_last_burn_start          (both engine on)
+
+    Assumes both burns have positive duration. Verified by finite differences and
+    satisfiable (dev-notes/pmp_duration_conditions.py, 2026-09-13).
+
+    "pontani_eq38": |H_burn_end + H_coast_end − H_burn_start|, flown until
+    2026-09-13. H_burn_start is taken at Stage-2 ignition, an instant no condition
+    involves, and no point near any solution satisfies it together with the orbit
+    constraints. Kept only to reproduce archived rows.
+    """
+    mode = getattr(sim_params, "INDIRECT_PMP_TRANSVERSALITY", "duration_stationarity")
+    if mode == "pontani_eq38":
+        return abs(result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start'])
+    if mode != "duration_stationarity":
+        raise ValueError("INDIRECT_PMP_TRANSVERSALITY must be 'duration_stationarity' or "
+                         f"'pontani_eq38', got {mode!r}")
+    h_ce = result['H_coast_end']
+    if result['t_cf'] >= sim_params.PSO_UB[3]:
+        coast = max(0.0, h_ce)
+    elif result['t_cf'] <= sim_params.PSO_LB[3]:
+        coast = max(0.0, -h_ce)
+    else:
+        coast = abs(h_ce)
+    return (coast
+            + abs(result['H_burn1_end'] - result['H_last_burn_start'])
+            + max(0.0, result['H_burn_end']))
+
+
 def _objective_terms(result):
     """Weighted, non-dimensional contributions to J' — single source of truth.
 
@@ -501,31 +638,25 @@ def _objective_terms(result):
         Δh_nd = (r_f − r_target) / h_target     relative altitude error
         ΔV_nd = (V_f − V_circular) / V_circular relative velocity error
         Δγ_nd = γ_f / γ_ref                     FPA error in units of γ_ref (deg)
-        tv_nd = (H_be + H_ce − H_bs) / V_circ   transversality residual; H scales
-                                                like ṙ (velocity), so divide by V_circ
+        tv_nd = transversality_residual / V_circ   see transversality_residual; H
+                                                scales like ṙ (velocity), so divide by V_circ
 
     Both ``compute_augmented_objective`` and ``breakdown_objective`` consume
     this, so they cannot drift out of sync.
     """
-    state = result['state_final']
+    # Scored in the frame the arc was flown in (see _stage2_inertial).
+    state = result.get('state_final_propagated', result['state_final'])
     r_val, v_f, g_f = state[1], state[2], state[3]
 
     r_target   = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-    # Rotating-frame circular target: the trajectory velocity is ground-relative,
-    # so credit Earth's surface rotation speed once here. Zero when rotation off.
-    if sim_params.ENABLE_EARTH_ROTATION:
-        v_rot = c.OMEGA_EARTH * r_target * np.cos(np.deg2rad(sim_params.LAUNCH_LATITUDE))
-    else:
-        v_rot = 0.0
-    v_circular = np.sqrt(c.MU_EARTH / r_target) - v_rot
+    v_circular = terminal_speed_target(r_target)
     gamma_ref  = np.deg2rad(sim_params.GAMMA_REF_DEG)
 
     J_nd  = (result['t_f'] - result['t_cf']) / _T_MAX_2
     dh_nd = (r_val - r_target) / sim_params.TARGET_ORBITAL_ALTITUDE
     dv_nd = (v_f - v_circular) / v_circular
     dg_nd = g_f / gamma_ref
-    transv = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
-    tv_nd  = transv / v_circular
+    tv_nd  = transversality_residual(result) / v_circular
 
     return {
         'J'     : sim_params.PENALTY_W_J         * J_nd,
@@ -759,6 +890,7 @@ def run_indirect_full(optimal_params, verbose=True):
     # run_stage1 hands Stage 2 a state that still carries the fairing;
     # shed it here if the jettison criterion is already met.
     state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
+    state2_init = _to_stage2_frame(state2_init)   # as run_indirect_trajectory
 
     # Sanity check: _T_MAX_2 is built from M_PROP_2, so a full burn assumes the
     # mass handed over by Stage 1 equals the Stage-2 wet mass. Warn if it drifts.
@@ -882,6 +1014,13 @@ def run_indirect_full(optimal_params, verbose=True):
     thrust_stage2  = np.concatenate(th_s2_parts)
     alpha_stage2   = np.concatenate(al_s2_parts)
 
+    # Report Stage 2 in the ground-relative convention the archive, the figures
+    # and the segmented waypoints read. Pitch is frame-independent, so alpha is
+    # re-referenced to the ground-relative gamma rather than kept.
+    gamma_flown   = y_stage2_full[3].copy()
+    y_stage2_full = _from_stage2_frame(y_stage2_full, t_stage2_full, t2_start)
+    alpha_stage2  = alpha_stage2 + gamma_flown - y_stage2_full[3]
+
     # --- Combine Stage 1 and Stage 2 ---
     # Stage 1 state has n_state columns; pad or trim to 5 rows
     y1 = y_stage1[:5, :]
@@ -938,20 +1077,21 @@ def _print_solution(x, J_prime):
     # Verify final trajectory
     result = run_indirect_trajectory(*x, verbose=True)
     if not result['crashed'] and result['state_final'] is not None:
-        sf = result['state_final']
+        sf = result.get('state_final_propagated', result['state_final'])
         h_f = (sf[1] - c.R_EARTH) / 1e3
         v_f = sf[2]
         g_f = np.rad2deg(sf[3])
         r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
-        v_c = np.sqrt(c.MU_EARTH / r_t)
+        v_c = terminal_speed_target(r_t)
         dh  = h_f - sim_params.TARGET_ORBITAL_ALTITUDE / 1e3
         dv  = v_f - v_c
-        print(f"\nFinal state vs. target:")
+        print(f"\nFinal state vs. target ({result.get('stage2_frame', 'rotating')} frame):")
         print(f"  Altitude : {h_f:.2f} km  (target {sim_params.TARGET_ORBITAL_ALTITUDE/1e3:.0f} km, delta={dh:.2f} km)")
-        print(f"  Velocity : {v_f:.2f} m/s (circular {v_c:.2f} m/s, delta={dv:.2f} m/s)")
+        print(f"  Velocity : {v_f:.2f} m/s (target {v_c:.2f} m/s, delta={dv:.2f} m/s)")
         print(f"  FPA      : {g_f:.4f} deg  (target 0.0 deg)")
-        H_trans = result['H_burn_end'] + result['H_coast_end'] - result['H_burn_start']
-        print(f"  Transversality: {H_trans:.6f}  (target ~0)")
+        H_trans = transversality_residual(result)
+        _tv_mode = getattr(sim_params, 'INDIRECT_PMP_TRANSVERSALITY', 'duration_stationarity')
+        print(f"  Transversality ({_tv_mode}): {H_trans:.6f}  (target 0)")
         bd = breakdown_objective(result)
         burn_s = result['t_f'] - result['t_cf']
         print(f"\nJ prime breakdown:")
