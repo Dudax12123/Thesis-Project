@@ -172,8 +172,8 @@ guidance re-init (`restart_for_new_burn`), the same mechanism single-law pso_coa
 | `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. |
 | `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
 | `PMP_REFERENCE_FORCE_RERUN` | bool | `False` | Rebuild the reference even if a valid cache exists. |
-| `PMP_REFERENCE_PSO_PARTICLES` | int or `None` | `None` | Reference-build swarm size. `None` ⇒ use `PSO_N_PARTICLES`. Raise for a finer reference (auto-rebuilds). |
-| `PMP_REFERENCE_PSO_GENERATIONS` | int or `None` | `None` | Reference-build generations. `None` ⇒ use `PSO_MAX_GENERATIONS`. Raise for a finer reference. |
+| `PMP_REFERENCE_PSO_PARTICLES` | int or `None` | `250` | Reference-build swarm size. `None` ⇒ use `PSO_N_PARTICLES`. Set equal to it on 2026-09-16: same budget and seed as the PMP swarm, so the reference is the `pmp_baseline` trajectory by construction (a change auto-rebuilds). |
+| `PMP_REFERENCE_PSO_GENERATIONS` | int or `None` | `1000` | Reference-build generations. `None` ⇒ use `PSO_MAX_GENERATIONS`. Set equal to it on 2026-09-16 (see above). |
 
 **Supported laws** in `GUIDANCE_SEGMENTS`: `gravity_turn`, `apollo`, `peg_new`, `linear_tangent`,
 `bilinear_tangent`, `indirect_pmp` (classic `peg` deferred). The two tangent laws are **angle-only** —
@@ -185,8 +185,7 @@ reference at the current altitude. The reference is **Stage-2-only** (full-ascen
 that arc, not an optimised atmospheric control.
 
 **PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
-`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (default `None`/`None` ⇒ the indirect
-`PSO_N_PARTICLES × PSO_MAX_GENERATIONS`, 250×500 ≈ 1 h) and caches it (key = target orbit + vehicle +
+`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (250×1000 since 2026-09-16, ≈ 2 h — the PMP swarm's own budget and seed, so the reference is the `pmp_baseline` trajectory by construction) and caches it (key = target orbit + vehicle +
 Stage-1 engine MODES + reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different
 schedules and coast budgets reuse the same reference. `ISP_1_MODE`/`THRUST_1_MODE`/`A_E` joined the
 key on 2026-08-18: the raw `ISP_1_*`/`F_THRUST_1_*` figures were already keyed, but the mode that
@@ -395,7 +394,7 @@ atmospheric arc.
 | Variable | Allowed values | Default | Controls |
 |---|---|---|---|
 | `PSO_N_PARTICLES` (L261) | int | `250` | Swarm size. |
-| `PSO_MAX_GENERATIONS` (L262) | int | `500` | Max generations. |
+| `PSO_MAX_GENERATIONS` (L262) | int | `1000` | Max generations. 500 until 2026-09-16; below ~250×1000 the swarm does not reach orbit. |
 | `PSO_C1` (L263) | float | `2.05` | Cognitive parameter. |
 | `PSO_C2` (L264) | float | `2.05` | Social parameter. |
 | `PSO_OMEGA` (L265) | float | `0.7298` | Inertia weight. |

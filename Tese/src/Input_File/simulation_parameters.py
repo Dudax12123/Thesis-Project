@@ -359,8 +359,9 @@ PMP_REFERENCE_FORCE_RERUN = False   # recompute the PMP reference even if a vali
 # the reference at HIGHER FIDELITY: raise these (or set PMP_REFERENCE_FORCE_RERUN
 # = True) and run once — the cache auto-rebuilds when the value changes, then is
 # reused on later runs.
-PMP_REFERENCE_PSO_PARTICLES   = None   # e.g. 400 for a finer reference
-PMP_REFERENCE_PSO_GENERATIONS = None   # e.g. 700 for a finer reference
+PMP_REFERENCE_PSO_PARTICLES   = 250    # = PSO_N_PARTICLES (2026-09-16): same budget and
+PMP_REFERENCE_PSO_GENERATIONS = 1000   # = PSO_MAX_GENERATIONS, same seed, so the reference
+                                       # IS the pmp_baseline trajectory of Chapter 6
 
 # -------------- 8b. Apollo / polynomial guidance --------------
 # (Only used if GUIDANCE_MODE is "apollo". APOLLO_FREEZE_THRESHOLD is also the
@@ -491,7 +492,9 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 
 # -------------- PSO algorithm settings (from paper Sect. 4.2.2) --------------
 PSO_N_PARTICLES     = 250      # swarm size (paper default; full-ascent needs the budget)
-PSO_MAX_GENERATIONS = 500      # maximum number of generations (paper default)
+PSO_MAX_GENERATIONS = 1000     # maximum number of generations (paper default 500;
+                               # 1000 since 2026-09-16: below ~250x1000 the swarm does
+                               # not reach orbit -- see dev-notes/handoff-2026-09-16.md)
 PSO_C1              = 2.05      # cognitive parameter (paper default)
 PSO_C2              = 2.05      # social parameter   (paper default)
 PSO_OMEGA           = 0.7298    # inertia weight      (paper default)
