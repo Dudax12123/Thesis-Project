@@ -352,10 +352,12 @@ def build_matrix():
 
     # --- Section 6.4: the reference ---------------------------------------
     # Needs the large PSO budget; a reduced one leaves it far from a closed
-    # orbit and it is convergence-limited rather than broken. It is also exempt
-    # from the rotating-frame pseudo-forces the other cases carry, because its
-    # costate equations are derived on the drag-free EOM -- see
-    # pseudo_forces_flown in the collected row.
+    # orbit and it is convergence-limited rather than broken. Since 2026-09-16
+    # it carries the rotating-frame pseudo-forces in both stages like every
+    # other case (INDIRECT_PMP_STAGE2_FRAME = "rotating_pseudo_forces"); the
+    # costate equations stay as published and omit the terms' sub-percent
+    # partials -- see pseudo_forces_flown in the collected row and the
+    # force_model_note of Plots/results_figures/_data.py.
     cases.append(dict(name="pmp_baseline", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp"}))
     cases.append(dict(name="pmp_vacuum", section="6.4", factor="reference",
