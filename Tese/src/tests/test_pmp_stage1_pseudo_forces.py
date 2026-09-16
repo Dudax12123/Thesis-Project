@@ -7,16 +7,24 @@ architecture (INDIRECT_PMP_STAGE1_PSEUDO_FORCES). Until then the whole PMP ascen
 exempt, and its Stage 2 started 9.1 km lower, 44 m/s faster and 4.5 deg shallower
 than the identical Stage 1 of every case it is compared with.
 
-Stage 2 is propagated in the inertial frame, where no pseudo-force term exists. At
-the equator, launching due east, that propagation is the exact counterpart of the
-rotating frame with the terms (agreement to integration tolerance, tested below).
-Away from it the two differ by convention, not by a bug: the frame transform
-credits the full omega*r*cos(lat_launch) along-track -- the unprojected credit the
-archive and the terminal targets use -- while the pseudo-force terms credit the
-azimuth-projected part along the drifting latitude. Measured from the baseline
-hand-off (28.5 deg, azimuth 45 deg): 0.6 km / 0.7 m/s / 0.23 deg after a 100 s
-coast, 25.8 km / 57 m/s / 1.0 deg after 600 s, 125 km / 296 m/s after 1883 s.
-That number is a property of the convention and is not frozen into a test.
+Stage 2, since 2026-09-16 (decision 7d), carries the same terms in its STATE equations
+with the costate equations kept as published (INDIRECT_PMP_STAGE2_FRAME =
+"rotating_pseudo_forces"): its ODE reproduces the coast solver's propagation to
+integration tolerance, and what the published costate equations omit -- the partial
+derivatives of the pseudo-force terms -- is measured below: below 1e-4 of the costate
+rate vector in norm, and a dH/ds that would give lambda_s less than 5e-6 over a 2000 s
+coast for unit costates. The control law is exact, alpha not appearing in the terms.
+
+The "inertial" form flown between 2026-09-13 and 2026-09-16 is kept for archived rows.
+At the equator, launching due east, it is the exact counterpart of the rotating frame
+with the terms (agreement to integration tolerance, tested below). Away from it the
+two differ by convention, not by a bug: the frame transform credits the full
+omega*r*cos(lat_launch) along-track -- the unprojected credit the archive and the
+terminal targets use -- while the pseudo-force terms credit the azimuth-projected part
+along the drifting latitude. Measured from the baseline hand-off (28.5 deg, azimuth
+45 deg): 0.6 km / 0.7 m/s / 0.23 deg after a 100 s coast, 25.8 km / 57 m/s / 1.0 deg
+after 600 s, 125 km / 296 m/s after 1883 s. That number is a property of the
+convention and is not frozen into a test.
 """
 
 import sys
@@ -34,6 +42,7 @@ from Input_File import simulation_parameters as sim_params
 from Simulation import rocket_ascent as ra
 import Simulation.indirect_pso_solver as ips
 import Simulation.pso_coast_solver as pcs
+from Guidance.indirect_pmp_guidance import costate_derivatives, pmp_control_law
 
 # The logged pmp_prod_v2 swarm point (2026-09-11), used only as a trajectory that flies.
 X_SWARM = [-0.002087, -0.938028, 0.995508, 280.11, 78.17, 93.21, 1.547791]
@@ -98,9 +107,96 @@ def test_stage1_pseudo_forces_refuse_the_legacy_rotating_stage2(rotating_earth, 
     assert ips._stage1_pseudo_forces() is True
 
 
+def test_rotating_pseudo_forces_stage2_refuses_the_stage1_exemption(rotating_earth, monkeypatch):
+    """The mirror image: a Stage 2 that carries the terms over a Stage 1 that does not
+    is the same two-force-model ascent, and is refused the same way."""
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", False)
+    with pytest.raises(ValueError, match="INDIRECT_PMP_STAGE1_PSEUDO_FORCES"):
+        ips.run_indirect_trajectory(*X_SWARM)
+    monkeypatch.setattr(sim_params, "INCLUDE_PSEUDO_FORCES", False)
+    assert ips._stage1_pseudo_forces() is False
+    assert ips._stage2_pseudo_forces() is False
+
+
 # A Stage-2 hand-off state (the 2026-09-16 baseline, Stage 1 with pseudo-forces).
 _HANDOFF = np.array([135.1e3, c.R_EARTH + 79759.0, 3314.123, np.deg2rad(20.8296), 96570.0])
 _T2 = 149.015
+
+
+def _baseline_site(monkeypatch):
+    monkeypatch.setattr(ra, "LAUNCH_LATITUDE_RAD", np.deg2rad(28.5))
+    monkeypatch.setattr(ra, "LAUNCH_AZIMUTH", np.deg2rad(44.98))
+    monkeypatch.setattr(ra, "LAUNCH_AZIMUTH_INERTIAL", np.deg2rad(44.98))
+    monkeypatch.setattr(ra, "_PSEUDO_FORCES_THIS_RUN", True)
+    monkeypatch.setattr(ra, "PROPAGATING_IN_INERTIAL_FRAME", False)
+
+
+def test_rotating_pseudo_forces_stage2_is_the_coast_solvers_physics(rotating_earth, monkeypatch):
+    """The point of the default form: the PMP's Stage-2 state ODE with the terms is the
+    coast solver's ODE -- same kernel terms, same pseudo-force call, same latitude from
+    downrange -- so a ballistic arc from the baseline hand-off agrees to integration
+    tolerance (measured 2e-9 m, 2e-12 m/s, 7e-16 rad after 600 s)."""
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    _baseline_site(monkeypatch)
+    assert ra._pseudo_forces_active()
+    tol = dict(rtol=1e-11, atol=1e-9, max_step=1.0)
+    rot = solve_ivp(lambda t, y: pcs._stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
+                    (_T2, _T2 + 600.0), list(_HANDOFF), **tol)
+    pmp = solve_ivp(lambda t, y: ips._stage2_ode(t, y, 0.0, r.ISP_2, True),
+                    (_T2, _T2 + 600.0), list(_HANDOFF) + [0.0, 1.0, 0.0], **tol)
+    np.testing.assert_allclose(pmp.y[0, -1], rot.y[0, -1], rtol=0, atol=1e-6)   # downrange, m
+    np.testing.assert_allclose(pmp.y[1, -1], rot.y[1, -1], rtol=0, atol=1e-6)   # radius, m
+    np.testing.assert_allclose(pmp.y[2, -1], rot.y[2, -1], rtol=0, atol=1e-9)   # speed, m/s
+    np.testing.assert_allclose(pmp.y[3, -1], rot.y[3, -1], rtol=0, atol=1e-12)  # gamma, rad
+    # ... and it is the terms that make the difference, not a coincidence of tolerances.
+    bare = solve_ivp(lambda t, y: ips._stage2_ode(t, y, 0.0, r.ISP_2, False),
+                     (_T2, _T2 + 600.0), list(_HANDOFF) + [0.0, 1.0, 0.0], **tol)
+    assert abs(bare.y[1, -1] - rot.y[1, -1]) > 1e3
+
+
+@pytest.mark.parametrize("label, state", [
+    ("hand-off", (1.2e5, c.R_EARTH + 79.76e3, 3314.0, np.radians(20.83), 96570.0)),
+    ("mid-coast", (2.0e6, c.R_EARTH + 300e3, 5200.0, np.radians(8.0), 60000.0)),
+    ("late burn", (6.0e6, c.R_EARTH + 480e3, 7000.0, np.radians(1.0), 30000.0)),
+    ("insertion", (8.0e6, c.R_EARTH + 500e3, 7171.9, 0.0, 26168.0)),
+])
+@pytest.mark.parametrize("thrust", [0.0, r.F_THRUST_2])
+def test_costate_equations_omit_only_negligible_pseudo_force_partials(
+        rotating_earth, monkeypatch, label, state, thrust):
+    """What the published costate equations leave out under the default form is the
+    partial derivatives of the pseudo-force terms. Against -dH/dx of the rates
+    actually flown (central differences, alpha held fixed as the envelope condition
+    dH/dalpha = 0 allows), the coded costate rates are within 3e-5 in norm at every
+    representative state, and dH/ds -- the source of the lambda_s the formulation
+    sets to zero -- is below 3e-9 per metre, under 5e-6 after a 2000 s coast for unit
+    costates. This is the approximation Chapter 3 states; keep it measured."""
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    _baseline_site(monkeypatch)
+    lam = np.array([0.3, -0.9, 0.3])
+    lam /= np.linalg.norm(lam)
+    alpha = pmp_control_law(lam[1], lam[2], state[2])
+
+    def H_flown(x):
+        s, r_val, v, g, m = x
+        f = ips._stage2_state_rates(s, r_val, v, g, m, thrust, r.ISP_2, alpha, True)
+        return lam[0] * f[1] + lam[1] * f[2] + lam[2] * f[3]
+
+    coded = np.array(costate_derivatives(state[1], state[2], state[3], thrust, state[4],
+                                         lam[0], lam[1], lam[2], alpha))
+    full = np.zeros(3)
+    for k, (i, h) in enumerate(((1, 10.0), (2, 1.0), (3, 1e-4))):
+        xp, xm = list(state), list(state)
+        xp[i] += h
+        xm[i] -= h
+        full[k] = -(H_flown(xp) - H_flown(xm)) / (2.0 * h)
+    xp, xm = list(state), list(state)
+    xp[0] += 1e3
+    xm[0] -= 1e3
+    dH_ds = (H_flown(xp) - H_flown(xm)) / 2e3
+
+    assert np.linalg.norm(full - coded) / np.linalg.norm(coded) < 1e-4
+    assert abs(dH_ds) < 3e-9
 
 
 def _coast_both_ways(duration):

@@ -1,13 +1,20 @@
 """
-Tests for the frame the Stage-2 indirect-PMP arc is propagated and targeted in.
+Tests for the frame and force model the Stage-2 indirect-PMP arc is propagated and
+targeted in (INDIRECT_PMP_STAGE2_FRAME).
 
-indirect_pmp flies without pseudo-forces, so its Stage-2 equations are correct only in a
-non-rotating frame. Until 2026-09-13 they propagated the ground-relative state against the
-rotating-frame speed target sqrt(mu/r) - v_rot. In those equations that target is not a
+The PMP costate equations are derived from the drag-free, rotation-free EOM. Until
+2026-09-13 the arc propagated the ground-relative state with those equations against the
+rotating-frame speed target sqrt(mu/r) - v_rot ("rotating"): in them that target is not a
 circular orbit but the apoapsis of an ellipse whose periapsis is ~890 km below the surface,
 and a local refinement reached it ballistically by deleting the circularisation burn.
-INDIRECT_PMP_STAGE2_FRAME = "inertial" converts the hand-off state and targets the inertial
-circular speed; everything reported outward stays ground-relative.
+"inertial" (2026-09-13 to 2026-09-16) converts the hand-off state and targets the inertial
+circular speed. "rotating_pseudo_forces" (the default since 2026-09-16) keeps the
+ground-relative state and the laws' target but carries the same Coriolis/centrifugal
+terms every other architecture does in the STATE equations, with the costate equations
+as published: with the terms present the laws' target is level flight -- exactly at the
+equator due east, and at the baseline site it turns down only by the unprojected-credit
+convention every rotation-on case shares. Everything reported outward stays
+ground-relative in every form.
 """
 
 import sys
@@ -23,6 +30,8 @@ from Auxiliary import constants as c
 from Auxiliary import earth_rotation as earth_rot
 from Input_File import simulation_parameters as sim_params
 import Simulation.indirect_pso_solver as ips
+
+from Simulation import rocket_ascent as ra
 
 LAT = np.deg2rad(28.5)
 
@@ -70,12 +79,24 @@ def test_planar_transform_matches_the_insertion_helper_at_zero_fpa():
     assert g_in == pytest.approx(g_ref, abs=1e-15)
 
 
-def _coast_rates_at_target(v_target):
+def _coast_rates_at_target(v_target, pseudo_forces=False):
     """(r_dot, v_dot, gamma_dot) of the PMP's unpowered Stage-2 equations at the target."""
     r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     y = [0.0, r_t, v_target, 0.0, 10000.0, 0.0, 1.0, 0.0]
-    d = ips._stage2_ode(0.0, y, 0.0, 348.0)
+    d = ips._stage2_ode(0.0, y, 0.0, 348.0, pseudo_forces)
     return d[1], d[2], d[3]
+
+
+def _launch_site(monkeypatch, lat_deg, azimuth_deg):
+    """Point the config and the rocket_ascent globals the pseudo-force terms read at
+    one site, with the run switch on, as a solver would have left them."""
+    monkeypatch.setattr(sim_params, "LAUNCH_LATITUDE", lat_deg)
+    monkeypatch.setattr(sim_params, "INCLUDE_PSEUDO_FORCES", True)
+    monkeypatch.setattr(ra, "LAUNCH_LATITUDE_RAD", np.deg2rad(lat_deg))
+    monkeypatch.setattr(ra, "LAUNCH_AZIMUTH", np.deg2rad(azimuth_deg))
+    monkeypatch.setattr(ra, "LAUNCH_AZIMUTH_INERTIAL", np.deg2rad(azimuth_deg))
+    monkeypatch.setattr(ra, "_PSEUDO_FORCES_THIS_RUN", True)
+    monkeypatch.setattr(ra, "PROPAGATING_IN_INERTIAL_FRAME", False)
 
 
 def test_inertial_target_is_a_circular_orbit_of_the_stage2_equations(rotating_earth, monkeypatch):
@@ -94,12 +115,42 @@ def test_rotating_target_is_an_apoapsis_of_the_stage2_equations(rotating_earth, 
     assert np.rad2deg(gdot) * 60.0 == pytest.approx(-0.454, abs=0.005)
 
 
+def test_rotating_pseudo_forces_target_is_level_flight_at_the_equator(rotating_earth, monkeypatch):
+    """With the Coriolis and centrifugal terms in the state equations, the laws' own
+    target sqrt(mu/r) - omega*r is exactly level flight for a due-east launch at the
+    equator: (v + omega*r)^2 / r = g. The ellipse defect of the legacy form is gone."""
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    _launch_site(monkeypatch, 0.0, 90.0)
+    rdot, vdot, gdot = _coast_rates_at_target(ips.terminal_speed_target(), pseudo_forces=True)
+    assert abs(rdot) < 1e-12
+    assert abs(vdot) < 1e-9
+    assert abs(gdot) < 1e-10
+
+
+def test_rotating_pseudo_forces_target_turns_down_only_by_the_unprojected_credit(
+        rotating_earth, monkeypatch):
+    """At the baseline site (28.5 deg, azimuth 45 deg) the target credits the full
+    omega*r*cos(lat) where the terms credit the azimuth-projected part -- the
+    deliberately kept convention every rotation-on case shares -- so level flight is
+    missed by ~129 m/s and the target turns down at -0.13 deg/min, against
+    -0.45 deg/min for the legacy pseudo-force-free form (an ellipse with periapsis
+    ~890 km below the surface)."""
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    _launch_site(monkeypatch, 28.5, 44.98)
+    _, _, gdot_terms = _coast_rates_at_target(ips.terminal_speed_target(), pseudo_forces=True)
+    _, _, gdot_legacy = _coast_rates_at_target(ips.terminal_speed_target(), pseudo_forces=False)
+    assert np.rad2deg(gdot_terms) * 60.0 == pytest.approx(-0.129, abs=0.005)
+    assert np.rad2deg(gdot_legacy) * 60.0 == pytest.approx(-0.454, abs=0.005)
+
+
 def test_frame_setting_is_inert_with_the_rotation_off(monkeypatch):
     monkeypatch.setattr(sim_params, "ENABLE_EARTH_ROTATION", False)
     monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial")
     v_inertial_mode = ips.terminal_speed_target()
-    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating")
-    assert ips.terminal_speed_target() == v_inertial_mode
+    for frame in ("rotating", "rotating_pseudo_forces"):
+        monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", frame)
+        assert ips.terminal_speed_target() == v_inertial_mode
+        assert ips._stage2_pseudo_forces() is False
 
 
 def test_unknown_frame_raises(monkeypatch):
@@ -125,6 +176,24 @@ def test_reported_state_is_ground_relative_and_the_dense_run_agrees(rotating_ear
     assert data[2, -1] == pytest.approx(rep[2], abs=1e-6)
     assert data[3, -1] == pytest.approx(rep[3], abs=1e-9)
     assert data[0, -1] == pytest.approx(rep[0], abs=1e-3)
+
+
+def test_rotating_pseudo_forces_run_reports_the_flown_state(rotating_earth, monkeypatch):
+    """Under the default form nothing is converted: the reported state IS the flown
+    state, the dense run ends on it, and the run switch stays on through Stage 2."""
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    monkeypatch.setattr(sim_params, "INCLUDE_PSEUDO_FORCES", True)
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True)
+    res = ips.run_indirect_trajectory(*X_SWARM)
+    assert not res["crashed"]
+    assert res["stage2_frame"] == "rotating_pseudo_forces"
+    np.testing.assert_array_equal(np.asarray(res["state_final"]),
+                                  np.asarray(res["state_final_propagated"]))
+    assert ra._PSEUDO_FORCES_THIS_RUN is True
+
+    _t, data, _thr, _alpha, _t_ign, res2 = ips.run_indirect_full(X_SWARM, verbose=False)
+    np.testing.assert_allclose(data[:5, -1], np.asarray(res["state_final"]), rtol=0, atol=1e-6)
+    assert res2["stage2_frame"] == "rotating_pseudo_forces"
 
 
 def test_dense_run_publishes_full_flight_pitch_and_arc_boundaries(rotating_earth, monkeypatch):

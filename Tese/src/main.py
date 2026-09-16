@@ -583,22 +583,25 @@ def execute():
         print("="*60)
         print(f"Azimuth/inclination mode: {sim_params.AZIMUTH_INCLINATION_MODE}")
         # Pseudo-forces are all-or-nothing per architecture: carried for the whole
-        # ascent, or not at all. indirect_pmp cannot carry them in Stage 2 -- its
-        # costate equations are derived from the drag-free EOM -- so that arc is
-        # flown in the inertial frame, where no pseudo-force term exists; its
-        # Stage 1 carries them unless INDIRECT_PMP_STAGE1_PSEUDO_FORCES says
-        # otherwise (see rocket_ascent.set_pseudo_forces_for_run). Report what is
-        # actually flown.
+        # ascent, or not at all. indirect_pmp follows INDIRECT_PMP_STAGE2_FRAME in
+        # Stage 2 (see indirect_pso_solver): the default carries the same terms as
+        # every other architecture in its state equations, the inertial form has
+        # no such term, the legacy rotating form is pseudo-force-free; its Stage 1
+        # follows INDIRECT_PMP_STAGE1_PSEUDO_FORCES (see
+        # rocket_ascent.set_pseudo_forces_for_run). Report what is actually flown.
         _pf_requested = sim_params.INCLUDE_PSEUDO_FORCES
         _pf_pmp = (sim_params.GUIDANCE_MODE == "indirect_pmp"
                    and not sim_params.MULTI_GUIDANCE_ENABLED)
         if _pf_requested and _pf_pmp:
             _pf_stage1 = bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))
-            _pf_frame = getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial")
-            print("Pseudo-forces in EOM:     Stage 1 %s; Stage 2 none (%s frame: %s)"
-                  % (_pf_stage1, _pf_frame,
-                     "no pseudo-force term exists there" if _pf_frame == "inertial"
-                     else "legacy pseudo-force-free rotating-frame form"))
+            _pf_frame = getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+            _pf_stage2 = {
+                "rotating_pseudo_forces": "True (rotating frame, the terms of every other "
+                                          "architecture; costate equations omit their partials)",
+                "inertial": "none (inertial frame: no pseudo-force term exists there)",
+                "rotating": "none (legacy pseudo-force-free rotating-frame form)",
+            }.get(_pf_frame, "unknown form %r" % (_pf_frame,))
+            print("Pseudo-forces in EOM:     Stage 1 %s; Stage 2 %s" % (_pf_stage1, _pf_stage2))
         else:
             print(f"Pseudo-forces in EOM:     {_pf_requested}")
         print(f"Launch site latitude:     {sim_params.LAUNCH_LATITUDE:.4f} deg")
@@ -767,17 +770,22 @@ def execute():
         # ground-relative state (rocket_ascent.pseudo_force_channels_on_grid; the
         # RHS-cadence histories would not match `time` and would crash the plot).
         # The gate is the architecture switch, so with the Stage-1 pseudo-forces
-        # on the channels are evaluated along the WHOLE trajectory: applied in
-        # Stage 1, and in Stage 2 -- propagated inertially, where the terms do
-        # not exist -- what a rotating-frame observer would have to add. The
-        # plot titles say so. With INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False the
-        # gate is closed and every channel is zero, as it always was.
+        # on the channels are evaluated along the WHOLE trajectory. Under the
+        # default "rotating_pseudo_forces" form they were applied in both stages,
+        # like every other architecture, and no caveat is needed. Under the
+        # "inertial" form Stage 2 was propagated inertially, where the terms do
+        # not exist, and the channels there are what a rotating-frame observer
+        # would have to add: the plot titles say so. With
+        # INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False the gate is closed and every
+        # channel is zero, as it always was.
         (_cf_grid, _ca_grid,
          coriolis_mag_data, centrifugal_mag_data) = ra.pseudo_force_channels_on_grid(time, data)
         if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
             ra.cross_heading_counter_force_history = _cf_grid
             ra.cross_heading_accel_history         = _ca_grid
-        if ra._pseudo_forces_active():
+        if (ra._pseudo_forces_active()
+                and getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME",
+                            "rotating_pseudo_forces") == "inertial"):
             _pf_note = ("indirect_pmp: applied in Stage 1; Stage 2 propagated inertially "
                         "— evaluated along the ground-relative trajectory, not applied")
 

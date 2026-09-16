@@ -345,20 +345,23 @@ def force_model_note(ref, others):
     """How *ref*'s force model differs from the cases it is drawn against.
 
     The indirect-PMP architecture integrates costate equations derived for the
-    drag-free, non-rotating equations of motion, so it cannot carry Coriolis and
-    centrifugal through Stage 2 in the rotating frame. Until 2026-09-16 it flew
-    the whole ascent without them (``pseudo_forces_flown`` False); since then its
-    Stage 1 carries them like every other case and its Stage 2 is propagated in
+    drag-free, non-rotating equations of motion. Three force models of its
+    Stage 2 exist in the archives (manifest ``config.INDIRECT_PMP_STAGE2_FRAME``):
+    until 2026-09-13 the whole ascent flew without the pseudo-forces
+    (``pseudo_forces_flown`` False); until 2026-09-16 Stage 2 was propagated in
     the inertial frame, where no such term exists but where the frame transform
     credits the full, unprojected omega*r*cos(lat) along-track -- about 121 m/s
-    more than the pseudo-force terms credit at the baseline site, and the two
-    drift further apart over a long coast (tests/test_pmp_stage1_pseudo_forces.py).
-    Either way the force model is not the one the ``pso_coast`` cases fly.
+    more than the pseudo-force terms credit at the baseline site, drifting
+    further apart over a long coast (tests/test_pmp_stage1_pseudo_forces.py);
+    since 2026-09-16 ("rotating_pseudo_forces", the default) Stage 2 carries the
+    same terms as every ``pso_coast`` case, with costate equations that omit
+    their sub-percent partials, and the force models agree.
 
-    That makes the PMP result a comparison and not an optimality bound: some of
-    any gap between it and a closed-loop law is the force model rather than the
-    guidance. Every figure that draws the line asks for this note and prints it,
-    so the distinction cannot be lost between the figure and its caption.
+    Where they do not, the PMP result is a comparison and not an optimality
+    bound: some of any gap between it and a closed-loop law is the force model
+    rather than the guidance. Every figure that draws the line asks for this
+    note and prints it, so the distinction cannot be lost between the figure and
+    its caption.
 
     Returns a phrase naming the difference, or None when the models agree (in
     which case the line really is a like-for-like reference and says so).
@@ -381,9 +384,13 @@ def force_model_note(ref, others):
         differences.append(when_true if ref_value else when_false)
 
     # The flag alone no longer separates the PMP from a pso_coast case once its
-    # Stage 1 carries the terms; the frame its Stage 2 is flown in still does.
+    # Stage 1 carries the terms; the form its Stage 2 was flown in still can.
+    # The manifest records it; an archive without one predates the setting and
+    # was flown pseudo-force-free, which the loop above already reports.
+    stage2_frame = (ref.manifest.get("config") or {}).get("INDIRECT_PMP_STAGE2_FRAME")
     if (ref.row.get("architecture") == "indirect_pmp"
             and ref.row.get("pseudo_forces_flown")
+            and stage2_frame == "inertial"
             and all(c.row.get("architecture") != "indirect_pmp" for c in peers)):
         differences.append("with Stage 2 propagated in the inertial frame "
                            "(unprojected rotation credit)")

@@ -20,6 +20,11 @@ Each PSO evaluation runs a two-phase trajectory simulation:
   scipy.solve_ivp, so costates are integrated with the same RK45 accuracy as
   the physical state.
 
+Stage 2 is flown, by default, in the rotating frame with the same Coriolis and
+centrifugal terms every other architecture carries, the costate equations kept as
+published (INDIRECT_PMP_STAGE2_FRAME, see the "Stage-2 frame and force model"
+block below for the measured size of what they omit and for the two older forms).
+
 The objective function (Eq. 39) penalises:
   • altitude, velocity, and FPA terminal constraint violations
   • transversality condition violation (Eq. 38)
@@ -108,25 +113,80 @@ def _strip_to_pmp_state(state, lat_fallback_rad):
 
 
 # ===========================================================================
-# Stage-2 frame
+# Stage-2 frame and force model
 # ===========================================================================
-# The Stage-2 equations below carry no rotation terms (indirect_pmp is the one
-# architecture flown pseudo-force-free), so they are correct only in a non-
-# rotating frame. Until 2026-09-13 they propagated the ground-relative state
-# against the rotating-frame target √(μ/r) − v_rot; in those equations that
-# target is the apoapsis of an ellipse whose periapsis is ~890 km below the
-# surface, and a local refinement reached it ballistically by deleting the
-# circularisation burn (dev-notes/pmp_local_refine.py). INDIRECT_PMP_STAGE2_FRAME
-# = "inertial" converts the hand-off state and targets √(μ/r) instead.
-# Everything reported outward stays ground-relative (see _from_stage2_frame).
+# The Stage-2 costate equations (Eqs. 30b-30d) are -(dH/dx)^T of the drag-free,
+# rotation-free EOM. Three forms of the arc exist (INDIRECT_PMP_STAGE2_FRAME):
+#
+#   "rotating_pseudo_forces" (default since 2026-09-16, decision 7d): the
+#       ground-relative state is propagated in the rotating frame WITH the same
+#       Coriolis/centrifugal terms every other architecture carries -- the very
+#       call pso_coast_solver._stage2_ode_guidance makes, latitude from downrange,
+#       heading held at the launch azimuth -- against the laws' own target
+#       sqrt(mu/r) - v_rot. The costate equations are kept as published and so
+#       omit the partial derivatives of those terms: measured along the arc they
+#       are 0.01-0.4 % of the retained gravity/kinematic partials (one entry
+#       1.4 % where the retained term crosses zero), and the dH/ds they would
+#       give lambda_s integrates to ~1.7e-6 over a 2000 s coast for unit costates
+#       (tests/test_pmp_stage1_pseudo_forces.py keeps that measured). The control
+#       law, Eq. 34, is exact -- alpha does not appear in the pseudo-forces --
+#       and every Hamiltonian the transversality penalty reads is evaluated with
+#       the rates actually flown (_hamiltonian_at). With the terms in the state
+#       equations the level-flight condition at the target IS the laws' target
+#       (exactly so for a due-east launch at the equator: gamma_dot = 0 at
+#       v = sqrt(mu/r) - omega*r), so the ellipse defect of the legacy form does
+#       not arise. One force model and one credit convention for all five
+#       architectures.
+#   "inertial" (2026-09-13 to 2026-09-16): the hand-off converted at separation
+#       with the exact planar transform, propagated rotation-free against
+#       sqrt(mu/r), converted back for every consumer. The published formulation
+#       to the letter (pallone2016: rotating lower stages, inertial costate arc),
+#       but not the physics the other architectures fly except for a due-east
+#       launch at the equator: the transform credits the full omega*r*cos(lat)
+#       along-track (413.8 m/s at hand-off) where the pseudo-force terms credit
+#       the azimuth-projected part along the drifting latitude (292.5 m/s) --
+#       121 m/s, about 944 kg of Stage-2 propellant, and 125 km / 296 m/s of
+#       divergence after an 1883 s coast. Kept to reproduce archived rows.
+#   "rotating" (until 2026-09-13): ground-relative state, rotation-free
+#       equations, target sqrt(mu/r) - v_rot. In those equations that target is
+#       the apoapsis of an ellipse whose periapsis is ~890 km below the surface,
+#       and a local refinement reached it ballistically by deleting the
+#       circularisation burn (dev-notes/pmp_local_refine.py). Kept only to
+#       reproduce archived rows.
+#
+# Everything reported outward is ground-relative in every form (_from_stage2_frame).
+
+_STAGE2_FRAMES = ("rotating_pseudo_forces", "inertial", "rotating")
+
+
+def _stage2_frame():
+    """The validated INDIRECT_PMP_STAGE2_FRAME setting."""
+    frame = getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    if frame not in _STAGE2_FRAMES:
+        raise ValueError("INDIRECT_PMP_STAGE2_FRAME must be one of "
+                         f"{_STAGE2_FRAMES}, got {frame!r}")
+    return frame
+
 
 def _stage2_inertial():
     """True when the Stage-2 arc is propagated and targeted in the inertial frame."""
-    frame = getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial")
-    if frame not in ("inertial", "rotating"):
-        raise ValueError("INDIRECT_PMP_STAGE2_FRAME must be 'inertial' or "
-                         f"'rotating', got {frame!r}")
-    return frame == "inertial" and bool(sim_params.ENABLE_EARTH_ROTATION)
+    return _stage2_frame() == "inertial" and bool(sim_params.ENABLE_EARTH_ROTATION)
+
+
+def _stage2_pseudo_forces():
+    """True when the Stage-2 arc carries the rotating-frame pseudo-forces in its
+    state equations (the "rotating_pseudo_forces" form). Inert, like the terms
+    themselves, with the rotation or INCLUDE_PSEUDO_FORCES off."""
+    return (_stage2_frame() == "rotating_pseudo_forces"
+            and bool(sim_params.ENABLE_EARTH_ROTATION)
+            and bool(sim_params.INCLUDE_PSEUDO_FORCES))
+
+
+def _stage2_frame_flown(pseudo_forces):
+    """Label of the form the arc was actually propagated in."""
+    if _stage2_inertial():
+        return "inertial"
+    return "rotating_pseudo_forces" if pseudo_forces else "rotating"
 
 
 def _stage1_pseudo_forces():
@@ -134,28 +194,36 @@ def _stage1_pseudo_forces():
 
     Stage 1 is run_stage1's gravity turn, flown before any costate exists, so the
     terms can be carried there without touching the Stage-2 formulation. What is
-    refused is carrying them into a Stage 2 flown under the legacy "rotating"
-    form: that would integrate one force model before staging and a different
-    one after it, the mix ra.set_pseudo_forces_for_run exists to prevent. Inert,
-    like the terms themselves, with the rotation or INCLUDE_PSEUDO_FORCES off."""
+    refused is one force model before staging and a different one after it, the
+    mix ra.set_pseudo_forces_for_run exists to prevent: Stage 1 with the terms
+    over the legacy pseudo-force-free "rotating" Stage 2, or Stage 1 without them
+    under a "rotating_pseudo_forces" Stage 2. The inertial Stage 2 has no such
+    term either way and accepts both. Inert, like the terms themselves, with the
+    rotation or INCLUDE_PSEUDO_FORCES off."""
     on = bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))
-    active = (on and bool(sim_params.ENABLE_EARTH_ROTATION)
-              and bool(sim_params.INCLUDE_PSEUDO_FORCES))
-    if active and not _stage2_inertial():
+    terms = bool(sim_params.ENABLE_EARTH_ROTATION) and bool(sim_params.INCLUDE_PSEUDO_FORCES)
+    frame = _stage2_frame()
+    if terms and on and frame == "rotating":
         raise ValueError(
             "INDIRECT_PMP_STAGE1_PSEUDO_FORCES=True carries the pseudo-forces through "
-            "Stage 1 and needs INDIRECT_PMP_STAGE2_FRAME='inertial' for Stage 2; the "
-            "legacy 'rotating' form is pseudo-force-free and would mix two force "
-            "models in one ascent. Set INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False to "
-            "reproduce the runs flown under it.")
+            "Stage 1, and the legacy INDIRECT_PMP_STAGE2_FRAME='rotating' form is "
+            "pseudo-force-free: two force models in one ascent. Use "
+            "'rotating_pseudo_forces' or 'inertial' for Stage 2, or set "
+            "INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False to reproduce the runs flown under it.")
+    if terms and not on and frame == "rotating_pseudo_forces":
+        raise ValueError(
+            "INDIRECT_PMP_STAGE2_FRAME='rotating_pseudo_forces' carries the pseudo-forces "
+            "through Stage 2, and INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False leaves them out "
+            "of Stage 1: two force models in one ascent. Set the Stage-1 flag True, or "
+            "use the 'inertial' form to reproduce the runs flown under the exemption.")
     return on
 
 
 def terminal_speed_target(r_target=None):
     """Terminal speed the Stage-2 arc is scored against, in the frame it is flown in.
 
-    √(μ/r) when inertial (or with the rotation off); √(μ/r) − v_rot under the
-    legacy "rotating" form."""
+    √(μ/r) when inertial (or with the rotation off); √(μ/r) − v_rot -- the target
+    every other architecture flies to -- under the two rotating-frame forms."""
     if r_target is None:
         r_target = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
     if _stage2_inertial():
@@ -199,35 +267,23 @@ def _from_stage2_frame(state, t, t_stage2_start):
 # Stage-2 augmented ODE
 # ===========================================================================
 
-def _stage2_ode(t, aug_state, thrust, Isp):
-    """
-    Right-hand side for the augmented Stage-2 ODE.
+def _stage2_pseudo_rates(s, r_val, v, gamma):
+    """(delta_dvdt, delta_dgammadt) of the rotating-frame pseudo-forces at a
+    ground-relative state: the same call, with the same latitude-from-downrange
+    and the heading held at the launch azimuth, as
+    pso_coast_solver._stage2_ode_guidance makes for every other architecture."""
+    lat = ra.get_latitude_from_downrange(s)
+    delta_dvdt, delta_dgammadt, *_ = earth_rot.rotating_frame_pseudoforce_rates(
+        v, gamma, ra.LAUNCH_AZIMUTH, lat, r_val)
+    return float(delta_dvdt), float(delta_dgammadt)
 
-    aug_state = [s, r, v, γ, m, λ_r, λ_v, λ_γ]
-    (indices 0-4 = physical state, 5-7 = costates)
 
-    The PMP control law computes α from the current costates.
-    Drag-free dynamics are used (consistent with the costate equations).
-
-    Parameters
-    ----------
-    t         : float   Current time [s]  (required by solve_ivp but unused here)
-    aug_state : array   Augmented state (8 elements)
-    thrust    : float   Current thrust force [N]  (0 during coast arcs)
-    Isp       : float   Specific impulse [s]
-
-    Returns
-    -------
-    derivatives : list  d(aug_state)/dt  (8 elements)
-    """
-    s, r_val, v, gamma, m = aug_state[:5]
-    lam_r, lam_v, lam_g   = aug_state[5], aug_state[6], aug_state[7]
-
+def _stage2_state_rates(s, r_val, v, gamma, m, thrust, Isp, alpha, pseudo_forces):
+    """d[s, r, v, gamma, m]/dt of the Stage-2 arc: drag-free, inverse-square
+    gravity, thrust at angle of attack ``alpha``, plus the rotating-frame
+    pseudo-forces when ``pseudo_forces`` (the "rotating_pseudo_forces" form)."""
     _EPS = 1e-10
     mu = c.MU_EARTH
-
-    # Angle of attack from PMP
-    alpha = pmp_control_law(lam_v, lam_g, v)
 
     cg = np.cos(gamma)
     sg = np.sin(gamma)
@@ -237,7 +293,6 @@ def _stage2_ode(t, aug_state, thrust, Isp):
     g_local = mu / r_val ** 2
     T_over_m = (thrust / m) if m > _EPS else 0.0
 
-    # --- Physical state derivatives (drag-free) ---
     dsdt    = (c.R_EARTH / r_val) * v * cg
     drdt    = v * sg
     dvdt    = T_over_m * ca - g_local * sg
@@ -247,10 +302,62 @@ def _stage2_ode(t, aug_state, thrust, Isp):
         dgdt = (1.0 / v) * (T_over_m * sa - (g_local - v ** 2 / r_val) * cg)
     dmdt    = -thrust / (Isp * c.G_0) if thrust > 0 and m > _EPS else 0.0
 
+    if pseudo_forces:
+        d_v, d_g = _stage2_pseudo_rates(s, r_val, v, gamma)
+        dvdt += d_v
+        dgdt += d_g
+
+    return [dsdt, drdt, dvdt, dgdt, dmdt]
+
+
+def _stage2_ode(t, aug_state, thrust, Isp, pseudo_forces=False):
+    """
+    Right-hand side for the augmented Stage-2 ODE.
+
+    aug_state = [s, r, v, γ, m, λ_r, λ_v, λ_γ]
+    (indices 0-4 = physical state, 5-7 = costates)
+
+    The PMP control law computes α from the current costates. The state is
+    drag-free; it carries the rotating-frame pseudo-forces when ``pseudo_forces``
+    (see the frame block above). The costate equations are the published ones in
+    every form.
+
+    Parameters
+    ----------
+    t             : float   Current time [s]  (required by solve_ivp but unused here)
+    aug_state     : array   Augmented state (8 elements)
+    thrust        : float   Current thrust force [N]  (0 during coast arcs)
+    Isp           : float   Specific impulse [s]
+    pseudo_forces : bool    Add Coriolis/centrifugal to the state rates
+
+    Returns
+    -------
+    derivatives : list  d(aug_state)/dt  (8 elements)
+    """
+    s, r_val, v, gamma, m = aug_state[:5]
+    lam_r, lam_v, lam_g   = aug_state[5], aug_state[6], aug_state[7]
+
+    # Angle of attack from PMP
+    alpha = pmp_control_law(lam_v, lam_g, v)
+
+    dx = _stage2_state_rates(s, r_val, v, gamma, m, thrust, Isp, alpha, pseudo_forces)
+
     # --- Costate derivatives ---
     dlams = costate_derivatives(r_val, v, gamma, thrust, m, lam_r, lam_v, lam_g, alpha)
 
-    return [dsdt, drdt, dvdt, dgdt, dmdt] + dlams
+    return dx + dlams
+
+
+def _hamiltonian_at(state, lams, thrust, pseudo_forces):
+    """H = λ·f at a state [s, r, v, γ, m] with costates (λ_r, λ_v, λ_γ), the
+    control law applied, f being the rates actually flown: the pseudo-force
+    contributions are included when the arc carries them."""
+    s, r_val, v, gamma, m = (float(x) for x in state[:5])
+    lam_r, lam_v, lam_g = (float(x) for x in lams)
+    alpha = pmp_control_law(lam_v, lam_g, v)
+    d_v, d_g = _stage2_pseudo_rates(s, r_val, v, gamma) if pseudo_forces else (0.0, 0.0)
+    return compute_hamiltonian(r_val, v, gamma, thrust, m, alpha, lam_r, lam_v, lam_g,
+                               delta_dvdt=d_v, delta_dgammadt=d_g)
 
 
 # ---------------------------------------------------------------------------
@@ -328,13 +435,17 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # (INDIRECT_PMP_STAGE1_PSEUDO_FORCES; False reproduces the fully exempt runs
     # flown until 2026-09-16, which handed Stage 2 a state 9.1 km lower, 44 m/s
     # faster and 4.5 deg shallower than the identical Stage 1 of every other
-    # case). Stage 2 cannot: its costate ODEs are -(dH/dx)^T of the drag-free EOM,
-    # and pseudo-forces depend on latitude, hence on downrange, so dH/ds would
-    # stop vanishing and lambda_s would become a fourth costate (see
-    # ra.set_pseudo_forces_for_run). That arc is flown in the inertial frame
-    # instead (_to_stage2_frame), where no such term exists; _stage2_ode never
-    # consults the switch, which is therefore left where Stage 1 set it.
+    # case). Stage 2 follows INDIRECT_PMP_STAGE2_FRAME (frame block above): the
+    # default carries the same terms in its state equations with the published
+    # costate equations, the inertial form has no such term, and the legacy
+    # rotating form is refused alongside a Stage 1 that has them.
+    # _stage1_pseudo_forces() enforces the one-force-model-per-ascent rule of
+    # ra.set_pseudo_forces_for_run.
     ra.set_pseudo_forces_for_run(_stage1_pseudo_forces())
+    # Whether the Stage-2 state equations add the terms: only the
+    # "rotating_pseudo_forces" form, and only with the run switch on -- tied to
+    # the switch the driving solver set, never read off the config alone.
+    pf2 = _stage2_pseudo_forces() and bool(ra._PSEUDO_FORCES_THIS_RUN)
     kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] -> [-0.031, -0.001] rad
 
     # Normalize the initial costate vector to unit norm. The trajectory depends
@@ -374,7 +485,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
               f"v={state2_init[2]:.0f}m/s, gam={np.rad2deg(state2_init[3]):.2f}deg, "
               f"m={state2_init[4]:.0f}kg")
 
-    # Into the frame the rotation-free Stage-2 equations are correct in.
+    # Into the frame the Stage-2 arc is flown in (identity unless inertial).
     state2_init = _to_stage2_frame(state2_init)
 
     # -----------------------------------------------------------------
@@ -394,7 +505,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     aug0_preig = list(state2_init) + [0.0, 0.0, 0.0]   # costates = 0 (unused)
 
     sol_pre = solve_ivp(
-        lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
+        lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2, pf2),
         t_span=(t2_start, t_ignition),
         y0=aug0_preig,
         rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -425,12 +536,8 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     aug_state_ign = list(state_at_ignition) + [lambda0_r, lambda0_v, lambda0_g]
 
     # Record H at start of guided burn (for transversality condition, Eq. 38)
-    H_burn_start = compute_hamiltonian(
-        state_at_ignition[1], state_at_ignition[2], state_at_ignition[3],
-        r.F_THRUST_2, state_at_ignition[4],
-        pmp_control_law(lambda0_v, lambda0_g, state_at_ignition[2]),
-        lambda0_r, lambda0_v, lambda0_g,
-    )
+    H_burn_start = _hamiltonian_at(state_at_ignition, (lambda0_r, lambda0_v, lambda0_g),
+                                   r.F_THRUST_2, pf2)
 
     # ------------------------------------------------------------------
     # Arc 1: thrust  (t_ignition → t_ignition + t_coast_start)
@@ -439,7 +546,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 
     if t_coast_start > 0.01:
         sol_arc1 = solve_ivp(
-            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
+            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2, pf2),
             t_span=(t_ignition, t_arc1_end),
             y0=aug_state_ign,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -464,12 +571,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # H at the END of the first thrust arc, engine still on. Diagnostic only:
     # stationarity of the burn time in the first-burn duration equates it with
     # H_last_burn_start (dev-notes/pmp_duration_conditions.py).
-    H_burn1_end = compute_hamiltonian(
-        aug_state_arc2[1], aug_state_arc2[2], aug_state_arc2[3],
-        r.F_THRUST_2, aug_state_arc2[4],
-        pmp_control_law(aug_state_arc2[6], aug_state_arc2[7], aug_state_arc2[2]),
-        aug_state_arc2[5], aug_state_arc2[6], aug_state_arc2[7],
-    )
+    H_burn1_end = _hamiltonian_at(aug_state_arc2[:5], aug_state_arc2[5:8], r.F_THRUST_2, pf2)
 
     # Paper Eq. 27: J = t_f - t_cf = total powered time = T_burn_total
     # t_f  = total Stage-2 flight time (powered + coast), computed from plan
@@ -485,7 +587,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 
     if delta_tc > 0.01:
         sol_arc2 = solve_ivp(
-            lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
+            lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2, pf2),
             t_span=(t_arc2_start, t_arc2_end),
             y0=aug_state_arc2,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -505,12 +607,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         t_arc3_start = float(sol_arc2.t[-1])
 
         # H at end of coast arc (for transversality)
-        H_coast_end = compute_hamiltonian(
-            aug_state_arc3[1], aug_state_arc3[2], aug_state_arc3[3],
-            0.0, aug_state_arc3[4],
-            pmp_control_law(aug_state_arc3[6], aug_state_arc3[7], aug_state_arc3[2]),
-            aug_state_arc3[5], aug_state_arc3[6], aug_state_arc3[7],
-        )
+        H_coast_end = _hamiltonian_at(aug_state_arc3[:5], aug_state_arc3[5:8], 0.0, pf2)
     else:
         aug_state_arc3 = aug_state_arc2
         t_arc3_start = t_arc2_start
@@ -520,23 +617,14 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         # delta_tc → 0). The previous shortcut H_coast_end = H_burn_start
         # under-counted the residual by (T/m)·D and biased PSO toward
         # near-zero-coast solutions.
-        H_coast_end = compute_hamiltonian(
-            aug_state_arc3[1], aug_state_arc3[2], aug_state_arc3[3],
-            0.0, aug_state_arc3[4],
-            pmp_control_law(aug_state_arc3[6], aug_state_arc3[7], aug_state_arc3[2]),
-            aug_state_arc3[5], aug_state_arc3[6], aug_state_arc3[7],
-        )
+        H_coast_end = _hamiltonian_at(aug_state_arc3[:5], aug_state_arc3[5:8], 0.0, pf2)
 
     # H at the start of the LAST thrust arc: the coast-end state with the engine
     # on. Diagnostic only -- Pontani (2014) writes the transversality condition
     # with this instant as H_0^last, while the objective below uses Stage-2
     # ignition (H_burn_start).
-    H_last_burn_start = compute_hamiltonian(
-        aug_state_arc3[1], aug_state_arc3[2], aug_state_arc3[3],
-        r.F_THRUST_2, aug_state_arc3[4],
-        pmp_control_law(aug_state_arc3[6], aug_state_arc3[7], aug_state_arc3[2]),
-        aug_state_arc3[5], aug_state_arc3[6], aug_state_arc3[7],
-    )
+    H_last_burn_start = _hamiltonian_at(aug_state_arc3[:5], aug_state_arc3[5:8],
+                                        r.F_THRUST_2, pf2)
 
     # ------------------------------------------------------------------
     # Arc 3: thrust  (t_arc3_start → t_arc3_start + t_arc3_burn)
@@ -545,7 +633,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
 
     if t_arc3_burn > 0.01:
         sol_arc3 = solve_ivp(
-            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
+            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2, pf2),
             t_span=(t_arc3_start, t_arc3_end),
             y0=aug_state_arc3,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -570,19 +658,14 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     state_final = aug_final[:5]
 
     # H at end of burn (for transversality)
-    H_burn_end = compute_hamiltonian(
-        aug_final[1], aug_final[2], aug_final[3],
-        r.F_THRUST_2, aug_final[4],
-        pmp_control_law(aug_final[6], aug_final[7], aug_final[2]),
-        aug_final[5], aug_final[6], aug_final[7],
-    )
+    H_burn_end = _hamiltonian_at(aug_final[:5], aug_final[5:8], r.F_THRUST_2, pf2)
 
     if verbose:
         h_f = state_final[1] - c.R_EARTH
         t_end_abs = t_ignition + t_f_result  # absolute end time for display
         print(f"  Stage 2 end: t={t_end_abs:.1f}s, h={h_f/1e3:.1f}km, "
               f"v={state_final[2]:.0f}m/s, gam={np.rad2deg(state_final[3]):.2f}deg "
-              f"({'inertial' if _stage2_inertial() else 'ground-relative'})")
+              f"({_stage2_frame_flown(pf2)} form)")
         print(f"  H_burn_start={H_burn_start:.4f}  H_coast_end={H_coast_end:.4f}  "
               f"H_burn_end={H_burn_end:.4f}")
 
@@ -591,9 +674,9 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
         # Ground-relative, like every other PSO architecture's burn-end state, so
         # the archive's insertion columns and orbit conversion read it unchanged.
         'state_final': _from_stage2_frame(state_final, t_final_abs, t2_start),
-        # As propagated (and scored): inertial unless the legacy form is selected.
+        # As propagated (and scored): inertial only under the inertial form.
         'state_final_propagated': state_final,
-        'stage2_frame': 'inertial' if _stage2_inertial() else 'rotating',
+        'stage2_frame': _stage2_frame_flown(pf2),
         'H_burn_start': H_burn_start,
         'H_coast_end':  H_coast_end,
         'H_burn_end':   H_burn_end,
@@ -907,6 +990,7 @@ def run_indirect_full(optimal_params, verbose=True):
     )
 
     ra.set_pseudo_forces_for_run(_stage1_pseudo_forces())   # see run_indirect_trajectory
+    pf2 = _stage2_pseudo_forces() and bool(ra._PSEUDO_FORCES_THIS_RUN)
     kick_angle = gamma_p - np.pi / 2.0
 
     # --- Stage 1 ---
@@ -958,7 +1042,7 @@ def run_indirect_full(optimal_params, verbose=True):
 
     # --- Pre-ignition coast ---
     sol_pre = solve_ivp(
-        lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
+        lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2, pf2),
         t_span=(t2_start, t_ignition),
         y0=aug0_preig,
         t_eval=_make_teval(t2_start, t_ignition),
@@ -974,7 +1058,7 @@ def run_indirect_full(optimal_params, verbose=True):
     t_arc1_end = t_ignition + t_coast_start
     if t_coast_start > 0.01:
         sol1 = solve_ivp(
-            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
+            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2, pf2),
             t_span=(t_ignition, t_arc1_end),
             y0=aug_ign,
             t_eval=_make_teval(t_ignition, t_arc1_end),
@@ -991,7 +1075,7 @@ def run_indirect_full(optimal_params, verbose=True):
     t_arc2_end = t_arc2_start + delta_tc
     if delta_tc > 0.01:
         sol2 = solve_ivp(
-            lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2),
+            lambda t, y: _stage2_ode(t, y, 0.0, r.ISP_2, pf2),
             t_span=(t_arc2_start, t_arc2_end),
             y0=aug_arc2,
             t_eval=_make_teval(t_arc2_start, t_arc2_end),
@@ -1008,7 +1092,7 @@ def run_indirect_full(optimal_params, verbose=True):
     t_arc3_end = t_arc3_start + t_arc3_burn
     if t_arc3_burn > 0.01:
         sol3 = solve_ivp(
-            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2),
+            lambda t, y: _stage2_ode(t, y, r.F_THRUST_2, r.ISP_2, pf2),
             t_span=(t_arc3_start, t_arc3_end),
             y0=aug_arc3,
             t_eval=_make_teval(t_arc3_start, t_arc3_end),

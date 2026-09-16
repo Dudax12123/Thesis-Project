@@ -82,6 +82,17 @@ def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha):
     Derived from −(∂H/∂x)^T using drag-free EOM (free-flight phase).
     λ_s = 0 everywhere (Eq. 30a + transversality), so it is not propagated.
 
+    Under INDIRECT_PMP_STAGE2_FRAME = "rotating_pseudo_forces" (the default since
+    2026-09-16) the STATE equations also carry the rotating-frame Coriolis and
+    centrifugal terms, exactly as every other architecture does, while these
+    costate equations are kept as published: they omit the partial derivatives
+    of those terms. Measured at the baseline site along the Stage-2 arc, the
+    omitted partials are 0.01–0.4 % of the retained gravity/kinematic partials
+    (one entry 1.4 % where the retained term crosses zero), and the ∂H/∂s they
+    would give λ_s integrates to ~1.7e-6 over a 2000 s coast for unit costates
+    (tests/test_pmp_stage1_pseudo_forces.py). The control law above is exact
+    either way: α does not appear in the pseudo-forces.
+
     With r = R_E + h, every occurrence of (R_E + h) in the paper becomes r_val.
 
     Parameters
@@ -135,7 +146,8 @@ def costate_derivatives(r_val, v, gamma, F_T, m, lam_r, lam_v, lam_g, alpha):
 # Hamiltonian
 # ---------------------------------------------------------------------------
 
-def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g):
+def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g,
+                        delta_dvdt=0.0, delta_dgammadt=0.0):
     """
     Hamiltonian H at a given state/costate point (Eq. 28 of the paper).
 
@@ -143,6 +155,10 @@ def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g):
 
     λ_s = 0, so the ṡ term vanishes.
     Drag-free EOM used for ṙ, V̇, γ̇ (consistent with costate_derivatives).
+    ``delta_dvdt`` / ``delta_dgammadt`` are the rotating-frame pseudo-force
+    contributions to V̇ and γ̇ when the arc carries them (the
+    "rotating_pseudo_forces" form), so that H is λ·f of the rates actually
+    flown; zero otherwise.
 
     Parameters
     ----------
@@ -155,6 +171,8 @@ def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g):
     lam_r : float  Costate λ_r
     lam_v : float  Costate λ_v
     lam_g : float  Costate λ_γ
+    delta_dvdt     : float  Pseudo-force contribution to V̇ [m/s²]   (default 0)
+    delta_dgammadt : float  Pseudo-force contribution to γ̇ [rad/s]  (default 0)
 
     Returns
     -------
@@ -178,6 +196,9 @@ def compute_hamiltonian(r_val, v, gamma, F_T, m, alpha, lam_r, lam_v, lam_g):
         dgammadt = 0.0
     else:
         dgammadt = (1.0 / v) * (T_over_m * sa - (g_local - v ** 2 / r_val) * cg)
+
+    dvdt     += delta_dvdt
+    dgammadt += delta_dgammadt
 
     # H = λ_r·ṙ + λ_v·V̇ + λ_γ·γ̇
     return float(lam_r * drdt + lam_v * dvdt + lam_g * dgammadt)

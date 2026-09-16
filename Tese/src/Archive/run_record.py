@@ -457,10 +457,13 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         # architecture's willingness and labelled gt_norot -- the one case whose
         # entire purpose is having the rotation off -- as having flown them.
         # Under indirect_pmp True means Stage 1 carried them
-        # (INDIRECT_PMP_STAGE1_PSEUDO_FORCES); its Stage 2 is propagated in the
-        # inertial frame, where the terms do not exist, with the rotation credit
-        # of the frame transform -- force_model_note in Plots/results_figures/
-        # _data.py says what that leaves different from a pso_coast case.
+        # (INDIRECT_PMP_STAGE1_PSEUDO_FORCES) and, under the default
+        # INDIRECT_PMP_STAGE2_FRAME = "rotating_pseudo_forces", so did Stage 2 --
+        # the same force model as a pso_coast case. Under the "inertial" form
+        # Stage 2 was propagated in the inertial frame, where the terms do not
+        # exist, with the rotation credit of the frame transform; the manifest's
+        # config records which, and force_model_note in Plots/results_figures/
+        # _data.py reads it to say what is left different from a pso_coast case.
         'pseudo_forces_flown': bool(sim_params.ENABLE_EARTH_ROTATION
                                     and sim_params.INCLUDE_PSEUDO_FORCES
                                     and ra._PSEUDO_FORCES_THIS_RUN),

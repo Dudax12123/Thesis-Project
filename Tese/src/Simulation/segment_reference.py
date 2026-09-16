@@ -130,12 +130,16 @@ def _reference_input_key():
         #       (INDIRECT_PMP_STAGE1_PSEUDO_FORCES, 2026-09-16), so v2's note no
         #       longer holds: INCLUDE_PSEUDO_FORCES is a key input after all, and
         #       every v3 cache predates the change.
+        #   2026-09-16, later: INDIRECT_PMP_STAGE2_FRAME defaults to
+        #       "rotating_pseudo_forces" (decision 7d, Stage 2 carries the terms
+        #       too). The frame is a key input below, so the change re-keys the
+        #       cache by itself -- no schema bump needed.
         ("SCHEMA", "v4-stage1-pseudo-forces"),
         ("INDIRECT_PMP_STAGE1_PSEUDO_FORCES",
          bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))),
         ("INCLUDE_PSEUDO_FORCES", bool(sim_params.INCLUDE_PSEUDO_FORCES)),
         ("INDIRECT_PMP_STAGE2_FRAME",
-         str(getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial"))),
+         str(getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces"))),
         ("INDIRECT_PMP_TRANSVERSALITY",
          str(getattr(sim_params, "INDIRECT_PMP_TRANSVERSALITY", "duration_stationarity"))),
         ("TARGET_ORBITAL_ALTITUDE", float(sim_params.TARGET_ORBITAL_ALTITUDE)),

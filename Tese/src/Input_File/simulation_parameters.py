@@ -506,7 +506,7 @@ PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
 # delta_tc          : coast phase duration                    [0, 2000] s
 # delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
 # coast_start_pct   : coast start as % of Stage-2 burn time   [0, 100] %
-# gamma_p           : pitch maneuver angle                    [1.54, 1.57] rad
+# gamma_p           : pitch maneuver angle                    [1.50, 1.57] rad
 
 # -------------- Penalty weight factors for augmented objective (Eq. 39) ------
 # All terms are now NON-DIMENSIONAL (see indirect_pso_solver._objective_terms),
@@ -522,21 +522,32 @@ PENALTY_W_FPA       = 10.0      # s3: FPA error in deg        (1 deg  -> 10.0)
 PENALTY_W_TRANSVERS = 10.0       # s4: transversality (meaningful after ‖λ₀‖=1)
 GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 
-# -------------- Frame of the Stage-2 PMP arc ---------------------------------
-# indirect_pmp flies without pseudo-forces, so its Stage-2 equations are correct only
-# in a non-rotating frame.
-#   "inertial" : at stage separation the ground-relative (v, gamma) is converted to
-#                inertial -- exact planar transform, rotation credit
-#                omega*r*cos(LAUNCH_LATITUDE) added along-track -- and the terminal
-#                speed target is the inertial circular speed sqrt(mu/r).
+# -------------- Frame and force model of the Stage-2 PMP arc ----------------
+# The PMP costate equations are derived from the drag-free, rotation-free EOM.
+#   "rotating_pseudo_forces" : DEFAULT since 2026-09-16 (decision 7d). The
+#                ground-relative state is propagated in the rotating frame WITH the
+#                same Coriolis/centrifugal terms every other architecture carries,
+#                against the laws' own target sqrt(mu/r) - v_rot. The costate
+#                equations stay as published and omit the partials of those terms:
+#                0.01-0.4 % of the retained partials along the arc, lambda_s ~1.7e-6
+#                over a 2000 s coast (tests/test_pmp_stage1_pseudo_forces.py). One
+#                force model and one credit convention for all five architectures.
+#   "inertial" : 2026-09-13 to 2026-09-16. At stage separation the ground-relative
+#                (v, gamma) is converted to inertial -- exact planar transform,
+#                rotation credit omega*r*cos(LAUNCH_LATITUDE) added along-track --
+#                and the terminal speed target is sqrt(mu/r). The published
+#                formulation to the letter, but the credit is the full, unprojected
+#                one: 121 m/s (~944 kg) more than the pseudo-force terms credit at
+#                the baseline site, 125 km / 296 m/s apart after an 1883 s coast.
+#                Kept to reproduce archived rows.
 #   "rotating" : the formulation flown until 2026-09-13: the ground-relative state
-#                propagated with those rotation-free equations against
+#                propagated with the rotation-free equations against
 #                sqrt(mu/r) - v_rot. In them that target is the APOAPSIS of an ellipse
 #                whose periapsis is ~-890 km, reachable with no circularisation burn.
 #                Kept only to reproduce archived rows.
-# Dense output and the reported state_final are ground-relative either way.
+# Dense output and the reported state_final are ground-relative in every form.
 # Inert when ENABLE_EARTH_ROTATION is False. Part of the PMP reference cache key.
-INDIRECT_PMP_STAGE2_FRAME = "inertial"
+INDIRECT_PMP_STAGE2_FRAME = "rotating_pseudo_forces"
 
 # -------------- Stage-1 pseudo-forces under indirect_pmp ----------------------
 # Stage 1 is run_stage1's fixed gravity turn, flown before any costate exists, so
@@ -544,10 +555,12 @@ INDIRECT_PMP_STAGE2_FRAME = "inertial"
 # touching the PMP formulation. Until 2026-09-16 the PMP was exempt for the whole
 # ascent and handed Stage 2 a state 9.1 km lower, 44 m/s faster and 4.5 deg
 # shallower than the identical Stage 1 every other architecture flies.
-#   True  : Stage 1 carries the pseudo-forces like every other architecture. Needs
-#           INDIRECT_PMP_STAGE2_FRAME = "inertial" (raises otherwise): the Stage-2
-#           arc then has no pseudo-force term because none exists in that frame.
+#   True  : Stage 1 carries the pseudo-forces like every other architecture. Pairs
+#           with INDIRECT_PMP_STAGE2_FRAME = "rotating_pseudo_forces" (Stage 2 carries
+#           them too) or "inertial" (no such term exists there); raises with the
+#           legacy pseudo-force-free "rotating" form (two force models in one ascent).
 #   False : the exemption flown until 2026-09-16; kept to reproduce archived rows.
+#           Raises with "rotating_pseudo_forces" for the same reason.
 # Inert when ENABLE_EARTH_ROTATION or INCLUDE_PSEUDO_FORCES is False. Part of the
 # PMP reference cache key.
 INDIRECT_PMP_STAGE1_PSEUDO_FORCES = True
@@ -604,12 +617,17 @@ PSO_COAST_SEED            = 42      # RNG seed for reproducible runs
 # this same value now, so the apogee_check brute grid cannot drift from the
 # swarms again. A narrow near-vertical
 # pitch-over band — standalone constants (not derived from ALPHA_LOWEST/HIGHEST).
-PSO_COAST_LB = [  0.0,   50,   0.0,  1.50]
-PSO_COAST_UB = [1000.0, 100.0, 100.0,  1.57]
+PSO_COAST_LB = [  0.0,    0.0,   0.0,  1.50]
+PSO_COAST_UB = [2000.0, 100.0, 100.0,  1.57]
 # delta_tc          : coast phase duration                    [0, 2000] s
+#                     (2026-09-16: raised from 1000 s to equal the indirect-PMP
+#                     swarm's PSO_UB[3], so every swarm searches the same coast span)
 # delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
+#                     (2026-09-16: floor lowered from 50 % to equal the indirect-PMP
+#                     swarm's PSO_LB[4]; a zero burn skips both arcs cleanly and is
+#                     simply a miss the objective rejects)
 # coast_start_pct   : coast start as % of Stage-2 burn time   [0, 100] %
-# gamma_p           : pitch maneuver angle                    [1.54, 1.57] rad
+# gamma_p           : pitch maneuver angle                    [1.50, 1.57] rad
 
 # -------------- Penalty weights for coast PSO objective --------------
 # No transversality term (no costates in this solver).
@@ -716,8 +734,8 @@ PSO_MG_SEED            = 42      # RNG seed for reproducible runs
 
 # Bounds for the 4 base decision vars [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
 # (same meaning/units as PSO_COAST_LB/UB, §11b).
-PSO_MG_LB = [  0.0,   50,   0.0,  1.50]
-PSO_MG_UB = [1000.0, 100.0, 100.0,  1.57]
+PSO_MG_LB = [  0.0,    0.0,   0.0,  1.50]   # burn floor = PSO_COAST_LB[1] = PSO_LB[4] (2026-09-16)
+PSO_MG_UB = [2000.0, 100.0, 100.0,  1.57]   # coast bound = PSO_COAST_UB[0] = PSO_UB[3] (2026-09-16)
 
 # --- Activation-altitude optimisation (segmented mode only) -----------------
 # When True the segmented PSO also chooses the activation altitudes of every

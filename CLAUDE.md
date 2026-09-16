@@ -60,8 +60,8 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds `test_apollo_tgo.py` and `test_losses.py` (31 tests). pytest is
-installed in `pygmo-env` only:
+Tests — `Tese/src/tests/` holds ten files (151 tests as of 2026-09-16). pytest is installed
+in `pygmo-env` only:
 
 ```bash
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m pytest Tese/src/tests/ -q
@@ -99,7 +99,8 @@ global can leak between them, and each writing its archive into its **own folder
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_results_matrix.py --smoke
 ```
 
-Then drop `--smoke` for the real thing (~13-14 h). `--case <name>` runs one case in-process with
+Then drop `--smoke` for the real thing (measured ~25.7 h at 100×500 for the whole matrix, plus the
+PMP swarms and the ~1 h reference rebuild). `--case <name>` runs one case in-process with
 solver output on screen; `--only` takes a **comma-separated** list of substrings
 (`--only gt_,peg_` is exactly the ten cases of §6.2 and §6.3, in one invocation — filtering across
 two invocations would leave `results_matrix.csv` holding only the second one's rows).
@@ -227,38 +228,43 @@ touched by `restart_for_new_burn`.
 `rocket_dynamics`. The PSO Stage-2 ODEs call the kernel directly (they cannot use the 500-line
 `rocket_dynamics` inside a swarm inner loop), so for a long time they silently flew a non-rotating
 model while Stage 1 did not. Coriolis and centrifugal are now applied in `_stage2_ode_guidance` too,
-and are all-or-nothing per architecture — carried for the whole ascent everywhere except the
-Stage-2 arc of `indirect_pmp`, whose costate equations assume the drag-free EOM (its Stage 1 carries
-them since 2026-09-16, `INDIRECT_PMP_STAGE1_PSEUDO_FORCES`; the whole-ascent exemption had handed
-Stage 2 a state 9.1 km lower, 44 m/s faster and 4.5° shallower than every other case's). The switch is
+and are all-or-nothing per architecture — carried for the whole ascent by every architecture,
+`indirect_pmp` included since 2026-09-16 (Stage 1 via `INDIRECT_PMP_STAGE1_PSEUDO_FORCES`, Stage 2
+via the default `INDIRECT_PMP_STAGE2_FRAME="rotating_pseudo_forces"`, whose state ODE makes the very
+pseudo-force call the coast solver makes; the earlier whole-ascent exemption had handed Stage 2 a
+state 9.1 km lower, 44 m/s faster and 4.5° shallower than every other case's). The switch is
 `ra.set_pseudo_forces_for_run()`, set explicitly by the driving solver and **never inferred from
 config** (building the segmented PMP reference runs the *indirect* solver, so a config-derived gate
 would mislabel it).
 
-**The inertial Stage 2 is not the same physics as the rotating frame + pseudo-forces** (checked
-2026-09-16, `tests/test_pmp_stage1_pseudo_forces.py`): the two are exact counterparts only for a
-due-east launch at the equator. At the baseline site the frame transform credits the full
-ω·r·cos φ along-track (413.8 m/s at hand-off — the archive's deliberately unprojected convention)
-where the pseudo-force terms credit the azimuth-projected part along the drifting latitude
-(292.5 m/s): 25.8 km / 57 m/s / 1.0° apart after a 600 s coast, 125 km / 296 m/s after 1883 s,
-≈ 944 kg of Stage-2 propellant at insertion. Open decision; the options are in `Tese/worktree.md`
-under the all-or-nothing entry.
-
-Because the PMP's Stage 2 flies without them, that arc is propagated **inertial** since 2026-09-13
-(`INDIRECT_PMP_STAGE2_FRAME`): the ground-relative hand-off is converted at separation with an exact
-planar transform and the target is √(μ/r); `state_final` and `run_indirect_full`'s dense output are
-converted back to ground-relative, so no consumer changes meaning (the flown state is
-`state_final_propagated`). The old form — ground-relative state, rotation-free equations, target
-√(μ/r) − v_rot — made the target the apoapsis of an Earth-intersecting ellipse, reachable with no
-circularisation burn. Note `ecef_to_eci_velocity` keeps γ and is only valid near γ = 0.
-The swarm's transversality penalty is `INDIRECT_PMP_TRANSVERSALITY`: since 2026-09-13 the
+**The PMP's Stage 2 carries the pseudo-forces in its state equations, with the costate equations
+kept as published** (decision 7d, 2026-09-16; `INDIRECT_PMP_STAGE2_FRAME="rotating_pseudo_forces"`).
+What the published costate equations omit is the partial derivatives of the Coriolis/centrifugal
+terms: measured along the arc at the baseline site they are 0.01–0.4 % of the retained partials
+component-wise, 3e-5 of the costate-rate vector in norm, and the ∂H/∂s that would make λ_s a fourth
+costate integrates to < 5e-6 over a 2000 s coast for unit costates
+(`tests/test_pmp_stage1_pseudo_forces.py` pins all three). The control law is exact, α not
+appearing in the terms; every Hamiltonian the transversality penalty reads is `λ·f` of the flown
+rates (`_hamiltonian_at`). The target is the laws' own √(μ/r) − v_rot, and with the terms in the
+state equations that is level flight — exactly at the equator due east; at the baseline site it
+turns down at −0.13°/min, the unprojected-credit convention every rotation-on case shares. The
+legacy pseudo-force-free `"rotating"` form turned down at −0.45°/min: its target was the apoapsis
+of an ellipse with periapsis −890 km, and the defect was the missing terms, not the frame. The
+`"inertial"` form flown 2026-09-13 → 2026-09-16 is kept for archived rows: `pallone2016` to the
+letter, but it credits the full ω·r·cos φ at hand-off, 121 m/s ≈ 944 kg more than the terms credit
+off the equator, 125 km / 296 m/s apart after an 1883 s coast (exact counterparts only at the
+equator due east). `_stage1_pseudo_forces()` refuses any pairing that mixes force models within one
+ascent. The swarm's transversality penalty is `INDIRECT_PMP_TRANSVERSALITY`: since 2026-09-13 the
 stationarity conditions of its own burn/coast/burn durations (`H_coast_end = 0`,
-`H_burn1_end = H_last_burn_start`, `H_burn_end < 0`), which need no mass costate. The older
-Eq. 38 form took H at Stage-2 ignition and cannot be satisfied.
+`H_burn1_end = H_last_burn_start`, `H_burn_end < 0`), which need no mass costate. The older Eq. 38
+form took H at Stage-2 ignition and cannot be satisfied.
 
 **When adding a new term to the equations of motion, put it in `diff_eom_base`, not in
 `rocket_dynamics`** — otherwise it silently misses every population-based architecture, which is
-exactly how the pseudo-force gap arose. There is no test that would catch it.
+exactly how the pseudo-force gap arose — and mirror it in the PMP's own drag-free kernel,
+`indirect_pso_solver._stage2_state_rates` (the pseudo-forces reach it through the same
+`rotating_frame_pseudoforce_rates` call the coast solver makes; a cross-solver propagation test
+guards that one term, nothing guards a new one).
 
 **Never latch an event out of the ODE right-hand side.** `solve_ivp` calls `rocket_dynamics` at
 speculative times well beyond the step it goes on to accept, so a flag set there records a time the

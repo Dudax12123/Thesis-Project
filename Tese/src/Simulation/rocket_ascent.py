@@ -646,23 +646,24 @@ def set_pseudo_forces_for_run(enabled):
         direct_pso_solver           -> True
         segmented_guidance_solver   -> True   (set per trajectory, see below)
         indirect_pso_solver         -> INDIRECT_PMP_STAGE1_PSEUDO_FORCES (True):
-                                       Stage 1 carries them; Stage 2 is propagated
-                                       in the inertial frame, where no pseudo-force
-                                       term exists (INDIRECT_PMP_STAGE2_FRAME)
+                                       Stage 1 carries them, and so does Stage 2
+                                       under the default INDIRECT_PMP_STAGE2_FRAME
+                                       = "rotating_pseudo_forces" (its own ODE adds
+                                       the same terms); the "inertial" form has no
+                                       such term; the legacy "rotating" form is
+                                       pseudo-force-free and refuses the mix
 
-    ``indirect_pmp``'s Stage 2 cannot carry them in the rotating frame because
-    its costate ODEs are -(dH/dx)^T of the drag-free EOM. Pseudo-forces depend
-    on latitude, latitude depends on downrange, so dH/ds would cease to vanish:
-    lambda_s would become a fourth propagated costate and Eqs. 30b-30d and the
-    transversality condition would all need re-deriving. That is a change to the
-    formulation, not to the code, so the arc is flown inertial instead. Its
-    Stage 1 is run_stage1's fixed gravity turn, flown before any costate exists,
-    and carries the terms like every other architecture since 2026-09-16 (False
-    reproduces the older, fully exempt runs). The rule that one force model
-    covers the whole ascent still holds: the inertial Stage 2 is the same
-    physics as the rotating frame with the terms, up to the rotation-credit
-    convention of the frame transform -- see the tests in
-    tests/test_pmp_stage1_pseudo_forces.py.
+    ``indirect_pmp``'s costate ODEs are -(dH/dx)^T of the drag-free, rotation-
+    free EOM. Since 2026-09-16 its Stage-2 STATE equations carry the terms like
+    every other architecture while the costate equations stay as published: the
+    omitted partials are 0.01-0.4 % of the retained ones along the arc and the
+    dH/ds that would make lambda_s a fourth costate integrates to ~1.7e-6 over a
+    2000 s coast (tests/test_pmp_stage1_pseudo_forces.py measures both). The
+    inertial form flown between 2026-09-13 and 2026-09-16 was the published
+    formulation to the letter but credited the full, unprojected rotation speed
+    at hand-off -- 121 m/s, ~944 kg, more than the terms credit off the equator.
+    indirect_pso_solver._stage1_pseudo_forces() refuses any pairing that would
+    integrate one force model before staging and another after it.
 
     MUST be set explicitly by the caller and NEVER inferred from sim_params:
     building the segmented PMP reference runs the *indirect* solver
