@@ -538,6 +538,20 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 # Inert when ENABLE_EARTH_ROTATION is False. Part of the PMP reference cache key.
 INDIRECT_PMP_STAGE2_FRAME = "inertial"
 
+# -------------- Stage-1 pseudo-forces under indirect_pmp ----------------------
+# Stage 1 is run_stage1's fixed gravity turn, flown before any costate exists, so
+# the rotating-frame Coriolis/centrifugal terms can be carried there without
+# touching the PMP formulation. Until 2026-09-16 the PMP was exempt for the whole
+# ascent and handed Stage 2 a state 9.1 km lower, 44 m/s faster and 4.5 deg
+# shallower than the identical Stage 1 every other architecture flies.
+#   True  : Stage 1 carries the pseudo-forces like every other architecture. Needs
+#           INDIRECT_PMP_STAGE2_FRAME = "inertial" (raises otherwise): the Stage-2
+#           arc then has no pseudo-force term because none exists in that frame.
+#   False : the exemption flown until 2026-09-16; kept to reproduce archived rows.
+# Inert when ENABLE_EARTH_ROTATION or INCLUDE_PSEUDO_FORCES is False. Part of the
+# PMP reference cache key.
+INDIRECT_PMP_STAGE1_PSEUDO_FORCES = True
+
 # -------------- Transversality condition penalised (weight PENALTY_W_TRANSVERS)
 #   "duration_stationarity" : the conditions for this solver's own decision variables
 #       (burn D1 - coast Dc - burn D3), written with the reduced Hamiltonian:

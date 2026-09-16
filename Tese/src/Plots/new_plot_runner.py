@@ -40,8 +40,14 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
                        theta_data=None, theta_time_data=None,
                        cross_heading_counter_force_data=None,
                        cross_heading_accel_data=None,
-                       pso_history=None):
-    """Generate all new metric plots for a run."""
+                       pso_history=None, pseudo_forces_note=None):
+    """Generate all new metric plots for a run.
+
+    ``pseudo_forces_note``, when given, is printed under the title of the three
+    pseudo-force plots (Coriolis/centrifugal, cross-heading force and
+    acceleration). indirect_pmp uses it to say that the channels are evaluated
+    along the trajectory rather than applied in Stage 2, which it propagates in
+    the inertial frame."""
     files = {
         "fpa": _make_path(output_dir, "new_01_fpa_over_time.png"),
         "steering": _make_path(output_dir, "new_02_steering_angle_over_time.png"),
@@ -78,7 +84,8 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
     if coriolis_mag_data is not None and centrifugal_mag_data is not None:
         plot_pseudo_forces_over_time(time, time_thrust,
                                     coriolis_mag_data, centrifugal_mag_data,
-                                    save_path=files["pseudo"], show=show)
+                                    save_path=files["pseudo"], show=show,
+                                    note=pseudo_forces_note)
     plot_mach_number_over_time(time, data, save_path=files["mach"], show=show)
     plot_trajectory_xy_fixed(time, data, save_path=files["traj"], show=show)
     plot_latitude_over_time(time, data, save_path=files["lat"], show=show)
@@ -104,12 +111,14 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         plot_cross_heading_counter_force_over_time(
             time_thrust, cross_heading_counter_force_data,
             save_path=files["cross_heading_force"], show=show,
+            note=pseudo_forces_note,
         )
 
     if cross_heading_accel_data is not None and len(cross_heading_accel_data) > 0:
         plot_cross_heading_accel_over_time(
             time_thrust, cross_heading_accel_data,
             save_path=files["cross_heading_accel"], show=show,
+            note=pseudo_forces_note,
         )
 
     if pso_history is not None and len(pso_history.get('gen', [])) > 0:

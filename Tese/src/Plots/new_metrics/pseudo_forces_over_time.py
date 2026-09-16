@@ -5,8 +5,12 @@ from Plots import plot_state_utils as psu
 
 def plot_pseudo_forces_over_time(time_steps, time_thrust,
                                  coriolis_mag_data, centrifugal_mag_data,
-                                 save_path=None, show=False):
-    """Plot Coriolis and centrifugal acceleration magnitudes."""
+                                 save_path=None, show=False, note=None):
+    """Plot Coriolis and centrifugal acceleration magnitudes.
+
+    ``note`` goes under the title: indirect_pmp uses it to say the channels are
+    evaluated along the trajectory, not applied, in its inertially propagated
+    Stage 2."""
     cor_interp = psu.interpolate_to_time(time_thrust, coriolis_mag_data, time_steps)
     cent_interp = psu.interpolate_to_time(time_thrust, centrifugal_mag_data, time_steps)
 
@@ -19,7 +23,7 @@ def plot_pseudo_forces_over_time(time_steps, time_thrust,
     fig, ax = plt.subplots(figsize=(11, 6))
     ax.plot(t_plot, cor_plot, linewidth=1.5, label='Coriolis')
     ax.plot(t_plot, cent_plot, linewidth=1.5, label='Centrifugal')
-    ax.set_title('Pseudo-Force Acceleration Magnitudes')
+    ax.set_title('Pseudo-Force Acceleration Magnitudes' + ('\n' + note if note else ''))
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Acceleration [m/s²]')
     ax.grid(True, alpha=0.3)

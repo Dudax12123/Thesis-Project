@@ -4,12 +4,14 @@ import numpy as np
 from Plots import plot_state_utils as psu
 
 
-def plot_cross_heading_counter_force_over_time(time_thrust, counter_force_data, save_path=None, show=False):
+def plot_cross_heading_counter_force_over_time(time_thrust, counter_force_data, save_path=None,
+                                               show=False, note=None):
+    """``note`` goes under the title -- see plot_pseudo_forces_over_time."""
     t, f = psu.reduce_data(time_thrust, counter_force_data.reshape(1, -1), reduction_factor=5)
 
     fig, ax = plt.subplots(figsize=(11, 6))
     ax.plot(t, f[0] / 1e3, linewidth=2.0, label='Cross-Heading Counter Force')
-    ax.set_title('Cross-Heading Counter Force Over Time')
+    ax.set_title('Cross-Heading Counter Force Over Time' + ('\n' + note if note else ''))
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Force [kN]')
     ax.grid(True, alpha=0.3)

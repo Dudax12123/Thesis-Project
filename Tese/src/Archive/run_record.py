@@ -55,8 +55,9 @@ def powered_arc_ends_in_rotating_frame(arch):
     ``searchsorted(t_seco, 'right')`` -- lands on a converted sample, so their
     dv_achieved is already inertial and must be left alone.
 
-    ``indirect_pmp`` records no ``t_seco`` and carries no post-SECO arc, so its
-    window ends on the last integrated sample, still rotating. Its dv_achieved
+    ``indirect_pmp`` carries no post-SECO arc -- its ``t_seco`` is the end of
+    its planned sequence, i.e. the last integrated sample -- so its window ends
+    on that sample, still rotating. Its dv_achieved
     came out 440.77 m/s short -- the whole of omega*r*cos(lat_launch) at the
     insertion radius -- and the residual absorbed it, reporting +312 m/s where
     every other case sits near -128. That number was being read as evidence
@@ -455,6 +456,11 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         # _PSEUDO_FORCES_THIS_RUN, as this line used to, reported the
         # architecture's willingness and labelled gt_norot -- the one case whose
         # entire purpose is having the rotation off -- as having flown them.
+        # Under indirect_pmp True means Stage 1 carried them
+        # (INDIRECT_PMP_STAGE1_PSEUDO_FORCES); its Stage 2 is propagated in the
+        # inertial frame, where the terms do not exist, with the rotation credit
+        # of the frame transform -- force_model_note in Plots/results_figures/
+        # _data.py says what that leaves different from a pso_coast case.
         'pseudo_forces_flown': bool(sim_params.ENABLE_EARTH_ROTATION
                                     and sim_params.INCLUDE_PSEUDO_FORCES
                                     and ra._PSEUDO_FORCES_THIS_RUN),

@@ -129,6 +129,28 @@ def _stage2_inertial():
     return frame == "inertial" and bool(sim_params.ENABLE_EARTH_ROTATION)
 
 
+def _stage1_pseudo_forces():
+    """Whether the PMP's Stage 1 carries the rotating-frame pseudo-forces.
+
+    Stage 1 is run_stage1's gravity turn, flown before any costate exists, so the
+    terms can be carried there without touching the Stage-2 formulation. What is
+    refused is carrying them into a Stage 2 flown under the legacy "rotating"
+    form: that would integrate one force model before staging and a different
+    one after it, the mix ra.set_pseudo_forces_for_run exists to prevent. Inert,
+    like the terms themselves, with the rotation or INCLUDE_PSEUDO_FORCES off."""
+    on = bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))
+    active = (on and bool(sim_params.ENABLE_EARTH_ROTATION)
+              and bool(sim_params.INCLUDE_PSEUDO_FORCES))
+    if active and not _stage2_inertial():
+        raise ValueError(
+            "INDIRECT_PMP_STAGE1_PSEUDO_FORCES=True carries the pseudo-forces through "
+            "Stage 1 and needs INDIRECT_PMP_STAGE2_FRAME='inertial' for Stage 2; the "
+            "legacy 'rotating' form is pseudo-force-free and would mix two force "
+            "models in one ascent. Set INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False to "
+            "reproduce the runs flown under it.")
+    return on
+
+
 def terminal_speed_target(r_target=None):
     """Terminal speed the Stage-2 arc is scored against, in the frame it is flown in.
 
@@ -301,12 +323,18 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # Setting kick_angle = gamma_p - pi/2 therefore makes gamma_post == gamma_p
     # exactly — gamma_p is literally the post-kick flight-path angle (and pitch
     # angle, since alpha = 0 in the subsequent gravity turn).
-    # indirect_pmp is the ONE architecture that flies pseudo-force-free, in both
-    # stages. Its costate ODEs are -(dH/dx)^T of the drag-free EOM; pseudo-forces
-    # depend on latitude, hence on downrange, so dH/ds would stop vanishing and
-    # lambda_s would become a fourth costate (see ra.set_pseudo_forces_for_run).
-    # The published formulation is left untouched.
-    ra.set_pseudo_forces_for_run(False)
+    # Stage 1 is run_stage1's fixed gravity turn, flown before any costate exists,
+    # so it carries the rotating-frame pseudo-forces like every other architecture
+    # (INDIRECT_PMP_STAGE1_PSEUDO_FORCES; False reproduces the fully exempt runs
+    # flown until 2026-09-16, which handed Stage 2 a state 9.1 km lower, 44 m/s
+    # faster and 4.5 deg shallower than the identical Stage 1 of every other
+    # case). Stage 2 cannot: its costate ODEs are -(dH/dx)^T of the drag-free EOM,
+    # and pseudo-forces depend on latitude, hence on downrange, so dH/ds would
+    # stop vanishing and lambda_s would become a fourth costate (see
+    # ra.set_pseudo_forces_for_run). That arc is flown in the inertial frame
+    # instead (_to_stage2_frame), where no such term exists; _stage2_ode never
+    # consults the switch, which is therefore left where Stage 1 set it.
+    ra.set_pseudo_forces_for_run(_stage1_pseudo_forces())
     kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] -> [-0.031, -0.001] rad
 
     # Normalize the initial costate vector to unit norm. The trajectory depends
@@ -850,6 +878,12 @@ def run_indirect_full(optimal_params, verbose=True):
     Re-run the optimal indirect PMP trajectory with dense output suitable for
     plotting.  Returns data in the same format as ``rocket_ascent.run()``.
 
+    Also writes the full-flight pitch history into ``rocket_ascent.theta_history``
+    / ``theta_time_history`` and sets ``TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL``
+    (end of the last burn) and ``PSO_COAST_ARC2_START_TIME`` (start of the coast),
+    the globals the plot suite and the archive read -- the same side effects as
+    ``run_pso_coast_full``.
+
     Parameters
     ----------
     optimal_params : list/tuple  7-element vector from ``run_pso_optimization``
@@ -872,7 +906,7 @@ def run_indirect_full(optimal_params, verbose=True):
         lambda0_r, lambda0_v, lambda0_g
     )
 
-    ra.set_pseudo_forces_for_run(False)   # see run_indirect_trajectory
+    ra.set_pseudo_forces_for_run(_stage1_pseudo_forces())   # see run_indirect_trajectory
     kick_angle = gamma_p - np.pi / 2.0
 
     # --- Stage 1 ---
@@ -1053,6 +1087,34 @@ def run_indirect_full(optimal_params, verbose=True):
         delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
         verbose=verbose,
     )
+
+    # ---- Full-flight channels and event markers for the plot suite ----
+    # Same contract as run_pso_coast_full: main.py reads the pitch history and
+    # the arc boundaries from the rocket_ascent globals, and until this block
+    # existed a PMP run left them at what Stage 1 had written -- a pitch plot
+    # that stopped at separation, and no SECO marker on any figure.
+    #
+    # It sits AFTER run_indirect_trajectory above on purpose: that call re-runs
+    # Stage 1, and run_stage1's reset block empties theta_history and sets
+    # TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL back to None. Written any earlier,
+    # everything here is silently undone before the function returns.
+    #
+    # Pitch is built on the dense output grid, NOT from the ODE right-hand side.
+    # solve_ivp evaluates the RHS at speculative times past a terminal event, so
+    # the RHS-cadence theta_history carried five samples at theta = 90 deg
+    # timestamped up to 0.9 s AFTER the T+7.5 s kick, interleaved with the real
+    # post-kick samples: sorting by time cannot remove them and the pitch plot
+    # drew a sawtooth. On the output grid every sample is an accepted step.
+    theta_full = alpha_full + data_full[3]            # pitch theta = alpha + gamma
+    ra.theta_history      = list(theta_full)
+    ra.theta_time_history = list(time_full)
+
+    # SECO is the end of the planned Stage-2 sequence, which is also the last
+    # dense sample (_make_teval includes each arc's endpoint), so the archive's
+    # budget window -- searchsorted(t_seco, 'right') -- still spans the whole
+    # trajectory exactly as it did when the marker was None.
+    ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = t_arc3_end
+    ra.PSO_COAST_ARC2_START_TIME              = t_arc2_start
 
     return time_full, data_full, thrust_full, alpha_full, t_ignition, result
 

@@ -583,16 +583,22 @@ def execute():
         print("="*60)
         print(f"Azimuth/inclination mode: {sim_params.AZIMUTH_INCLINATION_MODE}")
         # Pseudo-forces are all-or-nothing per architecture: carried for the whole
-        # ascent, or not at all. indirect_pmp is the sole exemption, because its
-        # costate equations are derived from the drag-free EOM (see
-        # rocket_ascent.set_pseudo_forces_for_run). Report what is actually flown.
+        # ascent, or not at all. indirect_pmp cannot carry them in Stage 2 -- its
+        # costate equations are derived from the drag-free EOM -- so that arc is
+        # flown in the inertial frame, where no pseudo-force term exists; its
+        # Stage 1 carries them unless INDIRECT_PMP_STAGE1_PSEUDO_FORCES says
+        # otherwise (see rocket_ascent.set_pseudo_forces_for_run). Report what is
+        # actually flown.
         _pf_requested = sim_params.INCLUDE_PSEUDO_FORCES
-        _pf_exempt = (sim_params.GUIDANCE_MODE == "indirect_pmp"
-                      and not sim_params.MULTI_GUIDANCE_ENABLED)
-        if _pf_requested and _pf_exempt:
-            print("Pseudo-forces in EOM:     False  (requested True; indirect_pmp "
-                  "flies pseudo-force-free — its costate equations assume the "
-                  "drag-free EOM)")
+        _pf_pmp = (sim_params.GUIDANCE_MODE == "indirect_pmp"
+                   and not sim_params.MULTI_GUIDANCE_ENABLED)
+        if _pf_requested and _pf_pmp:
+            _pf_stage1 = bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))
+            _pf_frame = getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial")
+            print("Pseudo-forces in EOM:     Stage 1 %s; Stage 2 none (%s frame: %s)"
+                  % (_pf_stage1, _pf_frame,
+                     "no pseudo-force term exists there" if _pf_frame == "inertial"
+                     else "legacy pseudo-force-free rotating-frame form"))
         else:
             print(f"Pseudo-forces in EOM:     {_pf_requested}")
         print(f"Launch site latitude:     {sim_params.LAUNCH_LATITUDE:.4f} deg")
@@ -614,6 +620,7 @@ def execute():
     ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
 
     pso_history = None   # set only in indirect_pmp mode; passed to the plot suite
+    _pf_note = None      # title note for the pseudo-force plots; indirect_pmp only
     # Carried to the archive at the end of the run. Each PSO branch sets its
     # own; apogee_check has no solver result dict and synthesises one from the
     # final state, exactly as run_results_matrix._dispatch does, so that one
@@ -754,19 +761,25 @@ def execute():
         time_thrust      = time
         alpha_data       = alpha_full
         alpha_time_data  = time
-        coriolis_mag_data    = np.zeros_like(time)
-        centrifugal_mag_data = np.zeros_like(time)
         delta_v          = 0.0
 
-        # The cross-heading counter-force history is appended at ODE-RHS cadence
-        # inside the EOM, so it does NOT match the dense output grid `time` (=
-        # time_thrust here) and would crash the plot. Recompute it on the grid
-        # (pure function of state) so the downstream plot block gets length-aligned
-        # channels. See rocket_ascent.cross_heading_channels_on_grid.
+        # Pseudo-force diagnostics on the dense grid, pure functions of the
+        # ground-relative state (rocket_ascent.pseudo_force_channels_on_grid; the
+        # RHS-cadence histories would not match `time` and would crash the plot).
+        # The gate is the architecture switch, so with the Stage-1 pseudo-forces
+        # on the channels are evaluated along the WHOLE trajectory: applied in
+        # Stage 1, and in Stage 2 -- propagated inertially, where the terms do
+        # not exist -- what a rotating-frame observer would have to add. The
+        # plot titles say so. With INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False the
+        # gate is closed and every channel is zero, as it always was.
+        (_cf_grid, _ca_grid,
+         coriolis_mag_data, centrifugal_mag_data) = ra.pseudo_force_channels_on_grid(time, data)
         if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
-            _cf_grid, _ca_grid = ra.cross_heading_channels_on_grid(time, data)
             ra.cross_heading_counter_force_history = _cf_grid
             ra.cross_heading_accel_history         = _ca_grid
+        if ra._pseudo_forces_active():
+            _pf_note = ("indirect_pmp: applied in Stage 1; Stage 2 propagated inertially "
+                        "— evaluated along the ground-relative trajectory, not applied")
 
         kick_angle_optimal     = optimal_params[6] - np.pi / 2.0   # gamma_p → kick angle
         best_azimuth_override  = None
@@ -1441,6 +1454,7 @@ def execute():
         alpha_data,
         alpha_time_data,
         run_id=_run_id,
+        pseudo_forces_note=_pf_note,
         **{k: v for k, v in _suite.items()
            if k not in ('thrust_data', 'time_thrust',
                         'alpha_data', 'alpha_time_data')}

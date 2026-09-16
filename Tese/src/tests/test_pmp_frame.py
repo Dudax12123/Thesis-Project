@@ -125,3 +125,28 @@ def test_reported_state_is_ground_relative_and_the_dense_run_agrees(rotating_ear
     assert data[2, -1] == pytest.approx(rep[2], abs=1e-6)
     assert data[3, -1] == pytest.approx(rep[3], abs=1e-9)
     assert data[0, -1] == pytest.approx(rep[0], abs=1e-3)
+
+
+def test_dense_run_publishes_full_flight_pitch_and_arc_boundaries(rotating_earth, monkeypatch):
+    """run_indirect_full leaves in the rocket_ascent globals what main.py's plot
+    suite reads: a pitch history on the dense output grid covering the whole flight
+    (not the ODE-RHS samples, which stop at separation and carry speculative
+    evaluations past the kick), and the SECO / coast-start markers."""
+    from Simulation import rocket_ascent as ra
+    monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial")
+    t, data, thrust, alpha, t_ign, _res = ips.run_indirect_full(X_SWARM, verbose=False)
+
+    theta_t = np.asarray(ra.theta_time_history)
+    theta = np.asarray(ra.theta_history)
+    assert np.array_equal(theta_t, t)                    # the output grid, every sample
+    assert np.all(np.diff(theta_t) >= 0.0)               # no speculative RHS samples
+    np.testing.assert_allclose(theta, alpha + data[3], rtol=0, atol=1e-12)
+    assert theta_t[-1] > t_ign                           # reaches past Stage 1
+
+    # SECO is the end of the planned sequence, the last dense sample; the coast
+    # starts after ignition and before it, where the thrust actually drops.
+    assert ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL == pytest.approx(t[-1])
+    t_coast = ra.PSO_COAST_ARC2_START_TIME
+    assert t_ign < t_coast < ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    i = int(np.searchsorted(t, t_coast, "right"))
+    assert thrust[i - 2] > 0.0 and thrust[i] == 0.0

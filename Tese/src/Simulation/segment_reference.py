@@ -126,7 +126,14 @@ def _reference_input_key():
         #       inertial frame against the inertial circular speed
         #       (INDIRECT_PMP_STAGE2_FRAME, 2026-09-13). Both move the reference
         #       trajectory, and v2 caches predate both.
-        ("SCHEMA", "v3-meco-root-found-inertial-stage2"),
+        #   v4: Stage 1 of the indirect solver carries the pseudo-forces again
+        #       (INDIRECT_PMP_STAGE1_PSEUDO_FORCES, 2026-09-16), so v2's note no
+        #       longer holds: INCLUDE_PSEUDO_FORCES is a key input after all, and
+        #       every v3 cache predates the change.
+        ("SCHEMA", "v4-stage1-pseudo-forces"),
+        ("INDIRECT_PMP_STAGE1_PSEUDO_FORCES",
+         bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))),
+        ("INCLUDE_PSEUDO_FORCES", bool(sim_params.INCLUDE_PSEUDO_FORCES)),
         ("INDIRECT_PMP_STAGE2_FRAME",
          str(getattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "inertial"))),
         ("INDIRECT_PMP_TRANSVERSALITY",
