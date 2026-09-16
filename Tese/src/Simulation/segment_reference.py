@@ -235,6 +235,97 @@ def _run_pmp_reference(verbose):
 
 
 # ---------------------------------------------------------------------------
+# Seeding the cache from an archived run
+# ---------------------------------------------------------------------------
+
+# Settings an archived indirect_pmp run must share with the configuration in
+# force for its trajectory to be the reference this module would build. They
+# mirror the inputs of _reference_input_key that a manifest records; the budget
+# pair is compared against the REFERENCE knobs, because that is what the key
+# holds. Vehicle constants are code, not configuration, and are not compared.
+_ARCHIVE_MUST_MATCH = (
+    "PSO_SEED", "PSO_LB", "PSO_UB",
+    "INCLUDE_DRAG", "ENABLE_EARTH_ROTATION", "INCLUDE_PSEUDO_FORCES",
+    "INDIRECT_PMP_STAGE2_FRAME", "INDIRECT_PMP_STAGE1_PSEUDO_FORCES",
+    "INDIRECT_PMP_TRANSVERSALITY",
+    "TARGET_ORBITAL_ALTITUDE", "TARGET_ORBIT_INCLINATION", "LAUNCH_LATITUDE",
+    "ISP_1_MODE", "THRUST_1_MODE",
+)
+
+
+def _archive_mismatches(config):
+    """Settings on which an archived run's manifest disagrees with the
+    configuration in force, as 'NAME: archive != current' strings."""
+    def norm(v):
+        if isinstance(v, (list, tuple)):
+            return tuple(float(x) for x in v)
+        return v
+    out = []
+    if config.get("GUIDANCE_MODE") != "indirect_pmp":
+        out.append("GUIDANCE_MODE: %r != 'indirect_pmp'" % (config.get("GUIDANCE_MODE"),))
+    ref_p, ref_g = _reference_pso_settings()
+    for name, want in (("PSO_N_PARTICLES", ref_p), ("PSO_MAX_GENERATIONS", ref_g)):
+        have = config.get(name)
+        if have is None or int(have) != int(want):
+            out.append("%s: %r != reference %r" % (name, have, want))
+    for name in _ARCHIVE_MUST_MATCH:
+        have, want = norm(config.get(name)), norm(getattr(sim_params, name, None))
+        if have != want:
+            out.append("%s: %r != %r" % (name, have, want))
+    return out
+
+
+def cache_from_archive(npz_path, verbose=True):
+    """Write the reference cache from an archived ``indirect_pmp`` run.
+
+    ``_run_pmp_reference`` is the PMP swarm plus the dense re-run, seeded and
+    budgeted from the config; a ``pmp_baseline`` case of the results matrix is
+    that same call, archived. With PMP_REFERENCE_PSO_* equal to the PMP swarm's
+    own budget the two are one deterministic run, so the archive can stand in
+    for the ~2 h rebuild (2026-09-16). The archive's ``time``, ``data`` (state
+    rows only) and ``alpha`` are stored under the key of the configuration in
+    force NOW: the caller applies the configuration the segmented cases will run
+    under (run_results_matrix.BASELINE) before calling, and nothing loads the
+    cache later unless its own key matches.
+
+    The archive's manifest, when present beside it, must agree with that
+    configuration on every setting the key depends on, budget included; any
+    disagreement raises rather than caching the trajectory of a different
+    problem.
+
+    Returns (cache_path, key).
+    """
+    import json
+    npz_path = Path(npz_path)
+    manifest_path = npz_path.with_name(npz_path.stem + ".manifest.json")
+    if manifest_path.exists():
+        with open(manifest_path, encoding="utf-8") as fh:
+            config = json.load(fh).get("config", {})
+        bad = _archive_mismatches(config)
+        if bad:
+            raise ValueError(
+                f"{npz_path.name} was not flown under the configuration in force, "
+                "so it cannot be the reference: " + "; ".join(bad))
+    elif verbose:
+        print(f"[segment_reference] {npz_path.name} has no manifest beside it; its "
+              "configuration cannot be checked against the cache key")
+    with np.load(npz_path, allow_pickle=True) as npz:
+        time_full = np.asarray(npz["time"], dtype=float)
+        data_full = np.asarray(npz["data"], dtype=float)[:5]
+        alpha_full = np.asarray(npz["alpha"], dtype=float)
+    if not (time_full.ndim == 1 and data_full.shape == (5, time_full.size)
+            and alpha_full.shape == time_full.shape):
+        raise ValueError(f"{npz_path}: not a trajectory archive (time {time_full.shape}, "
+                         f"data {data_full.shape}, alpha {alpha_full.shape})")
+    key = _reference_input_key()
+    path = _abs_cache_path()
+    _save_cache(path, key, time_full, data_full, alpha_full)
+    if verbose:
+        print(f"[segment_reference] cached PMP reference from {npz_path} to: {path}")
+    return path, key
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 

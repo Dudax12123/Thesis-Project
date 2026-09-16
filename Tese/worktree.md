@@ -185,7 +185,7 @@ reference at the current altitude. The reference is **Stage-2-only** (full-ascen
 that arc, not an optimised atmospheric control.
 
 **PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
-`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (250×1000 since 2026-09-16, ≈ 2 h — the PMP swarm's own budget and seed, so the reference is the `pmp_baseline` trajectory by construction) and caches it (key = target orbit + vehicle +
+`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (250×1000 since 2026-09-16, ≈ 2 h — the PMP swarm's own budget and seed, so the reference is the `pmp_baseline` trajectory by construction). Because they are one deterministic run, the cache can be **seeded from the archived `pmp_baseline` case instead of rebuilt**: `segment_reference.cache_from_archive(<case>.npz)` stores its time/state/α under the key of the configuration in force (apply `run_results_matrix.BASELINE` first) and refuses an archive whose manifest disagrees with that configuration on any key input, budget included (`tests/test_segment_reference_cache.py`) and caches it (key = target orbit + vehicle +
 Stage-1 engine MODES + reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different
 schedules and coast budgets reuse the same reference. `ISP_1_MODE`/`THRUST_1_MODE`/`A_E` joined the
 key on 2026-08-18: the raw `ISP_1_*`/`F_THRUST_1_*` figures were already keyed, but the mode that

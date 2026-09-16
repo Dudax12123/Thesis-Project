@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds ten files (151 tests as of 2026-09-16). pytest is installed
+Tests — `Tese/src/tests/` holds eleven files (159 tests as of 2026-09-16). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -312,7 +312,11 @@ Two mechanisms make it work: `ra._SEGMENTED_ALPHA_HOOK` (a callable installed in
 collapses at the stage boundary. Non-final segments aim at indirect-PMP `(alt, v, γ)` waypoints;
 the final segment inserts to orbit. The PMP reference is cached to
 `Tese/src/Output/pmp_reference.npz`, keyed by target orbit + vehicle + reference-PSO budget
-(path is resolved against the project root, so it is cwd-independent).
+(path is resolved against the project root, so it is cwd-independent). With the reference budget
+equal to the PMP swarm's own (250×1000 since 2026-09-16, same seed) the reference build IS the
+`pmp_baseline` run, so the cache can be seeded from that case's archive with
+`segment_reference.cache_from_archive` instead of spending ~2 h rebuilding it; the archive's
+manifest must match the configuration in force or it is refused.
 
 ## Invariants and gotchas
 
