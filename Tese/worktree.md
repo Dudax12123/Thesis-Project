@@ -553,9 +553,22 @@ Every run writes three files sharing a stem under `ARCHIVE_DIR`:
 
 | File | Holds |
 |---|---|
-| `<run_id>.npz` | trajectory (`time`, `data`, `thrust`, `alpha`), the pseudo-force diagnostics, the six arc times, the PSO convergence curve, the θ / t_go / cross-heading histories **on their native cadence**, and for segmented runs the schedule and the optimised hand-off altitudes |
+| `<run_id>.npz` | trajectory (`time`, `data`, `thrust`, `alpha`), the pseudo-force diagnostics, the six arc times, the PSO convergence curve, the θ / t_go / cross-heading histories **on their native cadence**, and for segmented runs the schedule and the optimised hand-off altitudes; for results-matrix cases also the optimiser's best point as `decision_vector` at full precision (since 2026-09-17, layout below) |
 | `<run_id>.json` | the scalar results row — insertion state, orbital elements, propellant remaining, the full Δv budget. Identical in shape to the results-matrix row, so both feed the same CSV |
 | `<run_id>.manifest.json` | every value in `simulation_parameters.py`, every constant in `rocket_specs.py` and `constants.py`, the git commit and dirty flag, library versions, the wall clock, the timestamp and `ARCHIVE_LABEL` |
+
+**`decision_vector`** (results-matrix harness only; interactive `main.py` archives do not carry it yet).
+It is what the optimiser returned, before any re-flight, so `x` re-flown through the solver reproduces
+the archived trajectory exactly — the solver's console printout is rounded and does not (a PMP vector
+copied from it missed the insertion by 107 m / 0.14 m/s). Layout:
+
+| architecture | `decision_vector` |
+|---|---|
+| `indirect_pmp` | `[λ0_r, λ0_v, λ0_γ, Δt_c [s], Δt_r [% of T_MAX_2], coast start [% of burn], γ_p [rad]]`, costates raw (the solver normalises them) |
+| `pso_coast` | `[Δt_c, Δt_r %, coast start %, γ_p]`, then `θ̇` for `cpr`, `a, b` for `exp_shooting`, `θ0, θf` for the tangent laws and `μ` for `bilinear_tangent` (`pso_coast_solver._unpack_coast_x`) |
+| `direct` | `[γ_p [rad], t_burn [% of T_MAX_2]]` |
+| segmented | the 4 coast variables, then the `n−1` activation-altitude fractions when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` |
+| `apogee_check` | `[kick angle [rad]]`, the brute grid's winner |
 
 `<run_id>` is `<architecture>_<law>_<YYYYmmdd>_<HHMMSS>`, so **runs accumulate — a second run of the
 same configuration never overwrites the first.** The results matrix is the deliberate exception: it

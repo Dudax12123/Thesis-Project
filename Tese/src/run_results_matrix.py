@@ -420,7 +420,15 @@ def _dispatch(sim_params):
     ``result`` is the solver's result dict where there is one; the apogee_check
     path has no such dict, so one is synthesised from the trajectory it returns
     to keep the collection code below uniform. ``extra`` carries whatever a
-    particular architecture knows and the others do not; it is empty for most.
+    particular architecture knows and the others do not.
+
+    Every architecture puts its optimiser's best point in ``extra`` as
+    ``decision_vector``, full float64, which lands in the .npz. Until
+    2026-09-17 it existed only as the solver's rounded console printout, and a
+    PMP vector copied from that printout missed the archived insertion by 107 m
+    and 0.14 m/s when re-flown -- no good as the start of a polish, and no way
+    to re-fly an archived case exactly. Layout per architecture: see
+    Tese/worktree.md section 2.12b.
     """
     arch = _architecture(sim_params)
 
@@ -440,6 +448,7 @@ def _dispatch(sim_params):
             'segment_laws': [str(m) for m, _a in _sched],
             'segment_altitudes': [float(a) for _m, a in _sched],
             'optimized_altitudes': ([float(a) for a in _alts] if _alts else []),
+            'decision_vector': [float(v) for v in out['best_x']],
         }
         return (out['time'], out['data'], out['thrust'], out['alpha'],
                 out['result'], out['best_f'], seg.LAST_PSO_MG_HISTORY, extra)
@@ -449,7 +458,8 @@ def _dispatch(sim_params):
         import Simulation.indirect_pso_solver as ips
         params, J = run_pso_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result = run_indirect_full(params, verbose=True)
-        return time_a, data, thrust, alpha, result, J, ips.LAST_PSO_HISTORY, {}
+        return (time_a, data, thrust, alpha, result, J, ips.LAST_PSO_HISTORY,
+                {'decision_vector': [float(v) for v in params]})
 
     if arch == "pso_coast":
         from Simulation.pso_coast_solver import (run_pso_coast_optimization,
@@ -457,7 +467,8 @@ def _dispatch(sim_params):
         import Simulation.pso_coast_solver as pcs
         params, J = run_pso_coast_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result, _, _ = run_pso_coast_full(params, verbose=True)
-        return time_a, data, thrust, alpha, result, J, pcs.LAST_PSO_COAST_HISTORY, {}
+        return (time_a, data, thrust, alpha, result, J, pcs.LAST_PSO_COAST_HISTORY,
+                {'decision_vector': [float(v) for v in params]})
 
     if arch == "direct":
         from Simulation.direct_pso_solver import (run_pso_direct_optimization,
@@ -465,7 +476,8 @@ def _dispatch(sim_params):
         import Simulation.direct_pso_solver as dps
         params, J = run_pso_direct_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result, _, _ = run_pso_direct_full(params, verbose=True)
-        return time_a, data, thrust, alpha, result, J, dps.LAST_PSO_DIRECT_HISTORY, {}
+        return (time_a, data, thrust, alpha, result, J, dps.LAST_PSO_DIRECT_HISTORY,
+                {'decision_vector': [float(v) for v in params]})
 
     if arch == "apogee_check":
         from Simulation import solver
@@ -513,7 +525,9 @@ def _dispatch(sim_params):
         data = ra.append_latitude_row(data)
         thrust = np.interp(time_a, time_thrust, thrust)
         alpha = np.interp(time_a, alpha_time, alpha)
-        return time_a, data, thrust, alpha, result, None, None, {}
+        # The brute grid's only decision variable: the kick angle [rad].
+        return (time_a, data, thrust, alpha, result, None, None,
+                {'decision_vector': [float(kick)]})
 
     raise ValueError("unrecognised architecture: %r" % arch)
 
