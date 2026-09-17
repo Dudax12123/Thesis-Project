@@ -321,13 +321,19 @@ the PMP optimum** (2026-09-17: a local refinement beat both production points by
 `dev-notes/pmp_swarm_polish.py` — Levenberg-Marquardt on the orbit + duration-stationarity
 conditions, then γ_p continuation — writes the best extremal as a standard archive under
 `Output/pmp_polish/<case>/`, and `cache_from_archive(..., allow_other_search=True)` can seed the
-reference from such an archive whatever seed it came from. **Trap, found by its first run
-(2026-09-17): do not treat a polished PMP number as the reference yet.** With the pseudo-forces in every Stage 2 the shared target (500 km, the unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 74 km with the credit projected at the launch latitude, 123 m/s short of circular — so an optimiser can reach it by coasting up to it with no circularisation burn. The polish
-did exactly that: +1 701 kg (baseline) and +1 496 kg (vacuum) by coasting 1 282–1 381 s and cutting
-the last burn to 0.0–0.2 s. The laws are exposed too (`show_exp_shooting`'s last burn is 5 s after a
-506 s coast), unevenly, and the 2000 s coast bound widens it. The circularisation it skips is worth
-about 1 t. The fix is the convention itself (project the credit in the targets, the frame
-conversion and the budget), which reverses the 2026-08-31 decision to keep it.
+reference from such an archive whatever seed it came from. **What its first run (2026-09-17) showed,
+and the user's decision.** With the pseudo-forces in every Stage 2 the shared target (500 km, the
+unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 58–74 km once
+the credit is projected, 123–128 m/s short of circular — so it can be reached by coasting up to it
+with no circularisation burn, and the polish did exactly that: +1 701 kg (baseline) and +1 496 kg
+(vacuum), coasting 1 282–1 381 s with a 0.0–0.2 s last burn. The laws are exposed too and unevenly
+(`show_exp_shooting`'s last burn is 5 s after a 506 s coast, `gt_baseline`'s 22 s after 409 s); the
+2000 s coast bound widens it. **The user re-affirmed on 2026-09-17 that the unprojected credit stays**
+(as first decided 2026-08-31) — do not project it in the targets, the frame conversion or the budget,
+and do not "honestly convert" an archived orbit. The polished numbers are therefore the optimum of the
+problem as defined, and Chapter 6 must disclose that the insertion state is ~125 m/s below circular,
+that the archive's eccentricity column cannot show this (target and check share the formula), and that
+part of the PMP's margin over the laws is the coast-to-target the convention allows.
 Every results-matrix archive carries the optimiser's full-precision `decision_vector` since then;
 the solver's console printout is rounded and does not re-fly to the archived insertion.
 

@@ -711,14 +711,17 @@ Each is legal to set but does something other than what you'd expect. With `file
   `pso_coast`** (re-running the full PSO per azimuth is too costly) — the config object is mutated at
   runtime (`main.py:424`). Under other PSO paths it is simply never exercised.
 
-- **The unprojected rotation credit makes the insertion target reachable ballistically (2026-09-17,
-  open).** With the pseudo-forces in every Stage 2 the shared target (500 km, the unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 74 km with the credit projected at the launch latitude, 123 m/s short of circular — so an optimiser can reach it by coasting up to it with no circularisation burn. Every architecture inserts at that same state (the archive's orbit columns
+- **The unprojected rotation credit makes the insertion target reachable ballistically (2026-09-17;
+  the convention is KEPT, user decision).** With the pseudo-forces in every Stage 2 the shared target (500 km, the unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 58–74 km once the credit is projected (55–69 km at the insertion latitude on the great-circle heading; −177 to +17 km on the fixed 45° heading the model flies), 123–128 m/s short of circular — so an optimiser can reach it by coasting up to it with no circularisation burn. Every architecture inserts at that same state (the archive's orbit columns
   add the same unprojected credit back and report a circle — self-cancelling, as audited 2026-08-31),
   but the optimisers do not reach it equally: the polished indirect PMP coasts 1 282–1 381 s and fires
   its last burn for 0.0–0.2 s (+1.5–1.7 t over its own swarm point), `show_exp_shooting` fires 5 s
   after a 506 s coast, `gt_baseline` 22 s after 409 s. Skipping the ~123 m/s circularisation is worth
   about 1 t at insertion mass, so the comparison partly measures who exploits the convention. Raising
-  the coast bound to 2000 s (decision 1a) widens the exposure. Checking an archive: the pso_coast
+  the coast bound to 2000 s (decision 1a) widens the exposure. **Not to be "fixed": the user re-affirmed
+  the simplification on 2026-09-17** (first decided 2026-08-31), so the targets, the frame conversion and
+  the budget keep the unprojected credit, the polished PMP numbers stand as the optimum of the problem as
+  defined, and the asymmetry is a Chapter 6 disclosure rather than a code change. Checking an archive: the pso_coast
   trajectory repeats the SECO sample already converted to inertial speed, so read the insertion state
   from the row or the sample BEFORE it, never `searchsorted(t_seco, "right") - 1`.
 
