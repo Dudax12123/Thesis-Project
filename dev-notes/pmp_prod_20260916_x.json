@@ -1,0 +1,55 @@
+{
+  "pmp_baseline": {
+    "x_raw": [
+      -0.000474,
+      -0.250399,
+      -0.983699,
+      298.98,
+      77.86,
+      87.71,
+      1.543965
+    ],
+    "J_prime": 0.7788,
+    "order": [
+      "lambda0_r",
+      "lambda0_v",
+      "lambda0_gamma",
+      "delta_tc_s",
+      "delta_tr_pct",
+      "coast_start_pct",
+      "gamma_p_rad"
+    ],
+    "note": "raw swarm values as printed by _print_solution; the solver normalises the costate triple to unit norm"
+  },
+  "pmp_vacuum": {
+    "x_raw": [
+      -0.001781,
+      -0.835018,
+      0.466724,
+      372.6,
+      76.22,
+      93.27,
+      1.521201
+    ],
+    "J_prime": 0.7697,
+    "order": [
+      "lambda0_r",
+      "lambda0_v",
+      "lambda0_gamma",
+      "delta_tc_s",
+      "delta_tr_pct",
+      "coast_start_pct",
+      "gamma_p_rad"
+    ],
+    "note": "raw swarm values as printed by _print_solution; the solver normalises the costate triple to unit norm"
+  },
+  "_meta": {
+    "date": "2026-09-16",
+    "budget": "250x1000, seed 42",
+    "config_commit": "6a108cd",
+    "frame": "rotating_pseudo_forces",
+    "coast_bound_s": 2000,
+    "burn_floor_pct": 0,
+    "source_log": "Tese/src/Output/pmp_prod_20260916.log"
+  }
+}
