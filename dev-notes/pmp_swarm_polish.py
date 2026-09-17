@@ -1,9 +1,8 @@
 #!/usr/bin/env python
-"""Short indirect_pmp swarm under the corrected transversality penalty, then a Newton polish.
+"""Polish indirect_pmp solutions into extremals: Levenberg-Marquardt plus gamma_p continuation.
 
-1. Swarm: run_pso_optimization at --particles x --generations (default 100 x 200) under the
-   results-matrix baseline, inertial Stage 2, INDIRECT_PMP_TRANSVERSALITY =
-   "duration_stationarity".
+1. Optional swarm (--swarm-budget P,G): run_pso_optimization under the results-matrix
+   configuration of --case, so its best point can be polished in the same process.
 2. Polish at fixed gamma_p: Levenberg-Marquardt (least_squares 'lm') on the square system
        alt, vel, fpa, H_coast_end, H_burn1_end - H_last_burn_start = 0
    in u = [costate angles a, b; D1, Dc, D3]. If a step takes the coast outside
@@ -14,12 +13,26 @@
    best converged extremal. A pinned-coast point counts only if its one-sided condition holds.
    (A golden-section search failed: its jumps leave the extremal family's basin.)
 
-Both the swarm's best point and variant C of the 2026-09-13 direct refinement (the long-coast
-basin, pmp_refine_20260913_170035.json) are polished, so a short swarm that lands in the other
-basin is visible rather than mistaken for the answer.
+Starting points (--start, repeatable):
+  <case>.npz      a results-matrix archive; its full-precision ``decision_vector`` (archived
+                  since 2026-09-17) and, from the manifest beside it, the seed it came from
+  x JSON          dev-notes/pmp_prod_20260916_x.json -- the ``x_raw`` of --case, as the
+                  solver printed it (rounded: re-flown it misses the insertion by ~100 m)
+  refined JSON    any JSON holding ``u = [a, b, coast s, burn %, coast start %, gamma_p]``,
+                  the SLSQP refinement format
+The 2026-09-13 refinement points B and C (pseudo-force-free Stage 1, inertial Stage 2) are
+stale and are polished only with --old-refine-starts.
+
+Configuration: rrm.BASELINE plus the overrides of --case, the Stage-2 form of --frame (default
+the config's own, "rotating_pseudo_forces" since 2026-09-16) and duration-stationarity
+transversality. The best converged extremal of each start is re-flown densely and written as a
+standard three-file archive (Archive/store.save_run) under --archive-out, so it loads,
+compares and seeds the PMP reference like any harness case; its manifest records the seed of
+the swarm the start came from.
 
 Run from the repository root:
-    PYTHONIOENCODING=utf-8 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/pmp_swarm_polish.py
+    PYTHONIOENCODING=utf-8 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/pmp_swarm_polish.py \
+        --case pmp_baseline --start Tese/src/Output/pmp_seeds/pmp_baseline/seed_1/pmp_baseline/pmp_baseline.npz
 """
 
 import argparse
@@ -42,7 +55,7 @@ from Input_File import simulation_parameters as sp  # noqa: E402
 import run_results_matrix as rrm  # noqa: E402
 
 rrm._apply(sp, rrm.BASELINE)
-rrm._apply(sp, {"GUIDANCE_MODE": "indirect_pmp", "INDIRECT_PMP_STAGE2_FRAME": "inertial",
+rrm._apply(sp, {"GUIDANCE_MODE": "indirect_pmp",
                 "INDIRECT_PMP_TRANSVERSALITY": "duration_stationarity",
                 "EVENTS_PRINT": False, "INTERRUPTS_PRINT": False})
 
@@ -64,12 +77,7 @@ GP_LB, GP_UB = float(sp.PSO_LB[6]), float(sp.PSO_UB[6])
 UNITS = np.array([1.0, 0.01, 1e-4, 0.01, 0.01])
 S = np.array([1e-3, 1e-3, 1.0, 1.0, 1.0])   # scale of u = [a, b, D1, Dc, D3]
 
-COMPARE = {
-    "direct refinement C, coast <= 2000 s (not an extremal)": 22561.9,
-    "direct refinement C1000, coast <= 1000 s": 21880.1,
-    "tangent laws, local refinement (pso_coast)": 21320.0,
-    "gravity_turn, pseudo-forces off (pf_off_v2)": 20688.8,
-}
+POLISH_OUT = SRC / "Output" / "pmp_polish"
 
 
 def x_from(u, gp):
@@ -234,7 +242,9 @@ def dense_check(u, gp):
     if np.any(burned) and np.any(coast):
         i_c = int(np.argmax(coast))
         v_c, g_c = d[2, i_c], d[3, i_c]
-        if res.get("stage2_frame") == "inertial":
+        # run_indirect_full reports ground-relative in every Stage-2 form, so the
+        # osculating elements need the inertial state whenever the Earth rotates.
+        if sp.ENABLE_EARTH_ROTATION:
             v_c, g_c = earth_rot.rotating_to_inertial_planar(
                 v_c, g_c, np.deg2rad(sp.LAUNCH_LATITUDE), d[1, i_c])
         eps = v_c ** 2 / 2.0 - c.MU_EARTH / d[1, i_c]
@@ -351,29 +361,98 @@ def polish(label, u0, gp0, span, step):
             "gamma_p_at_interval_edge": bool(at_edge), "trials": trials}
 
 
+def load_start(path, case):
+    """(u, gamma_p, seed or None, description) from a --start path."""
+    path = Path(path)
+    if path.suffix == ".npz":
+        with np.load(path, allow_pickle=False) as z:
+            if "decision_vector" not in z.files:
+                raise SystemExit(f"{path} has no decision_vector (archived before 2026-09-17)")
+            x = [float(v) for v in z["decision_vector"]]
+        seed = None
+        man = path.with_name(path.stem + ".manifest.json")
+        if man.exists():
+            cfg = json.loads(man.read_text(encoding="utf-8")).get("config", {})
+            seed = cfg.get("PSO_SEED")
+            if cfg.get("INCLUDE_DRAG") is not None and bool(cfg["INCLUDE_DRAG"]) != bool(sp.INCLUDE_DRAG):
+                raise SystemExit(f"{path} was flown with INCLUDE_DRAG={cfg['INCLUDE_DRAG']}, "
+                                 f"--case {case} has {sp.INCLUDE_DRAG}")
+        u, gp = u_from_x(x)
+        return u, gp, seed, f"archive {path}"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if "u" in data:
+        a, b, tc, tr, cs, gp = data["u"]
+        T = tr / 100.0 * T_MAX
+        d1 = cs / 100.0 * T
+        return np.array([a, b, d1, tc, T - d1]), float(gp), None, f"refined point {path}"
+    if case in data and "x_raw" in data[case]:
+        u, gp = u_from_x(data[case]["x_raw"])
+        meta = data.get("_meta", {})
+        seed = 42 if "seed 42" in str(meta.get("budget", "")) else None
+        return u, gp, seed, f"rounded printout {path}"
+    raise SystemExit(f"{path}: no decision_vector, u, or {case}.x_raw")
+
+
+def write_archive(u, gp, root, name, label, seed):
+    """Re-fly an extremal densely and write the standard three-file archive."""
+    from Archive import store
+    saved_seed = sp.PSO_SEED
+    if seed is not None:
+        sp.PSO_SEED = int(seed)          # the manifest names the swarm the start came from
+    t0 = time.time()
+    x = x_from(u, gp)
+    with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t, d, thr, alpha, _t_ign, res = ips.run_indirect_full(x, verbose=False)
+    saved = store.save_run(sp, t, d, thr, alpha, res, J=float(ips.compute_augmented_objective(res)),
+                           history=None, extra={"decision_vector": [float(v) for v in x]},
+                           wall_clock=time.time() - t0, name=name, root=root,
+                           source="dev-notes/pmp_swarm_polish.py", label=label,
+                           tags={"section": "6.4", "factor": "reference"}, verbose=False)
+    sp.PSO_SEED = saved_seed
+    return saved
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--case", default="pmp_baseline", choices=["pmp_baseline", "pmp_vacuum"],
+                    help="results-matrix case whose configuration is applied")
+    ap.add_argument("--start", action="append", default=[],
+                    help="starting point: archive .npz, x JSON or refined-u JSON (repeatable)")
+    ap.add_argument("--old-refine-starts", action="store_true",
+                    help="also polish the stale 2026-09-13 refinement points B and C")
+    ap.add_argument("--archive-out", default=None,
+                    help="root for the archives of the best extremals "
+                         "(default Tese/src/Output/pmp_polish/<case>)")
     ap.add_argument("--particles", type=int, default=100)
     ap.add_argument("--generations", type=int, default=200)
     ap.add_argument("--span", type=float, default=0.02,
                     help="how far the gamma_p continuation may go each way [rad]")
     ap.add_argument("--step", type=float, default=0.0005, help="gamma_p continuation step [rad]")
     ap.add_argument("--no-swarm", dest="swarm", action="store_false",
-                    help="skip the swarm; polish from the 2026-09-13 refinement points B and C")
-    ap.add_argument("--frame", choices=["inertial", "rotating"], default="inertial")
+                    help="skip the swarm; polish only the --start points")
+    ap.add_argument("--frame", choices=["rotating_pseudo_forces", "inertial", "rotating"],
+                    default=None, help="INDIRECT_PMP_STAGE2_FRAME (default: the config's)")
     ap.add_argument("--transversality", choices=["duration_stationarity", "pontani_eq38"],
                     default="duration_stationarity")
     ap.add_argument("--no-polish", dest="polish", action="store_false",
                     help="swarm only (diagnostic A/B runs)")
     ap.add_argument("--tag", default="", help="appended to the output file name")
     args = ap.parse_args()
-    sp.INDIRECT_PMP_STAGE2_FRAME = args.frame
+    cases = {cs["name"]: cs for cs in rrm.build_matrix()}
+    rrm._apply(sp, cases[args.case]["overrides"])
+    if args.frame is not None:
+        sp.INDIRECT_PMP_STAGE2_FRAME = args.frame
     sp.INDIRECT_PMP_TRANSVERSALITY = args.transversality
+    if not (args.swarm or args.start or args.old_refine_starts):
+        raise SystemExit("nothing to polish: pass --start, --old-refine-starts, or leave the swarm on")
+    archive_root = Path(args.archive_out) if args.archive_out else POLISH_OUT / args.case
     global V_T
     V_T = ips.terminal_speed_target(R_T)
 
     t_start = time.time()
-    print(f"frame {sp.INDIRECT_PMP_STAGE2_FRAME} | transversality {sp.INDIRECT_PMP_TRANSVERSALITY} | "
+    print(f"case {args.case} (INCLUDE_DRAG {sp.INCLUDE_DRAG}) | "
+          f"frame {sp.INDIRECT_PMP_STAGE2_FRAME} | transversality {sp.INDIRECT_PMP_TRANSVERSALITY} | "
           f"target speed {V_T:.2f} m/s | coast bounds [{DC_LB}, {DC_UB}] s | "
           f"swarm {args.particles}x{args.generations}, seed {sp.PSO_SEED}", flush=True)
 
@@ -391,24 +470,55 @@ def main():
             "swarm_wall_s": t_swarm,
             "swarm_history": None if hist is None else
             {"gen": hist["gen"].tolist(), "gbest": hist["gbest"].tolist()}})
+    starts = []
+    for i, path in enumerate(args.start):
+        u_st, gp_st, seed_st, desc = load_start(path, args.case)
+        starts.append((f"start{i}", u_st, gp_st, seed_st, desc))
+        results[f"start{i}"] = {"path": str(path), "description": desc, "seed": seed_st,
+                                "point": report(f"start {i}: {desc}", u_st, gp_st,
+                                                fly(u_st, gp_st, strict=False))}
     if args.polish:
         if args.swarm:
             results["polish_swarm"] = polish("swarm best", u_s, gp_s, args.span, args.step)
-        refine = json.loads(REFINE_JSON.read_text(encoding="utf-8"))["variants"]
-        for key, name in (("B", "direct refinement B (gamma_p of the old swarm)"),
-                          ("C", "direct refinement C (long-coast basin)")):
-            cu = refine[key]["u"]
-            T = cu[3] / 100.0 * T_MAX
-            u_c = np.array([cu[0], cu[1], cu[4] / 100.0 * T, cu[2], T - cu[4] / 100.0 * T])
-            results["polish_refine" + key] = polish(name, u_c, cu[5], args.span, args.step)
+            starts.append(("swarm", u_s, gp_s, sp.PSO_SEED, "swarm run in this process"))
+        for key, u_st, gp_st, seed_st, desc in starts:
+            if key == "swarm":
+                continue
+            results["polish_" + key] = polish(desc, u_st, gp_st, args.span, args.step)
+        if args.old_refine_starts:
+            refine = json.loads(REFINE_JSON.read_text(encoding="utf-8"))["variants"]
+            for key, name in (("B", "direct refinement B (gamma_p of the old swarm)"),
+                              ("C", "direct refinement C (long-coast basin)")):
+                cu = refine[key]["u"]
+                T = cu[3] / 100.0 * T_MAX
+                u_c = np.array([cu[0], cu[1], cu[4] / 100.0 * T, cu[2], T - cu[4] / 100.0 * T])
+                results["polish_refine" + key] = polish(name, u_c, cu[5], args.span, args.step)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        for key, _u, _gp, seed_st, desc in starts:
+            p = results.get("polish_" + key)
+            if not p or not p.get("outer") or not p.get("outer_converged"):
+                continue
+            ob = p["outer"]
+            name = args.case
+            root = archive_root / f"{args.tag + '_' if args.tag else ''}{key}_{stamp}"
+            saved = write_archive(np.array(ob["u"]), ob["gamma_p"], root, name,
+                                  f"polished extremal from {desc}", seed_st)
+            p["archive"] = str(root / (name + ".npz"))
+            print(f"archived best extremal of {key} ({ob['prop_left_kg']:.1f} kg) to {p['archive']}")
 
     print("\n" + "=" * 92)
     print(f"{'':60}{'prop left [kg]':>16}{'converged':>12}")
     swarm = results.get("swarm")
     rows = ([("swarm best point (penalised, raw)",
               swarm["prop_left_kg"] if swarm else float("nan"), "-")] if args.swarm else [])
-    for key, name in (("polish_swarm", "swarm"), ("polish_refineB", "refinement B"),
-                      ("polish_refineC", "refinement C")):
+    for i in range(len(args.start)):
+        st = results[f"start{i}"]
+        if st["point"]:
+            rows.append((f"start {i} as given", st["point"]["prop_left_kg"], "-"))
+    labels = [("polish_swarm", "swarm")] + [(f"polish_start{i}", f"start {i}")
+                                            for i in range(len(args.start))]
+    labels += [("polish_refineB", "refinement B"), ("polish_refineC", "refinement C")]
+    for key, name in labels:
         p = results.get(key)
         if not p:
             continue
@@ -420,13 +530,12 @@ def main():
                          str(p["outer_converged"])))
     for name, val, conv in rows:
         print(f"{name:60}{val:16.1f}{conv:>12}")
-    print("-" * 92)
-    for name, val in COMPARE.items():
-        print(f"{name:60}{val:16.1f}")
     print("=" * 92)
     print(f"total wall time {time.time() - t_start:.0f} s")
 
-    out = OUT / f"pmp_swarm_polish_{args.tag + '_' if args.tag else ''}{time.strftime('%Y%m%d_%H%M%S')}.json"
+    OUT.mkdir(parents=True, exist_ok=True)
+    out = OUT / (f"pmp_swarm_polish_{args.case}_{args.tag + '_' if args.tag else ''}"
+                 f"{time.strftime('%Y%m%d_%H%M%S')}.json")
     out.write_text(json.dumps(results, indent=2), encoding="utf-8")
     print(f"wrote {out}")
 

@@ -185,7 +185,7 @@ reference at the current altitude. The reference is **Stage-2-only** (full-ascen
 that arc, not an optimised atmospheric control.
 
 **PMP reference build.** The first segmented run builds the indirect-PMP optimal trajectory at
-`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (250×1000 since 2026-09-16, ≈ 2 h — the PMP swarm's own budget and seed, so the reference is the `pmp_baseline` trajectory by construction). Because they are one deterministic run, the cache can be **seeded from the archived `pmp_baseline` case instead of rebuilt**: `segment_reference.cache_from_archive(<case>.npz)` stores its time/state/α under the key of the configuration in force (apply `run_results_matrix.BASELINE` first) and refuses an archive whose manifest disagrees with that configuration on any key input, budget included (`tests/test_segment_reference_cache.py`) and caches it (key = target orbit + vehicle +
+`PMP_REFERENCE_PSO_PARTICLES × PMP_REFERENCE_PSO_GENERATIONS` (250×1000 since 2026-09-16, ≈ 2 h — the PMP swarm's own budget and seed, so the reference is the `pmp_baseline` trajectory by construction). Because they are one deterministic run, the cache can be **seeded from the archived `pmp_baseline` case instead of rebuilt**: `segment_reference.cache_from_archive(<case>.npz)` stores its time/state/α under the key of the configuration in force (apply `run_results_matrix.BASELINE` first) and refuses an archive whose manifest disagrees with that configuration on any key input, budget included (`tests/test_segment_reference_cache.py`). `allow_other_search=True` admits a better trajectory than the configured swarm's — the best **polished extremal across seeds** (`dev-notes/pmp_swarm_polish.py`, which writes such archives under `Output/pmp_polish/<case>/`): seed and budget are then not compared, every physics, bound, frame and transversality input still is, and the archive's path, source, label and seed are stored in the cache as `source`. A forced rebuild replaces it with the configured swarm's output and caches it (key = target orbit + vehicle +
 Stage-1 engine MODES + reference-PSO settings; NOT `GUIDANCE_SEGMENTS` / `PSO_COAST_*`, so different
 schedules and coast budgets reuse the same reference. `ISP_1_MODE`/`THRUST_1_MODE`/`A_E` joined the
 key on 2026-08-18: the raw `ISP_1_*`/`F_THRUST_1_*` figures were already keyed, but the mode that
@@ -710,6 +710,17 @@ Each is legal to set but does something other than what you'd expect. With `file
 - **`AZIMUTH_INCLINATION_MODE="iterative"` is force-overwritten to `"formula_compare"` under
   `pso_coast`** (re-running the full PSO per azimuth is too costly) — the config object is mutated at
   runtime (`main.py:424`). Under other PSO paths it is simply never exercised.
+
+- **The unprojected rotation credit makes the insertion target reachable ballistically (2026-09-17,
+  open).** With the pseudo-forces in every Stage 2 the shared target (500 km, the unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 74 km with the credit projected at the launch latitude, 123 m/s short of circular — so an optimiser can reach it by coasting up to it with no circularisation burn. Every architecture inserts at that same state (the archive's orbit columns
+  add the same unprojected credit back and report a circle — self-cancelling, as audited 2026-08-31),
+  but the optimisers do not reach it equally: the polished indirect PMP coasts 1 282–1 381 s and fires
+  its last burn for 0.0–0.2 s (+1.5–1.7 t over its own swarm point), `show_exp_shooting` fires 5 s
+  after a 506 s coast, `gt_baseline` 22 s after 409 s. Skipping the ~123 m/s circularisation is worth
+  about 1 t at insertion mass, so the comparison partly measures who exploits the convention. Raising
+  the coast bound to 2000 s (decision 1a) widens the exposure. Checking an archive: the pso_coast
+  trajectory repeats the SECO sample already converted to inertial speed, so read the insertion state
+  from the row or the sample BEFORE it, never `searchsorted(t_seco, "right") - 1`.
 
 - **Pseudo-forces are all-or-nothing per architecture.** Coriolis and centrifugal are carried for the
   *whole* ascent or not at all, so no trajectory is integrated under one force model before staging

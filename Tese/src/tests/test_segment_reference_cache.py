@@ -98,3 +98,31 @@ def test_an_archive_without_a_manifest_is_still_cached(cache_in_tmp, capsys):
     assert "cannot be checked" in capsys.readouterr().out
     t2, _d, _a = segref.get_pmp_reference_full(verbose=False)
     np.testing.assert_array_equal(t2, t)
+
+
+def test_a_different_seed_is_refused_by_default(cache_in_tmp):
+    npz, *_ = _write_archive(cache_in_tmp, PSO_SEED=sim_params.PSO_SEED + 1)
+    with pytest.raises(ValueError, match="PSO_SEED"):
+        segref.cache_from_archive(npz, verbose=False)
+
+
+def test_a_polished_extremal_of_another_seed_and_budget_is_accepted_with_its_provenance(
+        cache_in_tmp):
+    npz, t, _data, _alpha = _write_archive(cache_in_tmp, PSO_SEED=sim_params.PSO_SEED + 1,
+                                           PSO_MAX_GENERATIONS=4)
+    segref.cache_from_archive(npz, verbose=False, allow_other_search=True)
+    t2, _d, _a = segref.get_pmp_reference_full(verbose=False)
+    np.testing.assert_array_equal(t2, t)
+    with np.load(cache_in_tmp / "ref.npz") as z:
+        source = json.loads(str(z["source"]))
+    assert source["seed"] == sim_params.PSO_SEED + 1
+    assert source["budget"][1] == 4
+    assert source["archive"].endswith("pmp_baseline.npz")
+
+
+def test_allowing_another_search_does_not_admit_another_problem(cache_in_tmp):
+    npz, *_ = _write_archive(cache_in_tmp, PSO_SEED=sim_params.PSO_SEED + 1,
+                             INCLUDE_DRAG=not sim_params.INCLUDE_DRAG)
+    with pytest.raises(ValueError, match="INCLUDE_DRAG"):
+        segref.cache_from_archive(npz, verbose=False, allow_other_search=True)
+    assert not (cache_in_tmp / "ref.npz").exists()

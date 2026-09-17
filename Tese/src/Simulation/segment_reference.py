@@ -211,10 +211,11 @@ def _load_cache(path, key):
         return None
 
 
-def _save_cache(path, key, time_full, data_full, alpha_full):
+def _save_cache(path, key, time_full, data_full, alpha_full, source=None):
     path.parent.mkdir(parents=True, exist_ok=True)
+    extra = {} if source is None else {"source": np.array(str(source))}
     np.savez(path, key=np.array(key), time_full=time_full, data_full=data_full,
-             alpha_full=alpha_full)
+             alpha_full=alpha_full, **extra)
 
 
 def _run_pmp_reference(verbose):
@@ -244,7 +245,7 @@ def _run_pmp_reference(verbose):
 # pair is compared against the REFERENCE knobs, because that is what the key
 # holds. Vehicle constants are code, not configuration, and are not compared.
 _ARCHIVE_MUST_MATCH = (
-    "PSO_SEED", "PSO_LB", "PSO_UB",
+    "PSO_LB", "PSO_UB",
     "INCLUDE_DRAG", "ENABLE_EARTH_ROTATION", "INCLUDE_PSEUDO_FORCES",
     "INDIRECT_PMP_STAGE2_FRAME", "INDIRECT_PMP_STAGE1_PSEUDO_FORCES",
     "INDIRECT_PMP_TRANSVERSALITY",
@@ -253,9 +254,13 @@ _ARCHIVE_MUST_MATCH = (
 )
 
 
-def _archive_mismatches(config):
+def _archive_mismatches(config, check_search=True):
     """Settings on which an archived run's manifest disagrees with the
-    configuration in force, as 'NAME: archive != current' strings."""
+    configuration in force, as 'NAME: archive != current' strings.
+
+    ``check_search=False`` leaves out the swarm's seed and budget -- how the
+    trajectory was FOUND -- and keeps every setting that decides what problem
+    it solves."""
     def norm(v):
         if isinstance(v, (list, tuple)):
             return tuple(float(x) for x in v)
@@ -263,11 +268,15 @@ def _archive_mismatches(config):
     out = []
     if config.get("GUIDANCE_MODE") != "indirect_pmp":
         out.append("GUIDANCE_MODE: %r != 'indirect_pmp'" % (config.get("GUIDANCE_MODE"),))
-    ref_p, ref_g = _reference_pso_settings()
-    for name, want in (("PSO_N_PARTICLES", ref_p), ("PSO_MAX_GENERATIONS", ref_g)):
-        have = config.get(name)
-        if have is None or int(have) != int(want):
-            out.append("%s: %r != reference %r" % (name, have, want))
+    if check_search:
+        ref_p, ref_g = _reference_pso_settings()
+        for name, want in (("PSO_N_PARTICLES", ref_p), ("PSO_MAX_GENERATIONS", ref_g)):
+            have = config.get(name)
+            if have is None or int(have) != int(want):
+                out.append("%s: %r != reference %r" % (name, have, want))
+        if norm(config.get("PSO_SEED")) != norm(getattr(sim_params, "PSO_SEED", None)):
+            out.append("PSO_SEED: %r != %r" % (config.get("PSO_SEED"),
+                                              getattr(sim_params, "PSO_SEED", None)))
     for name in _ARCHIVE_MUST_MATCH:
         have, want = norm(config.get(name)), norm(getattr(sim_params, name, None))
         if have != want:
@@ -275,7 +284,7 @@ def _archive_mismatches(config):
     return out
 
 
-def cache_from_archive(npz_path, verbose=True):
+def cache_from_archive(npz_path, verbose=True, allow_other_search=False):
     """Write the reference cache from an archived ``indirect_pmp`` run.
 
     ``_run_pmp_reference`` is the PMP swarm plus the dense re-run, seeded and
@@ -293,6 +302,17 @@ def cache_from_archive(npz_path, verbose=True):
     disagreement raises rather than caching the trajectory of a different
     problem.
 
+    ``allow_other_search=True`` is for a trajectory that is better than the
+    configured swarm's output -- the best polished extremal across several seeds
+    (dev-notes/pmp_swarm_polish.py, 2026-09-17). The seed and budget are then not
+    compared, because they describe how the trajectory was found, not what
+    problem it solves; every other key input still must match. The cache is still
+    written under the key of the configuration in force, so its seed and budget
+    entries then describe that configuration rather than this trajectory's
+    search, and a forced rebuild (PMP_REFERENCE_FORCE_RERUN) replaces it with
+    the configured swarm's output. The archive's path, source, label and seed are
+    stored in the cache as ``source`` so the substitution stays visible.
+
     Returns (cache_path, key).
     """
     import json
@@ -300,15 +320,18 @@ def cache_from_archive(npz_path, verbose=True):
     manifest_path = npz_path.with_name(npz_path.stem + ".manifest.json")
     if manifest_path.exists():
         with open(manifest_path, encoding="utf-8") as fh:
-            config = json.load(fh).get("config", {})
-        bad = _archive_mismatches(config)
+            man = json.load(fh)
+        config = man.get("config", {})
+        bad = _archive_mismatches(config, check_search=not allow_other_search)
         if bad:
             raise ValueError(
                 f"{npz_path.name} was not flown under the configuration in force, "
                 "so it cannot be the reference: " + "; ".join(bad))
-    elif verbose:
-        print(f"[segment_reference] {npz_path.name} has no manifest beside it; its "
-              "configuration cannot be checked against the cache key")
+    else:
+        man, config = {}, {}
+        if verbose:
+            print(f"[segment_reference] {npz_path.name} has no manifest beside it; its "
+                  "configuration cannot be checked against the cache key")
     with np.load(npz_path, allow_pickle=True) as npz:
         time_full = np.asarray(npz["time"], dtype=float)
         data_full = np.asarray(npz["data"], dtype=float)[:5]
@@ -319,7 +342,14 @@ def cache_from_archive(npz_path, verbose=True):
                          f"data {data_full.shape}, alpha {alpha_full.shape})")
     key = _reference_input_key()
     path = _abs_cache_path()
-    _save_cache(path, key, time_full, data_full, alpha_full)
+    source = None
+    if allow_other_search:
+        source = json.dumps({
+            "archive": str(npz_path), "source": man.get("source"), "label": man.get("label"),
+            "seed": config.get("PSO_SEED"),
+            "budget": [config.get("PSO_N_PARTICLES"), config.get("PSO_MAX_GENERATIONS")],
+        })
+    _save_cache(path, key, time_full, data_full, alpha_full, source=source)
     if verbose:
         print(f"[segment_reference] cached PMP reference from {npz_path} to: {path}")
     return path, key

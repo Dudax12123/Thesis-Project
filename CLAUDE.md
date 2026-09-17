@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds eleven files (159 tests as of 2026-09-16). pytest is installed
+Tests — `Tese/src/tests/` holds eleven files (162 tests as of 2026-09-17). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -316,7 +316,20 @@ the final segment inserts to orbit. The PMP reference is cached to
 equal to the PMP swarm's own (250×1000 since 2026-09-16, same seed) the reference build IS the
 `pmp_baseline` run, so the cache can be seeded from that case's archive with
 `segment_reference.cache_from_archive` instead of spending ~2 h rebuilding it; the archive's
-manifest must match the configuration in force or it is refused.
+manifest must match the configuration in force or it is refused. **The swarm alone does not find
+the PMP optimum** (2026-09-17: a local refinement beat both production points by 620–1020 kg).
+`dev-notes/pmp_swarm_polish.py` — Levenberg-Marquardt on the orbit + duration-stationarity
+conditions, then γ_p continuation — writes the best extremal as a standard archive under
+`Output/pmp_polish/<case>/`, and `cache_from_archive(..., allow_other_search=True)` can seed the
+reference from such an archive whatever seed it came from. **Trap, found by its first run
+(2026-09-17): do not treat a polished PMP number as the reference yet.** With the pseudo-forces in every Stage 2 the shared target (500 km, the unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 74 km with the credit projected at the launch latitude, 123 m/s short of circular — so an optimiser can reach it by coasting up to it with no circularisation burn. The polish
+did exactly that: +1 701 kg (baseline) and +1 496 kg (vacuum) by coasting 1 282–1 381 s and cutting
+the last burn to 0.0–0.2 s. The laws are exposed too (`show_exp_shooting`'s last burn is 5 s after a
+506 s coast), unevenly, and the 2000 s coast bound widens it. The circularisation it skips is worth
+about 1 t. The fix is the convention itself (project the credit in the targets, the frame
+conversion and the budget), which reverses the 2026-08-31 decision to keep it.
+Every results-matrix archive carries the optimiser's full-precision `decision_vector` since then;
+the solver's console printout is rounded and does not re-fly to the archived insertion.
 
 ## Invariants and gotchas
 
