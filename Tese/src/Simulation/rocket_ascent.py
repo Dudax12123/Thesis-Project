@@ -849,7 +849,12 @@ def get_orbital_elements(r_val, v_inertial, gamma_inertial, mu=c.MU_EARTH):
         Period of the orbit [s]
     """
     a = (mu * r_val) / ((2 * mu) - (r_val * v_inertial**2))
-    e = (1 - (r_val * v_inertial * np.cos(gamma_inertial))**2 / (mu * a))**0.5
+    # The radicand is exactly zero for a circular orbit, so for a near-circular one
+    # it is ~1e-16 of either sign and rounding decides which. Negative gave e = NaN,
+    # which propagated into the periapsis and made the Chapter 6 loader read the case
+    # as suborbital (gt_sea_level_engine, 2026-09-18, inserting at 500.00 km with a
+    # true e ~ 1e-8). Clamping changes no physics: it only stops a negative zero.
+    e = max(0.0, 1 - (r_val * v_inertial * np.cos(gamma_inertial))**2 / (mu * a))**0.5
     r_apo = a * (1 + e)
     r_peri = a * (1 - e)
     orbit_period = 2 * np.pi * (np.pow(a, 1.5)) / (np.pow(mu, 0.5))
