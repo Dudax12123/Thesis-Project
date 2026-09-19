@@ -112,12 +112,17 @@ class Case:
 
     @property
     def alpha_deg(self):
-        return np.rad2deg(self.alpha)
+        """Steering angle, 0 wherever the engine is off: an unpowered point mass
+        has no attitude, and the stored channel there is only the interpolated
+        guidance log (Plots.plot_state_utils.zero_alpha_when_unpowered)."""
+        return np.rad2deg(psu.zero_alpha_when_unpowered(self.time, self.alpha,
+                                                        self.time, self.thrust))
 
     @property
     def theta_deg(self):
-        """Pitch, not stored: it is alpha + gamma by definition."""
-        return np.rad2deg(self.alpha + self._ch["gamma"])
+        """Pitch, not stored: it is alpha + gamma by definition -- the flight-path
+        angle wherever the engine is off."""
+        return self.alpha_deg + np.rad2deg(self._ch["gamma"])
 
     @property
     def mass(self):

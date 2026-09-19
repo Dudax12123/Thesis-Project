@@ -49,6 +49,44 @@ def prepare_monotonic_series(time_array, value_array):
     return unique_t, v_sorted[last_idx]
 
 
+def powered_mask(t_query, thrust_time, thrust):
+    """True where the engine is producing thrust, on the grid ``t_query``.
+
+    Elementwise when both channels share one grid (every PSO architecture archives
+    them so, and a boundary instant then appears twice -- once on each side of
+    the switch -- which only elementwise reading keeps apart). Otherwise the
+    thrust trace is held from the left: a query at an ignition or cutoff instant
+    takes the sample written last there, i.e. the state the engine switched to.
+    """
+    tq = np.asarray(t_query, dtype=float)
+    tt = np.asarray(thrust_time, dtype=float)
+    f = np.asarray(thrust, dtype=float)
+    if f.size == 0:
+        return np.ones(tq.shape, dtype=bool)
+    if tq.shape == tt.shape and np.array_equal(tq, tt):
+        return f > 0.0
+    ts, fs = prepare_monotonic_series(tt, f)
+    idx = np.clip(np.searchsorted(ts, tq, side="right") - 1, 0, len(ts) - 1)
+    return fs[idx] > 0.0
+
+
+def zero_alpha_when_unpowered(alpha_time, alpha, thrust_time, thrust):
+    """The steering angle with every unpowered sample set to 0.
+
+    With the engine off a point mass has no attitude -- no force depends on
+    alpha -- and what the logged channel holds there is interpolation of the
+    guidance log: the last command held flat after cutoff, or a straight ramp
+    between the commands either side of a coast. Zero is the prograde convention
+    the gravity turn and the pre-ignition coast already follow, so pitch reads as
+    the flight-path angle whenever the vehicle coasts. Presentation only: the
+    steering loss integrates (F/m)(1 - cos alpha), which vanishes wherever F does.
+    """
+    a = np.asarray(alpha, dtype=float).copy()
+    if a.size:
+        a[~powered_mask(alpha_time, thrust_time, thrust)] = 0.0
+    return a
+
+
 def extract_state_channels(data):
     """Extract mandatory and optional state channels safely."""
     data = np.asarray(data)

@@ -2,7 +2,9 @@
 
 from pathlib import Path
 import matplotlib.pyplot as plt
+import numpy as np
 
+from Plots import plot_state_utils as psu
 from Plots.new_metrics.altitude_over_time import plot_altitude_over_time
 from Plots.new_metrics.dynamic_pressure_over_time import plot_dynamic_pressure_over_time
 from Plots.new_metrics.fpa_over_time import plot_fpa_over_time
@@ -76,6 +78,17 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         "pso_obj": _make_path(output_dir, "new_19_pso_best_objective.png"),
         "grid_obj": _make_path(output_dir, "new_19b_direct_grid_landscape.png"),
     }
+
+    # With the engine off there is no attitude to plot: draw those samples
+    # prograde (alpha = 0, so pitch is the flight-path angle) rather than the
+    # interpolated guidance log -- the last command held after cutoff, or a ramp
+    # across a coast. See psu.zero_alpha_when_unpowered.
+    alpha_data = psu.zero_alpha_when_unpowered(alpha_time_data, alpha_data,
+                                               time_thrust, thrust_data)
+    if theta_data is not None and theta_time_data is not None and len(theta_time_data) > 0:
+        t_g, g = psu.prepare_monotonic_series(time, np.asarray(data)[3])
+        coasting = ~psu.powered_mask(theta_time_data, time_thrust, thrust_data)
+        theta_data = np.where(coasting, np.interp(theta_time_data, t_g, g), theta_data)
 
     plot_fpa_over_time(time, data, save_path=files["fpa"], show=show)
     plot_steering_angle_over_time(alpha_data, alpha_time_data, save_path=files["steering"], show=show)
