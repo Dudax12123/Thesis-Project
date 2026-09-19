@@ -75,6 +75,20 @@ def test_coast_condition_is_one_sided_at_the_lower_bound(stationarity):
     assert ips.transversality_residual(_result(H_coast_end=-0.5, **base)) == pytest.approx(0.5)
 
 
+def test_unweighted_residual_survives_a_zero_weight(stationarity, monkeypatch):
+    """The archived diagnostic must not vanish with the penalty it measures."""
+    from Auxiliary import constants as c
+    r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    res = _result(t_f=600.0, state_final=[0.0, r_t, ips.terminal_speed_target(r_t), 0.0, 2e4])
+    nd = ips.transversality_residual_nd(res)
+    assert nd == pytest.approx((0.5 + 6.0) / ips.terminal_speed_target(r_t))
+    monkeypatch.setattr(sim_params, "PENALTY_W_TRANSVERS", 10.0)
+    assert ips._objective_terms(res)['transv'] == pytest.approx(10.0 * nd)
+    monkeypatch.setattr(sim_params, "PENALTY_W_TRANSVERS", 0.0)
+    assert ips._objective_terms(res)['transv'] == 0.0
+    assert ips.transversality_residual_nd(res) == nd
+
+
 def test_unknown_mode_raises(monkeypatch):
     monkeypatch.setattr(sim_params, "INDIRECT_PMP_TRANSVERSALITY", "eq38")
     with pytest.raises(ValueError):

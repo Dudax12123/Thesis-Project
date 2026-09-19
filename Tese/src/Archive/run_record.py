@@ -568,6 +568,17 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
     if terms:
         row.update({'obj_' + k: v for k, v in terms.items()})
 
+    # The PMP's transversality residual, unweighted. obj_transv is this times
+    # PENALTY_W_TRANSVERS, so with the weight at zero it would drop out of the
+    # row -- and it is still the diagnostic of whether the swarm's burn/coast/
+    # burn durations are stationary. For an older archive: obj_transv / weight.
+    if row['architecture'] == "indirect_pmp":
+        try:
+            from Simulation.indirect_pso_solver import transversality_residual_nd
+            row['pmp_transversality_nd'] = float(transversality_residual_nd(result))
+        except Exception:                 # noqa: BLE001 -- optional detail, never fatal
+            pass
+
     return row
 
 

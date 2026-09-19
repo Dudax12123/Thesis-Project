@@ -738,6 +738,15 @@ def transversality_residual(result):
             + max(0.0, result['H_burn_end']))
 
 
+def transversality_residual_nd(result):
+    """``transversality_residual`` in the units J' prices it in: divided by the
+    terminal speed target, since H scales like a velocity. UNWEIGHTED, so it
+    stays a measurement of the duration conditions when PENALTY_W_TRANSVERS is
+    0 and the 'transv' term of ``_objective_terms`` is identically zero."""
+    r_target = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    return transversality_residual(result) / terminal_speed_target(r_target)
+
+
 def _objective_terms(result):
     """Weighted, non-dimensional contributions to J' — single source of truth.
 
@@ -767,7 +776,7 @@ def _objective_terms(result):
     dh_nd = (r_val - r_target) / sim_params.TARGET_ORBITAL_ALTITUDE
     dv_nd = (v_f - v_circular) / v_circular
     dg_nd = g_f / gamma_ref
-    tv_nd  = transversality_residual(result) / v_circular
+    tv_nd  = transversality_residual_nd(result)
 
     return {
         'J'     : sim_params.PENALTY_W_J         * J_nd,
