@@ -126,7 +126,14 @@ _PSO_BUDGET_ATTRS = {
 
 
 def n_evaluations(sim_params):
-    """The swarm budget this architecture was given, as function evaluations."""
+    """The swarm budget this architecture was given, as function evaluations.
+
+    The direct architecture's grid_brent optimiser has no budget to multiply out;
+    it reports the trajectories it actually flew."""
+    if (architecture(sim_params) == 'direct'
+            and getattr(sim_params, 'DIRECT_OPTIMIZER', 'pso') == 'grid_brent'):
+        from Simulation import direct_pso_solver as dps
+        return dps.LAST_DIRECT_N_EVALUATIONS
     attrs = _PSO_BUDGET_ATTRS.get(architecture(sim_params))
     if attrs is None:
         return None

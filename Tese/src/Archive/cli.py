@@ -156,6 +156,15 @@ def cmd_replay(args):
         if "pso_gen" in z.files:
             kwargs["pso_history"] = {'gen': np.asarray(z["pso_gen"]),
                                      'gbest': np.asarray(z["pso_gbest"])}
+        # The direct grid optimiser's landscape (DIRECT_OPTIMIZER = "grid_brent").
+        if "direct_grid_gamma_p" in z.files:
+            grid = {'gamma_p': np.asarray(z["direct_grid_gamma_p"]),
+                    'J': np.asarray(z["direct_grid_J"])}
+            if "direct_grid_t_burn_pct" in z.files:
+                grid['t_burn_pct'] = np.asarray(z["direct_grid_t_burn_pct"])
+            if "decision_vector" in z.files:
+                grid['gamma_best'] = float(np.asarray(z["decision_vector"])[0])
+            kwargs["direct_grid"] = grid
         # The four positional channels. Fall back to the state-grid copies for
         # an archive written before the native-cadence set existed.
         thrust_data = kwargs.pop("thrust_data", np.asarray(z["thrust"]))

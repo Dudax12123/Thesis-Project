@@ -715,6 +715,41 @@ PSO_DIRECT_W_VELOCITY    = 100.0   # relative velocity error  (1% error -> 1.0)
 PSO_DIRECT_W_FPA         = 3.0     # FPA error in deg         (1 deg  ->  3.0)
 PSO_DIRECT_GAMMA_REF_DEG = 1.0     # FPA non-dimensionalisation reference [deg]
 
+# -------------- Direct optimiser and burn cutoff (2026-09-19) --------------
+# Both default to the behaviour every archived direct row was flown with.
+#
+# DIRECT_OPTIMIZER -- what searches the (same) objective above:
+#   "pso"        : the swarm of this section.
+#   "grid_brent" : exhaustive grid over gamma_p, then Brent's bounded minimisation
+#                  (scipy minimize_scalar) on the bracket around the best grid point
+#                  (brent1973algorithms). Where the burn time is still a decision
+#                  variable it is found per gamma_p by the same grid + Brent, nested,
+#                  so the method is one-dimensional throughout. Deterministic: no seed.
+#                  Its bounds and resolution are the DIRECT_GRID_* below, not
+#                  PSO_DIRECT_LB/UB, so the swarm's box stays as flown.
+DIRECT_OPTIMIZER = "pso"
+# DIRECT_LAW_TERMINATED_CUTOFF -- who ends the single burn:
+#   False : the optimiser's t_burn_pct, for every law.
+#   True  : under GUIDANCE_MODE = "peg_new", peg_new itself, at its own t_go; t_burn_pct
+#           leaves the decision vector (x = [gamma_p]). The solver runs the major loop at
+#           guidance-cycle boundaries (PEG_MAJOR_LOOP_RATE) on accepted states -- never
+#           inside the ODE right-hand side -- and flies the last cycle, once t_go <=
+#           max(APOLLO_FREEZE_THRESHOLD, PEG_MAJOR_LOOP_RATE), to exactly t_go with the
+#           coefficients frozen. Propellant exhaustion still ends the burn.
+#           INERT for every other law (no cutoff of their own), and direct only: the
+#           pso_coast arcs still end on the swarm's times.
+DIRECT_LAW_TERMINATED_CUTOFF = False
+DIRECT_GRID_GAMMA_P_BOUNDS    = (1.50, 1.57)    # rad, = PSO_DIRECT_LB/UB[0]
+DIRECT_GRID_GAMMA_P_POINTS    = 500
+DIRECT_GRID_T_BURN_PCT_BOUNDS = (50.0, 100.0)   # % of T_MAX_2, = PSO_DIRECT_LB/UB[1]
+# 21, not fewer: at fixed gamma_p the gravity turn's J(t_burn) has two branches
+# (the 190 km and 502 km misses of the W_FPA note above), so the inner search needs
+# a grid to pick the branch before Brent refines it.
+DIRECT_GRID_T_BURN_PCT_POINTS = 21
+DIRECT_BRENT_XATOL_GAMMA_P    = 1e-7            # rad
+DIRECT_BRENT_XATOL_T_BURN_PCT = 1e-7            # % of T_MAX_2 (~3e-7 s); the gravity
+                                                # turn's J moves ~3.7 per % here
+
 
 # -------------------------------------------------------------------
 # 11d. Multi-guidance (segmented) PSO   (only when MULTI_GUIDANCE_ENABLED)

@@ -471,13 +471,17 @@ def _dispatch(sim_params):
                 {'decision_vector': [float(v) for v in params]})
 
     if arch == "direct":
-        from Simulation.direct_pso_solver import (run_pso_direct_optimization,
+        from Simulation.direct_pso_solver import (run_direct_optimization,
                                                   run_pso_direct_full)
         import Simulation.direct_pso_solver as dps
-        params, J = run_pso_direct_optimization(verbose=True)
+        params, J = run_direct_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result, _, _ = run_pso_direct_full(params, verbose=True)
-        return (time_a, data, thrust, alpha, result, J, dps.LAST_PSO_DIRECT_HISTORY,
-                {'decision_vector': [float(v) for v in params]})
+        extra = {'decision_vector': [float(v) for v in params]}
+        # grid_brent: the whole landscape it searched, which no re-run can recover
+        # without paying for it again.
+        for k, v in (dps.LAST_DIRECT_GRID or {}).items():
+            extra['direct_grid_' + k] = v
+        return (time_a, data, thrust, alpha, result, J, dps.LAST_PSO_DIRECT_HISTORY, extra)
 
     if arch == "apogee_check":
         from Simulation import solver

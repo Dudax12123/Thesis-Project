@@ -23,6 +23,7 @@ from Plots.new_metrics.pitch_angle_over_time import plot_pitch_angle_over_time
 from Plots.new_metrics.cross_heading_counter_force_over_time import plot_cross_heading_counter_force_over_time
 from Plots.new_metrics.cross_heading_accel_over_time import plot_cross_heading_accel_over_time
 from Plots.new_metrics.pso_convergence import plot_best_objective_over_generations
+from Plots.new_metrics.direct_grid_landscape import plot_direct_grid_landscape
 
 
 def _make_path(output_dir, filename):
@@ -40,14 +41,18 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
                        theta_data=None, theta_time_data=None,
                        cross_heading_counter_force_data=None,
                        cross_heading_accel_data=None,
-                       pso_history=None, pseudo_forces_note=None):
+                       pso_history=None, pseudo_forces_note=None, direct_grid=None):
     """Generate all new metric plots for a run.
 
     ``pseudo_forces_note``, when given, is printed under the title of the three
     pseudo-force plots (Coriolis/centrifugal, cross-heading force and
     acceleration). indirect_pmp uses it to say that the channels are evaluated
     along the trajectory rather than applied in Stage 2, which it propagates in
-    the inertial frame."""
+    the inertial frame.
+
+    ``direct_grid`` -- the direct grid optimiser's landscape, {'gamma_p', 'J',
+    optionally 't_burn_pct' and 'gamma_best'} -- adds plot 19b, the grid-search
+    counterpart of the PSO convergence plot."""
     files = {
         "fpa": _make_path(output_dir, "new_01_fpa_over_time.png"),
         "steering": _make_path(output_dir, "new_02_steering_angle_over_time.png"),
@@ -69,6 +74,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         "cross_heading_force": _make_path(output_dir, "new_17_cross_heading_counter_force_over_time.png"),
         "cross_heading_accel": _make_path(output_dir, "new_18_cross_heading_accel_over_time.png"),
         "pso_obj": _make_path(output_dir, "new_19_pso_best_objective.png"),
+        "grid_obj": _make_path(output_dir, "new_19b_direct_grid_landscape.png"),
     }
 
     plot_fpa_over_time(time, data, save_path=files["fpa"], show=show)
@@ -125,6 +131,14 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
         plot_best_objective_over_generations(
             pso_history['gen'], pso_history['gbest'],
             save_path=files["pso_obj"], show=show,
+        )
+
+    if direct_grid is not None and len(direct_grid.get('gamma_p', [])) > 0:
+        plot_direct_grid_landscape(
+            direct_grid['gamma_p'], direct_grid['J'],
+            t_burn_pct=direct_grid.get('t_burn_pct'),
+            gamma_best=direct_grid.get('gamma_best'),
+            save_path=files["grid_obj"], show=show,
         )
 
     if close_after:

@@ -1081,18 +1081,19 @@ def execute():
         elif _coast_method == 'direct':
 
             from Simulation.direct_pso_solver import (
-                run_pso_direct_optimization,
+                run_direct_optimization,
                 run_pso_direct_full,
                 breakdown_direct_objective,
             )
             import Simulation.direct_pso_solver as dps
 
             print("\n" + "="*60)
-            print("PSO DIRECT-INSERTION — TRAJECTORY OPTIMISATION")
+            print("DIRECT-INSERTION — TRAJECTORY OPTIMISATION")
             print("="*60)
             print(f"  Guidance mode: {sim_params.GUIDANCE_MODE}")
-            print("  Optimising 2 variables: gamma_p, t_burn%")
-            print("  (kick-angle sweep is replaced by gamma_p + burn-duration PSO)")
+            print(f"  Optimiser:     {sim_params.DIRECT_OPTIMIZER}")
+            print("  Optimising 1 variable: gamma_p (peg_new ends the burn)" if dps.law_terminated()
+                  else "  Optimising 2 variables: gamma_p, t_burn%")
             print("="*60)
 
             # Suppress noisy event/interrupt prints during the PSO swarm evaluation
@@ -1101,7 +1102,7 @@ def execute():
             sim_params.EVENTS_PRINT     = False
             sim_params.INTERRUPTS_PRINT = False
 
-            optimal_params, J_optimal = run_pso_direct_optimization(verbose=True)
+            optimal_params, J_optimal = run_direct_optimization(verbose=True)
             pso_history = dps.LAST_PSO_DIRECT_HISTORY
 
             sim_params.EVENTS_PRINT     = _events_print_saved
@@ -1119,7 +1120,9 @@ def execute():
                 optimal_params, verbose=True)
 
             # Unpack for the shared display / plotting block below
-            gamma_p_opt, t_burn_pct_opt = optimal_params
+            gamma_p_opt = optimal_params[0]
+            # Under a law-terminated burn the burn time is an output, not a variable.
+            t_burn_pct_opt = 100.0 * result_opt['t_burn'] / dps._T_MAX_2
             kick_angle_optimal    = gamma_p_opt - np.pi / 2.0
             best_azimuth_override = None
             delta_v               = 0.0   # direct insertion, no circularisation burn

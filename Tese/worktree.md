@@ -415,7 +415,20 @@ atmospheric arc.
 
 ### 2.10 Optimizer — `direct` PSO (only when `COAST_METHOD="direct"`)
 
-> Requires PyGMO — `direct_pso_solver.py:295` raises `ImportError` if absent.
+> Requires PyGMO — `direct_pso_solver.py:295` raises `ImportError` if absent — **unless
+> `DIRECT_OPTIMIZER="grid_brent"`**, which needs SciPy alone.
+
+**Optimiser and burn cutoff (2026-09-19).** Both default to the behaviour every archived direct row
+was flown with; `tests/test_direct_grid.py` re-flies the two results-matrix champions on the default
+path and reproduces their archived J to the last digit.
+
+| Variable | Values | Default | Notes |
+|---|---|---|---|
+| `DIRECT_OPTIMIZER` | `"pso"`, `"grid_brent"` | `"pso"` | What searches the (unchanged) objective below. `"grid_brent"`: an exhaustive grid over γ_p, then Brent's bounded minimisation (`scipy.optimize.minimize_scalar`, `brent1973algorithms`) on the bracket around the best grid point. Where the burn time is still a variable it is found **per γ_p** by the same grid + Brent (nested, cached), so the method is 1-D throughout — Chapter 3's "grid where the design space is one-dimensional". Deterministic: `PSO_DIRECT_SEED` and the swarm budget are **inert**. The row's `n_evaluations` is the number of trajectories actually flown, and the `.npz` carries the searched landscape (`direct_grid_gamma_p`, `direct_grid_J`, for the nested search `direct_grid_t_burn_pct`, and `direct_grid_*_on_bound`). **Raises** on any other value. |
+| `DIRECT_LAW_TERMINATED_CUTOFF` | bool | `False` | `True` + `GUIDANCE_MODE="peg_new"`: **peg_new ends the burn at its own t_go** and `t_burn_pct` leaves the decision vector (`x = [γ_p]`, under either optimiser). The solver runs the major loop at guidance-cycle boundaries (`PEG_MAJOR_LOOP_RATE`) on accepted states — `GuidanceState.peg_new_external` stops the ODE right-hand side from updating it — and flies the last cycle, once t_go ≤ max(`APOLLO_FREEZE_THRESHOLD`, cycle), to exactly t_go with the coefficients frozen; propellant exhaustion still ends the burn. Why: under the default the optimiser and the law both own the cutoff; the swarm learned peg_new's to within 0.2 s, but J is a knife-edge in `t_burn` (×4 at ±5 s). Side effect: 2.4× cheaper per trajectory (0.097 s vs 0.236 s), because the major loop no longer runs at every RHS call. **Inert** for every other law (no cutoff of their own) and **direct only** — the `pso_coast` arcs still end on the swarm's times. |
+| `DIRECT_GRID_GAMMA_P_BOUNDS` / `_POINTS` | tuple rad / int | `(1.50, 1.57)` / `500` | The grid optimiser's own γ_p box, so the swarm's `PSO_DIRECT_LB/UB` stay as flown. An optimum on the box edge is printed as a warning and archived as `direct_grid_gamma_p_on_bound`. |
+| `DIRECT_GRID_T_BURN_PCT_BOUNDS` / `_POINTS` | tuple % / int | `(50.0, 100.0)` / `21` | Inner search, when the burn time is a variable. 21 rather than fewer because the gravity turn's J(t_burn) has two branches at fixed γ_p (the 190 km / 502 km misses below). |
+| `DIRECT_BRENT_XATOL_GAMMA_P` / `_T_BURN_PCT` | float | `1e-7` / `1e-7` | Brent tolerances (rad / % of `T_MAX_2`). |
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -566,7 +579,7 @@ copied from it missed the insertion by 107 m / 0.14 m/s). Layout:
 |---|---|
 | `indirect_pmp` | `[λ0_r, λ0_v, λ0_γ, Δt_c [s], Δt_r [% of T_MAX_2], coast start [% of burn], γ_p [rad]]`, costates raw (the solver normalises them) |
 | `pso_coast` | `[Δt_c, Δt_r %, coast start %, γ_p]`, then `θ̇` for `cpr`, `a, b` for `exp_shooting`, `θ0, θf` for the tangent laws and `μ` for `bilinear_tangent` (`pso_coast_solver._unpack_coast_x`) |
-| `direct` | `[γ_p [rad], t_burn [% of T_MAX_2]]` |
+| `direct` | `[γ_p [rad], t_burn [% of T_MAX_2]]`; `[γ_p]` alone when `DIRECT_LAW_TERMINATED_CUTOFF` hands the cutoff to `peg_new` (the burn time is then an output, in the row) |
 | segmented | the 4 coast variables, then the `n−1` activation-altitude fractions when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` |
 | `apogee_check` | `[kick angle [rad]]`, the brute grid's winner |
 

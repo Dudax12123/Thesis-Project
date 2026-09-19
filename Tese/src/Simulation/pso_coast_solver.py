@@ -155,6 +155,11 @@ class GuidanceState:
     peg_new_lambda_r: float = 0.0
     peg_new_t_epoch: Optional[float] = None
     peg_new_frozen: bool = False
+    # True: the CALLER runs peg_new's major loop at guidance-cycle boundaries on
+    # accepted states and sets the coefficients above; _compute_alpha_stage2 only
+    # reads them. Set by direct_pso_solver under DIRECT_LAW_TERMINATED_CUTOFF so the
+    # law, not the optimiser, ends the burn. False everywhere else (unchanged).
+    peg_new_external: bool = False
 
     # exp_shooting
     exp_shoot_a: Optional[float] = None
@@ -467,7 +472,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.peg_t_epoch = t
             gs.peg_frozen  = False
 
-        elif mode == "peg_new":
+        elif mode == "peg_new" and not gs.peg_new_external:
             (gs.peg_new_vgo_r, gs.peg_new_vgo_theta,
              gs.peg_new_L0,    gs.peg_new_tgo,
              gs.peg_new_t_lambda, gs.peg_new_lambda_r) = peg_new_mod.peg_new_major_loop(
@@ -601,7 +606,7 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
                 peg_guidance_mod.compute_gravity_term(state[:5], F_T, c.MU_EARTH))
 
         elif mode == "peg_new":
-            if (not gs.peg_new_frozen
+            if (not gs.peg_new_frozen and not gs.peg_new_external
                     and (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
                 if (gs.peg_new_tgo is not None
                         and gs.peg_new_tgo < freeze_thr):
