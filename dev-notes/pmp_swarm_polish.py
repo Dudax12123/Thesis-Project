@@ -293,10 +293,10 @@ def _coast_condition_ok(u, res, coast_free):
     return res["H_coast_end"] <= 0.0 if u[3] >= DC_UB else res["H_coast_end"] >= 0.0
 
 
-def polish(label, u0, gp0, span, step):
+def polish(label, u0, gp0, span, step, max_nfev=400, max_nfev_cont=200):
     t0 = time.time()
     print(f"\n=== Polish from {label}")
-    u, r, res, it, ok, cf = newton(u0, gp0)
+    u, r, res, it, ok, cf = newton(u0, gp0, max_nfev=max_nfev)
     fixed = report(f"{label}: extremal at fixed gamma_p", u, gp0, res,
                    f"(Newton {'converged' if ok else 'NOT converged'} in {it} it, coast "
                    f"{'free' if cf else 'pinned at a bound'})")
@@ -328,7 +328,7 @@ def polish(label, u0, gp0, span, step):
             if not (GP_LB <= gp <= GP_UB):
                 stopped_by[direction] = "gamma_p bound"
                 break
-            un, rn, resn, nf, okn, cfn = newton(uu, gp, max_nfev=200)
+            un, rn, resn, nf, okn, cfn = newton(uu, gp, max_nfev=max_nfev_cont)
             okn = okn and _coast_condition_ok(un, resn, cfn)
             trials.append((float(gp), bool(okn), prop_left(un), bool(cfn)))
             print(f"    gamma_p {gp:.7f} ({np.rad2deg(gp):.3f} deg): {'ok' if okn else 'FAILED'} "
@@ -429,6 +429,12 @@ def main():
     ap.add_argument("--span", type=float, default=0.02,
                     help="how far the gamma_p continuation may go each way [rad]")
     ap.add_argument("--step", type=float, default=0.0005, help="gamma_p continuation step [rad]")
+    ap.add_argument("--max-nfev", type=int, default=400,
+                    help="LM evaluation cap for the fixed-gamma_p solve. Every solve of the "
+                         "2026-09-20 750x1500 batch stopped exactly at the default, so a start "
+                         "that lands just outside TOL_PHYS is budget-limited, not divergent")
+    ap.add_argument("--max-nfev-cont", type=int, default=200,
+                    help="LM evaluation cap per continuation step (warm-started; ~35 suffice)")
     ap.add_argument("--no-swarm", dest="swarm", action="store_false",
                     help="skip the swarm; polish only the --start points")
     ap.add_argument("--frame", choices=["rotating_pseudo_forces", "inertial", "rotating"],
@@ -479,12 +485,14 @@ def main():
                                                 fly(u_st, gp_st, strict=False))}
     if args.polish:
         if args.swarm:
-            results["polish_swarm"] = polish("swarm best", u_s, gp_s, args.span, args.step)
+            results["polish_swarm"] = polish("swarm best", u_s, gp_s, args.span, args.step,
+                                             args.max_nfev, args.max_nfev_cont)
             starts.append(("swarm", u_s, gp_s, sp.PSO_SEED, "swarm run in this process"))
         for key, u_st, gp_st, seed_st, desc in starts:
             if key == "swarm":
                 continue
-            results["polish_" + key] = polish(desc, u_st, gp_st, args.span, args.step)
+            results["polish_" + key] = polish(desc, u_st, gp_st, args.span, args.step,
+                                              args.max_nfev, args.max_nfev_cont)
         if args.old_refine_starts:
             refine = json.loads(REFINE_JSON.read_text(encoding="utf-8"))["variants"]
             for key, name in (("B", "direct refinement B (gamma_p of the old swarm)"),
@@ -492,7 +500,8 @@ def main():
                 cu = refine[key]["u"]
                 T = cu[3] / 100.0 * T_MAX
                 u_c = np.array([cu[0], cu[1], cu[4] / 100.0 * T, cu[2], T - cu[4] / 100.0 * T])
-                results["polish_refine" + key] = polish(name, u_c, cu[5], args.span, args.step)
+                results["polish_refine" + key] = polish(name, u_c, cu[5], args.span, args.step,
+                                                        args.max_nfev, args.max_nfev_cont)
         stamp = time.strftime("%Y%m%d_%H%M%S")
         for key, _u, _gp, seed_st, desc in starts:
             p = results.get("polish_" + key)
