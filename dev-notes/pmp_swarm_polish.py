@@ -330,10 +330,14 @@ def polish(label, u0, gp0, span, step, max_nfev=400, max_nfev_cont=200):
                 break
             un, rn, resn, nf, okn, cfn = newton(uu, gp, max_nfev=max_nfev_cont)
             okn = okn and _coast_condition_ok(un, resn, cfn)
-            trials.append((float(gp), bool(okn), prop_left(un), bool(cfn)))
+            # D3 and max|r| tell the two readings of a stall apart: D3 -> 0 (the last burn
+            # vanishes) versus a fold (the coast runs away while D3 stays finite).
+            rmax = float(np.max(np.abs(rn)))
+            trials.append((float(gp), bool(okn), prop_left(un), bool(cfn),
+                           float(un[3]), float(un[4]), rmax))
             print(f"    gamma_p {gp:.7f} ({np.rad2deg(gp):.3f} deg): {'ok' if okn else 'FAILED'} "
-                  f"({nf} evals) | prop left {prop_left(un):.1f} kg | coast {un[3]:.1f} s "
-                  f"({'free' if cfn else 'pinned'})"
+                  f"({nf} evals, max|r| {rmax:.3g}) | prop left {prop_left(un):.1f} kg | "
+                  f"coast {un[3]:.1f} s | D3 {un[4]:.3f} s ({'free' if cfn else 'pinned'})"
                   + (f" | H_coast_end {resn['H_coast_end']:+.4f}" if resn is not None and not cfn else ""),
                   flush=True)
             if not okn:
