@@ -89,7 +89,8 @@ Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
 `Tese/src/guidance_comparison/compare_guidance_methods.py`.
 
-The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 20 cases, one frozen
+The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 19 cases (classical
+`peg`'s `show_peg` was dropped 2026-09-22, so Chapter 6 flies eight of the nine laws), one frozen
 baseline with one factor changed at a time, each case in its **own subprocess** so no module
 global can leak between them, and each writing its archive into its **own folder**
 (`Output/results_matrix/<case>/<case>.npz` + `.json` + `.manifest.json`), with one

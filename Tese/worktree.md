@@ -594,7 +594,7 @@ An archive without a `.manifest.json` — anything written before this existed �
 `Case.manifest == {}`.
 
 **Two directory layouts, one resolver.** The matrix gives each case its own folder
-(`results_matrix/gt_baseline/gt_baseline.npz`), because twenty cases as sixty-one files in one
+(`results_matrix/gt_baseline/gt_baseline.npz`), because nineteen cases as fifty-eight files in one
 directory is unreadable and a folder can be copied or discarded on its own. Interactive archives
 stay **flat** in `runs/`, since a timestamped id is already unique and a folder per run would only
 add a level. `Archive.store.case_dir()` decides which, and every reader — the figures, the CLI,

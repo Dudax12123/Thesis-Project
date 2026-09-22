@@ -8,8 +8,9 @@ off twenty plots.
 The design is one frozen baseline with **one factor changed at a time**, and
 the factors are varied *within* a guidance law rather than across all nine. Two
 laws are analysed in depth -- the gravity turn as a passive floor and peg_new as
-the closed-loop ceiling -- against indirect_pmp as the optimal reference; the
-remaining six are flown once each for breadth. Everything else in
+the closed-loop ceiling -- against indirect_pmp as the optimal reference; five
+of the remaining six are flown once each for breadth (classical peg is not
+flown, see SHOWCASE_LAWS). Everything else in
 simulation_parameters.py is a fixed condition of the experiment and is recorded
 once, in the manifest, rather than swept. See Chapter 6 §6.1.
 
@@ -115,15 +116,20 @@ def _set_output_dir(path):
 DEPTH_LAWS = ["gravity_turn", "peg_new"]
 
 # Flown once each at the baseline for the capability section, reported as a
-# single summary table with no per-law prose. The thesis claims nine guidance
-# laws; this is what keeps that claim honest without giving six laws sections
-# they do not earn.
+# single summary table with no per-law prose, so the laws the thesis describes
+# are flown without giving each a section it does not earn.
+#
+# Classical peg was dropped from the matrix on 2026-09-22 (user decision), so
+# Chapter 6 flies eight of the nine laws Chapter 4 describes and has to say so.
+# The law stays in the code and still flies interactively. The arc-1 waypoint
+# targeting planned for pso_coast covers apollo and peg_new only; classical peg
+# could not take it anyway, since both converge_peg call sites in
+# pso_coast_solver hardcode circular speed and ignore a target's.
 SHOWCASE_LAWS = [
     "cpr",
     "linear_tangent",
     "bilinear_tangent",
     "apollo",
-    "peg",
     "exp_shooting",
 ]
 
@@ -271,7 +277,7 @@ def _parse_budget(text):
 
 
 def build_matrix():
-    """The 20 production cases, in chapter order.
+    """The 19 production cases, in chapter order.
 
     The design is one frozen baseline with **one factor changed at a time**, but
     the factors are varied *within* each guidance law rather than across all
@@ -582,7 +588,7 @@ def run_case(name, smoke=False, budget=None, sets=None):
     # the experiment, and a timestamped id per attempt would leave make_all.py
     # unable to find "gt_baseline". An interactive run gets the timestamped id
     # instead and never overwrites anything.
-    # Each case gets its own folder. Twenty cases as sixty-one files in one
+    # Each case gets its own folder. Nineteen cases as fifty-eight files in one
     # directory is unreadable, and a folder per case also means a single case
     # can be copied, compared or thrown away on its own.
     saved = store.save_run(

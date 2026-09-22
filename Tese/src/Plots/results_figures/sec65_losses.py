@@ -32,7 +32,7 @@ BUDGET_CASES = [
 # Every law flown at the baseline architecture, for the ranking.
 RANKING_CASES = [
     "gt_baseline", "peg_baseline", "show_cpr", "show_linear_tangent",
-    "show_bilinear_tangent", "show_apollo", "show_peg", "show_exp_shooting",
+    "show_bilinear_tangent", "show_apollo", "show_exp_shooting",
 ]
 
 

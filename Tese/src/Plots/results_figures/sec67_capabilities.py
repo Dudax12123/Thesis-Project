@@ -14,7 +14,7 @@ from . import _data
 from . import _style as st
 
 SHOWCASE = ["show_cpr", "show_linear_tangent", "show_bilinear_tangent",
-            "show_apollo", "show_peg", "show_exp_shooting"]
+            "show_apollo", "show_exp_shooting"]
 
 # One representative case per architecture for the convergence panel. The
 # apogee_check case is deliberately absent: it runs no swarm and has no
@@ -28,10 +28,10 @@ def _skip(name, missing):
 
 
 def showcase_laws(cases):
-    """F6.14 -- the six remaining laws, at the baseline, in one figure.
+    """F6.14 -- the five showcase laws, at the baseline, in one figure.
 
     Panel (b) is small multiples rather than an overlay because alpha is what
-    distinguishes these laws from one another, and six alpha traces on shared
+    distinguishes these laws from one another, and five alpha traces on shared
     axes would be a solid block. Each panel keeps the same axis limits so the
     shapes remain comparable.
     """
@@ -68,15 +68,15 @@ def showcase_laws(cases):
     ax_traj.set_ylabel("Altitude [km]")
     st.panel_tag(ax_traj, "a")
     st.tidy(ax_traj, legend=False)
-    # Outside the axes: eight entries over a trajectory panel cover the curves
+    # Outside the axes: seven entries over a trajectory panel cover the curves
     # they are labelling whichever corner they are put in.
     ax_traj.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=1,
                    fontsize=6.8)
 
-    # Shared limits, so the six small panels compare rather than merely coexist.
+    # Shared limits, so the five small panels compare rather than merely coexist.
     # Taken from a percentile rather than the extremes: one law transients to
     # about -140 deg for a few seconds, and letting that set the range flattens
-    # the other five into a band a few pixels high. The clip is drawn as a
+    # the others into a band a few pixels high. The clip is drawn as a
     # marker on the panels it affects rather than hidden.
     stacked = np.concatenate([np.asarray(cases[n].alpha_deg) for n in present])
     alpha_lo = float(np.nanpercentile(stacked, 0.5))
@@ -114,7 +114,10 @@ def showcase_laws(cases):
         ax.tick_params(labelsize=6.5)
         if i % 3 == 0:
             ax.set_ylabel(r"$\alpha$ [deg]", fontsize=7.5)
-        if i // 3 == 1:
+        # Label time on every panel with nothing beneath it: with five laws in
+        # a 2 x 3 grid the last slot is empty, so the top-right panel is a
+        # column's bottom panel too.
+        if i + 3 >= len(SHOWCASE):
             ax.set_xlabel("Time [s]", fontsize=7.5)
         st.tidy(ax, legend=False)
 

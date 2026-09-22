@@ -48,7 +48,7 @@ ALL_CASES = [
     "peg_baseline", "peg_direct", "peg_vacuum", "peg_vacuum_norot",
     "pmp_baseline", "pmp_vacuum",
     "show_cpr", "show_linear_tangent", "show_bilinear_tangent", "show_apollo",
-    "show_peg", "show_exp_shooting",
+    "show_exp_shooting",
     "show_seg_fixed_alt", "show_seg_opt_alt",
 ]
 
