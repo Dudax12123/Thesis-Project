@@ -1,19 +1,19 @@
 """
 Reference-Track Solver -- COAST_METHOD = "reference_track"
 
-peg_new flies the indirect-PMP reference's plan. There is no optimiser: the
-reference (Simulation/segment_reference.py, the tracked pmp_reference.npz)
-supplies three things and nothing else,
+peg_new or apollo flies the indirect-PMP reference's plan. There is no
+optimiser: the reference (Simulation/segment_reference.py, the tracked
+pmp_reference.npz) supplies three things and nothing else,
 
     gamma_p        the kick, so Stage 1 is the reference's own
     arc-1 target   the reference's state where its first Stage-2 burn ends
                    (h, v, gamma -- a SegmentTarget, as the segmented mode uses)
     coast length   the reference's delta_tc, coasted from wherever arc 1 ended
 
-and everything else is an output: both burn durations, SECO, the mass delivered.
+and everything else is an output: the burn durations, SECO, the mass delivered.
 Arc 3 aims at the objective orbit exactly as a single-law run does.
 
-Both Stage-2 burns end where peg_new's OWN time-to-go says. Its major loop runs
+peg_new. Both Stage-2 burns end where peg_new's OWN time-to-go says. Its major loop runs
 outside the ODE right-hand side, on accepted states, every PEG_MAJOR_LOOP_RATE;
 once t_go <= max(freeze threshold, cycle) the coefficients freeze and the last
 cycle is flown to exactly t_go. That is direct_pso_solver's
@@ -23,21 +23,37 @@ told to reach the waypoint AND to stop at the reference's instant is
 over-determined, which is what sank the swarm-timed arc-1 waypoint of
 2026-09-22.
 
+apollo. A fixed-time law: it cannot find the instant at which a waypoint is
+reached, so arc 1 is handed the reference's own arc-1 cutoff instant and ends
+there -- time-terminated, on the reference's clock, where peg_new's arc 1 is
+law-terminated. Arc 3 ends when apollo's own t_go to the orbit
+(_compute_tgo_stage2: the rocket equation, or TGO_ESTIMATOR) expires, the same
+rule as peg_new's. The coefficients are refreshed OUTSIDE the ODE on accepted
+states every GUIDANCE_UPDATE_RATE (GuidanceState.apollo_external): the
+pso_coast in-RHS refresh fires on solve_ivp's speculative trial points and
+dates the coefficients from a time the integrator then steps back from, and on
+this flight that ended arc 1 966 m/s short (measured 2026-09-23). Apollo steers
+altitude and vertical speed first and gives the horizontal channel what thrust
+is left (Luminary P12), so its arc-1 speed miss (-3.7 m/s) is larger than
+peg_new's while its altitude miss is not.
+
 What it measures is the tracking loss of a closed-loop law handed the optimum's
-plan -- compare against pmp_baseline, not against peg_baseline, since against
-the latter the arc-1 target, the kick, the coast and the cutoff rule all change
-at once.
+plan -- compare against pmp_baseline, not against peg_baseline / show_apollo,
+since against those the arc-1 target, the kick, the coast and the cutoff rule
+all change at once.
 
-Only peg_new. It is the one law here that takes a full (r, v_theta, v_r)
-target and derives its own t_go; apollo would need a prescribed t_go, and the
-open-loop and passive laws have nothing to aim.
+Only peg_new and apollo: they are the two laws that take a full terminal state
+(altitude, speed, flight-path angle). Classical peg's call sites hardcode
+circular speed, and the open-loop and passive laws have nothing to aim.
 
-Freeze. Both burns freeze at APOLLO_FREEZE_THRESHOLD (10 s), the value every
-peg_new final burn uses. Below ~10 s the realigned law's endgame does not
-terminate -- lambda'_r grows like r_go / t_go^3 -- and at 2 s arc 1 was
-measured burning to propellant exhaustion (2026-09-23).
+Freeze. Both laws freeze at APOLLO_FREEZE_THRESHOLD (10 s), the value every
+peg_new and apollo final burn uses. Below ~10 s the realigned peg_new's endgame
+does not terminate -- lambda'_r grows like r_go / t_go^3 -- and at 2 s arc 1 was
+measured burning to propellant exhaustion (2026-09-23). Apollo's t_go is
+prescribed in arc 1, so it has no such limit there.
 
-Written 2026-09-23 from dev-notes/arc1_reference_track.py, which now imports it.
+Written 2026-09-23 from dev-notes/arc1_reference_track.py, which now imports it;
+apollo added the same day.
 """
 
 import sys
@@ -55,6 +71,9 @@ from Input_File import simulation_parameters as sim_params
 import Simulation.rocket_ascent as ra
 import Simulation.pso_coast_solver as pcs
 import Guidance.peg_guidance_new as peg_new_mod
+import Guidance.apollo_guidance as apollo_mod
+
+LAWS = ("peg_new", "apollo")
 
 DT = 0.5   # output step [s], as run_pso_coast_full
 
@@ -193,6 +212,56 @@ def fly_law_terminated_arc(t0, y0, gs, target):
     return sols, t, y, False
 
 
+def fly_apollo_arc(t0, y0, gs, target, deadline=None):
+    """One apollo burn with the coefficients refreshed outside the ODE.
+
+    ``deadline`` given: t_go = deadline - t and the burn ends at the deadline (the
+    arc-1 rule, apollo being a fixed-time law). ``deadline=None``: t_go is apollo's
+    own estimate to the objective orbit (_compute_tgo_stage2) and the burn ends
+    when it expires, frozen for the last cycle exactly as fly_law_terminated_arc
+    does for peg_new. ``target`` as there. Returns ``(sols, t_end, y_end, crashed)``.
+    """
+    gs.apollo_external = True
+    gs.guidance_phase_active = True
+    gs.target = target
+    if target is not None:
+        alt = target.alt
+        kw = dict(terminal_velocity=target.v, terminal_gamma=target.gamma,
+                  terminal_altitude=target.alt)
+        freeze = (target.freeze_threshold if target.freeze_threshold is not None
+                  else sim_params.APOLLO_FREEZE_THRESHOLD)
+    else:
+        alt, kw = sim_params.TARGET_ORBITAL_ALTITUDE, {}
+        freeze = sim_params.APOLLO_FREEZE_THRESHOLD
+    cycle = float(sim_params.GUIDANCE_UPDATE_RATE)
+    last = max(float(freeze), cycle)
+    t, y = float(t0), np.asarray(y0[:5], dtype=float).copy()
+    t_exhaust = t + max(y[4] - pcs._DRY_MASS_2, 0.0) / pcs._MDOT_2
+    sols = []
+    while t < t_exhaust:
+        tgo = (deadline - t if deadline is not None
+               else pcs._compute_tgo_stage2(y, r.F_THRUST_2, r.ISP_2))
+        gs.tgo_time_log.append(t)
+        gs.tgo_log.append(tgo)
+        if not np.isfinite(tgo) or tgo <= 1e-9:
+            break
+        gs.guidance_coefficients = apollo_mod.compute_apollo_coefficients(
+            pcs._state_with_lat(y), alt, tgo, use_downrange_constraint=False, **kw)
+        gs.apollo_freeze_time = t
+        final = tgo <= last
+        gs.apollo_coefficients_frozen = final
+        t_next = min(t + (tgo if final else cycle), t_exhaust)
+        grid = _teval(t, t_next)
+        sol = _ivp(t, t_next, y, r.F_THRUST_2, gs, grid if not sols else grid[1:])
+        sols.append(sol)
+        if len(sol.t_events[0]) > 0:
+            return sols, float(sol.t_events[0][0]), sol.y_events[0][0][:5].copy(), True
+        t, y = t_next, sol.y[:5, -1].copy()
+        if final:
+            break
+    return sols, t, y, False
+
+
 def fly_stage1(gamma_p):
     """Stage 1 and the pre-ignition coast, exactly as run_pso_coast_full flies them.
 
@@ -309,12 +378,14 @@ def _assemble(t_st1, y_st1, segments, gs, y_insertion, t_insertion, t_coast_star
 
 def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None,
                         coast_mode="duration", check_stage1_state=True):
-    """Fly the reference's plan with peg_new ending both burns.
+    """Fly the reference's plan with peg_new or apollo (GUIDANCE_MODE).
 
     ``plan``         from plan_from_reference / load_plan; None loads the cache in force.
     ``waypoint``     False aims arc 1 at the final orbit instead (a control: it
                      isolates the waypoint, all else equal).
     ``arc1_freeze``  arc-1 freeze threshold [s]; None = APOLLO_FREEZE_THRESHOLD.
+                     peg_new's arc 1 ends on its own t_go, apollo's at the
+                     reference's arc-1 cutoff instant (see the module docstring).
     ``coast_mode``   "duration": coast the reference's delta_tc from wherever arc 1
                      ends (the ballistic arc the reference traced); "seco": coast
                      until the reference's own arc-3 ignition instant.
@@ -325,11 +396,12 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
     LAST_REFERENCE_TRACK.
     """
     global LAST_REFERENCE_TRACK
-    if sim_params.GUIDANCE_MODE != "peg_new":
+    law = sim_params.GUIDANCE_MODE
+    if law not in LAWS:
         raise ValueError(
-            "COAST_METHOD='reference_track' flies peg_new only (GUIDANCE_MODE=%r): it is "
-            "the one law that takes a full (r, v_theta, v_r) target and ends its own "
-            "burn from its own t_go." % sim_params.GUIDANCE_MODE)
+            "COAST_METHOD='reference_track' flies peg_new or apollo only "
+            "(GUIDANCE_MODE=%r): they are the two laws that take a full terminal state "
+            "(altitude, speed, flight-path angle) as their target." % law)
     if coast_mode not in ("duration", "seco"):
         raise ValueError("coast_mode must be 'duration' or 'seco', got %r" % coast_mode)
     if plan is None:
@@ -361,7 +433,11 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
     crashed_in = None
 
     # ---- Arc 1 ----
-    sols1, t_a1, y_a1, crashed = fly_law_terminated_arc(t_ign, y_ign, gs, target)
+    if law == "apollo":
+        sols1, t_a1, y_a1, crashed = fly_apollo_arc(t_ign, y_ign, gs, target,
+                                                   deadline=t_ref_arc1_end)
+    else:
+        sols1, t_a1, y_a1, crashed = fly_law_terminated_arc(t_ign, y_ign, gs, target)
     segments += [(s, r.F_THRUST_2) for s in sols1]
     n_tgo_arc1 = len(gs.tgo_log)
     t_c_end, t_a3, y_ins = t_a1, t_a1, y_a1
@@ -389,7 +465,10 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
     # ---- Arc 3 ----
     if crashed_in is None:
         gs.restart_for_new_burn()
-        sols3, t_a3, y_ins, crashed = fly_law_terminated_arc(t_c_end, y_a3, gs, None)
+        if law == "apollo":
+            sols3, t_a3, y_ins, crashed = fly_apollo_arc(t_c_end, y_a3, gs, None)
+        else:
+            sols3, t_a3, y_ins, crashed = fly_law_terminated_arc(t_c_end, y_a3, gs, None)
         segments += [(s, r.F_THRUST_2) for s in sols3]
         if crashed:
             crashed_in = "arc 3"
@@ -408,6 +487,8 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
         "t_arc3_end": t_a3, "t_stage1": t_st1, "y_stage1": y_st1,
     }
     LAST_REFERENCE_TRACK = {
+        "law": law,
+        "arc1_cutoff": ("reference instant" if law == "apollo" else "law t_go"),
         "plan": plan,
         "t_meco": t_meco,
         "t_ignition": t_ign,
@@ -463,6 +544,7 @@ def archive_extra():
         "t_arc3_end": float(info["t_arc3_end"]),
         "reference_t_arc1_end": float(info["t_reference_arc1_end"]),
         "coast_mode": info["coast_mode"],
+        "arc1_cutoff_rule": info["arc1_cutoff"],
         "reference_source": info["plan"]["source"] or "",
     }
 
@@ -474,7 +556,8 @@ def _print_flight(info):
     wp, y1 = info["waypoint"], info["y_arc1_end"]
     plan = info["plan"]
     print("\n" + "=" * 60)
-    print("REFERENCE TRACK -- peg_new flies the PMP plan (no optimiser)")
+    print("REFERENCE TRACK -- %s flies the PMP plan (no optimiser; arc 1 ends on %s)"
+          % (info["law"], info["arc1_cutoff"]))
     print("=" * 60)
     print("  gamma_p %.10g rad   coast %.4f s   reference arc 1 %.4f s"
           % (plan["gamma_p"], plan["delta_tc"], plan["arc1"]))

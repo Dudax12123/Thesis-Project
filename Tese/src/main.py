@@ -1244,10 +1244,11 @@ def execute():
             # Fall through to the shared plotting block below.
 
         # =====================================================================
-        # REFERENCE-TRACK PATH — no optimiser: peg_new flies the PMP reference's
-        # plan (kick, arc-1 end state, coast length) and ends both burns on its
-        # own t_go. Its branch must exist: the else below catches every other
-        # value and would run the apogee_check brute search instead.
+        # REFERENCE-TRACK PATH — no optimiser: peg_new or apollo flies the PMP
+        # reference's plan (kick, arc-1 end state, coast length); see
+        # reference_track_solver for each law's cutoff rule. Its branch must
+        # exist: the else below catches every other value and would run the
+        # apogee_check brute search instead.
         # =====================================================================
         elif _coast_method == 'reference_track':
 

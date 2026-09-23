@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds fifteen files (200 tests as of 2026-09-23). pytest is installed
+Tests — `Tese/src/tests/` holds fifteen files (203 tests as of 2026-09-23). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -89,9 +89,10 @@ Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
 `Tese/src/guidance_comparison/compare_guidance_methods.py`.
 
-The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 20 cases (classical
+The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 21 cases (classical
 `peg`'s `show_peg` was dropped 2026-09-22, so Chapter 6 flies eight of the nine laws; §6.7's
-`show_ref_track`, added 2026-09-23, is peg_new flying the PMP reference's plan with no optimiser),
+`show_ref_track` and `show_ref_track_apollo`, added 2026-09-23, are peg_new and apollo flying the
+PMP reference's plan with no optimiser),
 one frozen baseline with one factor changed at a time, each case in its **own subprocess** so no module
 global can leak between them, and each writing its archive into its **own folder**
 (`Output/results_matrix/<case>/<case>.npz` + `.json` + `.manifest.json`), with one
@@ -117,7 +118,8 @@ Note what `--budget` cannot reach. `apogee_check` runs no PSO at all: its cost i
 brute grid in `solver.py`, and every grid point is a complete `ra.run()` ascent, so `gt_apogee`
 costs the same at any budget (**measured: 48 s**). And `PSO_DIRECT_*` ships at 50×100 already, so
 `--budget 50,100` leaves the two `direct` cases at full production fidelity. `show_ref_track` runs no
-search at all (~1 s); it flies the plan stored in the reference cache.
+search at all (~1 s each), and neither does `show_ref_track_apollo`; they fly the plan stored in
+the reference cache.
 
 **Runtimes are long.** A production PSO solve is tens of minutes (documented: coast PSO ~31 min at
 100×250; the indirect-PMP reference build ~1 h at 250×500). Drop `PSO_*_N_PARTICLES` /
@@ -142,9 +144,13 @@ Dispatch order (from `main.py`) — each level overrides the ones below it:
 2. `GUIDANCE_MODE="indirect_pmp"` → its own 7-variable PSO (costates + timing + kick); ignores
    `COAST_METHOD`, `KICK_PROFILE_MODE`, `RUN_FAST`.
 3. `COAST_METHOD` ∈ {`pso_coast`, `direct`, `apogee_check`, `reference_track`} → picks the solver for
-   all other laws. `reference_track` (2026-09-23) searches nothing: peg_new flies the PMP reference's
-   kick, arc-1 end state and coast length (`Simulation/reference_track_solver.py`), and raises for
-   any other law. `main.py`'s final `else` runs the apogee-check search for any value it does not
+   all other laws. `reference_track` (2026-09-23) searches nothing: peg_new or apollo flies the PMP
+   reference's kick, arc-1 end state and coast length (`Simulation/reference_track_solver.py`), and
+   it raises for any other law. apollo is a fixed-time law, so its arc 1 ends at the reference's
+   cutoff instant. Its coefficients are refreshed outside the ODE (`GuidanceState.apollo_external`),
+   because the `pso_coast` in-RHS refresh fires on `solve_ivp`'s speculative trial points. On this
+   flight that ended apollo's arc 1 966 m/s short. The defect is still live for `show_apollo`; see
+   worktree.md §4. `main.py`'s final `else` runs the apogee-check search for any value it does not
    recognise, so a new value needs its own branch there.
 
 Nine guidance laws: `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`,
@@ -167,7 +173,7 @@ Simulation/
   pso_coast_solver.py    4-var PSO thrust→coast→thrust, direct insertion; owns GuidanceState
   direct_pso_solver.py   2-var PSO, single continuous burn — imports GuidanceState & the Stage-2
                          ODE from pso_coast_solver
-  reference_track_solver.py  no search: peg_new flies the PMP reference's plan, law-terminated burns
+  reference_track_solver.py  no search: peg_new or apollo flies the PMP reference's plan
   indirect_pso_solver.py 7-var PSO over PMP costates; propagates [s,r,v,γ,m,λ_r,λ_v,λ_γ]
   segmented_guidance_solver.py  multi-law schedule; reuses ra.run_stage1 + pso_coast Stage-2
   segment_reference.py   builds/caches the indirect-PMP reference that supplies segment waypoints

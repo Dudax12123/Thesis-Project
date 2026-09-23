@@ -452,17 +452,21 @@ PEG_CONVERGENCE_MAX_ITER = 30       # Max iterations for both modes
 #                    use "pso_coast"/"apogee_check" (which have a coast) for those.
 #                    direct_pso_solver prints a warning for those pairings.
 #                    PSO tuning for this method lives in §11c (PSO_DIRECT_*).
-#   "reference_track": NO optimiser. peg_new flies the indirect-PMP reference's
-#                    plan (reference_track_solver): the reference cache
-#                    (PMP_REFERENCE_CACHE, §8) supplies the kick gamma_p, the
-#                    state where the reference's first Stage-2 burn ends (the
+#   "reference_track": NO optimiser. peg_new or apollo flies the indirect-PMP
+#                    reference's plan (reference_track_solver): the reference
+#                    cache (PMP_REFERENCE_CACHE, §8) supplies the kick gamma_p,
+#                    the state where the reference's first Stage-2 burn ends (the
 #                    arc-1 target: h, v, gamma), and the coast duration. Arc 3
-#                    aims at the objective orbit. Both burns end on peg_new's own
-#                    t_go, freezing at APOLLO_FREEZE_THRESHOLD; the burn durations
+#                    aims at the objective orbit. peg_new ends both burns on its
+#                    own t_go; apollo, a fixed-time law, ends arc 1 at the
+#                    reference's arc-1 cutoff instant and arc 3 on its own t_go
+#                    (TGO_ESTIMATOR), its coefficients refreshed outside the ODE.
+#                    Both freeze at APOLLO_FREEZE_THRESHOLD; the burn durations
 #                    and the mass delivered are outputs. GUIDANCE_MODE must be
-#                    "peg_new" (raises otherwise). Measures the tracking loss of a
-#                    closed-loop law handed the optimum's plan: compare it with
-#                    the reference (pmp_baseline), not with a pso_coast case.
+#                    "peg_new" or "apollo" (raises otherwise). Measures the
+#                    tracking loss of a closed-loop law handed the optimum's plan:
+#                    compare it with the reference (pmp_baseline), not with a
+#                    pso_coast case.
 #                    Stage 1 must reproduce the reference's ignition state to
 #                    round-off or the run raises. No PyGMO needed while the cache
 #                    holds a valid reference.

@@ -13,10 +13,12 @@ import numpy as np
 from . import _data
 from . import _style as st
 
-# The five showcase laws, then peg_new flying the reference's plan with no
-# search (show_ref_track), which fills the sixth slot of the 2 x 3 grid.
+# The five showcase laws, then peg_new and apollo flying the reference's plan
+# with no search (show_ref_track, show_ref_track_apollo). The small-multiple
+# grid grows a row for every three entries.
 SHOWCASE = ["show_cpr", "show_linear_tangent", "show_bilinear_tangent",
-            "show_apollo", "show_exp_shooting", "show_ref_track"]
+            "show_apollo", "show_exp_shooting", "show_ref_track",
+            "show_ref_track_apollo"]
 
 # One representative case per architecture for the cost panel. gt_apogee and
 # show_ref_track run no swarm and have no convergence curve to draw; their bars
@@ -32,18 +34,20 @@ def _skip(name, missing):
 def _label(case):
     """The law's name, qualified when the law is not what distinguishes the case.
 
-    show_ref_track flies peg_new, as peg_baseline does, so the law's name alone
-    would give two traces the same legend entry."""
+    show_ref_track flies peg_new, as peg_baseline does, and show_ref_track_apollo
+    flies apollo, as show_apollo does, so the law's name alone would give two
+    traces the same legend entry."""
     if case.architecture == "reference_track":
         return "%s on PMP plan" % st.law_label(case.law)
     return st.law_label(case.law)
 
 
 def showcase_laws(cases):
-    """F6.14 -- the five showcase laws at the baseline, and peg_new on the PMP plan.
+    """F6.14 -- the five showcase laws at the baseline, and peg_new and apollo on
+    the PMP plan.
 
     Panel (b) is small multiples rather than an overlay because alpha is what
-    distinguishes these laws from one another, and six alpha traces on shared
+    distinguishes these laws from one another, and seven alpha traces on shared
     axes would be a solid block. Each panel keeps the same axis limits so the
     shapes remain comparable.
     """
@@ -52,10 +56,13 @@ def showcase_laws(cases):
         return _skip("F6.14 showcase laws", SHOWCASE)
 
     # Wider than the standard text-width figure: the trajectory legend sits
-    # outside the axes, and the grid keeps its own width regardless.
-    fig = plt.figure(figsize=(7.4, 5.6))
-    grid = fig.add_gridspec(3, 3, height_ratios=[1.45, 1.0, 1.0], hspace=0.62,
-                            wspace=0.35, right=0.80)
+    # outside the axes, and the grid keeps its own width regardless. Taller by
+    # one small-panel row for every three showcase entries beyond six.
+    n_rows = -(-len(SHOWCASE) // 3)
+    fig_h = 5.6 + 1.62 * (n_rows - 2)
+    fig = plt.figure(figsize=(7.4, fig_h))
+    grid = fig.add_gridspec(1 + n_rows, 3, height_ratios=[1.45] + [1.0] * n_rows,
+                            hspace=0.62, wspace=0.35, right=0.80)
     ax_traj = fig.add_subplot(grid[0, :])
 
     # Both context traces share the faint grey that marks them as background,
@@ -79,12 +86,12 @@ def showcase_laws(cases):
     ax_traj.set_ylabel("Altitude [km]")
     st.panel_tag(ax_traj, "a")
     st.tidy(ax_traj, legend=False)
-    # Outside the axes: eight entries over a trajectory panel cover the curves
+    # Outside the axes: nine entries over a trajectory panel cover the curves
     # they are labelling whichever corner they are put in.
     ax_traj.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=1,
                    fontsize=6.8)
 
-    # Shared limits, so the six small panels compare rather than merely coexist.
+    # Shared limits, so the small panels compare rather than merely coexist.
     # Taken from a percentile rather than the extremes: one law transients to
     # about -140 deg for a few seconds, and letting that set the range flattens
     # the others into a band a few pixels high. The clip is drawn as a
@@ -96,8 +103,11 @@ def showcase_laws(cases):
     alpha_lo, alpha_hi = alpha_lo - pad, alpha_hi + pad
     t_hi = max(float(cases[n].time[-1]) for n in present)
 
+    first_small = None
     for i, name in enumerate(SHOWCASE):
         ax = fig.add_subplot(grid[1 + i // 3, i % 3])
+        if first_small is None:
+            first_small = ax
         if name not in cases:
             ax.axis("off")
             continue
@@ -133,7 +143,10 @@ def showcase_laws(cases):
             ax.set_xlabel("Time [s]", fontsize=7.5)
         st.tidy(ax, legend=False)
 
-    fig.text(0.055, 0.615, "(b)", fontsize=9, fontweight="bold", color=st.INK)
+    # 0.43 in above the first small panel: where the tag sat in the fixed
+    # 5.6 in layout this replaced.
+    fig.text(0.055, first_small.get_position().y1 + 0.4288 / fig_h, "(b)",
+             fontsize=9, fontweight="bold", color=st.INK)
     return st.save(fig, "results_showcase_laws.png")
 
 

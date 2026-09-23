@@ -10,10 +10,11 @@ the factors are varied *within* a guidance law rather than across all nine. Two
 laws are analysed in depth -- the gravity turn as a passive floor and peg_new as
 the closed-loop ceiling -- against indirect_pmp as the optimal reference; five
 of the remaining six are flown once each for breadth (classical peg is not
-flown, see SHOWCASE_LAWS), and peg_new once more with no optimiser at all,
-flying the reference's own plan (show_ref_track). Everything else in
-simulation_parameters.py is a fixed condition of the experiment and is recorded
-once, in the manifest, rather than swept. See Chapter 6 §6.1.
+flown, see SHOWCASE_LAWS), and peg_new and apollo once more with no optimiser,
+flying the reference's own plan (show_ref_track, show_ref_track_apollo).
+Everything else in simulation_parameters.py is a fixed condition of the
+experiment and is recorded once, in the manifest, rather than swept. See
+Chapter 6 §6.1.
 
 Usage
 -----
@@ -42,9 +43,9 @@ all -- its cost is the Ns=1000 brute grid in solver.py, and every grid point is
 a complete ra.run() ascent -- so gt_apogee costs the same at any budget and is
 usually the most expensive case in the set. PSO_DIRECT_* is already 50x100 in
 the shipped config, so --budget 50,100 leaves the two "direct" cases at full
-production fidelity. show_ref_track (COAST_METHOD="reference_track") runs
-no search either; it flies the plan stored in the reference cache, identically
-at any budget.
+production fidelity. The two show_ref_track cases
+(COAST_METHOD="reference_track") run no search either: they fly the plan stored
+in the reference cache, identically at any budget.
 
 Per-case output
 ---------------
@@ -280,7 +281,7 @@ def _parse_budget(text):
 
 
 def build_matrix():
-    """The 20 production cases, in chapter order.
+    """The 21 production cases, in chapter order.
 
     The design is one frozen baseline with **one factor changed at a time**, but
     the factors are varied *within* each guidance law rather than across all
@@ -388,6 +389,15 @@ def build_matrix():
     cases.append(dict(name="show_ref_track", section="6.7",
                       factor="reference_tracking",
                       overrides={"GUIDANCE_MODE": "peg_new",
+                                 "COAST_METHOD": "reference_track"}))
+    # The same plan flown by apollo, the other law that takes a full terminal
+    # state. A fixed-time law, so its arc 1 ends at the reference's own cutoff
+    # instant rather than on its own t_go; its coefficients are refreshed
+    # outside the ODE (see reference_track_solver). Read against pmp_baseline and
+    # show_ref_track, not against show_apollo.
+    cases.append(dict(name="show_ref_track_apollo", section="6.7",
+                      factor="reference_tracking",
+                      overrides={"GUIDANCE_MODE": "apollo",
                                  "COAST_METHOD": "reference_track"}))
     # Two runs on ONE law combination, differing only in who picks the hand-off
     # altitude. The fixed run flies the schedule as written; the optimised run
@@ -613,7 +623,7 @@ def run_case(name, smoke=False, budget=None, sets=None):
     # the experiment, and a timestamped id per attempt would leave make_all.py
     # unable to find "gt_baseline". An interactive run gets the timestamped id
     # instead and never overwrites anything.
-    # Each case gets its own folder. Twenty cases as sixty files in one
+    # Each case gets its own folder. Twenty-one cases as sixty-three files in one
     # directory is unreadable, and a folder per case also means a single case
     # can be copied, compared or thrown away on its own.
     saved = store.save_run(

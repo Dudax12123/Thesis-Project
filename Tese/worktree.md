@@ -70,9 +70,11 @@ no-ops. Walk them top-to-bottom.
 │  "apogee_check"         → legacy single-burn-to-apogee + impulsive          │
 │                           circularisation (brute-force kick search).        │
 │  "reference_track"      → Simulation/reference_track_solver.py (NO search:  │
-│                           peg_new flies the PMP reference's kick, arc-1     │
-│                           end state and coast; ends both burns on its own   │
-│                           t_go). peg_new only. No PyGMO with a valid cache. │
+│                           peg_new or apollo flies the PMP reference's kick, │
+│                           arc-1 end state and coast). peg_new ends both     │
+│                           burns on its own t_go; apollo ends arc 1 at the   │
+│                           reference's cutoff instant. No PyGMO with a       │
+│                           valid cache.                                      │
 └─────────────────────────────────────────────────────────────────────────────┘
         │
 ┌─ STEP 3 ── GUIDANCE_MODE × COAST_METHOD compatibility ──────────────────────┐
@@ -315,7 +317,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct`, `reference_track` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). `reference_track` (2026-09-23) runs **no optimiser**: the reference cache (`PMP_REFERENCE_CACHE`) supplies γ_p, the state where the reference's first Stage-2 burn ends (arc-1 target) and the coast duration; peg_new ends both burns on its own t_go, freezing at `APOLLO_FREEZE_THRESHOLD`. | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent`; `direct` reaches orbit **only** for `apollo`/`peg`/`peg_new` (others → suborbital — solver warns); `reference_track` **raises** for any law but `peg_new`, and raises if Stage 1 does not reproduce the reference's ignition state (tolerance `reference_track_solver.STAGE1_TOL`). Every `PSO_*` budget is inert under it; `PMP_REFERENCE_*` is live (a missing or stale cache is built like the segmented one). |
+| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct`, `reference_track` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). `reference_track` (2026-09-23) runs **no optimiser**: the reference cache (`PMP_REFERENCE_CACHE`) supplies γ_p, the state where the reference's first Stage-2 burn ends (arc-1 target) and the coast duration. `peg_new` ends both burns on its own t_go; `apollo` (a fixed-time law) ends arc 1 at the reference's arc-1 cutoff instant and arc 3 on its own t_go (`TGO_ESTIMATOR`), with its coefficients refreshed outside the ODE (`GuidanceState.apollo_external`). Both freeze at `APOLLO_FREEZE_THRESHOLD`. | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent`; `direct` reaches orbit **only** for `apollo`/`peg`/`peg_new` (others → suborbital — solver warns); `reference_track` **raises** for any law but `peg_new` and `apollo`, and raises if Stage 1 does not reproduce the reference's ignition state (tolerance `reference_track_solver.STAGE1_TOL`). Every `PSO_*` budget is inert under it; `PMP_REFERENCE_*` is live (a missing or stale cache is built like the segmented one). |
 | `DIRECT_INSERTION_VELOCITY_TOL_MS` (L337) | float m/s | `10.0` | "Clean insertion" velocity tolerance. | `COAST_METHOD="direct"` only (else unused). |
 | `DIRECT_INSERTION_FPA_TOL_DEG` (L338) | float deg | `0.5` | "Clean insertion" FPA tolerance. | `COAST_METHOD="direct"` only. |
 | `DIRECT_INSERTION_ALTITUDE_TOL_KM` (L339) | float km | `5.0` | "Clean insertion" altitude tolerance. | `COAST_METHOD="direct"` only. |
@@ -586,7 +588,7 @@ copied from it missed the insertion by 107 m / 0.14 m/s). Layout:
 | `direct` | `[γ_p [rad], t_burn [% of T_MAX_2]]`; `[γ_p]` alone when `DIRECT_LAW_TERMINATED_CUTOFF` hands the cutoff to `peg_new` (the burn time is then an output, in the row) |
 | segmented | the 4 coast variables, then the `n−1` activation-altitude fractions when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` |
 | `apogee_check` | `[kick angle [rad]]`, the brute grid's winner |
-| `reference_track` | the **reference's** indirect 7-vector — the plan the case was handed, not a search result. What it flew is `realised_schedule`, `[Δt_c, Δt_r %, coast start %, γ_p]` in the `pso_coast` layout, beside `arc1_target`, `arc1_achieved`, `arc1_miss_vs_reference` (`[Δr, Δv, Δγ, Δm]`), the arc times and `reference_source` |
+| `reference_track` | the **reference's** indirect 7-vector — the plan the case was handed, not a search result. What it flew is `realised_schedule`, `[Δt_c, Δt_r %, coast start %, γ_p]` in the `pso_coast` layout, beside `arc1_target`, `arc1_achieved`, `arc1_miss_vs_reference` (`[Δr, Δv, Δγ, Δm]`), the arc times, `arc1_cutoff_rule` (`"law t_go"` for peg_new, `"reference instant"` for apollo) and `reference_source` |
 
 `<run_id>` is `<architecture>_<law>_<YYYYmmdd>_<HHMMSS>`, so **runs accumulate — a second run of the
 same configuration never overwrites the first.** The results matrix is the deliberate exception: it
@@ -666,7 +668,7 @@ cells re-run at higher PSO budget to separate "needs more budget" from "structur
 | `gravity_turn` | OK | OK | ✗ **suborbital** — see note | ✗ raises |
 | `linear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf` (5th/6th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) | ✗ raises |
 | `bilinear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf, μ` (5th–7th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) | ✗ raises |
-| `apollo` | ✗ **raises `ValueError`** — incompatible (`main.py`, apogee_check branch); use `peg_new` here, or `apollo` under `direct`/`pso_coast` | OK | OK | ✗ raises (would need a prescribed t_go) |
+| `apollo` | ✗ **raises `ValueError`** — incompatible (`main.py`, apogee_check branch); use `peg_new` here, or `apollo` under `direct`/`pso_coast` | OK | OK | OK — arc 1 on the reference's clock, coefficients refreshed outside the ODE. Measured 2026-09-23: arc-1 miss +0.03 km / −3.7 m/s / +0.046°, inserts into a 481 × 501 km orbit, 46 kg behind the reference |
 | `cpr` | OK — kick forced to 0 (`main.py:761`) | OK — gamma_p kick + PSO `θ_dot` (5th var); Stage-1 branch gated off (`_IN_PSO_STAGE1`) | ✗ **suborbital** — see note | ✗ raises |
 | `peg` | OK | OK | OK | ✗ raises |
 | `peg_new` | OK | OK | OK | OK — measured 2026-09-23: arc-1 miss +0.03 km / −0.11 m/s / +0.045°, inserts at 504.8 km, 402 kg behind the reference |
@@ -812,7 +814,11 @@ Each is legal to set but does something other than what you'd expect. With `file
 - **`reference_track` is read against the reference, not against `pso_coast` (2026-09-23).**
   `show_ref_track` differs from `peg_baseline` in the arc-1 target, in who picks the kick and the coast,
   and in the cutoff rule at once, so the pair isolates nothing; its gap to `pmp_baseline` is peg_new's
-  tracking loss. Two properties of the flight to report with it:
+  tracking loss. The same holds for `show_ref_track_apollo` against `show_apollo`. The two
+  reference-track cases also differ from each other in the arc-1 cutoff rule (peg_new's own t_go,
+  apollo on the reference's clock), which is why apollo's arc 1 burns the reference's propellant
+  exactly. Measured: peg_new 492 × 505 km, −402 kg; apollo 481 × 501 km, −46 kg. Properties to
+  report with them:
   - **The arc-3 steering is degenerate.** The reference coasts almost to the insertion point, so arc 3
     is one frozen cycle (1.43 s, first t_go already inside the 10 s freeze window). With t_go that
     short the λ′_r term (∝ r_go/t_go³) swamps the steering and α swings −90° → +90° (thrust
@@ -820,6 +826,21 @@ Each is legal to set but does something other than what you'd expect. With `file
     remove the 4.8 km radius error arc 1's +0.045° left, which is most of the 402 kg.
   - **The coast is scheduled, not guided.** It lasts the reference's Δt_c from wherever arc 1 ended,
     so an arc-1 miss is carried into arc 3 uncorrected.
+  - **Apollo's arc 3 is degenerate too.** It lasts 0.19 s, and its t_go is that short, so α
+    swings ±90° as well.
+
+- **Apollo and the tangent laws refresh their coefficients inside the ODE right-hand side under
+  `pso_coast` (known, not fixed).** The refresh fires whenever `GUIDANCE_UPDATE_RATE` has passed,
+  including on `solve_ivp`'s speculative trial points, up to `_MAX_STEP` = 10 s ahead on an
+  extrapolated state. It dates the coefficients from that trial time, and the integrator then flies
+  them at negative elapsed time.
+  - Measured 2026-09-23 on apollo's reference-track arc 1: α hit ±90° from t_go ≈ 37 s and the arc
+    ended 966 m/s short. Refreshed outside the ODE (`GuidanceState.apollo_external`, as
+    `reference_track` does), the same arc lands within 0.03 km / 3.7 m/s / 0.05° of the waypoint.
+  - `show_apollo` and every other `pso_coast` apollo run still use the in-RHS refresh. Fixing it
+    changes those results and is a pending decision.
+  - peg_new has the same hazard under `pso_coast` (the 2026-09-22 "92 % of calls" finding). Only
+    `direct`'s law-terminated mode and `reference_track` run it outside the ODE.
 
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,
   `COAST_METHOD="direct"`, `KICK_PROFILE_MODE`, `RUN_FAST`, and the `DIRECT_*` settings are ignored

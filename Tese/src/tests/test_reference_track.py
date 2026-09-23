@@ -1,6 +1,7 @@
 """
-COAST_METHOD = "reference_track": peg_new flies the PMP reference's plan, no optimiser
-(Simulation/reference_track_solver.py, results-matrix case show_ref_track, 2026-09-23).
+COAST_METHOD = "reference_track": peg_new or apollo flies the PMP reference's plan, no
+optimiser (Simulation/reference_track_solver.py, results-matrix cases show_ref_track and
+show_ref_track_apollo, 2026-09-23).
 
 The plan is read from the reference cache, which stores the reference's decision
 vector beside its trajectory since the same day; the flight from the tracked cache is
@@ -29,8 +30,9 @@ import Simulation.segment_reference as segref
 REFERENCE_X = [-8.164825684552658e-06, -0.00595717532331387, -0.9999822558403237,
                1446.8331219788931, 75.9779861533329, 99.99030152462818,
                1.5371391567133106]
-# J' of show_ref_track flown from it (pso_coast's objective).
+# J' of show_ref_track / show_ref_track_apollo flown from it (pso_coast's objective).
 SHOW_REF_TRACK_J = 1.8680088287750078
+SHOW_REF_TRACK_APOLLO_J = 1.83283540384996
 
 
 def _configure(monkeypatch, case_name, **extra):
@@ -68,10 +70,30 @@ def test_a_duplicated_boundary_stamp_returns_the_later_sample():
         rts.reference_state_at(plan, 1.5)
 
 
-def test_only_peg_new_is_accepted(monkeypatch):
-    _configure(monkeypatch, "show_ref_track", GUIDANCE_MODE="apollo")
-    with pytest.raises(ValueError, match="peg_new only"):
+def test_only_peg_new_and_apollo_are_accepted(monkeypatch):
+    _configure(monkeypatch, "show_ref_track", GUIDANCE_MODE="gravity_turn")
+    with pytest.raises(ValueError, match="peg_new or apollo only"):
         rts.run_reference_track(verbose=False)
+
+
+def test_an_external_apollo_only_evaluates_the_coefficients_it_is_given(monkeypatch):
+    """apollo_external: the RHS neither refreshes, freezes nor logs t_go -- the
+    in-RHS refresh is what fires on solve_ivp's speculative trial points."""
+    _configure(monkeypatch, "show_ref_track_apollo")
+    import Guidance.apollo_guidance as apollo_mod
+    gs = pcs.GuidanceState(apollo_external=True)
+    coeffs = [0.0, 25.0, 0.02, -1.5]
+    gs.guidance_coefficients = list(coeffs)
+    gs.apollo_freeze_time = 300.0
+    state = np.array([1.2e6, c.R_EARTH + 150e3, 6000.0, np.deg2rad(2.5), 40000.0])
+    F, isp = pcs.r.F_THRUST_2, pcs.r.ISP_2
+    for t in (300.0, 304.0, 312.0):          # an update would be due at 302 and 304
+        alpha = pcs._compute_alpha_stage2(t, state, F, isp, gs)
+        want, _ = apollo_mod.apollo_guidance(t, 300.0, state, coeffs,
+                                             a_thrust_available=F / state[4])
+        assert alpha == want
+    assert gs.guidance_coefficients == coeffs and gs.apollo_freeze_time == 300.0
+    assert gs.tgo_log == [] and not gs.apollo_coefficients_frozen
 
 
 # --- the cache carries the plan ----------------------------------------------
@@ -134,17 +156,19 @@ def test_a_swarm_built_cache_without_the_plan_is_rebuilt_once(cache_in_tmp, monk
 
 # --- the matrix case ------------------------------------------------------------
 
-def test_the_case_is_its_own_architecture_in_section_6_7():
-    case = next(c for c in rm.build_matrix() if c["name"] == "show_ref_track")
+@pytest.mark.parametrize("name, law", [("show_ref_track", "peg_new"),
+                                       ("show_ref_track_apollo", "apollo")])
+def test_the_cases_are_their_own_architecture_in_section_6_7(name, law):
+    case = next(c for c in rm.build_matrix() if c["name"] == name)
     assert case["section"] == "6.7"
-    assert case["overrides"]["COAST_METHOD"] == "reference_track"
+    assert case["overrides"] == {"GUIDANCE_MODE": law, "COAST_METHOD": "reference_track"}
 
 
 def test_the_case_name_leaves_the_6_2_and_6_3_filter_exact():
     """`--only gt_,peg_` is documented as exactly the ten cases of 6.2 and 6.3."""
     wanted = ("gt_", "peg_")
     picked = [c["name"] for c in rm.build_matrix() if any(s in c["name"] for s in wanted)]
-    assert len(picked) == 10 and "show_ref_track" not in picked
+    assert len(picked) == 10 and not any("ref_track" in n for n in picked)
 
 
 def test_the_tracked_cache_holds_the_reference_plan(monkeypatch):
@@ -178,3 +202,27 @@ def test_the_flight_tracks_the_reference_and_reproduces_its_measurement(monkeypa
     extra = rts.archive_extra()
     assert extra["decision_vector"] == REFERENCE_X
     assert len(extra["realised_schedule"]) == 4
+
+
+def test_apollo_arrives_on_the_reference_clock_and_reproduces_its_measurement(monkeypatch):
+    _configure(monkeypatch, "show_ref_track_apollo")
+    monkeypatch.setattr(segref, "_run_pmp_reference",
+                        lambda verbose: pytest.fail("the tracked cache did not load"))
+    time_a, data, _th, _al, _ti, result, _co, _ce = rts.run_reference_track(verbose=False)
+    info = rts.LAST_REFERENCE_TRACK
+    assert not result["crashed"] and info["law"] == "apollo"
+    assert all(v == 0.0 for v in info["stage1_diffs"].values())
+    # a fixed-time law: arc 1 ends at the reference's own cutoff, so it burns the
+    # reference's propellant to the gram
+    assert info["t_arc1_end"] == pytest.approx(info["t_reference_arc1_end"], abs=1e-9)
+    miss = np.asarray(info["y_arc1_end"]) - np.asarray(info["waypoint"])
+    assert abs(miss[4]) < 0.01
+    # measured 2026-09-23: +0.027 km, -3.70 m/s, +0.046 deg -- P12 gives up speed
+    assert abs(miss[1]) < 100.0 and abs(miss[2]) < 5.0 and abs(np.rad2deg(miss[3])) < 0.1
+    # the outside refresh is what holds it: the in-RHS one ended this arc 966 m/s short
+    alpha1 = np.rad2deg([a for t, a in zip(time_a, _al) if info["t_ignition"] < t < info["t_arc1_end"]])
+    assert np.max(np.abs(alpha1)) < 20.0
+    h_ins = (result["state_final"][1] - c.R_EARTH) / 1e3
+    assert abs(h_ins - sim_params.TARGET_ORBITAL_ALTITUDE / 1e3) < 10.0
+    assert pcs.compute_coast_objective(result) == SHOW_REF_TRACK_APOLLO_J
+    assert rts.archive_extra()["arc1_cutoff_rule"] == "reference instant"

@@ -135,6 +135,14 @@ class GuidanceState:
     apollo_coefficients_frozen: bool = False
     apollo_freeze_time: Optional[float] = None
     apollo_previous_tgo: Optional[float] = None
+    # True: the CALLER refreshes apollo's coefficients at guidance-cycle boundaries
+    # on accepted states and sets guidance_coefficients / apollo_freeze_time;
+    # _compute_alpha_stage2 only evaluates them. Set by reference_track_solver. The
+    # in-RHS refresh fires on solve_ivp's speculative trial points too, and dates
+    # the coefficients from a time the integrator then steps back from (measured
+    # 2026-09-23: apollo's arc 1 ended 966 m/s short). False everywhere else
+    # (unchanged).
+    apollo_external: bool = False
 
     # LTS / bilinear
     lts_previous_tgo: Optional[float] = None
@@ -435,7 +443,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.cpr_t_start = t
 
         elif (mode in ("linear_tangent", "bilinear_tangent", "apollo")
-                and not open_loop_tan):
+                and not open_loop_tan
+                and not (mode == "apollo" and gs.apollo_external)):
             tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, None)
             if mode == "apollo":
                 gs.apollo_previous_tgo = tgo
@@ -549,6 +558,12 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.tgo_time_log.append(t)
             alpha = bts_guidance.bilinear_tangent_steering(
                 t, tgo, state, gs.guidance_coefficients)
+
+        elif mode == "apollo" and gs.apollo_external:
+            # The caller owns t_go, the refresh and the freeze; only evaluate.
+            alpha, _ = apollo_guidance_module.apollo_guidance(
+                t, gs.apollo_freeze_time, state, gs.guidance_coefficients,
+                a_thrust_available=F_T / m)
 
         elif mode == "apollo":
             tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.apollo_previous_tgo)
