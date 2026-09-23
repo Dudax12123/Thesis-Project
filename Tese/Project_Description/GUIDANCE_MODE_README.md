@@ -160,25 +160,29 @@ predicted burnout state to the target orbit (`r_T`, `ṛ_T = 0`,
 
 ### `peg_new` — Analytical Predictor-Corrector PEG
 
-A from-first-principles PEG derivation combining Pontryagin's minimum
-principle with Jaggers' "Coke Machine" orthogonality assumption. The primary
-variable is `v_go` (the 2-D velocity-to-be-gained vector); `t_go` is obtained
-directly from `v_go` via the rocket equation, and the steering law is:
+PEG in its velocity-to-be-gained form, after Algorithm 1 of Mahajan & Condon
+(AAS 25-844): Pontryagin's minimum principle plus Jaggers' "Coke Machine"
+orthogonality assumption. The primary variable is `v_go` (the 2-D
+velocity-to-be-gained vector); `t_go` is obtained directly from `v_go` via the
+rocket equation, and the steering law is:
 
 ```
-û(t) = v_go / ‖v_go‖ + λ'_r · (t − t_λ) · r̂
+û(t) ∝ v_go / ‖v_go‖ + λ'_r · (t − t_λ) · r̂
 ```
 
-The major loop's predictor-corrector step refines the gravity integral by
-averaging radial gravity over the predicted trajectory (trapezoidal rule)
-instead of using only the current-position value — this is what gives a
-physically correct pitch-down direction for orbit insertion.
+Each major cycle flies the predicted burn under the current steering,
+integrates the gravity integrals v_G and r_G along it (Algorithm 1 step 16),
+and corrects `v_go` by the predicted velocity miss until it converges. Realigned
+with the paper on 2026-09-23; the full description, the departures from the
+paper and the measured before/after are in
+[`PEG_NEW_IMPLEMENTATION.md`](PEG_NEW_IMPLEMENTATION.md).
 
 - **Activation:** Stage 2 only, identical gating to `peg` (post-kick,
   post-atmosphere-exit, Stage-2 ignition).
-- **Key tunables:** the same major-loop parameters as `peg`
-  (`PEG_MAJOR_LOOP_RATE`, `PEG_CONVERGENCE_MODE`, `PEG_CONVERGENCE_DAMPING`,
-  `PEG_CONVERGENCE_TOL`, `PEG_CONVERGENCE_MAX_ITER`, `APOLLO_FREEZE_THRESHOLD`).
+- **Key tunables:** `PEG_MAJOR_LOOP_RATE` (major-loop period) and
+  `APOLLO_FREEZE_THRESHOLD` (freeze; keep it near 10 s — below a few seconds the
+  endgame has no solution and a law-terminated burn never ends). The
+  `PEG_CONVERGENCE_*` settings belong to classical `peg` only.
 - This is the current default (`GUIDANCE_MODE = "peg_new"`).
 - Implementation: `Guidance/peg_guidance_new.py`.
 

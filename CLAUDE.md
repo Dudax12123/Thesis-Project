@@ -211,6 +211,27 @@ the coast architecture every closed-loop law steers the pre-coast Stage-2 burn t
 orbit as a direct insertion, then the swarm's coast discards that plan (comment above Arc 1 in
 `run_pso_coast_trajectory`). Only the segmented mode gives that arc an intermediate target.
 
+**`peg_new` was re-aligned with its source on 2026-09-23.** The source is Mahajan & Condon,
+AAS 25-844 (`Desktop/Tese/References/PEG_ASC25_Mahajan - PEG_recent.pdf`), not the "Sagliano et
+al." the docstring used to cite. Two defects are fixed:
+- `S1` is eq. 69, `S0·τ − c·t_go²/2`; it was `S0·t_go`, which made `λ'_r` 2.8× too small.
+- The gravity integrals follow Algorithm 1 steps 15–20. `v_G` and `r_G` come from quadrature
+  along the predicted powered trajectory, in the law's own planar model (radial `−μ/r² + v_θ²/r`,
+  tangential `−v_r·v_θ/r`, no Earth-rotation terms). The velocity miss is fed back until it
+  converges, with a secant step length. Before, `v_G` was a two-point average that drifted to its
+  burnout value and `r_G` was `½·ḡ·t_go²`, which commanded a 20° pitch-down at Stage-2 ignition.
+
+Measured with `dev-notes/arc1_reference_track.py` (peg_new tracking the PMP reference's arc 1):
+the waypoint miss fell from 24 km / 21 m/s to 0.03 km / 0.1 m/s. **Every `peg_new` archive flown
+before this change is stale**, and so is anything that used `TGO_ESTIMATOR="peg_new"`.
+`tests/test_peg_new_predictor.py` pins the change.
+
+Two consequences:
+- A major loop now costs 0.02–0.45 ms instead of 0.02 ms: +37 % per `peg_new` trajectory, and 2.8×
+  for `apollo` under `TGO_ESTIMATOR="peg_new"`, which calls it on every RHS evaluation.
+- Freeze thresholds below ~10 s break the endgame, because `λ'_r` grows like `r_go/t_go³`. This
+  covers the segmented `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD = 2.0`; see worktree.md.
+
 **The tangent laws are open-loop under `pso_coast` since 2026-09-11**, in the form the
 bibliography gives them: `tan θ` linear (`linear_tangent`) or a ratio of linear functions
 (`bilinear_tangent`) in time, with the constants chosen by the swarm (`θ0`, `θf`, plus the

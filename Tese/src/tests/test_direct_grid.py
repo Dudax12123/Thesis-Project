@@ -21,9 +21,11 @@ import Guidance.peg_guidance_new as peg_new_mod
 import Simulation.direct_pso_solver as dps
 
 # Archived results-matrix champions (Output/results_matrix/*/<case>.npz decision_vector)
-# and the J their rows report (<case>.json J_prime), flown at 250x1000.
+# and the J their rows report (<case>.json J_prime), flown at 250x1000. peg_direct's row
+# (J 3.061334676353464) predates peg_new's 2026-09-23 realignment with Mahajan & Condon's
+# Algorithm 1; until the case is re-flown, its J is the realigned law's at the same x.
 PEG_DIRECT_X = [1.5661366962720822, 91.87527871677494]
-PEG_DIRECT_J = 3.061334676353464
+PEG_DIRECT_J = 5.948042294131451
 GT_DIRECT_X = [1.5480496369878718, 78.91330864548283]
 GT_DIRECT_J = 41.13152999339198
 
