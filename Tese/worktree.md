@@ -69,6 +69,10 @@ no-ops. Walk them top-to-bottom.
 │                           2-var PSO over gamma_p + burn %). PyGMO req.       │
 │  "apogee_check"         → legacy single-burn-to-apogee + impulsive          │
 │                           circularisation (brute-force kick search).        │
+│  "reference_track"      → Simulation/reference_track_solver.py (NO search:  │
+│                           peg_new flies the PMP reference's kick, arc-1     │
+│                           end state and coast; ends both burns on its own   │
+│                           t_go). peg_new only. No PyGMO with a valid cache. │
 └─────────────────────────────────────────────────────────────────────────────┘
         │
 ┌─ STEP 3 ── GUIDANCE_MODE × COAST_METHOD compatibility ──────────────────────┐
@@ -169,7 +173,7 @@ guidance re-init (`restart_for_new_burn`), the same mechanism single-law pso_coa
 | `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§11d) | bool | `True` | Append the `(n−1)` non-first activation altitudes to the PSO decision vector (→ `4+(n−1)` vars) and optimise them to minimise Stage-2 burn time. False ⇒ use the `GUIDANCE_SEGMENTS` altitudes as-is. |
 | `MULTI_GUIDANCE_ALT_LB` / `_UB` (§11d) | float m | `10e3` / `TARGET_ORBITAL_ALTITUDE` (500e3) | Bounds for the optimised activation altitudes. `_UB` is now the objective orbit altitude (2026-07-23, was hardcoded `200e3`), still clamped at runtime to 0.98× reference apogee ⇒ effective ~490 km. Lets a late-insertion hand-off go as high as physically sensible. |
 | `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD` | float s | `2.0` | Coefficient-freeze t_go for intermediate (non-final) segments; final segment uses `APOLLO_FREEZE_THRESHOLD`. ⚠ **Too low for peg_new since its 2026-09-23 realignment:** λ'_r grows like r_go/t_go³, so below ~10 s the corrector has no fixed point and t_go stops falling. A law-terminated burn frozen at 2 s never ended (ran to propellant exhaustion, `dev-notes/arc1_reference_track.py`); 10 s tracked the PMP waypoint to 0.03 km. Segmented runs are not yet re-flown under it. |
-| `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. |
+| `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. Since 2026-09-23 it also stores the reference's `decision_vector`, the plan `COAST_METHOD="reference_track"` flies (`segment_reference.get_pmp_reference_plan`). A cache seeded from an archive before that raises rather than rebuild, and names the archive to re-seed from; a swarm-built one is rebuilt once. |
 | `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
 | `PMP_REFERENCE_FORCE_RERUN` | bool | `False` | Rebuild the reference even if a valid cache exists. |
 | `PMP_REFERENCE_PSO_PARTICLES` | int or `None` | `250` | Reference-build swarm size. `None` ⇒ use `PSO_N_PARTICLES`. Set equal to it on 2026-09-16: same budget and seed as the PMP swarm, so the reference is the `pmp_baseline` trajectory by construction (a change auto-rebuilds). |
@@ -311,7 +315,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
-| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent`; `direct` reaches orbit **only** for `apollo`/`peg`/`peg_new` (others → suborbital — solver warns). |
+| `COAST_METHOD` (L329) | `apogee_check`, `pso_coast`, `direct`, `reference_track` | `direct` | Top-level dispatcher for Stage-2 insertion structure. `direct` is always PSO (2-var, needs PyGMO). `reference_track` (2026-09-23) runs **no optimiser**: the reference cache (`PMP_REFERENCE_CACHE`) supplies γ_p, the state where the reference's first Stage-2 burn ends (arc-1 target) and the coast duration; peg_new ends both burns on its own t_go, freezing at `APOLLO_FREEZE_THRESHOLD`. | **silently ignored** when `GUIDANCE_MODE="indirect_pmp"`; selects solver; gates `DIRECT_*`, `RUN_FAST`, `KICK_PROFILE_MODE` relevance; `pso_coast` adds extra PSO vars for `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent`; `direct` reaches orbit **only** for `apollo`/`peg`/`peg_new` (others → suborbital — solver warns); `reference_track` **raises** for any law but `peg_new`, and raises if Stage 1 does not reproduce the reference's ignition state (tolerance `reference_track_solver.STAGE1_TOL`). Every `PSO_*` budget is inert under it; `PMP_REFERENCE_*` is live (a missing or stale cache is built like the segmented one). |
 | `DIRECT_INSERTION_VELOCITY_TOL_MS` (L337) | float m/s | `10.0` | "Clean insertion" velocity tolerance. | `COAST_METHOD="direct"` only (else unused). |
 | `DIRECT_INSERTION_FPA_TOL_DEG` (L338) | float deg | `0.5` | "Clean insertion" FPA tolerance. | `COAST_METHOD="direct"` only. |
 | `DIRECT_INSERTION_ALTITUDE_TOL_KM` (L339) | float km | `5.0` | "Clean insertion" altitude tolerance. | `COAST_METHOD="direct"` only. |
@@ -543,7 +547,7 @@ Tese/src/Output/                     DATA  (ARCHIVE_DIR)
 │                                                             one folder per case
 ├── results_matrix/results_matrix.csv            all 20 rows, at the top level
 ├── results_matrix_*/                            a batch run with --out, same layout
-└── pmp_reference.npz                            the segmented waypoint cache (TRACKED in git)
+└── pmp_reference.npz                            the PMP reference: segmented waypoints + reference_track plan (TRACKED)
 
 Tese/src/Output_Plots/               FIGURES  (SAVE_PLOTS_DIR)
 ├── <run_id>/run_card.png                        PLOT_SUITE = "new" / "both"
@@ -582,6 +586,7 @@ copied from it missed the insertion by 107 m / 0.14 m/s). Layout:
 | `direct` | `[γ_p [rad], t_burn [% of T_MAX_2]]`; `[γ_p]` alone when `DIRECT_LAW_TERMINATED_CUTOFF` hands the cutoff to `peg_new` (the burn time is then an output, in the row) |
 | segmented | the 4 coast variables, then the `n−1` activation-altitude fractions when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` |
 | `apogee_check` | `[kick angle [rad]]`, the brute grid's winner |
+| `reference_track` | the **reference's** indirect 7-vector — the plan the case was handed, not a search result. What it flew is `realised_schedule`, `[Δt_c, Δt_r %, coast start %, γ_p]` in the `pso_coast` layout, beside `arc1_target`, `arc1_achieved`, `arc1_miss_vs_reference` (`[Δr, Δv, Δγ, Δm]`), the arc times and `reference_source` |
 
 `<run_id>` is `<architecture>_<law>_<YYYYmmdd>_<HHMMSS>`, so **runs accumulate — a second run of the
 same configuration never overwrites the first.** The results matrix is the deliberate exception: it
@@ -594,7 +599,7 @@ An archive without a `.manifest.json` — anything written before this existed �
 `Case.manifest == {}`.
 
 **Two directory layouts, one resolver.** The matrix gives each case its own folder
-(`results_matrix/gt_baseline/gt_baseline.npz`), because nineteen cases as fifty-eight files in one
+(`results_matrix/gt_baseline/gt_baseline.npz`), because twenty cases as sixty files in one
 directory is unreadable and a folder can be copied or discarded on its own. Interactive archives
 stay **flat** in `runs/`, since a timestamped id is already unique and a folder per run would only
 add a level. `Archive.store.case_dir()` decides which, and every reader — the figures, the CLI,
@@ -656,16 +661,16 @@ entirely** — it overrides `GUIDANCE_MODE` and always uses the pso_coast-style 
 **Verdicts below are empirical** — confirmed by a full (guidance × coast) sweep, with under-converged
 cells re-run at higher PSO budget to separate "needs more budget" from "structurally can't get there."
 
-| GUIDANCE_MODE | `apogee_check` | `pso_coast` | `direct` (always PSO) |
-|---|---|---|---|
-| `gravity_turn` | OK | OK | ✗ **suborbital** — see note |
-| `linear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf` (5th/6th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) |
-| `bilinear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf, μ` (5th–7th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) |
-| `apollo` | ✗ **raises `ValueError`** — incompatible (`main.py`, apogee_check branch); use `peg_new` here, or `apollo` under `direct`/`pso_coast` | OK | OK |
-| `cpr` | OK — kick forced to 0 (`main.py:761`) | OK — gamma_p kick + PSO `θ_dot` (5th var); Stage-1 branch gated off (`_IN_PSO_STAGE1`) | ✗ **suborbital** — see note |
-| `peg` | OK | OK | OK |
-| `peg_new` | OK | OK | OK |
-| `exp_shooting` | OK | OK — PSO optimises `a, b` (5th/6th vars), re-epoched per arc | ✗ **suborbital** — see note |
+| GUIDANCE_MODE | `apogee_check` | `pso_coast` | `direct` (always PSO) | `reference_track` (no search) |
+|---|---|---|---|---|
+| `gravity_turn` | OK | OK | ✗ **suborbital** — see note | ✗ raises |
+| `linear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf` (5th/6th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) | ✗ raises |
+| `bilinear_tangent` | OK (closed-loop fallback) | OK — **open-loop** since 2026-09-11: PSO optimises `θ0, θf, μ` (5th–7th vars), continuous through the coast | ✗ **suborbital** — see note (closed-loop fallback) | ✗ raises |
+| `apollo` | ✗ **raises `ValueError`** — incompatible (`main.py`, apogee_check branch); use `peg_new` here, or `apollo` under `direct`/`pso_coast` | OK | OK | ✗ raises (would need a prescribed t_go) |
+| `cpr` | OK — kick forced to 0 (`main.py:761`) | OK — gamma_p kick + PSO `θ_dot` (5th var); Stage-1 branch gated off (`_IN_PSO_STAGE1`) | ✗ **suborbital** — see note | ✗ raises |
+| `peg` | OK | OK | OK | ✗ raises |
+| `peg_new` | OK | OK | OK | OK — measured 2026-09-23: arc-1 miss +0.03 km / −0.11 m/s / +0.045°, inserts at 504.8 km, 402 kg behind the reference |
+| `exp_shooting` | OK | OK — PSO optimises `a, b` (5th/6th vars), re-epoched per arc | ✗ **suborbital** — see note | ✗ raises |
 
 `indirect_pmp`: ✅ only via its own branch (`main.py:292`); `COAST_METHOD` has **no effect**.
 Requires PyGMO. **Needs a large PSO budget** (the production default `250×500`) — a reduced-budget run
@@ -803,6 +808,18 @@ Each is legal to set but does something other than what you'd expect. With `file
   per-step counter-force `m·|a_cross|` [N] is computed, stored and plotted; when False nothing is
   computed. (The former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` and `TRACK_HEADING_STATE` flags were
   removed — heading is no longer propagated as an ODE state.)
+
+- **`reference_track` is read against the reference, not against `pso_coast` (2026-09-23).**
+  `show_ref_track` differs from `peg_baseline` in the arc-1 target, in who picks the kick and the coast,
+  and in the cutoff rule at once, so the pair isolates nothing; its gap to `pmp_baseline` is peg_new's
+  tracking loss. Two properties of the flight to report with it:
+  - **The arc-3 steering is degenerate.** The reference coasts almost to the insertion point, so arc 3
+    is one frozen cycle (1.43 s, first t_go already inside the 10 s freeze window). With t_go that
+    short the λ′_r term (∝ r_go/t_go³) swamps the steering and α swings −90° → +90° (thrust
+    straight down, then straight up). F6.14's panel flags it as "peaks −90, 90°". The burn cannot
+    remove the 4.8 km radius error arc 1's +0.045° left, which is most of the 402 kg.
+  - **The coast is scheduled, not guided.** It lasts the reference's Δt_c from wherever arc 1 ended,
+    so an arc-1 miss is carried into arc 3 uncorrected.
 
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,
   `COAST_METHOD="direct"`, `KICK_PROFILE_MODE`, `RUN_FAST`, and the `DIRECT_*` settings are ignored

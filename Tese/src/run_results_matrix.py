@@ -10,7 +10,8 @@ the factors are varied *within* a guidance law rather than across all nine. Two
 laws are analysed in depth -- the gravity turn as a passive floor and peg_new as
 the closed-loop ceiling -- against indirect_pmp as the optimal reference; five
 of the remaining six are flown once each for breadth (classical peg is not
-flown, see SHOWCASE_LAWS). Everything else in
+flown, see SHOWCASE_LAWS), and peg_new once more with no optimiser at all,
+flying the reference's own plan (show_ref_track). Everything else in
 simulation_parameters.py is a fixed condition of the experiment and is recorded
 once, in the manifest, rather than swept. See Chapter 6 §6.1.
 
@@ -41,7 +42,9 @@ all -- its cost is the Ns=1000 brute grid in solver.py, and every grid point is
 a complete ra.run() ascent -- so gt_apogee costs the same at any budget and is
 usually the most expensive case in the set. PSO_DIRECT_* is already 50x100 in
 the shipped config, so --budget 50,100 leaves the two "direct" cases at full
-production fidelity.
+production fidelity. show_ref_track (COAST_METHOD="reference_track") runs
+no search either; it flies the plan stored in the reference cache, identically
+at any budget.
 
 Per-case output
 ---------------
@@ -277,7 +280,7 @@ def _parse_budget(text):
 
 
 def build_matrix():
-    """The 19 production cases, in chapter order.
+    """The 20 production cases, in chapter order.
 
     The design is one frozen baseline with **one factor changed at a time**, but
     the factors are varied *within* each guidance law rather than across all
@@ -374,6 +377,18 @@ def build_matrix():
     for law in SHOWCASE_LAWS:
         cases.append(dict(name="show_" + law, section="6.7", factor="law_breadth",
                           overrides={"GUIDANCE_MODE": law}))
+    # peg_new handed the reference's plan, with no optimiser: the kick, the
+    # state where the reference's first burn ends (the arc-1 target) and the
+    # coast length come from the tracked pmp_reference.npz; both burns end on
+    # peg_new's own t_go. Read against pmp_baseline -- its gap is the law's
+    # tracking loss -- and NOT against peg_baseline, from which it differs in
+    # the arc-1 target, who picks the kick and coast, and the cutoff rule at
+    # once. Deterministic and seconds long, so --budget and --smoke do not
+    # touch it (under --smoke it flies the token smoke reference instead).
+    cases.append(dict(name="show_ref_track", section="6.7",
+                      factor="reference_tracking",
+                      overrides={"GUIDANCE_MODE": "peg_new",
+                                 "COAST_METHOD": "reference_track"}))
     # Two runs on ONE law combination, differing only in who picks the hand-off
     # altitude. The fixed run flies the schedule as written; the optimised run
     # appends the non-first activation altitudes to the PSO decision vector and
@@ -475,6 +490,16 @@ def _dispatch(sim_params):
         time_a, data, thrust, alpha, _, result, _, _ = run_pso_coast_full(params, verbose=True)
         return (time_a, data, thrust, alpha, result, J, pcs.LAST_PSO_COAST_HISTORY,
                 {'decision_vector': [float(v) for v in params]})
+
+    if arch == "reference_track":
+        # No search: the reference cache supplies the plan and peg_new ends both
+        # burns. decision_vector is therefore the REFERENCE's (indirect layout),
+        # the plan this case was handed; what it flew is realised_schedule.
+        import Simulation.reference_track_solver as rts
+        from Simulation.pso_coast_solver import compute_coast_objective
+        time_a, data, thrust, alpha, _, result, _, _ = rts.run_reference_track(verbose=True)
+        return (time_a, data, thrust, alpha, result, compute_coast_objective(result),
+                None, rts.archive_extra())
 
     if arch == "direct":
         from Simulation.direct_pso_solver import (run_direct_optimization,
@@ -588,7 +613,7 @@ def run_case(name, smoke=False, budget=None, sets=None):
     # the experiment, and a timestamped id per attempt would leave make_all.py
     # unable to find "gt_baseline". An interactive run gets the timestamped id
     # instead and never overwrites anything.
-    # Each case gets its own folder. Nineteen cases as fifty-eight files in one
+    # Each case gets its own folder. Twenty cases as sixty files in one
     # directory is unreadable, and a folder per case also means a single case
     # can be copied, compared or thrown away on its own.
     saved = store.save_run(

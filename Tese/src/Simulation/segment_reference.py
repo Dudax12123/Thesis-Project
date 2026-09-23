@@ -211,16 +211,19 @@ def _load_cache(path, key):
         return None
 
 
-def _save_cache(path, key, time_full, data_full, alpha_full, source=None):
+def _save_cache(path, key, time_full, data_full, alpha_full, source=None,
+                decision_vector=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     extra = {} if source is None else {"source": np.array(str(source))}
+    if decision_vector is not None:
+        extra["decision_vector"] = np.asarray(decision_vector, dtype=float)
     np.savez(path, key=np.array(key), time_full=time_full, data_full=data_full,
              alpha_full=alpha_full, **extra)
 
 
 def _run_pmp_reference(verbose):
     """Run the indirect-PMP PSO + dense re-run. Requires PyGMO.
-    Returns (time_full, data_full, alpha_full)."""
+    Returns (time_full, data_full, alpha_full, decision_vector)."""
     import Simulation.indirect_pso_solver as ips
     n_particles, n_gen = _reference_pso_settings()
     if verbose:
@@ -232,7 +235,8 @@ def _run_pmp_reference(verbose):
     time_full, data_full, alpha_full = out[0], out[1], out[3]
     return (np.asarray(time_full, dtype=float),
             np.asarray(data_full, dtype=float),
-            np.asarray(alpha_full, dtype=float))
+            np.asarray(alpha_full, dtype=float),
+            np.asarray(best_x, dtype=float))
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +317,11 @@ def cache_from_archive(npz_path, verbose=True, allow_other_search=False):
     the configured swarm's output. The archive's path, source, label and seed are
     stored in the cache as ``source`` so the substitution stays visible.
 
+    The archive's ``decision_vector`` is cached with the trajectory when the
+    archive carries one. It is the reference's PLAN -- kick, burn split and
+    coast length -- which COAST_METHOD="reference_track" flies; the trajectory
+    alone does not state it (2026-09-23).
+
     Returns (cache_path, key).
     """
     import json
@@ -336,6 +345,8 @@ def cache_from_archive(npz_path, verbose=True, allow_other_search=False):
         time_full = np.asarray(npz["time"], dtype=float)
         data_full = np.asarray(npz["data"], dtype=float)[:5]
         alpha_full = np.asarray(npz["alpha"], dtype=float)
+        decision_vector = (np.asarray(npz["decision_vector"], dtype=float)
+                           if "decision_vector" in npz.files else None)
     if not (time_full.ndim == 1 and data_full.shape == (5, time_full.size)
             and alpha_full.shape == time_full.shape):
         raise ValueError(f"{npz_path}: not a trajectory archive (time {time_full.shape}, "
@@ -349,7 +360,8 @@ def cache_from_archive(npz_path, verbose=True, allow_other_search=False):
             "seed": config.get("PSO_SEED"),
             "budget": [config.get("PSO_N_PARTICLES"), config.get("PSO_MAX_GENERATIONS")],
         })
-    _save_cache(path, key, time_full, data_full, alpha_full, source=source)
+    _save_cache(path, key, time_full, data_full, alpha_full, source=source,
+                decision_vector=decision_vector)
     if verbose:
         print(f"[segment_reference] cached PMP reference from {npz_path} to: {path}")
     return path, key
@@ -396,11 +408,55 @@ def _get_pmp_reference_impl(verbose, need_alpha):
     if verbose:
         print("[segment_reference] building PMP reference (PyGMO PSO) — this is slow; "
               "the result will be cached for reuse.")
-    time_full, data_full, alpha_full = _run_pmp_reference(verbose)
-    _save_cache(cache_path, key, time_full, data_full, alpha_full)
+    time_full, data_full, alpha_full, decision_vector = _run_pmp_reference(verbose)
+    _save_cache(cache_path, key, time_full, data_full, alpha_full,
+                decision_vector=decision_vector)
     if verbose:
         print(f"[segment_reference] cached PMP reference to: {cache_path}")
     return time_full, data_full, alpha_full
+
+
+def get_pmp_reference_plan(verbose=True):
+    """The reference trajectory together with the decision vector that flew it.
+
+    Returns ``(time_full, data_full, decision_vector, source)``, with the
+    indirect layout ``[lambda0_r, lambda0_v, lambda0_g, delta_tc, delta_tr_pct,
+    coast_start_pct, gamma_p]`` and ``source`` the cache's provenance string
+    (None for a cache the swarm built itself). COAST_METHOD="reference_track"
+    flies this plan.
+
+    Loads, or builds, exactly as ``get_pmp_reference`` does. A cache written
+    before the decision vector was stored is handled by where it came from:
+    one the swarm built is reproducible from its key, so it is rebuilt once;
+    one seeded from an archive (it has a ``source``) is NOT, because a rebuild
+    would replace that archive's trajectory -- a polished extremal, say -- with
+    the configured swarm's. That case raises and names the archive to re-seed
+    from.
+    """
+    import json
+    time_full, data_full, _alpha = _get_pmp_reference_impl(verbose, need_alpha=False)
+    path = _abs_cache_path()
+    with np.load(path, allow_pickle=False) as npz:
+        source = str(npz["source"]) if "source" in npz.files else None
+        x = (np.asarray(npz["decision_vector"], dtype=float)
+             if "decision_vector" in npz.files else None)
+    if x is not None:
+        return time_full, data_full, x, source
+    if source is not None:
+        archive = json.loads(source).get("archive")
+        raise RuntimeError(
+            f"{path} was seeded from an archive before the cache stored the decision "
+            f"vector, so it cannot say which plan flew it. Re-seed it from the same "
+            f"archive (the trajectory is unchanged, the plan is added):\n"
+            f"    segment_reference.cache_from_archive({archive!r}, "
+            f"allow_other_search=True)")
+    if verbose:
+        print("[segment_reference] cache has no stored decision vector — rebuilding "
+              "once (the swarm's output is reproducible from the cache key).")
+    time_full, data_full, alpha_full, x = _run_pmp_reference(verbose)
+    _save_cache(path, _reference_input_key(), time_full, data_full, alpha_full,
+                decision_vector=x)
+    return time_full, data_full, x, None
 
 
 def alpha_at(data_full, alpha_full, alt):

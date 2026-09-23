@@ -348,6 +348,8 @@ GUIDANCE_SEGMENTS = [
 SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD = 2.0
 
 # --- Indirect-PMP reference trajectory (supplies the segment waypoints) ---
+# Also the plan COAST_METHOD = "reference_track" flies (§9): the cache stores the
+# reference's decision vector beside its trajectory since 2026-09-23.
 SEGMENT_TARGET_SOURCE     = "pmp"   # "pmp" (interpolate the PMP reference) — only option for now
 PMP_REFERENCE_CACHE       = "Tese/src/Output/pmp_reference.npz"  # cache file path
 PMP_REFERENCE_USE_CACHE   = True    # load the cache if present and inputs unchanged
@@ -450,7 +452,21 @@ PEG_CONVERGENCE_MAX_ITER = 30       # Max iterations for both modes
 #                    use "pso_coast"/"apogee_check" (which have a coast) for those.
 #                    direct_pso_solver prints a warning for those pairings.
 #                    PSO tuning for this method lives in §11c (PSO_DIRECT_*).
-COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct"
+#   "reference_track": NO optimiser. peg_new flies the indirect-PMP reference's
+#                    plan (reference_track_solver): the reference cache
+#                    (PMP_REFERENCE_CACHE, §8) supplies the kick gamma_p, the
+#                    state where the reference's first Stage-2 burn ends (the
+#                    arc-1 target: h, v, gamma), and the coast duration. Arc 3
+#                    aims at the objective orbit. Both burns end on peg_new's own
+#                    t_go, freezing at APOLLO_FREEZE_THRESHOLD; the burn durations
+#                    and the mass delivered are outputs. GUIDANCE_MODE must be
+#                    "peg_new" (raises otherwise). Measures the tracking loss of a
+#                    closed-loop law handed the optimum's plan: compare it with
+#                    the reference (pmp_baseline), not with a pso_coast case.
+#                    Stage 1 must reproduce the reference's ignition state to
+#                    round-off or the run raises. No PyGMO needed while the cache
+#                    holds a valid reference.
+COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct", "reference_track"
 
 # -------------- Direct-insertion REPORTING tolerances --------------
 # Diagnostic only (COAST_METHOD == "direct"): these do NOT affect the PSO solve, the

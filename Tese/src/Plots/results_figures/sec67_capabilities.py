@@ -13,25 +13,37 @@ import numpy as np
 from . import _data
 from . import _style as st
 
+# The five showcase laws, then peg_new flying the reference's plan with no
+# search (show_ref_track), which fills the sixth slot of the 2 x 3 grid.
 SHOWCASE = ["show_cpr", "show_linear_tangent", "show_bilinear_tangent",
-            "show_apollo", "show_exp_shooting"]
+            "show_apollo", "show_exp_shooting", "show_ref_track"]
 
-# One representative case per architecture for the convergence panel. The
-# apogee_check case is deliberately absent: it runs no swarm and has no
-# convergence history to show, which is itself part of the cost comparison.
+# One representative case per architecture for the cost panel. gt_apogee and
+# show_ref_track run no swarm and have no convergence curve to draw; their bars
+# are there because that is itself part of the cost comparison.
 COST_CASES = ["gt_baseline", "peg_direct", "pmp_baseline", "show_seg_opt_alt",
-              "gt_apogee"]
+              "gt_apogee", "show_ref_track"]
 
 
 def _skip(name, missing):
     print("  [skip] %s -- missing %s" % (name, ", ".join(missing)))
 
 
+def _label(case):
+    """The law's name, qualified when the law is not what distinguishes the case.
+
+    show_ref_track flies peg_new, as peg_baseline does, so the law's name alone
+    would give two traces the same legend entry."""
+    if case.architecture == "reference_track":
+        return "%s on PMP plan" % st.law_label(case.law)
+    return st.law_label(case.law)
+
+
 def showcase_laws(cases):
-    """F6.14 -- the five showcase laws, at the baseline, in one figure.
+    """F6.14 -- the five showcase laws at the baseline, and peg_new on the PMP plan.
 
     Panel (b) is small multiples rather than an overlay because alpha is what
-    distinguishes these laws from one another, and five alpha traces on shared
+    distinguishes these laws from one another, and six alpha traces on shared
     axes would be a solid block. Each panel keeps the same axis limits so the
     shapes remain comparable.
     """
@@ -62,18 +74,17 @@ def showcase_laws(cases):
         case = cases[name]
         colour = st.VARIANT_CYCLE[i % len(st.VARIANT_CYCLE)]
         s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
-        ax_traj.plot(s_km, alt_km, color=colour, label=st.law_label(case.law),
-                     zorder=2)
+        ax_traj.plot(s_km, alt_km, color=colour, label=_label(case), zorder=2)
     ax_traj.set_xlabel("Downrange [km]")
     ax_traj.set_ylabel("Altitude [km]")
     st.panel_tag(ax_traj, "a")
     st.tidy(ax_traj, legend=False)
-    # Outside the axes: seven entries over a trajectory panel cover the curves
+    # Outside the axes: eight entries over a trajectory panel cover the curves
     # they are labelling whichever corner they are put in.
     ax_traj.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=1,
                    fontsize=6.8)
 
-    # Shared limits, so the five small panels compare rather than merely coexist.
+    # Shared limits, so the six small panels compare rather than merely coexist.
     # Taken from a percentile rather than the extremes: one law transients to
     # about -140 deg for a few seconds, and letting that set the range flattens
     # the others into a band a few pixels high. The clip is drawn as a
@@ -110,13 +121,14 @@ def showcase_laws(cases):
             ax.annotate("peaks " + ", ".join(clipped) + r"$^\circ$",
                         xy=(0.97, 0.90), xycoords="axes fraction",
                         fontsize=6, color=st.GREY, ha="right")
-        ax.set_title(st.law_label(case.law), fontsize=7.5, pad=3)
+        ax.set_title(_label(case), fontsize=7.5, pad=3)
         ax.tick_params(labelsize=6.5)
         if i % 3 == 0:
             ax.set_ylabel(r"$\alpha$ [deg]", fontsize=7.5)
-        # Label time on every panel with nothing beneath it: with five laws in
-        # a 2 x 3 grid the last slot is empty, so the top-right panel is a
-        # column's bottom panel too.
+        # Label time on every panel with nothing beneath it. The rule covers a
+        # grid with its last slot empty too -- the top-right panel is then a
+        # column's bottom panel -- which is how it looks until show_ref_track
+        # has been flown.
         if i + 3 >= len(SHOWCASE):
             ax.set_xlabel("Time [s]", fontsize=7.5)
         st.tidy(ax, legend=False)

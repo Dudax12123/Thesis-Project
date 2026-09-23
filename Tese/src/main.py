@@ -1244,8 +1244,77 @@ def execute():
             # Fall through to the shared plotting block below.
 
         # =====================================================================
+        # REFERENCE-TRACK PATH — no optimiser: peg_new flies the PMP reference's
+        # plan (kick, arc-1 end state, coast length) and ends both burns on its
+        # own t_go. Its branch must exist: the else below catches every other
+        # value and would run the apogee_check brute search instead.
+        # =====================================================================
+        elif _coast_method == 'reference_track':
+
+            from Simulation.reference_track_solver import run_reference_track
+            import Simulation.reference_track_solver as rts
+            from Simulation.pso_coast_solver import (compute_coast_objective,
+                                                     breakdown_coast_objective)
+
+            (time, data, thrust_full, alpha_full, _t_ign, result_opt,
+             coriolis_mag_data, centrifugal_mag_data) = run_reference_track(verbose=True)
+            J_optimal = compute_coast_objective(result_opt)
+            pso_history = None          # nothing is searched
+            gamma_p_opt = rts.LAST_REFERENCE_TRACK["plan"]["gamma_p"]
+            kick_angle_optimal = gamma_p_opt - np.pi / 2.0
+            best_azimuth_override = None
+            delta_v = 0.0               # direct insertion, no circularisation burn
+            _simulation_failed = result_opt['crashed']
+
+            thrust_data     = thrust_full
+            time_thrust     = time
+            alpha_data      = alpha_full
+            alpha_time_data = time
+
+            if not _simulation_failed:
+                sf = result_opt['state_final']
+                bd = breakdown_coast_objective(result_opt)
+                schedule = rts.LAST_REFERENCE_TRACK["realised_schedule"]
+                p2_remaining = max(0.0, sf[4] - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
+                print("\n" + "="*60)
+                print("REFERENCE-TRACK RESULTS")
+                print("="*60)
+                print(f"\t* Objective J' (pso_coast's):\t\t{J_optimal:.4f}  "
+                      f"[J {bd['J']:.4f}, alt {bd['alt']:.4f}, vel {bd['vel']:.4f}, "
+                      f"fpa {bd['fpa']:.4f}]")
+                print(f"\t* Realised schedule:\t\t\tcoast {schedule[0]:.2f} s, burn "
+                      f"{schedule[1]:.2f} % of T_max, coast start {schedule[2]:.2f} %")
+                print(f"\t* Stage-2 propellant remaining:\t\t{p2_remaining:.1f} kg")
+                v_in, g_in = ra.get_inertial_state_components(
+                    sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
+                a, e, r_apo, r_peri, T = ra.get_orbital_elements(sf[1], v_in, g_in)
+                _print_final_orbital_elements(a, e, r_apo, r_peri, T, data)
+                _print_propellant_losses()
+                print("\n" + "="*60)
+                print("SIMULATION COMPLETE")
+                print("="*60 + "\n")
+            else:
+                print("\n" + "!"*60)
+                print("REFERENCE-TRACK SIMULATION CRASHED in "
+                      + str(rts.LAST_REFERENCE_TRACK["crashed_in"]))
+                print("!"*60 + "\n")
+                # Archived even on a crash: see the indirect branch above.
+                _archive_run(time, data, thrust_data, time_thrust, alpha_data,
+                             alpha_time_data, result=result_opt, J=J_optimal,
+                             history=pso_history,
+                             suite=_suite_channels(thrust_data, time_thrust,
+                                                   alpha_data, alpha_time_data,
+                                                   coriolis_mag_data,
+                                                   centrifugal_mag_data,
+                                                   pso_history),
+                             wall_clock=_perf_counter() - _wall_started)
+                return time, data, kick_angle_optimal
+
+            # Fall through to the shared plotting block below.
+
+        # =====================================================================
         # APOGEE-CHECK / BRUTE-FORCE DIRECT PATH — runs for every COAST_METHOD
-        # except 'pso_coast' and the direct+pso combination handled above.
+        # except 'pso_coast', 'direct' and 'reference_track', handled above.
         # =====================================================================
         else:
 

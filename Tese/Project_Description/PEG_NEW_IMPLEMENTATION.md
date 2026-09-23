@@ -140,7 +140,7 @@ The target is `(r_T, v_θT, v_rT)`. The callers supply:
 - **Final orbit:** `r_T = R_E + TARGET_ORBITAL_ALTITUDE`, `v_rT = 0`, and
   `v_θT = √(μ/r_T) − ω·r_T·cos φ_L` (`earth_rotation.v_circular_rotating`). That is the
   unprojected rotation-credit convention recorded in `CLAUDE.md`.
-- **Intermediate waypoint** (`SegmentTarget`, the segmented mode, `dev-notes/arc1_reference_track.py`):
+- **Intermediate waypoint** (`SegmentTarget`, the segmented mode, `COAST_METHOD="reference_track"`):
   `v_θT = v·cos γ`, `v_rT = v·sin γ` of the waypoint.
 - `v_theta_T=None` falls back to the inertial `√(μ/r_T)`.
 
@@ -208,7 +208,7 @@ with `t_s` the time since the last major-loop update and `(u_r, u_θ)` normalise
 | caller | how the major loop is driven |
 |---|---|
 | `pso_coast_solver._compute_alpha_stage2` | inside the ODE right-hand side, every `PEG_MAJOR_LOOP_RATE` of integrator time |
-| `direct_pso_solver._fly_law_terminated_burn` (and `dev-notes/arc1_reference_track.py`) | outside the ODE, on accepted states; the burn ends when the law's own `t_go` expires |
+| `direct_pso_solver._fly_law_terminated_burn`, `reference_track_solver.fly_law_terminated_arc` | outside the ODE, on accepted states; the burn ends when the law's own `t_go` expires |
 | `rocket_ascent.rocket_dynamics` (legacy `apogee_check`) | inside the right-hand side, module globals |
 | `peg_new_tgo` | `t_go` for `apollo` (and the closed-loop tangent laws) when `TGO_ESTIMATOR="peg_new"`, on **every** right-hand-side evaluation |
 
@@ -276,7 +276,9 @@ law's value at the archived decision vector.
 
 **Closed loop.** `dev-notes/arc1_reference_track.py` flies `peg_baseline`'s configuration with no
 optimiser. It takes the PMP reference's kick and coast length, and uses its coast-start state as
-the arc-1 target. Archives are in `Tese/src/Output/arc1_reference_track_pegfix/`; the pre-fix
+the arc-1 target. Since 2026-09-23 that flight is `COAST_METHOD="reference_track"`
+(`Simulation/reference_track_solver.py`) and the results-matrix case `show_ref_track` (§6.7), which
+reproduces the "after" column below bit for bit; the script imports it and adds the controls. Archives are in `Tese/src/Output/arc1_reference_track_pegfix/`; the pre-fix
 ones are in `…/arc1_reference_track/`.
 
 | | before | after | PMP reference |
@@ -301,6 +303,10 @@ C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m pytest Tese/src/tests/tes
 
 ```bash
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/arc1_reference_track.py --runs ref_track --freeze 10 --out Tese/src/Output/arc1_reference_track_pegfix
+```
+
+```bash
+C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe Tese/src/run_results_matrix.py --case show_ref_track
 ```
 
 ---

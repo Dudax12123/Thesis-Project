@@ -85,6 +85,7 @@ ARCH_LABELS = {
     "direct": "Direct",
     "indirect_pmp": "Indirect PMP",
     "segmented": "Segmented",
+    "reference_track": "PMP plan, no search",
 }
 
 # The Stage-1 nozzle models, as THRUST_1_MODE spells them. A raw config
