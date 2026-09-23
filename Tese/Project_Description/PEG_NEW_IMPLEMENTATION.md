@@ -237,6 +237,7 @@ cutoff.
 | 4 | step 19: `v_go += v_miss` | `v_go += ω·v_miss`, secant `ω` | convergence when the turn angle is large (§4.3) |
 | 5 | step 20: until converged | `‖v_miss‖ < 0.05 m/s`, at most 20 passes, stop at a burn longer than `τ` | a bounded cost inside a swarm; unreachable targets |
 | 6 | — | `L0 ≥ 1 m/s` | keeps `t_go > 0` at cutoff |
+| 7 | no freeze: steps 4–19 repeat every guidance cycle until cutoff | the constants freeze once `t_go` falls below `APOLLO_FREEZE_THRESHOLD` (10 s; `SegmentTarget.freeze_threshold` for an intermediate segment) and are flown open-loop to cutoff; a law-terminated burn ends at the frozen `t_go` | near cutoff `λ'_r` grows like `r_go/t_go³` and the corrector loses its fixed point (§4.5). Teren [7] stops the major loop about 10 s before cutoff for the same reason and flies the last coefficients, rate term kept. A burn that starts inside the window gets one frozen cycle (§9) |
 
 ---
 
@@ -334,6 +335,16 @@ from the previous cycle, the Shuttle practice [3], would cut this further. It is
   `TGO_ESTIMATOR="peg_new"`.
 - Chapter 4, §"Vector Predictor–Corrector Variant" (`Thesis_Guidance.tex`), still describes the
   old trapezoid. It will be rewritten when thesis edits resume.
+- A burn that starts inside the freeze window (§5, #7) is one frozen cycle. `show_ref_track`'s
+  1.43 s arc 3 is the case in point. Its `λ'_r` is large enough that α swings −90° → +90°, and it
+  ends 6.5 m/s short of the target speed. It still inserts into a 492 × 505 km orbit, 402 kg behind
+  the reference. Two remedies were measured on 2026-09-23 with the law patched in memory:
+  - Setting `λ'_r = 0` for `t_go ≤ 10 s`, in the corrector's prediction as well as the steering,
+    makes arc 3 exact and saves 341 kg. Normal burns give up 30–46 m of altitude.
+  - A turn-angle cap in the form of von der Porten et al. 2018 (eq. 4), with θ_max between 20° and
+    45°, gives the same arc-3 result. It binds on `pso_coast` flights, where the turn angle reaches 83°.
+  - No published value for θ_max was found.
+  - **Both are on hold** by decision: the orbit is acceptable as it is.
 
 ---
 
@@ -355,3 +366,6 @@ from the previous cycle, the Shuttle practice [3], would cut this further. It is
    (PEG)," AIAA SciTech 2021 Forum, Jan. 2021, doi:10.2514/6.2021-2021.
 6. J. Barzilai and J. M. Borwein, "Two-point step size gradient methods," *IMA Journal of
    Numerical Analysis*, Vol. 8, No. 1, 1988, pp. 141–148.
+7. F. Teren, "Explicit Guidance Equations for Multistage Boost Trajectories," NASA TN D-3189,
+   Lewis Research Center, 1966, section "Cutoff Logic" (p. 16 of the PDF). Local copy:
+   `Desktop/Tese/References/19660006073-PEG.pdf`.
