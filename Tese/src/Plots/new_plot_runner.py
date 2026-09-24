@@ -120,6 +120,7 @@ def run_new_plot_suite(time, data, thrust_data, time_thrust, alpha_data, alpha_t
             tgo_time_data, tgo_data,
             freeze_threshold=apollo_freeze_threshold,
             save_path=files["apollo_tgo"], show=show,
+            thrust_time=time_thrust, thrust=thrust_data,
         )
 
     if theta_data is not None and theta_time_data is not None and len(theta_time_data) > 0:
