@@ -826,21 +826,85 @@ Each is legal to set but does something other than what you'd expect. With `file
     remove the 4.8 km radius error arc 1's +0.045° left, which is most of the 402 kg.
   - **The coast is scheduled, not guided.** It lasts the reference's Δt_c from wherever arc 1 ended,
     so an arc-1 miss is carried into arc 3 uncorrected.
-  - **Apollo's arc 3 is degenerate too.** It lasts 0.19 s, and its t_go is that short, so α
-    swings ±90° as well.
+  - **Apollo's arc 3 is degenerate too, and why (2026-09-24).** It lasts 0.19 s and α jumps to
+    +90°. The chain:
+    1. **Arc 1 ends on the reference's clock.** Apollo is a fixed-time law, so it spends exactly the
+       reference's propellant (miss 0 kg). Its steering is not the reference's optimum, and P12
+       serves the vertical channel first, so less of that thrust goes along the velocity. That
+       leaves a −3.7 m/s speed miss (and +0.046° in γ) that it cannot burn longer to recover.
+    2. **The coast is scheduled, not guided (above).** 1447 s later, apollo reaches arc-3 ignition
+       2.05 km below the target, sinking at 7.81 m/s, and 2.35 m/s short horizontally.
+       peg_new misses γ by the same +0.045° but speed by only 0.1 m/s, and it arrives 4.8 km
+       *high*. So the low arrival is apollo's speed deficit.
+    3. **Arc 3 is short by construction.** Its length is apollo's own t_go (`TGO_ESTIMATOR` =
+       rocket equation, kept by decision 2026-09-24), i.e. the time to add the 8.16 m/s still
+       missing at ~42 m/s²: 81.4 s × (1 − e^(−8.16/3414)) = 0.194 s, one frozen cycle. Burning
+       longer would overshoot the speed target. The reference itself needs only ~1 m/s (0.025 s).
+       The target convention (unprojected credit; 2026-09-17) makes the 500 km target state
+       reachable by coasting, so the plan puts nearly all the propulsion into arc 1.
+    4. **The t_go estimate counts velocity, not position.** Nothing asks for the time a 2 km
+       radius correction would need. The polynomial is asked to fix altitude and vertical rate in
+       0.19 s, P12 gives all the thrust to the vertical channel (α = +90°), and the burn mostly
+       cancels the sink rate. The 2 km carries into the 481 × 501 km orbit.
 
-- **Apollo and the tangent laws refresh their coefficients inside the ODE right-hand side under
-  `pso_coast` (known, not fixed).** The refresh fires whenever `GUIDANCE_UPDATE_RATE` has passed,
-  including on `solve_ivp`'s speculative trial points, up to `_MAX_STEP` = 10 s ahead on an
-  extrapolated state. It dates the coefficients from that trial time, and the integrator then flies
-  them at negative elapsed time.
+    **Proposed fixes, none implemented:**
+    - **Guided coast end.** Start arc 3 at the vehicle's own apoapsis (or at the target-radius
+      crossing), not after the reference's Δt_c. This removes the arrival sink rate, so arc 3 only
+      trims speed; the altitude miss remains but the orbit is near-circular at it. It applies to
+      both laws.
+    - **Arc-1 cutoff on velocity for apollo.** Let apollo's arc 1 end when its velocity-to-be-gained
+      to the waypoint is spent, as peg_new's does, instead of on the reference's instant. This
+      attacks the root −3.7 m/s. It costs apollo's fixed-time character on arc 1, and it needs a
+      waypoint t_go; `TGO_ESTIMATOR` stays as it is.
+    - **Mid-coast trim.** Add a small correction burn after arc 1 to cancel the arc-1 miss before
+      1447 s of coasting amplifies it. This is an architecture change: a fourth arc.
+    - **Terminal attitude hold.** When arc 3's first t_go is shorter than one guidance cycle, fly
+      it prograde (attitude hold) instead of the polynomial. This follows Teren 1966 (major loop
+      stopped ~10 s before cutoff) and Ma et al. 2025 (hold at t_go ≤ 5 s). It removes the ±90°
+      swing, not the altitude miss. It sits with peg_new's λ′-drop / turn-cap item, on hold since
+      2026-09-23.
+    - **Not proposed:** changing `TGO_ESTIMATOR` (user decision 2026-09-24).
+
+- **peg_new and apollo refresh their coefficients inside the ODE right-hand side under `pso_coast`,
+  `direct` and segmented (known, not fixed).** The refresh fires whenever `PEG_MAJOR_LOOP_RATE` /
+  `GUIDANCE_UPDATE_RATE` has passed, including on `solve_ivp`'s speculative trial points, up to
+  `_MAX_STEP` = 10 s ahead on an extrapolated state. It dates the coefficients from that trial time,
+  and the integrator then flies them at negative elapsed time. apollo's freeze latch fires the same
+  way. The tangent laws' closed-loop refresh has the same form, but under `pso_coast` they fly
+  open-loop from the swarm's constants (`_compute_alpha_stage2`, the `open_loop_tan` branch), so it
+  is reached only under `direct` and segmented, where no matrix case flies them.
   - Measured 2026-09-23 on apollo's reference-track arc 1: α hit ±90° from t_go ≈ 37 s and the arc
     ended 966 m/s short. Refreshed outside the ODE (`GuidanceState.apollo_external`, as
     `reference_track` does), the same arc lands within 0.03 km / 3.7 m/s / 0.05° of the waypoint.
   - `show_apollo` and every other `pso_coast` apollo run still use the in-RHS refresh. Fixing it
     changes those results and is a pending decision.
-  - peg_new has the same hazard under `pso_coast` (the 2026-09-22 "92 % of calls" finding). Only
-    `direct`'s law-terminated mode and `reference_track` run it outside the ODE.
+  - peg_new: the 2026-09-22 "92 % of calls" finding. Only `direct`'s law-terminated mode and
+    `reference_track` run it outside the ODE.
+  - **Measured 2026-09-24 on all 7 affected cases** (`dev-notes/refresh_ab.py`). The law code is
+    identical in both modes; only the sampling of the refresh changes, onto accepted states at cycle
+    boundaries. Output: `Output/refresh_ab/`. The vectors are the archived (stale) ones, and the two
+    segmented cases borrow peg_baseline's.
+    - **Trial points.** 95.6–99.0 % of coefficient updates land on trial points, up to 6.3–8.8 s
+      ahead.
+    - **Objective noise.** In-RHS, J is noisy along every decision coordinate: the k-th-difference
+      noise is 1e-8 to 3, worst along γ_p (1.8 for `peg_direct`, 2.9 for `show_apollo`, at h = 1e-6
+      of the range). With the cycle refresh it is ~1e-12. The production swarms' late gbest gains
+      (2e-7–2e-6 over the last ~100 generations) sit below the in-RHS noise.
+    - **Cost.** The cycle refresh takes 28–54 % fewer RHS evaluations, and its wall time is within
+      −27 %/+18 % of production even with the script's wrapper overhead.
+    - **What changes in the flight.**
+      - The burns are time-terminated, so the final mass does not change. Only the insertion
+        state does: peg_new ends 2.3–3.9 km higher and 25–38 m/s faster at these vectors.
+      - `show_apollo`'s 50×100 optimum goes from J 0.965 to 1.278.
+      - The steering differs only in the last ~20 s before cutoff, where in-RHS α oscillates
+        (`peg_direct`: −14° to +22°).
+
+- **The segmented dense re-run is not the flight the swarm evaluated (found 2026-09-24).**
+  `_thrust_phase` restarts from `sol.t[-1]` after the altitude-switch event. With a `t_eval` grid,
+  scipy truncates the grid at the last point before the root, so `run_segmented_full` switches law
+  up to 0.5 s earlier than `run_segmented_trajectory` does. Measured on `show_seg_*`: J differs by
+  1e-3 to 3e-2 between the two, in either refresh mode. The archived segmented row is therefore
+  not exactly the optimum's flight. Known, not fixed.
 
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,
   `COAST_METHOD="direct"`, `KICK_PROFILE_MODE`, `RUN_FAST`, and the `DIRECT_*` settings are ignored
