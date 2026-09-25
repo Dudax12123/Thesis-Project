@@ -548,7 +548,7 @@ Tese/src/Output/                     DATA  (ARCHIVE_DIR)
 ├── runs/index.csv                               browsable index, rebuildable by scan
 ├── results_matrix/<case>/<case>.npz  .json  .manifest.json   the Chapter 6 batch,
 │                                                             one folder per case
-├── results_matrix/results_matrix.csv            all 20 rows, at the top level
+├── results_matrix/results_matrix.csv            all 21 rows, at the top level
 ├── results_matrix_*/                            a batch run with --out, same layout
 └── pmp_reference.npz                            the PMP reference: segmented waypoints + reference_track plan (TRACKED)
 
@@ -919,12 +919,48 @@ Each is legal to set but does something other than what you'd expect. With `file
       - The steering differs only in the last ~20 s before cutoff, where in-RHS α oscillates
         (`peg_direct`: −14° to +22°).
 
-- **The segmented dense re-run is not the flight the swarm evaluated (found 2026-09-24).**
+- **The segmented dense re-run was not the flight the swarm evaluated (found 2026-09-24, FIXED
+  2026-09-25: `_thrust_phase` now restarts from `t_events[1]`/`y_events[1]`; the fitness path is
+  unchanged, and under the cycle refresh the re-run's J equals the fitness J exactly).**
   `_thrust_phase` restarts from `sol.t[-1]` after the altitude-switch event. With a `t_eval` grid,
   scipy truncates the grid at the last point before the root, so `run_segmented_full` switches law
   up to 0.5 s earlier than `run_segmented_trajectory` does. Measured on `show_seg_*`: J differs by
-  1e-3 to 3e-2 between the two, in either refresh mode. The archived segmented row is therefore
-  not exactly the optimum's flight. Known, not fixed.
+  1e-3 to 3e-2 between the two, in either refresh mode. Every segmented archive flown before the
+  fix carries this.
+
+- **The results-matrix configuration for the production batch (decided case by case,
+  2026-09-25).**
+  - **Budget.** Every re-flown swarm runs at **250×1000**, matching the kept archives. Pass it as
+    `run_results_matrix.py --budget 250,1000`; the config file is not edited, and its defaults
+    stay coast/MG 100×250 and direct 50×100.
+  - **Refresh.** `GUIDANCE_REFRESH_MODE = "cycle"` in `BASELINE` (see above).
+  - **§6.2.** The six gravity-turn archives (8203d94, 09-17/18) are **kept**. Five replay
+    bit-identical at HEAD; `gt_apogee` was not replayed.
+  - **`peg_direct`.** Now `DIRECT_LAW_TERMINATED_CUTOFF = True` with
+    `DIRECT_OPTIMIZER = "grid_brent"`: peg_new ends its own burn, and the kick is the only
+    variable (~520 flights). It differs from `gt_direct` in the cutoff rule as well as the law.
+  - **§6.4.**
+    - The two PMP rows are **polished extremals re-flown from stored decision vectors**
+      (`build_matrix` `extremal=`, `run_results_matrix.PMP_*_EXTREMAL`), not swarmed. Each takes
+      ~1–2 s.
+    - `pmp_baseline` is the tracked `pmp_reference.npz` extremal: seed 3, 750×1500 swarm plus the
+      half-step polish, 22 261.2 kg. `show_ref_track`, `show_ref_track_apollo` and the segmented
+      waypoints follow this same extremal.
+    - `pmp_vacuum` is the best polished vacuum: seed 3, 250×1000 plus the same polish,
+      23 952.1 kg. No 750×1500 vacuum swarm exists, so the two rows started from different
+      budgets.
+    - This reverses the 2026-09-17 "raw swarm only" decision, so Chapter 5/6 must describe
+      `dev-notes/pmp_swarm_polish.py`.
+    - The archive's manifest carries the batch's `PSO_SEED`/budget. The extremal's own
+      provenance is in `extremal_source` / `extremal_seed` / `extremal_swarm_budget`.
+  - **§6.7.**
+    - The five showcase laws and the two reference-tracking cases are kept as defined.
+    - The reference-tracking cases now follow the very extremal §6.4 presents.
+    - The segmented re-run is fixed (above).
+    - `show_seg_opt_alt` keeps its 10 km altitude floor. If its optimum puts the switch below
+      Stage-2 ignition (~69 km), peg_new's Stage-1 part refreshes in the RHS, since the cycle
+      refresh does not reach the Stage-1 hook; report it with the case.
+  - `tests/test_results_matrix_config.py` pins these.
 
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,
   `COAST_METHOD="direct"`, `KICK_PROFILE_MODE`, `RUN_FAST`, and the `DIRECT_*` settings are ignored

@@ -257,10 +257,19 @@ def _thrust_phase(t0, duration, y0, gs, segs, mgr, teval_fn=None):
         pieces.append(sol)
         if len(sol.t_events[0]) > 0:                 # ground collision
             return t_cur, y_cur, True, pieces
-        t_cur = float(sol.t[-1])
-        y_cur = sol.y[:5, -1].copy()
-
         crossed = (nxt is not None and len(sol.t_events[1]) > 0)
+        # Restart from the crossing itself, read out of t_events/y_events. With a
+        # t_eval grid (the dense re-run) scipy truncates sol.t at the last grid
+        # point at or before the root, so sol.t[-1] put the law switch up to 0.5 s
+        # early and the archived flight was not the one the swarm scored (J off by
+        # 1e-3..3e-2, found 2026-09-24). Without t_eval sol.t[-1] IS the root, so
+        # the PSO path is unchanged.
+        if crossed:
+            t_cur = float(sol.t_events[1][0])
+            y_cur = np.asarray(sol.y_events[1][0][:5], dtype=float).copy()
+        else:
+            t_cur = float(sol.t[-1])
+            y_cur = sol.y[:5, -1].copy()
         if crossed:
             mgr["idx"] += 1
             gs.restart_for_new_burn()

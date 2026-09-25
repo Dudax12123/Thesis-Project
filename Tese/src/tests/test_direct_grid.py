@@ -71,7 +71,10 @@ def test_unknown_optimizer_raises(monkeypatch):
 @pytest.mark.parametrize("case, x, J", [("peg_direct", PEG_DIRECT_X, PEG_DIRECT_J),
                                         ("gt_direct", GT_DIRECT_X, GT_DIRECT_J)])
 def test_default_path_reproduces_the_archived_rows(monkeypatch, case, x, J):
-    _configure(monkeypatch, case, GUIDANCE_REFRESH_MODE="in_rhs")
+    # the rows' own configuration: swarm-picked burn (peg_direct is law-terminated
+    # in the matrix since 2026-09-25) and the in-RHS refresh
+    _configure(monkeypatch, case, GUIDANCE_REFRESH_MODE="in_rhs",
+               DIRECT_LAW_TERMINATED_CUTOFF=False, DIRECT_OPTIMIZER="pso")
     assert not dps.law_terminated()
     assert dps._decision_bounds() == (sim_params.PSO_DIRECT_LB, sim_params.PSO_DIRECT_UB)
     assert dps.compute_direct_objective(dps.run_pso_direct_trajectory(*x)) == J

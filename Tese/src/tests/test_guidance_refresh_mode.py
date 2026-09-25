@@ -39,7 +39,12 @@ MEASURED = [
 
 def _configure(monkeypatch, case_name, **extra):
     case = next(c for c in rm.build_matrix() if c["name"] == case_name)
-    for key, value in {**rm.BASELINE, **case["overrides"], "EVENTS_PRINT": False,
+    # peg_direct was measured with the swarm-picked burn, which the matrix replaced
+    # by the law-terminated one on 2026-09-25 (that burn refreshes outside the ODE
+    # in either mode, so there would be nothing to compare)
+    pinned = ({"DIRECT_LAW_TERMINATED_CUTOFF": False, "DIRECT_OPTIMIZER": "pso"}
+              if case_name == "peg_direct" else {})
+    for key, value in {**rm.BASELINE, **case["overrides"], **pinned, "EVENTS_PRINT": False,
                        "INTERRUPTS_PRINT": False, **extra}.items():
         assert hasattr(sim_params, key), key
         monkeypatch.setattr(sim_params, key, value)

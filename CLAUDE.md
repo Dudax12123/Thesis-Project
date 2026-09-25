@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds sixteen files (214 tests as of 2026-09-25). pytest is installed
+Tests — `Tese/src/tests/` holds seventeen files (220 tests as of 2026-09-25). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -107,6 +107,14 @@ PMP swarms and the ~1 h reference rebuild). `--case <name>` runs one case in-pro
 solver output on screen; `--only` takes a **comma-separated** list of substrings
 (`--only gt_,peg_` is exactly the ten cases of §6.2 and §6.3, in one invocation — filtering across
 two invocations would leave `results_matrix.csv` holding only the second one's rows).
+
+**The production configuration was fixed with the user on 2026-09-25;** see worktree.md §4.
+- Re-flown swarms run at `--budget 250,1000`.
+- The refresh fix is on.
+- The six §6.2 archives are kept.
+- `peg_direct` is law-terminated with the grid + Brent kick search.
+- The two §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
+  swarmed** (`pmp_baseline` = the tracked reference cache's extremal).
 
 Two flags exist so a subset can be rehearsed without editing config or endangering the real batch:
 `--budget P,G` sets every swarm architecture's PSO budget in memory (`--budget 50,100`), and

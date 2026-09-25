@@ -288,6 +288,17 @@ def _parse_budget(text):
         raise SystemExit("--budget wants two integers, got %r" % text)
 
 
+# Section 6.4's two rows: polished PMP extremals, full float64 (see build_matrix).
+# The baseline one is the tracked pmp_reference.npz's decision_vector (a test
+# keeps the two equal).
+PMP_BASELINE_EXTREMAL = [-8.164825684552658e-06, -0.00595717532331387, -0.9999822558403237,
+                         1446.8331219788931, 75.9779861533329, 99.99030152462818,
+                         1.5371391567133106]
+PMP_VACUUM_EXTREMAL = [-7.271789438061455e-06, -0.0053205593975460975, -0.999985845697237,
+                       1432.2234132163621, 74.15337334433919, 99.98408704190528,
+                       1.5088990082793967]
+
+
 def build_matrix():
     """The 21 production cases, in chapter order.
 
@@ -351,9 +362,17 @@ def build_matrix():
     # against the case directly above it.
     cases.append(dict(name="peg_baseline", section="6.3", factor="baseline",
                       overrides={"GUIDANCE_MODE": "peg_new"}))
+    # peg_new ends its own burn on its own t_go (decision 2026-09-25), so the only
+    # decision variable left is the kick, searched by the deterministic grid +
+    # Brent rather than a 250x1000 swarm on one variable. It therefore differs
+    # from gt_direct in the cutoff rule as well as the law: gt_direct's swarm
+    # picks the burn length, a law with no terminal targeting having no cutoff
+    # of its own to use.
     cases.append(dict(name="peg_direct", section="6.3", factor="architecture",
                       overrides={"GUIDANCE_MODE": "peg_new",
-                                 "COAST_METHOD": "direct"}))
+                                 "COAST_METHOD": "direct",
+                                 "DIRECT_LAW_TERMINATED_CUTOFF": True,
+                                 "DIRECT_OPTIMIZER": "grid_brent"}))
     cases.append(dict(name="peg_vacuum", section="6.3", factor="atmosphere",
                       overrides={"GUIDANCE_MODE": "peg_new",
                                  "INCLUDE_DRAG": False}))
@@ -376,11 +395,34 @@ def build_matrix():
     # costate equations stay as published and omit the terms' sub-percent
     # partials -- see pseudo_forces_flown in the collected row and the
     # force_model_note of Plots/results_figures/_data.py.
+    #
+    # Both rows are POLISHED extremals, re-flown from their decision vectors
+    # rather than swarmed (decision 2026-09-25, reversing 2026-09-17's "raw swarm
+    # only"): the swarm alone does not find the PMP optimum, and pmp_baseline must
+    # be the very extremal that show_ref_track, show_ref_track_apollo and the
+    # segmented waypoints follow -- the tracked pmp_reference.npz, whose
+    # decision_vector is this one. Each came from a seed-3 swarm refined by
+    # dev-notes/pmp_swarm_polish.py (Levenberg-Marquardt on the orbit and
+    # duration-stationarity conditions, half-step). The two started from
+    # different swarm budgets, which Chapter 6 states: no 750x1500 vacuum swarm
+    # exists.
     cases.append(dict(name="pmp_baseline", section="6.4", factor="reference",
-                      overrides={"GUIDANCE_MODE": "indirect_pmp"}))
+                      overrides={"GUIDANCE_MODE": "indirect_pmp"},
+                      extremal=dict(
+                          x=PMP_BASELINE_EXTREMAL,
+                          source="Output/pmp_polish_750x1500/pmp_baseline/"
+                                 "b750half_start0_20260921_162253 (seed 3, 750x1500 swarm "
+                                 "+ half-step polish; = pmp_reference.npz)",
+                          seed=3, swarm_budget=[750, 1500])))
     cases.append(dict(name="pmp_vacuum", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp",
-                                 "INCLUDE_DRAG": False}))
+                                 "INCLUDE_DRAG": False},
+                      extremal=dict(
+                          x=PMP_VACUUM_EXTREMAL,
+                          source="Output/pmp_polish/pmp_vacuum/"
+                                 "s3half_start0_20260921_163026 (seed 3, 250x1000 swarm "
+                                 "+ half-step polish)",
+                          seed=3, swarm_budget=[250, 1000])))
 
     # --- Section 6.7: capability showcase ---------------------------------
     for law in SHOWCASE_LAWS:
@@ -451,7 +493,7 @@ def _architecture(sim_params):
     return run_record.architecture(sim_params)
 
 
-def _dispatch(sim_params):
+def _dispatch(sim_params, case=None):
     """Run one trajectory.
 
     Returns ``(time, data, thrust, alpha, result, J, history, extra)``.
@@ -495,6 +537,18 @@ def _dispatch(sim_params):
     if arch == "indirect_pmp":
         from Simulation.indirect_pso_solver import run_pso_optimization, run_indirect_full
         import Simulation.indirect_pso_solver as ips
+        ext = (case or {}).get("extremal")
+        if ext:
+            # A stored extremal, re-flown: no search. PSO_SEED and the budget in the
+            # manifest are the batch's, not this point's, so its provenance goes in
+            # the archive beside it.
+            params = [float(v) for v in ext["x"]]
+            time_a, data, thrust, alpha, _, result = run_indirect_full(params, verbose=True)
+            J = float(ips.compute_augmented_objective(result))
+            return (time_a, data, thrust, alpha, result, J, None,
+                    {'decision_vector': params, 'extremal_source': ext["source"],
+                     'extremal_seed': int(ext["seed"]),
+                     'extremal_swarm_budget': [int(v) for v in ext["swarm_budget"]]})
         params, J = run_pso_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result = run_indirect_full(params, verbose=True)
         return (time_a, data, thrust, alpha, result, J, ips.LAST_PSO_HISTORY,
@@ -623,7 +677,7 @@ def run_case(name, smoke=False, budget=None, sets=None):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     started = _time.time()
-    time_a, data, thrust, alpha, result, J, history, extra = _dispatch(sim_params)
+    time_a, data, thrust, alpha, result, J, history, extra = _dispatch(sim_params, case)
     wall_clock = _time.time() - started
 
     # One writer for the whole simulator. The case name is passed explicitly, so
