@@ -31,9 +31,20 @@ Per case and mode:
 
 The decision vectors are representative points, not current optima (see X_SOURCES).
 
+Production has had the same thing since 2026-09-24: GUIDANCE_REFRESH_MODE = "cycle"
+(pso_coast_solver.solve_guided_arc). This script pins the in_rhs production path for its
+own two modes, and at each x also flies production with the switch on: that J must equal
+this script's cycle J bit for bit (J_production_cycle in the per-case JSON).
+
+--onoff flies each case's full flight through PRODUCTION with the switch off and on
+(<case>__off / <case>__on, whose manifests differ in GUIDANCE_REFRESH_MODE alone), overlays
+each pair with run_archive.py compare, tabulates them and redraws the noise figures
+(Plots/results_figures/diag_refresh_noise.py) into Output_Plots/comparisons/refresh_onoff/.
+
 Run from the repository root:
     C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/refresh_ab.py
     C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/refresh_ab.py --selftest
+    C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/refresh_ab.py --onoff
 """
 
 import argparse
@@ -110,7 +121,9 @@ def _import_solvers():
 def configure(case, extra=None):
     rrm._apply(sp, rrm.BASELINE)
     rrm._apply(sp, {c["name"]: c for c in rrm.build_matrix()}[case]["overrides"])
-    rrm._apply(sp, {"EVENTS_PRINT": False, "INTERRUPTS_PRINT": False})
+    # Both modes here run over production's in_rhs path; "cycle" is emulated around it.
+    rrm._apply(sp, {"EVENTS_PRINT": False, "INTERRUPTS_PRINT": False,
+                    "GUIDANCE_REFRESH_MODE": "in_rhs"})
     if extra:
         rrm._apply(sp, extra)
     _import_solvers()
@@ -653,6 +666,17 @@ def measure(case_name, args):
               + f"  | {1e3 * at_x['wall_s_median']:.1f} ms  nfev {s['nfev_stage2']}  "
                 f"updates {s['n_updates']} (trial {s['n_on_trial_points']}, "
                 f"look-ahead {s['max_lookahead_s']:.2f} s)")
+    # The production switch must fly exactly this script's cycle mode.
+    sp.GUIDANCE_REFRESH_MODE = "cycle"
+    try:
+        J_pc, _ = case.evaluate(case.x)
+    finally:
+        sp.GUIDANCE_REFRESH_MODE = "in_rhs"
+    J_cy = out["modes"]["cycle"]["at_x"]["J"]
+    out["J_production_cycle"] = J_pc
+    out["production_cycle_equals_cycle"] = (J_pc == J_cy)
+    print(f"  production GUIDANCE_REFRESH_MODE='cycle': J {J_pc:.10f}  "
+          + ("== this script's cycle mode" if J_pc == J_cy else f"!= {J_cy!r}  MISMATCH"))
     path = Path(args.out) / case_name / f"{case_name}.refresh_ab.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=1, default=float), encoding="utf-8")
@@ -677,6 +701,62 @@ def archive(case_name, mode, args):
                    source="dev-notes/refresh_ab.py", label=f"{case_name}: {mode} refresh",
                    tags={"section": "dev", "factor": "refresh_ab"}, verbose=False)
     print(f"  archived {name}  J {J:.10f}")
+
+
+def archive_production(case_name, state, args):
+    """The production switch itself, no wrapper: GUIDANCE_REFRESH_MODE off / on."""
+    configure(case_name)
+    sp.GUIDANCE_REFRESH_MODE = {"off": "in_rhs", "on": "cycle"}[state]
+    case = Case(case_name)
+    from Archive import store
+    t0 = time.time()
+    (time_a, data, thrust, alpha, _t_ign, result, _cor, _cen) = case.full(case.x)
+    J = case.objective(result)
+    name = f"{case_name}__{state}"
+    store.save_run(sp, time_a, data, thrust, alpha, result, J=J, history=None,
+                   extra={"decision_vector": case.x.tolist(), "x_source": case.x_source,
+                          "x_borrowed": case.borrowed},
+                   wall_clock=time.time() - t0, name=name, root=Path(args.out) / case_name,
+                   source="dev-notes/refresh_ab.py --onoff",
+                   label=f"{case_name}: GUIDANCE_REFRESH_MODE={sp.GUIDANCE_REFRESH_MODE}",
+                   tags={"section": "dev", "factor": "refresh_mode"}, verbose=False)
+    print(f"  archived {name}  J {J:.10f}")
+
+
+def onoff(names, args):
+    me = str(Path(__file__).resolve())
+    for name in names:
+        for state in ("off", "on"):
+            sys.stdout.flush()
+            subprocess.run([sys.executable, me, "--case", name, "--archive-production", state,
+                            "--out", args.out], check=True)
+    fig_root = SRC / "Output_Plots" / "comparisons" / "refresh_onoff"
+    rows = []
+    for name in names:
+        subprocess.run([sys.executable, str(SRC / "run_archive.py"), "compare",
+                        f"{Path(args.out) / name}::{name}__off",
+                        f"{Path(args.out) / name}::{name}__on",
+                        "--labels", "refresh off (in-RHS),refresh on (cycle)",
+                        "--out", str(fig_root / name)], check=True,
+                       stdout=subprocess.DEVNULL)
+        pair = [json.loads((Path(args.out) / name / f"{name}__{s}.json").read_text(
+            encoding="utf-8")) for s in ("off", "on")]
+        rows.append((name, pair))
+    keys = ("J_prime", "insertion_alt_km", "insertion_v_ms", "insertion_fpa_deg",
+            "periapsis_km", "apoapsis_km", "prop_remaining_kg")
+    print()
+    print("=" * 118)
+    print(f"  {'case':<19}{'':>4}" + "".join(f"{k:>14}" for k in keys))
+    for name, (off, on) in rows:
+        for tag, row in (("off", off), ("on", on)):
+            print(f"  {name if tag == 'off' else '':<19}{tag:>4}"
+                  + "".join(f"{row.get(k, float('nan')):14.4f}" for k in keys))
+    print("=" * 118)
+    sys.path.insert(0, str(SRC))
+    from Plots.results_figures import diag_refresh_noise
+    diag_refresh_noise.make(OUT_DEFAULT if Path(args.out) == OUT_DEFAULT else args.out,
+                            fig_root)
+    print(f"  overlays and noise figures in {fig_root}")
 
 
 # ---------------------------------------------------------------------------
@@ -805,10 +885,17 @@ def main():
     ap.add_argument("--out", default=str(OUT_DEFAULT), help="output root")
     ap.add_argument("--selftest", action="store_true", help="stitching self-test only")
     ap.add_argument("--summary-only", action="store_true", help="rebuild the summary table")
+    ap.add_argument("--onoff", action="store_true",
+                    help="production switch off vs on: archives, overlays, table, figures")
+    ap.add_argument("--archive-production", choices=["off", "on"],
+                    help="with --case: one production full flight with the switch off/on")
     args = ap.parse_args()
 
     if args.selftest:
         selftest(args)
+        return
+    if args.case and args.archive_production:
+        archive_production(args.case, args.archive_production, args)
         return
     if args.case:
         if args.archive:
@@ -820,6 +907,9 @@ def main():
     unknown = set(names) - set(CASES)
     if unknown:
         raise SystemExit("unknown case(s): " + ", ".join(sorted(unknown)))
+    if args.onoff:
+        onoff(names, args)
+        return
     if not args.summary_only:
         failed = []
         me = str(Path(__file__).resolve())
