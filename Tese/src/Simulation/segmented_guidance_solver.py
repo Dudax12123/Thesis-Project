@@ -246,8 +246,8 @@ def _thrust_phase(t0, duration, y0, gs, segs, mgr, teval_fn=None):
         events = [pcs._event_crash]
         if nxt is not None:
             events.append(_make_alt_event(nxt))
-        sol = solve_ivp(
-            lambda t, y: pcs._stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
+        sol = pcs.solve_guided_arc(
+            lambda t, y: pcs._stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs), gs,
             t_span=(t_cur, t_target),
             y0=y_cur,
             t_eval=(teval_fn(t_cur, t_target) if teval_fn is not None else None),

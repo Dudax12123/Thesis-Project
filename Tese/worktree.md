@@ -285,6 +285,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 |---|---|---|---|---|
 | `GUIDANCE_MODE` (L119) | `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`, `peg_new`, `exp_shooting`, `indirect_pmp` | `indirect_pmp` | The ascent steering law (post-kick / Stage-2). | Drives **everything**: `indirect_pmp` overrides `COAST_METHOD`; `cpr`/`exp_shooting`/`linear_tangent`/`bilinear_tangent` add extra PSO vars under `pso_coast`; `apollo` **raises** under `apogee_check` (use `peg_new`); under `direct` only `apollo`/`peg`/`peg_new` reach orbit (others → suborbital); `cpr` skips the kick under apogee_check. Invalid value **raises** (`main.py:201`). |
 | `GUIDANCE_UPDATE_RATE` (L124) | float s | `2` | Recompute interval for apollo/linear/bilinear coefficients. | Only matters if `GUIDANCE_COEFFICIENTS_FIXED=False`. **No effect on the tangent laws under `pso_coast`** (open-loop since 2026-09-11). |
+| `GUIDANCE_REFRESH_MODE` (L300) | `"in_rhs"`, `"cycle"` | `"in_rhs"` | Where apollo / peg_new / peg / closed-loop tangent refresh their coefficients under `pso_coast`, `direct` and the segmented Stage 2 (2026-09-24). `"in_rhs"`: inside the ODE RHS, on solve_ivp's trial points too (historic). `"cycle"`: once per guidance cycle on the accepted state, each thrust arc integrated cycle by cycle (`pso_coast_solver.solve_guided_arc`). | **Changes the results of the 7 affected matrix cases**; every archive before 2026-09-24 is `"in_rhs"`. The results matrix does not set it, so it flies the default. No effect on `reference_track`, `direct`'s law-terminated burn (already outside the ODE), open-loop laws, `indirect_pmp` or `apogee_check`. Does **not** reach a law steering Stage 1 through the segmented hook (still in the RHS). Invalid value **raises**. See §4. |
 | `APOLLO_FREEZE_THRESHOLD` (L125) | float s | `10.0` | t_go below which apollo/peg coefficients freeze (stability). | apollo, peg, peg_new only. |
 | `APOLLO_THRUST_MAGNITUDE_CONTROL` (L127) | `True`/`False` | `False` | If True, apollo also commands thrust magnitude. | apollo only. |
 | `GUIDANCE_COEFFICIENTS_FIXED` (L132) | `True`/`False` | `True` | Compute linear/bilinear coeffs once vs. every update; `t_go` always recomputed each step. | linear/bilinear tangent only; gates `GUIDANCE_UPDATE_RATE`. **Silently ignored under `pso_coast`**, where both tangent laws fly open-loop from PSO constants; still live under `apogee_check`/`direct`/segmented. Note the closed-loop form it gates matches the current γ, so with `False` linear tangent returns α ≡ 0 (audit 2026-09-10). |
@@ -866,7 +867,8 @@ Each is legal to set but does something other than what you'd expect. With `file
     - **Not proposed:** changing `TGO_ESTIMATOR` (user decision 2026-09-24).
 
 - **peg_new and apollo refresh their coefficients inside the ODE right-hand side under `pso_coast`,
-  `direct` and segmented (known, not fixed).** The refresh fires whenever `PEG_MAJOR_LOOP_RATE` /
+  `direct` and segmented, by default. Fixed behind `GUIDANCE_REFRESH_MODE = "cycle"` since
+  2026-09-24; the default stays `"in_rhs"`.** The refresh fires whenever `PEG_MAJOR_LOOP_RATE` /
   `GUIDANCE_UPDATE_RATE` has passed, including on `solve_ivp`'s speculative trial points, up to
   `_MAX_STEP` = 10 s ahead on an extrapolated state. It dates the coefficients from that trial time,
   and the integrator then flies them at negative elapsed time. apollo's freeze latch fires the same
@@ -876,10 +878,27 @@ Each is legal to set but does something other than what you'd expect. With `file
   - Measured 2026-09-23 on apollo's reference-track arc 1: α hit ±90° from t_go ≈ 37 s and the arc
     ended 966 m/s short. Refreshed outside the ODE (`GuidanceState.apollo_external`, as
     `reference_track` does), the same arc lands within 0.03 km / 3.7 m/s / 0.05° of the waypoint.
-  - `show_apollo` and every other `pso_coast` apollo run still use the in-RHS refresh. Fixing it
-    changes those results and is a pending decision.
+  - `show_apollo` and every other archived `pso_coast` apollo run flew the in-RHS refresh. So
+    does anything flown with the default.
   - peg_new: the 2026-09-22 "92 % of calls" finding. Only `direct`'s law-terminated mode and
     `reference_track` run it outside the ODE.
+  - **The fix (2026-09-24):** `GUIDANCE_REFRESH_MODE = "cycle"`.
+    - **How it works.** `pso_coast_solver.solve_guided_arc` replaces `solve_ivp` for every guided
+      thrust arc of `pso_coast`, `direct` and the segmented Stage 2. With `"cycle"` it integrates
+      the arc one guidance cycle at a time:
+      - At each boundary the RHS is called once on the accepted state, with
+        `GuidanceState.refresh_force` opening the law's own refresh gate if a cycle has elapsed.
+      - The cycle is then flown with `refresh_hold` shutting that gate and apollo's freeze latch.
+    - **Defaults.** With `"in_rhs"` the helper is plain `solve_ivp`, and both flags are False,
+      which leaves every gate as it was. The 203 existing tests and the 7 measured in-RHS values
+      are unchanged bit for bit.
+    - **Verified.** The production switch reproduces the measurement script's cycle mode bit for
+      bit, on the fitness path and on the dense full flights, for all 7 cases.
+      `tests/test_guidance_refresh_mode.py` pins four of them and checks that every update happens
+      on an accepted cycle boundary.
+    - **Not covered.** A law steering Stage 1 through the segmented hook, which is still refreshed
+      in the RHS. The 7 matrix cases do not do this. The apollo freeze re-epoch quirk (pcs:576)
+      is shared by both modes.
   - **Measured 2026-09-24 on all 7 affected cases** (`dev-notes/refresh_ab.py`). The law code is
     identical in both modes; only the sampling of the refresh changes, onto accepted states at cycle
     boundaries. Output: `Output/refresh_ab/`. The vectors are the archived (stale) ones, and the two

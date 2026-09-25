@@ -51,6 +51,7 @@ from Simulation.pso_coast_solver import (
     _v_circular_rotating,
     GuidanceState,
     _stage2_ode_guidance,
+    solve_guided_arc,
     _event_crash,
     _T_MAX_2,
     _T_IGNITION_DELAY,
@@ -222,8 +223,8 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct=None, verbose=False):
     else:
         t_burn_end = t_ignition + t_burn
         gs.tgo_deadline = t_burn_end
-        sol_burn = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
+        sol_burn = solve_guided_arc(
+            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs), gs,
             t_span=(t_ignition, t_burn_end),
             y0=state_at_ign,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -633,8 +634,8 @@ def run_pso_direct_full(optimal_params, verbose=True):
         t_burn     = (t_burn_pct / 100.0) * _T_MAX_2
         t_burn_end = t_ignition + t_burn
         gs_full.tgo_deadline = t_burn_end
-        sol_burn = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full),
+        sol_burn = solve_guided_arc(
+            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full), gs_full,
             t_span=(t_ignition, t_burn_end),
             y0=state_at_ign,
             t_eval=_make_teval(t_ignition, t_burn_end),

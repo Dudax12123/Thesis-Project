@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds fifteen files (203 tests as of 2026-09-23). pytest is installed
+Tests — `Tese/src/tests/` holds sixteen files (213 tests as of 2026-09-24). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -149,8 +149,12 @@ Dispatch order (from `main.py`) — each level overrides the ones below it:
    it raises for any other law. apollo is a fixed-time law, so its arc 1 ends at the reference's
    cutoff instant. Its coefficients are refreshed outside the ODE (`GuidanceState.apollo_external`),
    because the `pso_coast` in-RHS refresh fires on `solve_ivp`'s speculative trial points. On this
-   flight that ended apollo's arc 1 966 m/s short. The defect is still live for `show_apollo`; see
-   worktree.md §4. `main.py`'s final `else` runs the apogee-check search for any value it does not
+   flight that ended apollo's arc 1 966 m/s short.
+   - `GUIDANCE_REFRESH_MODE = "cycle"` (2026-09-24) applies the same fix to every guided arc of
+     `pso_coast`, `direct` and the segmented Stage 2, through `pso_coast_solver.solve_guided_arc`.
+   - The default is `"in_rhs"`, which is byte-identical to before, so the matrix still flies the
+     defect until the switch is flipped.
+   - Measured by `dev-notes/refresh_ab.py`; see worktree.md §4. `main.py`'s final `else` runs the apogee-check search for any value it does not
    recognise, so a new value needs its own branch there.
 
 Nine guidance laws: `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`,

@@ -279,6 +279,26 @@ GUIDANCE_MODE = "peg_new"  # Options: "gravity_turn", "linear_tangent", "bilinea
 #  see §8b/§8c. TGO_ESTIMATOR / GUIDANCE_TGO_USE_PSO_PLAN feed the scalar-t_go modes.)
 GUIDANCE_UPDATE_RATE = 2                       # How often to recompute guidance coefficients [s]
 
+# -------------- Where the closed-loop laws refresh (PSO solvers) --------------
+# apollo, peg_new, peg and the closed-loop tangent laws recompute their coefficients
+# every GUIDANCE_UPDATE_RATE / PEG_MAJOR_LOOP_RATE seconds. Under pso_coast, direct
+# and the segmented Stage 2 that happens:
+#   "in_rhs": inside the ODE right-hand side, whenever the rate has passed at the
+#             point solve_ivp evaluates -- RK stages and rejected steps up to
+#             _MAX_STEP (10 s) ahead included, and apollo's freeze latch likewise.
+#             The historic behaviour: every archive before 2026-09-24 flew it.
+#   "cycle":  once per guidance cycle, on the state the integrator ACCEPTED. Each
+#             thrust arc is integrated one cycle at a time with the coefficients held
+#             (a major/minor loop, as a flight computer runs it), and apollo's freeze
+#             is decided at the cycle boundaries. Measured 2026-09-24 on the seven
+#             affected matrix cases (dev-notes/refresh_ab.py): 96-99 % of in_rhs
+#             refreshes land on trial points; "cycle" takes J's noise from 1e-8..3 to
+#             ~1e-12 and needs 28-54 % fewer RHS evaluations. It changes those cases'
+#             results. Not covered: a law steering Stage 1 through the segmented hook,
+#             which still refreshes in the RHS. reference_track and direct's
+#             law-terminated burn already refresh outside the ODE either way.
+GUIDANCE_REFRESH_MODE = "in_rhs"   # Options: "in_rhs", "cycle"
+
 # -------------- Time-to-go estimator (apollo / linear_tangent / bilinear_tangent / cpr-"tgo") --------------
 # Selects how t_go is estimated for the modes that consume it as a scalar:
 #   "rocket_equation": gravity-blind  T_BUP·(1−exp(−VG/Ve))   (current default)

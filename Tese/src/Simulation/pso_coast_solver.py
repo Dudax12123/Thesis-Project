@@ -169,6 +169,13 @@ class GuidanceState:
     # law, not the optimiser, ends the burn. False everywhere else (unchanged).
     peg_new_external: bool = False
 
+    # GUIDANCE_REFRESH_MODE="cycle" (set only by solve_guided_arc): refresh_force opens
+    # the refresh gate for the one RHS call made on the accepted state at a cycle
+    # boundary; refresh_hold keeps it -- and apollo's freeze latch -- shut while the
+    # cycle is integrated. Both False otherwise, which leaves every gate as it was.
+    refresh_force: bool = False
+    refresh_hold: bool = False
+
     # exp_shooting
     exp_shoot_a: Optional[float] = None
     exp_shoot_b: Optional[float] = None
@@ -532,7 +539,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
         elif mode == "linear_tangent":
             if (not sim_params.GUIDANCE_COEFFICIENTS_FIXED
-                    and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
+                    and (gs.refresh_force or (not gs.refresh_hold and
+                         (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE))):
                 tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = _lts_coeffs(state, tgo)
@@ -546,7 +554,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
         elif mode == "bilinear_tangent":
             if (not sim_params.GUIDANCE_COEFFICIENTS_FIXED
-                    and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
+                    and (gs.refresh_force or (not gs.refresh_hold and
+                         (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE))):
                 tgo = _tgo_for_guidance(t, state, F_T, Isp, gs, gs.lts_previous_tgo)
                 gs.lts_previous_tgo = tgo
                 gs.guidance_coefficients = bts_guidance.compute_bilinear_coefficients(
@@ -571,12 +580,13 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             gs.tgo_log.append(tgo)
             gs.tgo_time_log.append(t)
 
-            if tgo < freeze_thr and not gs.apollo_coefficients_frozen:
+            if tgo < freeze_thr and not gs.apollo_coefficients_frozen and not gs.refresh_hold:
                 gs.apollo_coefficients_frozen = True
                 gs.apollo_freeze_time         = t
 
             if (not gs.apollo_coefficients_frozen
-                    and (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE):
+                    and (gs.refresh_force or (not gs.refresh_hold and
+                         (t - gs.last_guidance_update_time) >= sim_params.GUIDANCE_UPDATE_RATE))):
                 gs.guidance_coefficients = _apollo_coeffs(state, tgo)
                 gs.apollo_freeze_time        = t
                 gs.last_guidance_update_time = t
@@ -589,7 +599,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
             _use_pso_plan = (sim_params.GUIDANCE_TGO_USE_PSO_PLAN
                               and gs.tgo_deadline is not None)
             if (not gs.peg_frozen
-                    and (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
+                    and (gs.refresh_force or (not gs.refresh_hold and
+                         (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE))):
                 if _use_pso_plan:
                     gs.peg_T = max(gs.tgo_deadline - t, 0.1)
                 else:
@@ -622,7 +633,8 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
         elif mode == "peg_new":
             if (not gs.peg_new_frozen and not gs.peg_new_external
-                    and (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE):
+                    and (gs.refresh_force or (not gs.refresh_hold and
+                         (t - gs.last_guidance_update_time) >= sim_params.PEG_MAJOR_LOOP_RATE))):
                 if (gs.peg_new_tgo is not None
                         and gs.peg_new_tgo < freeze_thr):
                     gs.peg_new_frozen = True
@@ -709,6 +721,111 @@ def _event_crash(t, y, *args):
 
 _event_crash.terminal  = True
 _event_crash.direction = -1
+
+
+# ===========================================================================
+# Guided thrust arcs: where the coefficient refresh happens (GUIDANCE_REFRESH_MODE)
+# ===========================================================================
+
+def _refresh_period(gs):
+    """Refresh period [s] of a law that refreshes its coefficients inside the RHS
+    (the gates in _compute_alpha_stage2), or None for one with nothing to refresh
+    there: open-loop, fixed-coefficient, or refreshed by its caller already."""
+    if gs is None or gs.peg_new_external or gs.apollo_external:
+        return None
+    mode = gs.mode_override if gs.mode_override is not None else sim_params.GUIDANCE_MODE
+    if mode in ("peg", "peg_new"):
+        return float(sim_params.PEG_MAJOR_LOOP_RATE)
+    if mode == "apollo":
+        return float(sim_params.GUIDANCE_UPDATE_RATE)
+    if (mode in ("linear_tangent", "bilinear_tangent") and gs.pso_tan_theta0 is None
+            and not sim_params.GUIDANCE_COEFFICIENTS_FIXED):
+        return float(sim_params.GUIDANCE_UPDATE_RATE)
+    return None
+
+
+def _refresh_frozen(gs):
+    mode = gs.mode_override if gs.mode_override is not None else sim_params.GUIDANCE_MODE
+    return {"peg": gs.peg_frozen, "peg_new": gs.peg_new_frozen,
+            "apollo": gs.apollo_coefficients_frozen}.get(mode, False)
+
+
+def solve_guided_arc(fun, gs, t_span, y0, t_eval=None, **kwargs):
+    """solve_ivp for a thrust arc steered by ``gs`` (the RHS ``fun`` closes over it).
+
+    GUIDANCE_REFRESH_MODE = "in_rhs": exactly ``solve_ivp`` -- the law refreshes inside
+    the right-hand side, on whatever point the integrator evaluates.
+
+    GUIDANCE_REFRESH_MODE = "cycle": the arc is integrated one guidance cycle at a
+    time. At each boundary the RHS is called once on the ACCEPTED state, with the
+    refresh forced if a cycle has elapsed, so the law's own init, freeze and refresh
+    code runs there; the cycle is then integrated with the refresh and apollo's freeze
+    latch held shut. Once the law is frozen the rest of the arc is one piece. Requested
+    ``t_eval`` points are read from each piece's dense output (the interpolant
+    solve_ivp's own t_eval uses), a terminal event ends the arc and truncates t_eval at
+    its root as solve_ivp does, and the result carries ``t``, ``y``, ``t_events``,
+    ``y_events``, ``nfev`` and ``status``.
+    """
+    refresh_mode = getattr(sim_params, "GUIDANCE_REFRESH_MODE", "in_rhs")
+    if refresh_mode not in ("in_rhs", "cycle"):
+        raise ValueError(f"GUIDANCE_REFRESH_MODE must be 'in_rhs' or 'cycle', "
+                         f"not {refresh_mode!r}")
+    period = _refresh_period(gs) if refresh_mode == "cycle" else None
+    if period is None:
+        return solve_ivp(fun, t_span, y0, t_eval=t_eval, **kwargs)
+
+    from scipy.optimize import OptimizeResult
+    kwargs.pop("dense_output", None)
+    events = kwargs.get("events")
+    n_ev = (0 if events is None
+            else len(events) if isinstance(events, (list, tuple)) else 1)
+    te = None if t_eval is None else np.asarray(t_eval, dtype=float)
+    t_end = float(t_span[1])
+    t, y = float(t_span[0]), np.asarray(y0, dtype=float).copy()
+    ts, ys = [], []
+    tev, yev = [[] for _ in range(n_ev)], [[] for _ in range(n_ev)]
+    nfev, status, message, first = 0, 0, "integrated one guidance cycle at a time", True
+    while t < t_end:
+        # The guidance cycle, on the accepted state. The tolerance absorbs the
+        # rounding of (last + period) - last.
+        gs.refresh_force = (gs.guidance_phase_active
+                            and (t - gs.last_guidance_update_time) >= period - 1e-9)
+        try:
+            fun(t, y)
+        finally:
+            gs.refresh_force = False
+        t_next = (t_end if _refresh_frozen(gs)
+                  else min(gs.last_guidance_update_time + period, t_end))
+        if t_next <= t:
+            t_next = min(t + period, t_end)
+        gs.refresh_hold = True
+        try:
+            sol = solve_ivp(fun, (t, t_next), y, dense_output=te is not None, **kwargs)
+        finally:
+            gs.refresh_hold = False
+        nfev += sol.nfev
+        t_hi = float(sol.t[-1])
+        if te is None:
+            ts.append(sol.t if first else sol.t[1:])
+            ys.append(sol.y if first else sol.y[:, 1:])
+        else:
+            m = ((te >= t) if first else (te > t)) & (te <= t_hi)
+            ts.append(te[m])
+            ys.append(sol.sol(te[m]) if m.any() else np.empty((len(y), 0)))
+        for i in range(n_ev):
+            tev[i].extend(np.atleast_1d(sol.t_events[i]).tolist())
+            yev[i].extend(list(sol.y_events[i]))
+        first = False
+        t, y = t_hi, sol.y[:, -1].copy()
+        if sol.status != 0:                  # terminal event (1) or failure (-1)
+            status, message = sol.status, sol.message
+            break
+    return OptimizeResult(
+        t=np.concatenate(ts), y=np.concatenate(ys, axis=1), sol=None,
+        t_events=([np.asarray(a, dtype=float) for a in tev] if n_ev else None),
+        y_events=([np.asarray(a, dtype=float).reshape(-1, len(y)) for a in yev]
+                  if n_ev else None),
+        nfev=nfev, njev=0, nlu=0, status=status, message=message, success=status >= 0)
 
 
 # ===========================================================================
@@ -818,8 +935,8 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     # intermediate target of its own (a PMP waypoint, see SegmentTarget).
     t_arc1_end = t_ignition + t_coast_start
     if t_coast_start > 0.01:
-        sol_arc1 = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
+        sol_arc1 = solve_guided_arc(
+            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs), gs,
             t_span=(t_ignition, t_arc1_end),
             y0=state_at_ign,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -873,8 +990,8 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     if delta_tc > 0.01:
         gs.tgo_deadline = t_arc3_end
     if t_arc3_burn > 0.01:
-        sol_arc3 = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs),
+        sol_arc3 = solve_guided_arc(
+            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs), gs,
             t_span=(t_arc3_start, t_arc3_end),
             y0=state_arc3,
             rtol=_RTOL, atol=_ATOL, max_step=_MAX_STEP,
@@ -1210,8 +1327,8 @@ def run_pso_coast_full(optimal_params, verbose=True):
     # ---- Arc 1 (thrust, dense) ----
     t_arc1_end = t_ignition + t_coast_start
     if t_coast_start > 0.01:
-        sol1 = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full),
+        sol1 = solve_guided_arc(
+            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full), gs_full,
             t_span=(t_ignition, t_arc1_end),
             y0=state_at_ign,
             t_eval=_make_teval(t_ignition, t_arc1_end),
@@ -1252,8 +1369,8 @@ def run_pso_coast_full(optimal_params, verbose=True):
     if delta_tc > 0.01:
         gs_full.tgo_deadline = t_arc3_end
     if t_arc3_burn > 0.01:
-        sol3 = solve_ivp(
-            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full),
+        sol3 = solve_guided_arc(
+            lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full), gs_full,
             t_span=(t_arc3_start, t_arc3_end),
             y0=state_arc3,
             t_eval=_make_teval(t_arc3_start, t_arc3_end),
