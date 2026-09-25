@@ -23,9 +23,9 @@ import Simulation.segment_reference as segref
 CASES = {c["name"]: c for c in rm.build_matrix()}
 
 
-def _configure(monkeypatch, case_name):
+def _configure(monkeypatch, case_name, **extra):
     for key, value in {**rm.BASELINE, **CASES[case_name]["overrides"],
-                       "EVENTS_PRINT": False, "INTERRUPTS_PRINT": False}.items():
+                       "EVENTS_PRINT": False, "INTERRUPTS_PRINT": False, **extra}.items():
         assert hasattr(sim_params, key), key
         monkeypatch.setattr(sim_params, key, value)
 
@@ -74,10 +74,11 @@ def test_pmp_baseline_replays_the_polished_archive(monkeypatch):
 
 def test_the_segmented_rerun_flies_the_flight_the_swarm_scored(monkeypatch):
     """The dense re-run restarts from the altitude-switch root, not from the last t_eval
-    point before it (up to 0.5 s early until 2026-09-25): its J is the fitness J."""
+    point before it (up to 0.5 s early until 2026-09-25): its J is the fitness J.
+    The swarm-timed form, which still takes the altitude switch inside a burn."""
     import Simulation.pso_coast_solver as pcs
     import Simulation.segmented_guidance_solver as sgs
-    _configure(monkeypatch, "show_seg_fixed_alt")
+    _configure(monkeypatch, "show_seg_fixed_alt", SEGMENTED_LAW_TERMINATED_ARCS=False)
     monkeypatch.setattr(segref, "_run_pmp_reference",
                         lambda *a, **k: (_ for _ in ()).throw(AssertionError("no rebuild")))
     segs = sgs._Segments(*segref.get_pmp_reference(verbose=False))

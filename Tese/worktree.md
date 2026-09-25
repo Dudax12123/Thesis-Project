@@ -168,12 +168,45 @@ reparametrisation → strictly increasing, within `MULTI_GUIDANCE_ALT_LB/UB`, `_
 reference apogee). The single coast typically lands inside the final segment — handled by the per-arc
 guidance re-init (`restart_for_new_burn`), the same mechanism single-law pso_coast uses.
 
+**The coast is not a segment boundary.** The schedule is keyed on altitude, so by default the final
+law aims at the **orbit** in both Stage-2 burns and the swarm's timing cuts the first one short: the
+arc-1 targeting gap of `pso_coast`. With `[("gravity_turn", 0), ("peg_new", 120 km)]` the 120 km
+waypoint belongs to the gravity turn, which cannot steer, so no burn has an intermediate target.
+`SEGMENTED_LAW_TERMINATED_ARCS = True` (2026-09-25, both matrix segmented cases) closes the gap
+(`run_segmented_law_terminated`):
+- The laws before the final one fly the schedule as before and burn on until the final law takes
+  over.
+- The final law, which must be `peg_new`, aims arc 1 at the PMP reference's **coast start** (the
+  state where the reference's first burn ends: 164.7 km, 7590.5 m/s, 2.81° for the tracked cache)
+  and ends it on its **own t_go**, frozen at `APOLLO_FREEZE_THRESHOLD` (10 s).
+- The vehicle coasts the swarm's `Δt_c`.
+- Arc 3 aims at the orbit and ends on peg_new's own t_go.
+
+This is `show_ref_track`'s cutoff rule (`reference_track_solver.fly_law_terminated_arc`, cycle
+refresh on accepted states). The swarm keeps only the kick, the coast and the hand-off:
+x = `[Δt_c, γ_p]` + the altitude fractions. Every activation altitude must lie below the coast
+start (a fixed schedule raises otherwise), and the optimised ones are capped at 0.98× its altitude
+(161.4 km instead of ~490 km).
+
+Measured on the reference's own kick and coast with the 120 km hand-off:
+- Arc 1 misses the coast start by +0.03 km, −0.13 m/s and +0.045°. `show_ref_track` misses by
+  0.03 km and 0.1 m/s.
+- Arc 3 lasts 1.4 s.
+- The insertion orbit is 491.8 × 504.7 km, delivering 25 490.3 kg against the reference's 26 161.2
+  kg. The gravity turn flying Stage 2 from ignition to 120 km is part of that gap.
+- Each flight costs 0.096 s, against 0.129 s for the swarm-timed form.
+
+Hand-off altitudes of 146 km and above are infeasible at that kick: the unsteered gravity turn never
+climbs that high in Stage 2, and the objective rejects them (J ≈ 2924). The fitness J equals the
+dense re-run's J exactly. `tests/test_segmented_law_terminated.py` pins all of this.
+
 | Variable (§8a-bis) | Allowed | Default | Controls / tangles |
 |---|---|---|---|
 | `MULTI_GUIDANCE_ENABLED` | bool | `False` | Master switch. **False ⇒ NOTHING here applies; every single-law path is byte-identical.** True ⇒ ignores `GUIDANCE_MODE`, `COAST_METHOD`, `KICK_PROFILE_MODE`, `RUN_FAST`, `DIRECT_*`, `TGO_ESTIMATOR`, `GUIDANCE_TGO_USE_PSO_PLAN`. |
 | `GUIDANCE_SEGMENTS` | list[(law, alt_m)] | `[("gravity_turn",0.0),("apollo",40e3),("peg_new",120e3)]` | Ordered schedule; altitudes strictly increasing (raises otherwise). The FIRST entry flies right after the kick (its altitude normalised to 0.0); gravity turn is a selectable law, NOT a forced prefix. Last entry inserts to orbit. 3+ entries work unchanged. |
 | `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` (§11d) | bool | `True` | Append the `(n−1)` non-first activation altitudes to the PSO decision vector (→ `4+(n−1)` vars) and optimise them to minimise Stage-2 burn time. False ⇒ use the `GUIDANCE_SEGMENTS` altitudes as-is. |
 | `MULTI_GUIDANCE_ALT_LB` / `_UB` (§11d) | float m | `10e3` / `TARGET_ORBITAL_ALTITUDE` (500e3) | Bounds for the optimised activation altitudes. `_UB` is now the objective orbit altitude (2026-07-23, was hardcoded `200e3`), still clamped at runtime to 0.98× reference apogee ⇒ effective ~490 km. Lets a late-insertion hand-off go as high as physically sensible. |
+| `SEGMENTED_LAW_TERMINATED_ARCS` | bool | `False` | Who ends the two Stage-2 burns. False: the swarm (`[Δt_c, Δt_r %, coast start %, γ_p]`), and the final law aims at the orbit in both. True: the final law, which must be `peg_new`: arc 1 to the reference's coast start and arc 3 to the orbit, each ended on its own t_go; x = `[Δt_c, γ_p]`. Every activation altitude must lie below the coast start; the optimised bound is capped at 0.98× it. See the "coast is not a segment boundary" paragraph above. **The results matrix sets True for both segmented cases (2026-09-25).** |
 | `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD` | float s | `2.0` | Coefficient-freeze t_go for intermediate (non-final) segments; final segment uses `APOLLO_FREEZE_THRESHOLD`. ⚠ **Too low for peg_new since its 2026-09-23 realignment:** λ'_r grows like r_go/t_go³, so below ~10 s the corrector has no fixed point and t_go stops falling. A law-terminated burn frozen at 2 s never ended (ran to propellant exhaustion, `dev-notes/arc1_reference_track.py`); 10 s tracked the PMP waypoint to 0.03 km. Segmented runs are not yet re-flown under it. |
 | `PMP_REFERENCE_CACHE` | path | `Tese/src/Output/pmp_reference.npz` | npz cache of the indirect-PMP reference (the waypoint source). First disk-serialised artifact in the repo. Since 2026-09-23 it also stores the reference's `decision_vector`, the plan `COAST_METHOD="reference_track"` flies (`segment_reference.get_pmp_reference_plan`). A cache seeded from an archive before that raises rather than rebuild, and names the archive to re-seed from; a swarm-built one is rebuilt once. |
 | `PMP_REFERENCE_USE_CACHE` | bool | `True` | Load the cache if present & input-hash matches; else rebuild. |
@@ -587,7 +620,7 @@ copied from it missed the insertion by 107 m / 0.14 m/s). Layout:
 | `indirect_pmp` | `[λ0_r, λ0_v, λ0_γ, Δt_c [s], Δt_r [% of T_MAX_2], coast start [% of burn], γ_p [rad]]`, costates raw (the solver normalises them) |
 | `pso_coast` | `[Δt_c, Δt_r %, coast start %, γ_p]`, then `θ̇` for `cpr`, `a, b` for `exp_shooting`, `θ0, θf` for the tangent laws and `μ` for `bilinear_tangent` (`pso_coast_solver._unpack_coast_x`) |
 | `direct` | `[γ_p [rad], t_burn [% of T_MAX_2]]`; `[γ_p]` alone when `DIRECT_LAW_TERMINATED_CUTOFF` hands the cutoff to `peg_new` (the burn time is then an output, in the row) |
-| segmented | the 4 coast variables, then the `n−1` activation-altitude fractions when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES` |
+| segmented | the 4 coast variables, then the `n−1` activation-altitude fractions when `MULTI_GUIDANCE_OPTIMIZE_ALTITUDES`; under `SEGMENTED_LAW_TERMINATED_ARCS` `[Δt_c, γ_p]` then the fractions (the burns are outputs), beside `arc1_target` (`[r, v, γ]`, the reference's coast start), `arc1_achieved` (`[r, v, γ, m]`) and `t_arc1_end` / `t_arc3_start` / `t_arc3_end` |
 | `apogee_check` | `[kick angle [rad]]`, the brute grid's winner |
 | `reference_track` | the **reference's** indirect 7-vector — the plan the case was handed, not a search result. What it flew is `realised_schedule`, `[Δt_c, Δt_r %, coast start %, γ_p]` in the `pso_coast` layout, beside `arc1_target`, `arc1_achieved`, `arc1_miss_vs_reference` (`[Δr, Δv, Δγ, Δm]`), the arc times, `arc1_cutoff_rule` (`"law t_go"` for peg_new, `"reference instant"` for apollo) and `reference_source` |
 
@@ -928,6 +961,28 @@ Each is legal to set but does something other than what you'd expect. With `file
   1e-3 to 3e-2 between the two, in either refresh mode. Every segmented archive flown before the
   fix carries this.
 
+- **The segmented solver carried the fairing to orbit whenever Stage 2 started below 65 km
+  (found and FIXED 2026-09-25).** `run_segmented_trajectory` never made the two
+  `ra.shed_fairing_if_due` checks every other PSO architecture makes, at Stage-2 start and at
+  ignition. `run_stage1` hands Stage 2 a state that still carries the fairing, so a trajectory
+  staging below the criterion flew all of Stage 2 with 1900 kg of dead mass.
+  - The reference's own kick is one such trajectory: it stages at T+149.0 s, and the ignition
+    check now sheds the fairing at T+154.0 s.
+  - At that kick the law-terminated flight burns 1443 kg more propellant with the fairing on.
+  - Trajectories staging above 65 km shed it during Stage 1 and are unchanged, including every
+    vector pinned in the tests.
+  - Every segmented archive whose kick staged low carries the defect.
+
+- **`--smoke` now flies a copy of the tracked reference (2026-09-25).** It used to build an 8×4
+  token reference into `pmp_reference_smoke.npz`. That one ended its first burn at 31.7 km, below
+  the 120 km hand-off, which `SEGMENTED_LAW_TERMINATED_ARCS` refuses.
+  - `SMOKE_BUDGET` no longer reduces `PMP_REFERENCE_PSO_*`.
+  - `_prepare_smoke_reference` copies the tracked file over the redirected one before each
+    segmented or `reference_track` case.
+  - It exits if the copy does not match the case's cache key, which is the rebuild the
+    production run would otherwise do.
+  - The tracked file still cannot be written by a smoke run.
+
 - **The results-matrix configuration for the production batch (decided case by case,
   2026-09-25).**
   - **Budget.** Every re-flown swarm runs at **250×1000**, matching the kept archives. Pass it as
@@ -957,9 +1012,16 @@ Each is legal to set but does something other than what you'd expect. With `file
     - The five showcase laws and the two reference-tracking cases are kept as defined.
     - The reference-tracking cases now follow the very extremal §6.4 presents.
     - The segmented re-run is fixed (above).
+    - **Both segmented cases fly `SEGMENTED_LAW_TERMINATED_ARCS = True`** (decided later that
+      day). peg_new aims arc 1 at the reference's coast start and arc 3 at the orbit, and ends
+      each on its own t_go. The swarm picks `[Δt_c, γ_p]`, plus the hand-off for `opt_alt`,
+      now capped at 161.4 km. Their segmented runs also shed the fairing now (above).
     - `show_seg_opt_alt` keeps its 10 km altitude floor. If its optimum puts the switch below
       Stage-2 ignition (~69 km), peg_new's Stage-1 part refreshes in the RHS, since the cycle
       refresh does not reach the Stage-1 hook; report it with the case.
+      - Such a switch also steers Stage 1 towards the coast start.
+      - At the reference's kick, a switch at 10–25 km cost ~29 s of Stage-2 burn (~7.8 t)
+        against 86–120 km. The swarm is expected to stay clear of it.
   - `tests/test_results_matrix_config.py` pins these.
 
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,

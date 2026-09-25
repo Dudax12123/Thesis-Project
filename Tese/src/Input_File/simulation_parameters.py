@@ -367,6 +367,19 @@ GUIDANCE_SEGMENTS = [
 # frozen the instant they start. The final segment uses APOLLO_FREEZE_THRESHOLD.
 SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD = 2.0
 
+# Who ends the two Stage-2 burns (2026-09-25).
+#   False (default): the swarm, as pso_coast does. x = [delta_tc, delta_tr_pct,
+#          coast_start_pct, gamma_p]; the final law aims at the orbit in BOTH burns,
+#          so its first burn is a direct insertion cut short by the swarm's timing.
+#   True:  the final law. Its first burn aims at the PMP reference's state where the
+#          reference's first burn ends (the start of its coast) and ends on the law's
+#          own t_go; the swarm's coast follows; the last burn aims at the orbit and
+#          ends on the law's own t_go. x = [delta_tc, gamma_p]. The final law must be
+#          peg_new, every activation altitude must lie below that coast start, and
+#          the optimised ones are capped at 0.98x its altitude. Same cutoff rule as
+#          COAST_METHOD="reference_track" and DIRECT_LAW_TERMINATED_CUTOFF.
+SEGMENTED_LAW_TERMINATED_ARCS = False
+
 # --- Indirect-PMP reference trajectory (supplies the segment waypoints) ---
 # Also the plan COAST_METHOD = "reference_track" flies (§9): the cache stores the
 # reference's decision vector beside its trajectory since 2026-09-23.
@@ -811,7 +824,9 @@ PSO_MG_VMAX            = 0.5     # maximum particle velocity (normalised)
 PSO_MG_SEED            = 42      # RNG seed for reproducible runs
 
 # Bounds for the 4 base decision vars [delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
-# (same meaning/units as PSO_COAST_LB/UB, §11b).
+# (same meaning/units as PSO_COAST_LB/UB, §11b). Under SEGMENTED_LAW_TERMINATED_ARCS
+# (§8a-bis) the law ends both burns, x = [delta_tc, gamma_p], and only entries 0
+# and 3 are read.
 PSO_MG_LB = [  0.0,    0.0,   0.0,  1.50]   # burn floor = PSO_COAST_LB[1] = PSO_LB[4] (2026-09-16)
 PSO_MG_UB = [2000.0, 100.0, 100.0,  1.57]   # coast bound = PSO_COAST_UB[0] = PSO_UB[3] (2026-09-16)
 

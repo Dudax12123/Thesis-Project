@@ -931,8 +931,10 @@ def run_pso_coast_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     # documentation says so, but it holds for peg, peg_new and apollo alike.
     # Under this architecture a passive gravity turn can therefore beat a
     # closed-loop law on propellant (stale batch: peg_new 18.79 t vs gt
-    # 20.29 t). The segmented mode is the only place arc 1 is given an
-    # intermediate target of its own (a PMP waypoint, see SegmentTarget).
+    # 20.29 t). Arc 1 gets an intermediate target of its own (a PMP waypoint,
+    # see SegmentTarget) only under COAST_METHOD="reference_track" and the
+    # segmented SEGMENTED_LAW_TERMINATED_ARCS, both of which let peg_new end the
+    # burn there; a plain segmented schedule aims its final law at the orbit too.
     t_arc1_end = t_ignition + t_coast_start
     if t_coast_start > 0.01:
         sol_arc1 = solve_guided_arc(

@@ -20,6 +20,15 @@ Architecture (per the chosen "pso_coast only" path):
   * One GuidanceState persists across the whole ascent; it is re-initialised
     (``restart_for_new_burn``) at every segment / thrust-phase boundary.
 
+The coast is not a segment boundary: the schedule is keyed on altitude, so by
+default the final law aims at the orbit in both Stage-2 burns and the swarm's timing
+cuts the first one short (the arc-1 targeting gap of pso_coast).
+``SEGMENTED_LAW_TERMINATED_ARCS`` (2026-09-25) closes it: the final law, peg_new,
+aims its first burn at the PMP reference's coast start and ends it on its own t_go,
+then aims its last burn at the orbit and ends that on its own t_go too
+(run_segmented_law_terminated) -- the cutoff rule of COAST_METHOD="reference_track",
+with the kick, the coast and the hand-off altitudes left to the swarm.
+
 Nothing here runs unless ``MULTI_GUIDANCE_ENABLED`` is set and main.py dispatches
 to this module; the single-law paths are untouched.
 
@@ -41,6 +50,7 @@ from Auxiliary import rocket_specs as r
 from Input_File import simulation_parameters as sim_params
 import Simulation.rocket_ascent as ra
 import Simulation.pso_coast_solver as pcs
+import Simulation.reference_track_solver as rts
 import Simulation.segment_reference as segref
 
 # Per-generation PSO convergence history, same format and purpose as
@@ -48,6 +58,51 @@ import Simulation.segment_reference as segref
 # rather than merely ran out of generations. Without it a segmented result has
 # no diagnostic tier at all.
 LAST_PSO_MG_HISTORY = None
+
+
+# ---------------------------------------------------------------------------
+# Who ends the Stage-2 burns (SEGMENTED_LAW_TERMINATED_ARCS)
+# ---------------------------------------------------------------------------
+
+def law_terminated():
+    """True when the final law, not the swarm, ends both Stage-2 burns."""
+    return bool(getattr(sim_params, "SEGMENTED_LAW_TERMINATED_ARCS", False))
+
+
+def _base_bounds(segs):
+    """(lb, ub) of the base decision vector: [delta_tc, delta_tr_pct,
+    coast_start_pct, gamma_p], or [delta_tc, gamma_p] when the final law ends the
+    burns (segs.coast_start set)."""
+    lb = list(getattr(sim_params, "PSO_MG_LB", sim_params.PSO_COAST_LB))
+    ub = list(getattr(sim_params, "PSO_MG_UB", sim_params.PSO_COAST_UB))
+    if segs.coast_start is not None:
+        return [lb[0], lb[3]], [ub[0], ub[3]]
+    return lb, ub
+
+
+def reference_coast_start(verbose=False):
+    """The PMP reference's state where its first Stage-2 burn ends, as a SegmentTarget.
+
+    The final law's arc-1 target under SEGMENTED_LAW_TERMINATED_ARCS: the same
+    waypoint COAST_METHOD="reference_track" hands peg_new, at the same freeze
+    threshold (APOLLO_FREEZE_THRESHOLD; below ~10 s peg_new's burn never ends). The
+    cache stores no ignition instant, so Stage 1 is flown once at the reference's
+    kick to find it, and must reproduce the reference's ignition state.
+    """
+    plan = rts.load_plan(verbose=verbose)
+    ra.set_pseudo_forces_for_run(True)
+    _t2, _t_meco, t_ign, y_ign, *_ = rts.fly_stage1(plan["gamma_p"])
+    diffs, failed = rts.check_stage1(plan, t_ign, y_ign)
+    if failed:
+        raise ValueError(
+            "SEGMENTED_LAW_TERMINATED_ARCS: Stage 1 does not reproduce the PMP "
+            "reference's ignition state (%s), so the reference's coast start cannot be "
+            "located; this configuration is not the one the reference was flown under."
+            % ", ".join("%s %+.3e" % (k, diffs.get(k, float("nan"))) for k in failed))
+    wp = rts.reference_state_at(plan, t_ign + plan["arc1"])
+    return pcs.SegmentTarget(r=float(wp[1]), alt=float(wp[1]) - c.R_EARTH,
+                             v=float(wp[2]), gamma=float(wp[3]),
+                             freeze_threshold=float(sim_params.APOLLO_FREEZE_THRESHOLD))
 
 
 # ---------------------------------------------------------------------------
@@ -75,9 +130,13 @@ class _Segments:
     activation altitude of segment i+1 (or the orbit altitude for the final
     segment), and target[i] is the SegmentTarget aiming at that waypoint (or None ⇒
     circular orbit for the final segment).
+
+    Under SEGMENTED_LAW_TERMINATED_ARCS the final segment's target is instead
+    ``coast_start`` (reference_coast_start() when not given): its first burn aims
+    there, and run_segmented_law_terminated aims its last burn at the orbit.
     """
 
-    def __init__(self, time_full, data_full, alpha_full=None):
+    def __init__(self, time_full, data_full, alpha_full=None, coast_start=None):
         self.schedule = [
             (str(mode), float(alt)) for (mode, alt) in sim_params.GUIDANCE_SEGMENTS
         ]
@@ -111,17 +170,30 @@ class _Segments:
             _alt, _al = self._alt_asc, self._alpha_asc
             self.replay_alpha = lambda state: float(np.interp(state[1] - c.R_EARTH, _alt, _al))
 
+        self.coast_start = coast_start
+        if law_terminated() and self.coast_start is None:
+            self.coast_start = reference_coast_start()
+
         self._build_targets()
 
     def _build_targets(self):
         """(Re)compute each segment's aim point from the PMP reference.
 
         Non-final segment i aims at the PMP waypoint at segment i+1's activation
-        altitude; the final segment aims at the circular orbit (target None). Split
-        out of __init__ so it can be re-run when activation altitudes change.
+        altitude; the final segment aims at the circular orbit (target None), or at
+        the reference's coast start when ``coast_start`` is set. Split out of
+        __init__ so it can be re-run when activation altitudes change.
         """
         orbit_alt = float(sim_params.TARGET_ORBITAL_ALTITUDE)
         ft = float(getattr(sim_params, "SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD", 2.0))
+        if self.coast_start is not None:
+            late = [(m, a) for m, a in self.schedule[1:] if a >= self.coast_start.alt]
+            if late:
+                raise ValueError(
+                    "SEGMENTED_LAW_TERMINATED_ARCS: every law must take over below the "
+                    "reference's coast start (%.1f km), where the final law's first burn "
+                    "ends; %s do not." % (self.coast_start.alt / 1e3, ", ".join(
+                        "%s@%.1f km" % (m, a / 1e3) for m, a in late)))
         self.target_alt = []
         self.target = []
         for i in range(self.n):
@@ -130,6 +202,9 @@ class _Segments:
                 wp = segref.waypoint_at_altitude(self._data_full, self._time_full, t_alt)
                 self.target_alt.append(t_alt)
                 self.target.append(pcs.SegmentTarget.from_waypoint(wp, freeze_threshold=ft))
+            elif self.coast_start is not None:
+                self.target_alt.append(self.coast_start.alt)
+                self.target.append(self.coast_start)   # arc 1 -> the reference's coast start
             else:
                 self.target_alt.append(orbit_alt)
                 self.target.append(None)   # final segment -> circular orbit
@@ -221,11 +296,13 @@ def _make_stage1_hook(gs, segs, mgr):
 # Stage-2 thrust phase (altitude-segmented)
 # ---------------------------------------------------------------------------
 
-def _thrust_phase(t0, duration, y0, gs, segs, mgr, teval_fn=None):
+def _thrust_phase(t0, duration, y0, gs, segs, mgr, teval_fn=None, stop_at_final=False):
     """Integrate a Stage-2 thrust phase, switching segments at activation altitudes.
 
     Re-initialises guidance at the phase start (post-coast / post-ignition) and at
-    each altitude crossing. Returns (t_end, y_end, crashed, sol_pieces).
+    each altitude crossing. ``stop_at_final`` returns as soon as the final segment is
+    active (at once if it already is), for its law to fly the rest of the burn.
+    Returns (t_end, y_end, crashed, sol_pieces).
     """
     t_target = t0 + duration
 
@@ -242,6 +319,8 @@ def _thrust_phase(t0, duration, y0, gs, segs, mgr, teval_fn=None):
     pieces = []
 
     while t_cur < t_target - 1e-6:
+        if stop_at_final and mgr["idx"] == segs.n - 1:
+            break
         nxt = segs.next_activation_alt(mgr["idx"])
         events = [pcs._event_crash]
         if nxt is not None:
@@ -304,6 +383,9 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     (crashed, state_final, t_f, t_cf, ...). When ``collect`` is True also returns
     the dense Stage-1 and Stage-2 solution pieces for plotting (key 'pieces').
     """
+    if segs.coast_start is not None:
+        raise ValueError("this schedule aims its final law at the reference's coast "
+                         "start: fly it with run_segmented_law_terminated")
     # Set HERE, per trajectory, not once at run_segmented() entry: the PMP
     # reference is built first and runs the exempt indirect solver, which
     # legitimately leaves the flag False. Setting it per trajectory makes the
@@ -335,6 +417,10 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
 
     state2_init = pcs._strip_to_pmp_state(
         state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    # The two jettison checks every other PSO architecture makes: run_stage1 hands
+    # Stage 2 a state that still carries the fairing, and without them a trajectory
+    # staging below the criterion carried it to orbit (2026-09-25).
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
 
     # ---- Stage-2 timing (identical to pso_coast) ----
     T_burn_total  = (delta_tr_pct   / 100.0) * pcs._T_MAX_2
@@ -350,7 +436,7 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     if len(sol_pre.t_events[0]) > 0:
         return crashed_result(t_stage2_start=t2_start, t_ignition=t_ignition,
                               t_stage1=t_stage1, y_stage1=y_stage1)
-    state_at_ign = sol_pre.y[:5, -1].copy()
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, sol_pre.y[:5, -1].copy())
 
     # ---- Arc 1 (thrust) ----
     if t_coast_start > 0.01:
@@ -417,6 +503,140 @@ def run_segmented_trajectory(delta_tc, delta_tr_pct, coast_start_pct, gamma_p,
     return result
 
 
+def run_segmented_law_terminated(delta_tc, gamma_p, segs, teval_fn=None, collect=False,
+                                 verbose=False):
+    """One segmented thrust-coast-thrust trajectory whose final law ends both burns.
+
+    SEGMENTED_LAW_TERMINATED_ARCS. The laws before the final one fly the schedule
+    from the kick as run_segmented_trajectory flies them, burning on until the final
+    law takes over. The final law, peg_new, then aims at the PMP reference's coast
+    start (``segs.coast_start``) and ends the first burn where its own t_go says;
+    the vehicle coasts ``delta_tc``; the last burn aims at the orbit and ends on
+    peg_new's t_go again. Both peg_new burns are reference_track_solver's
+    fly_law_terminated_arc: the major loop on accepted states at cycle boundaries,
+    frozen for the last cycle, capped by propellant exhaustion.
+
+    The burn durations are outputs, so ``t_f``/``t_cf`` are what was flown and
+    pso_coast's objective scores them unchanged. Same result keys as
+    run_segmented_trajectory, plus ``t_arc3_start``, ``y_arc1_end`` and
+    ``arc1_by_final_law`` (False when the propellant ran out before the final law
+    took over).
+    """
+    if segs.coast_start is None:
+        raise ValueError("run_segmented_law_terminated needs segs.coast_start "
+                         "(SEGMENTED_LAW_TERMINATED_ARCS)")
+    ra.set_pseudo_forces_for_run(True)      # per trajectory, as run_segmented_trajectory
+    kick_angle = gamma_p - np.pi / 2.0
+    gs = pcs.GuidanceState()
+    gs.force_planned_tgo = True
+    gs.replay_alpha = getattr(segs, "replay_alpha", None)
+    mgr = {"idx": 0}
+    final = segs.n - 1
+
+    crashed_result = lambda **kw: {
+        'crashed': True, 'state_final': None, 't_f': 0.0, 't_cf': 0.0,
+        't_stage2_start': 0.0, 't_ignition': 0.0, 't_arc2_start': 0.0,
+        't_arc3_end': 0.0, **kw}
+
+    # ---- Stage 1 (first chosen law flies right after the kick via the hook) ----
+    hook = _make_stage1_hook(gs, segs, mgr)
+    ra._SEGMENTED_ALPHA_HOOK = hook
+    try:
+        t2_start, state2_init, _t_meco, t_stage1, y_stage1, crashed = \
+            ra.run_stage1(kick_angle)
+    finally:
+        ra._SEGMENTED_ALPHA_HOOK = None
+    if crashed:
+        return crashed_result(t_stage1=t_stage1, y_stage1=y_stage1)
+    state2_init = pcs._strip_to_pmp_state(
+        state2_init, np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    state2_init = ra.shed_fairing_if_due(t2_start, state2_init)
+    t_ignition = t2_start + pcs._T_IGNITION_DELAY
+    stamp = dict(t_stage2_start=t2_start, t_ignition=t_ignition,
+                 t_stage1=t_stage1, y_stage1=y_stage1)
+
+    s2_pieces = []
+    sol_pre = _ballistic(t2_start, t_ignition, state2_init[:5], teval_fn)
+    s2_pieces.append((sol_pre, 0.0))
+    if len(sol_pre.t_events[0]) > 0:
+        return crashed_result(**stamp)
+    state_at_ign = ra.shed_fairing_if_due(t_ignition, sol_pre.y[:5, -1].copy())
+    t_exhaust = t_ignition + max(state_at_ign[4] - pcs._DRY_MASS_2, 0.0) / pcs._MDOT_2
+
+    # ---- Arc 1: the earlier laws until the final one takes over ----
+    t_a1, y_a1, crashed, p = _thrust_phase(
+        t_ignition, t_exhaust - t_ignition, state_at_ign, gs, segs, mgr, teval_fn,
+        stop_at_final=True)
+    s2_pieces += [(s, r.F_THRUST_2) for s in p]
+    if crashed:
+        return crashed_result(**stamp)
+    # ---- ... then the final law, to the reference's coast start, on its own t_go ----
+    arc1_by_final_law = mgr["idx"] == final
+    if arc1_by_final_law:
+        sols, t_a1, y_a1, crashed = rts.fly_law_terminated_arc(t_a1, y_a1, gs,
+                                                              segs.coast_start)
+        s2_pieces += [(s, r.F_THRUST_2) for s in sols]
+        if crashed:
+            return crashed_result(**stamp)
+
+    # ---- Arc 2 (coast) ----
+    t_a3, y_a3 = t_a1, y_a1.copy()
+    if delta_tc > 0.01:
+        sol_c = _ballistic(t_a1, t_a1 + delta_tc, y_a1, teval_fn)
+        s2_pieces.append((sol_c, 0.0))
+        if len(sol_c.t_events[0]) > 0:
+            return crashed_result(t_arc2_start=t_a1, **stamp)
+        t_a3, y_a3 = float(sol_c.t[-1]), sol_c.y[:5, -1].copy()
+
+    # ---- Arc 3: the final law, to the orbit, on its own t_go ----
+    gs.restart_for_new_burn()
+    mgr["idx"] = final
+    segs.apply(gs, final)
+    sols, t_ins, state_final, crashed = rts.fly_law_terminated_arc(t_a3, y_a3, gs, None)
+    s2_pieces += [(s, r.F_THRUST_2) for s in sols]
+    if crashed:
+        return crashed_result(t_arc2_start=t_a1, **stamp)
+
+    coast = t_a3 - t_a1
+    burn = (t_a1 - t_ignition) + (t_ins - t_a3)
+    result = {
+        'crashed':        False,
+        'state_final':    state_final,
+        't_f':            burn + coast,
+        't_cf':           coast,
+        't_stage2_start': t2_start,
+        't_ignition':     t_ignition,
+        't_arc2_start':   t_a1,
+        't_arc3_start':   t_a3,
+        't_arc3_end':     t_ins,
+        't_stage1':       t_stage1,
+        'y_stage1':       y_stage1,
+        'final_seg_idx':  mgr["idx"],
+        'y_arc1_end':     np.asarray(y_a1, dtype=float),
+        'arc1_by_final_law': arc1_by_final_law,
+    }
+    if collect:
+        result['stage1'] = (t_stage1, y_stage1)
+        result['s2_pieces'] = s2_pieces
+        result['gs'] = gs
+    if verbose:
+        tgt, sf = segs.coast_start, state_final
+        print(f"  arc 1 end: h={(y_a1[1]-c.R_EARTH)/1e3:.3f} km  v={y_a1[2]:.3f} m/s  "
+              f"gam={np.rad2deg(y_a1[3]):.4f} deg  (target {tgt.alt/1e3:.3f} km, "
+              f"{tgt.v:.3f} m/s, {np.rad2deg(tgt.gamma):.4f} deg)")
+        print(f"  insertion: h={(sf[1]-c.R_EARTH)/1e3:.1f} km  v={sf[2]:.1f} m/s  "
+              f"gam={np.rad2deg(sf[3]):.3f} deg")
+    return result
+
+
+def _fly(x, segs, **kw):
+    """One trajectory from the base decision vector, whichever layout is in force."""
+    if segs.coast_start is not None:
+        return run_segmented_law_terminated(float(x[0]), float(x[1]), segs, **kw)
+    return run_segmented_trajectory(float(x[0]), float(x[1]), float(x[2]), float(x[3]),
+                                    segs, **kw)
+
+
 # ---------------------------------------------------------------------------
 # PyGMO problem + PSO runner
 # ---------------------------------------------------------------------------
@@ -444,8 +664,9 @@ class SegmentedPSOProblem:
     """UDP for PyGMO.
 
     Decision vector: the 4 base coast vars ``[delta_tc, delta_tr_pct,
-    coast_start_pct, gamma_p]``, plus — when ``optimize_alts`` — ``(n-1)``
-    activation-altitude fractions in [0,1] mapped cumulatively into
+    coast_start_pct, gamma_p]`` -- or ``[delta_tc, gamma_p]`` when the final law
+    ends the burns (SEGMENTED_LAW_TERMINATED_ARCS) -- plus, when ``optimize_alts``,
+    ``(n-1)`` activation-altitude fractions in [0,1] mapped cumulatively into
     ``[alt_lb, alt_ub]`` (segment 0 stays "after the kick", so its altitude is not
     a variable). The objective is unchanged (pso_coast's Stage-2 burn-time term +
     orbit-insertion penalties), so the altitudes are chosen to minimise Stage-2
@@ -454,25 +675,25 @@ class SegmentedPSOProblem:
 
     def __init__(self, segs, optimize_alts=False, alt_bounds=None):
         self._segs = segs
+        self._n_base = len(_base_bounds(segs)[0])
         self._optimize_alts = bool(optimize_alts)
         self._n_alt = (segs.n - 1) if self._optimize_alts else 0
         self._alt_lb, self._alt_ub = (alt_bounds if alt_bounds is not None else (0.0, 0.0))
 
     def fitness(self, x):
         try:
-            dtc, dtr, cs, gp = float(x[0]), float(x[1]), float(x[2]), float(x[3])
+            nb = self._n_base
             if self._n_alt > 0:
-                alts = _alts_from_fractions(x[4:4 + self._n_alt],
+                alts = _alts_from_fractions(x[nb:nb + self._n_alt],
                                             self._alt_lb, self._alt_ub)
                 self._segs.set_activation_altitudes(alts)
-            result = run_segmented_trajectory(dtc, dtr, cs, gp, self._segs)
+            result = _fly(x[:nb], self._segs)
             return [pcs.compute_coast_objective(result)]
         except Exception:
             return [pcs.CRASH_PENALTY]
 
     def get_bounds(self):
-        lb = list(getattr(sim_params, "PSO_MG_LB", sim_params.PSO_COAST_LB))
-        ub = list(getattr(sim_params, "PSO_MG_UB", sim_params.PSO_COAST_UB))
+        lb, ub = _base_bounds(self._segs)
         if self._n_alt > 0:
             lb += [0.0] * self._n_alt
             ub += [1.0] * self._n_alt
@@ -483,8 +704,9 @@ class SegmentedPSOProblem:
 
 
 def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbose=True):
-    """Run the PSO over the 4 base coast vars (+ the (n-1) activation-altitude
-    fractions when ``optimize_alts``)."""
+    """Run the PSO over the base vars (4, or 2 when the final law ends the burns;
+    see _base_bounds) + the (n-1) activation-altitude fractions when
+    ``optimize_alts``."""
     global LAST_PSO_MG_HISTORY
     n_particles = getattr(sim_params, "PSO_MG_N_PARTICLES", sim_params.PSO_COAST_N_PARTICLES)
     n_gen       = getattr(sim_params, "PSO_MG_MAX_GENERATIONS", sim_params.PSO_COAST_MAX_GENERATIONS)
@@ -495,6 +717,11 @@ def run_segmented_optimization(segs, optimize_alts=False, alt_bounds=None, verbo
         print("=" * 60)
         sched = " -> ".join(f"{m}@{a/1e3:.0f}km" for m, a in segs.schedule)
         print(f"  Schedule : {sched}  -> orbit")
+        if segs.coast_start is not None:
+            cs = segs.coast_start
+            print(f"  Stage-2 burns ended by {segs.mode(segs.n - 1)}'s own t_go: arc 1 -> "
+                  f"reference coast start ({cs.alt/1e3:.1f} km, {cs.v:.1f} m/s, "
+                  f"{np.rad2deg(cs.gamma):.2f} deg), arc 3 -> orbit;  x = [dtc, gamma_p]")
         if optimize_alts and alt_bounds is not None:
             print(f"  Optimising {segs.n - 1} activation altitude(s) in "
                   f"[{alt_bounds[0]/1e3:.0f}, {alt_bounds[1]/1e3:.0f}] km")
@@ -566,12 +793,8 @@ def run_segmented_full(optimal_params, segs, verbose=True):
     """
     from Plots.plot_state_utils import interpolate_to_time
 
-    dtc, dtr, cs, gp = (float(optimal_params[0]), float(optimal_params[1]),
-                        float(optimal_params[2]), float(optimal_params[3]))
-
-    result = run_segmented_trajectory(dtc, dtr, cs, gp, segs,
-                                      teval_fn=_teval_half_sec, collect=True,
-                                      verbose=verbose)
+    result = _fly(optimal_params, segs, teval_fn=_teval_half_sec, collect=True,
+                  verbose=verbose)
 
     # Crashed optimum: the 'stage1'/'s2_pieces'/'gs' collect keys are absent, so
     # return a degenerate payload (main.py detects the crash via result['crashed']).
@@ -693,6 +916,24 @@ def run_segmented_full(optimal_params, segs, verbose=True):
 # Top-level entry point (called by main.py when MULTI_GUIDANCE_ENABLED)
 # ---------------------------------------------------------------------------
 
+def _altitude_bounds(segs):
+    """(lb, ub) for the optimised activation altitudes.
+
+    ub: MULTI_GUIDANCE_ALT_UB, capped at 0.98x the reference apogee so waypoint
+    lookups stay on the monotonic ascent prefix, and -- when the final law ends
+    the burns -- at 0.98x the reference's coast start, since every law must take
+    over before the final law's first burn ends.
+    """
+    apogee_alt = float(segs._alt_asc[-1])
+    alt_ub = min(float(getattr(sim_params, "MULTI_GUIDANCE_ALT_UB", 200_000.0)),
+                 0.98 * apogee_alt)
+    if segs.coast_start is not None:
+        alt_ub = min(alt_ub, 0.98 * segs.coast_start.alt)
+    alt_lb = float(getattr(sim_params, "MULTI_GUIDANCE_ALT_LB", 10_000.0))
+    alt_lb = min(alt_lb, 0.5 * alt_ub)      # keep lb < ub even for a low apogee
+    return alt_lb, alt_ub
+
+
 def validate_schedule():
     """Raise ValueError on a malformed GUIDANCE_SEGMENTS schedule."""
     segments = sim_params.GUIDANCE_SEGMENTS
@@ -700,6 +941,10 @@ def validate_schedule():
                  "gravity_turn", "indirect_pmp"}
     if not segments:
         raise ValueError("GUIDANCE_SEGMENTS is empty.")
+    if law_terminated() and str(segments[-1][0]) != "peg_new":
+        raise ValueError(
+            "SEGMENTED_LAW_TERMINATED_ARCS needs peg_new as the final law (got %r): "
+            "it is the law that ends its burns on its own t_go." % (segments[-1][0],))
     alts = [float(a) for _, a in segments]
     if any(alts[i] >= alts[i + 1] for i in range(len(alts) - 1)):
         raise ValueError("GUIDANCE_SEGMENTS activation altitudes must be strictly increasing.")
@@ -735,12 +980,7 @@ def run_segmented(verbose=True):
     optimize_alts = bool(getattr(sim_params, "MULTI_GUIDANCE_OPTIMIZE_ALTITUDES", False))
     alt_bounds = None
     if optimize_alts and segs.n > 1:
-        apogee_alt = float(segs._alt_asc[-1])
-        alt_ub = min(float(getattr(sim_params, "MULTI_GUIDANCE_ALT_UB", 200_000.0)),
-                     0.98 * apogee_alt)
-        alt_lb = float(getattr(sim_params, "MULTI_GUIDANCE_ALT_LB", 10_000.0))
-        alt_lb = min(alt_lb, 0.5 * alt_ub)      # keep lb < ub even for a low apogee
-        alt_bounds = (alt_lb, alt_ub)
+        alt_bounds = _altitude_bounds(segs)
     else:
         optimize_alts = False                    # nothing to optimise (single segment / flag off)
 
@@ -755,7 +995,9 @@ def run_segmented(verbose=True):
             mode, start = segs.schedule[i]
             look_alt = min(segs.target_alt[i], apogee_alt)
             wp = segref.waypoint_at_altitude(data_ref, time_ref, look_alt)
-            tag = "  (orbit insertion)" if segs.target[i] is None else ""
+            tag = ("  (orbit insertion)" if segs.target[i] is None else
+                   "  (coast start; after the coast, orbit insertion)"
+                   if segs.target[i] is segs.coast_start else "")
             print(f"  {mode:16s} start {start/1e3:6.1f} km  ->  objective @ "
                   f"{wp['alt']/1e3:6.1f} km : v={wp['v']:7.1f} m/s, "
                   f"fpa={np.rad2deg(wp['gamma']):6.2f} deg, t={wp['t']:6.1f} s{tag}")
@@ -768,10 +1010,11 @@ def run_segmented(verbose=True):
         segs, optimize_alts=optimize_alts, alt_bounds=alt_bounds, verbose=verbose)
 
     # Bake the optimal activation altitudes into segs before the dense re-run
-    # (run_segmented_full uses only the 4 base params).
+    # (run_segmented_full uses only the base params).
+    nb = len(_base_bounds(segs)[0])
     opt_alts = None
     if optimize_alts:
-        opt_alts = _alts_from_fractions(best_x[4:4 + (segs.n - 1)],
+        opt_alts = _alts_from_fractions(best_x[nb:nb + (segs.n - 1)],
                                         alt_bounds[0], alt_bounds[1])
         segs.set_activation_altitudes(opt_alts)
         if verbose:
@@ -780,7 +1023,7 @@ def run_segmented(verbose=True):
 
     (time_full, data_full, thrust_full, alpha_full, t_ignition, result,
      coriolis_mag_data, centrifugal_mag_data) = run_segmented_full(
-        best_x[:4], segs, verbose=verbose)
+        best_x[:nb], segs, verbose=verbose)
     return {
         'time': time_full, 'data': data_full,
         'thrust': thrust_full, 'alpha': alpha_full,

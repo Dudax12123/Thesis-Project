@@ -122,8 +122,13 @@ def configure(case, extra=None):
     rrm._apply(sp, rrm.BASELINE)
     rrm._apply(sp, {c["name"]: c for c in rrm.build_matrix()}[case]["overrides"])
     # Both modes here run over production's in_rhs path; "cycle" is emulated around it.
+    # The flights measured are the swarm-timed ones (x layouts of 2026-09-24): the
+    # matrix has since let peg_new end the peg_direct and segmented burns (2026-09-25),
+    # and those law-terminated burns refresh outside the ODE in either mode.
     rrm._apply(sp, {"EVENTS_PRINT": False, "INTERRUPTS_PRINT": False,
-                    "GUIDANCE_REFRESH_MODE": "in_rhs"})
+                    "GUIDANCE_REFRESH_MODE": "in_rhs",
+                    "DIRECT_LAW_TERMINATED_CUTOFF": False, "DIRECT_OPTIMIZER": "pso",
+                    "SEGMENTED_LAW_TERMINATED_ARCS": False})
     if extra:
         rrm._apply(sp, extra)
     _import_solvers()

@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds seventeen files (220 tests as of 2026-09-25). pytest is installed
+Tests — `Tese/src/tests/` holds eighteen files (232 tests as of 2026-09-25). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -115,6 +115,10 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
 - `peg_direct` is law-terminated with the grid + Brent kick search.
 - The two §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
   swarmed** (`pmp_baseline` = the tracked reference cache's extremal).
+- Both segmented cases fly `SEGMENTED_LAW_TERMINATED_ARCS = True`: peg_new ends arc 1 at the
+  reference's coast start and arc 3 at the orbit, on its own t_go, and the swarm picks
+  `[Δt_c, γ_p]` (+ the hand-off altitude).
+- `--smoke` flies a copy of the tracked reference (`_prepare_smoke_reference`), not a token one.
 
 Two flags exist so a subset can be rehearsed without editing config or endangering the real batch:
 `--budget P,G` sets every swarm architecture's PSO budget in memory (`--budget 50,100`), and
@@ -235,7 +239,9 @@ P12 does: vertical channel first, downrange takes `sqrt(a_T² − a_y²)`; pass
 `a_thrust_available=F_T/m` from both dispatchers. **Documented, deliberately not fixed:** under
 the coast architecture every closed-loop law steers the pre-coast Stage-2 burn towards the *final*
 orbit as a direct insertion, then the swarm's coast discards that plan (comment above Arc 1 in
-`run_pso_coast_trajectory`). Only the segmented mode gives that arc an intermediate target.
+`run_pso_coast_trajectory`). Only `reference_track` and the segmented mode under
+`SEGMENTED_LAW_TERMINATED_ARCS` give that arc an intermediate target; a plain segmented schedule does
+not, since its final law aims at the orbit in both burns.
 
 **`peg_new` was re-aligned with its source on 2026-09-23.** The source is Mahajan & Condon,
 AAS 25-844 (`Desktop/Tese/References/PEG_ASC25_Mahajan - PEG_recent.pdf`), not the "Sagliano et
@@ -361,7 +367,14 @@ Two mechanisms make it work: `ra._SEGMENTED_ALPHA_HOOK` (a callable installed in
 `rocket_dynamics` so a law can steer *during Stage 1*, sub-MECO) and a **planned-deadline t_go**
 (`deadline − t`, deadlines from the PMP reference) instead of the rocket-equation estimate that
 collapses at the stage boundary. Non-final segments aim at indirect-PMP `(alt, v, γ)` waypoints;
-the final segment inserts to orbit. The PMP reference is cached to
+the final segment inserts to orbit. **The coast is not a segment boundary**: by default the final law
+aims at the orbit in *both* Stage-2 burns and the swarm cuts the first one short, so a
+`gravity_turn → peg_new` schedule has the same arc-1 targeting gap as `pso_coast`.
+`SEGMENTED_LAW_TERMINATED_ARCS` (2026-09-25, on for the matrix) gives peg_new the reference's coast
+start as its arc-1 target and lets it end both burns on its own t_go (`run_segmented_law_terminated`,
+reusing `reference_track_solver.fly_law_terminated_arc`); x becomes `[Δt_c, γ_p]`. The segmented
+solver also sheds the fairing at Stage-2 start and ignition since that date; before, a kick staging
+below 65 km carried it to orbit. The PMP reference is cached to
 `Tese/src/Output/pmp_reference.npz`, keyed by target orbit + vehicle + reference-PSO budget
 (path is resolved against the project root, so it is cwd-independent). With the reference budget
 equal to the PMP swarm's own (250×1000 since 2026-09-16, same seed) the reference build IS the

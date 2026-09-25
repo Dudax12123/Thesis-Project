@@ -84,6 +84,7 @@ trajectories it then flies. Setting it from the harness would fight that.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time as _time
@@ -216,24 +217,51 @@ BASELINE = {
 # Token budgets for --smoke. Enough to exercise every dispatch path and every
 # collection branch; far too few to mean anything numerically.
 #
-# PMP_REFERENCE_CACHE is redirected, and that redirect is load-bearing. The two
-# lines below it drop the reference PSO to 8x4, and those two settings are part
-# of the reference CACHE KEY: without the redirect, a smoke run reaching either
-# segmented case rebuilds the reference at a token budget and overwrites
-# Tese/src/Output/pmp_reference.npz -- which is TRACKED IN GIT, took ~1 h to
-# build at 250x500, and is the waypoint source every segmented run is measured
-# against. That is the whole point of a smoke test destroying the one artefact a
-# smoke test must not destroy, and it has happened before. Sending smoke's
-# reference to its own file keeps the token build fast AND the tracked one
-# untouched.
+# PMP_REFERENCE_CACHE is redirected, and that redirect is load-bearing: a smoke
+# run must never be able to write Tese/src/Output/pmp_reference.npz, which is
+# TRACKED IN GIT, took hours to build and is the reference every segmented and
+# reference_track case flies against. It has been destroyed that way before.
+# Until 2026-09-25 smoke also dropped the reference PSO to 8x4 and built a token
+# reference into the redirected file. Now the reference budget is left alone and
+# the redirected file is a COPY of the tracked one (_prepare_smoke_reference),
+# so smoke flies the production reference: a token one ended its first burn at
+# 31.7 km, below the segmented hand-off at 120 km, which SEGMENTED_LAW_TERMINATED_ARCS
+# refuses. The copy also makes smoke prove that the production reference loads
+# under the production configuration without a rebuild.
 SMOKE_BUDGET = {
     "PMP_REFERENCE_CACHE": "Tese/src/Output/pmp_reference_smoke.npz",
     "PSO_N_PARTICLES": 8, "PSO_MAX_GENERATIONS": 4,
     "PSO_COAST_N_PARTICLES": 8, "PSO_COAST_MAX_GENERATIONS": 4,
     "PSO_DIRECT_N_PARTICLES": 8, "PSO_DIRECT_MAX_GENERATIONS": 4,
     "PSO_MG_N_PARTICLES": 8, "PSO_MG_MAX_GENERATIONS": 4,
-    "PMP_REFERENCE_PSO_PARTICLES": 8, "PMP_REFERENCE_PSO_GENERATIONS": 4,
 }
+
+
+def _prepare_smoke_reference(sim_params, tracked_cache):
+    """Put a copy of the tracked PMP reference where smoke reads it, and refuse to
+    go on if it does not match the configuration in force (the case would rebuild
+    it, at the production budget, into the smoke file).
+
+    Called with the case's configuration applied, for the cases that read the
+    reference. The copy is written beside the target and renamed over it, so
+    smoke cases run side by side never read a half-written file.
+    """
+    import filecmp
+    import Simulation.segment_reference as segref
+    src = Path(tracked_cache)
+    if not src.is_absolute():
+        src = segref._project_root() / src
+    dst = segref._abs_cache_path()
+    if src.resolve() == dst.resolve():
+        raise SystemExit("smoke must not read the tracked reference cache in place")
+    if not dst.exists() or not filecmp.cmp(src, dst, shallow=False):
+        tmp = dst.with_name("%s.%d.tmp" % (dst.name, os.getpid()))
+        shutil.copyfile(src, tmp)
+        os.replace(tmp, dst)
+    if segref._load_cache(dst, segref._reference_input_key()) is None:
+        raise SystemExit(
+            "smoke: the tracked reference %s does not match this case's configuration, "
+            "so the production run would rebuild it" % src)
 
 
 def budget_overrides(particles, generations):
@@ -435,7 +463,7 @@ def build_matrix():
     # tracking loss -- and NOT against peg_baseline, from which it differs in
     # the arc-1 target, who picks the kick and coast, and the cutoff rule at
     # once. Deterministic and seconds long, so --budget and --smoke do not
-    # touch it (under --smoke it flies the token smoke reference instead).
+    # touch it (under --smoke it flies a copy of the tracked reference).
     cases.append(dict(name="show_ref_track", section="6.7",
                       factor="reference_tracking",
                       overrides={"GUIDANCE_MODE": "peg_new",
@@ -455,14 +483,21 @@ def build_matrix():
     # lets the swarm place them. The comparison is the point: whether the
     # optimiser agrees with the atmospheric/exoatmospheric division of
     # Chapter 4, and what the hand-off altitude is worth if it does not.
+    # peg_new ends both of its burns (decision 2026-09-25): arc 1 aims at the PMP
+    # reference's coast start and stops on peg_new's own t_go, arc 3 aims at the
+    # orbit and stops the same way, so the swarm picks only the kick, the coast
+    # and (opt_alt) the hand-off. The swarm-timed form aimed both burns at the
+    # orbit. The optimised hand-off is capped at 0.98x the coast-start altitude.
     cases.append(dict(name="show_seg_fixed_alt", section="6.7", factor="segmented",
                       overrides={"MULTI_GUIDANCE_ENABLED": True,
                                  "MULTI_GUIDANCE_OPTIMIZE_ALTITUDES": False,
+                                 "SEGMENTED_LAW_TERMINATED_ARCS": True,
                                  "GUIDANCE_SEGMENTS": [("gravity_turn", 0.0),
                                                        ("peg_new", 120e3)]}))
     cases.append(dict(name="show_seg_opt_alt", section="6.7", factor="segmented",
                       overrides={"MULTI_GUIDANCE_ENABLED": True,
                                  "MULTI_GUIDANCE_OPTIMIZE_ALTITUDES": True,
+                                 "SEGMENTED_LAW_TERMINATED_ARCS": True,
                                  "GUIDANCE_SEGMENTS": [("gravity_turn", 0.0),
                                                        ("peg_new", 120e3)]}))
     return cases
@@ -531,6 +566,20 @@ def _dispatch(sim_params, case=None):
             'optimized_altitudes': ([float(a) for a in _alts] if _alts else []),
             'decision_vector': [float(v) for v in out['best_x']],
         }
+        _cs = out['segs'].coast_start
+        if _cs is not None:
+            # SEGMENTED_LAW_TERMINATED_ARCS: x = [dtc, gamma_p] (+ altitude
+            # fractions); the burns are outputs, so the arc-1 target and what arc 1
+            # reached are the flight's record, named as reference_track archives them.
+            _res = out['result']
+            extra.update({
+                'arc1_target': [float(_cs.r), float(_cs.v), float(_cs.gamma)],
+                'arc1_achieved': ([float(v) for v in _res['y_arc1_end'][1:5]]
+                                  if 'y_arc1_end' in _res else [float('nan')] * 4),
+                't_arc1_end': float(_res['t_arc2_start']),
+                't_arc3_start': float(_res.get('t_arc3_start', float('nan'))),
+                't_arc3_end': float(_res['t_arc3_end']),
+            })
         return (out['time'], out['data'], out['thrust'], out['alpha'],
                 out['result'], out['best_f'], seg.LAST_PSO_MG_HISTORY, extra)
 
@@ -666,7 +715,10 @@ def run_case(name, smoke=False, budget=None, sets=None):
     _apply(sim_params, BASELINE)
     _apply(sim_params, case['overrides'])
     if smoke:
+        tracked_cache = sim_params.PMP_REFERENCE_CACHE
         _apply(sim_params, SMOKE_BUDGET)
+        if _architecture(sim_params) in ("segmented", "reference_track"):
+            _prepare_smoke_reference(sim_params, tracked_cache)
     elif budget:
         _apply(sim_params, budget_overrides(*budget))
     # Applied last so it beats the case's own overrides too: --set is for the

@@ -463,9 +463,22 @@ def _report_segmented(result, segs, best_x, best_f, data_full, optimized_altitud
              if sim_params.ENABLE_EARTH_ROTATION else 0.0)
 
     print(f"  Best J':            {best_f:.4f}")
-    print(f"  Kick angle (gamma_p-pi/2): {np.rad2deg(best_x[3] - np.pi/2.0):.4f} deg")
-    print(f"  PSO [dtc, dtr%, cs%, gamma_p]: "
-          f"[{best_x[0]:.2f}, {best_x[1]:.2f}, {best_x[2]:.2f}, {np.rad2deg(best_x[3]):.3f}deg]")
+    if segs.coast_start is not None:
+        # SEGMENTED_LAW_TERMINATED_ARCS: x = [dtc, gamma_p], the burns are outputs
+        print(f"  Kick angle (gamma_p-pi/2): {np.rad2deg(best_x[1] - np.pi/2.0):.4f} deg")
+        print(f"  PSO [dtc, gamma_p]: [{best_x[0]:.2f}, {np.rad2deg(best_x[1]):.3f}deg]"
+              f"   (both burns ended by {segs.mode(segs.n - 1)}'s own t_go)")
+        cs, y1 = segs.coast_start, result['y_arc1_end']
+        print(f"  Arc 1 end vs reference coast start: "
+              f"dh {(y1[1] - cs.r)/1e3:+.3f} km, dv {y1[2] - cs.v:+.3f} m/s, "
+              f"dgamma {np.rad2deg(y1[3] - cs.gamma):+.4f} deg")
+        print(f"  Burns: arc 1 {result['t_arc2_start'] - result['t_ignition']:.2f} s, "
+              f"coast {result['t_cf']:.2f} s, "
+              f"arc 3 {result['t_arc3_end'] - result['t_arc3_start']:.2f} s")
+    else:
+        print(f"  Kick angle (gamma_p-pi/2): {np.rad2deg(best_x[3] - np.pi/2.0):.4f} deg")
+        print(f"  PSO [dtc, dtr%, cs%, gamma_p]: "
+              f"[{best_x[0]:.2f}, {best_x[1]:.2f}, {best_x[2]:.2f}, {np.rad2deg(best_x[3]):.3f}deg]")
     if optimized_altitudes:
         print(f"  Optimised activation altitudes: " +
               ", ".join(f"{a/1e3:.1f} km" for a in optimized_altitudes))
@@ -644,7 +657,11 @@ def execute():
         print("=" * 60)
         _sched = " -> ".join(f"{m}@{a/1e3:.0f}km" for m, a in sim_params.GUIDANCE_SEGMENTS)
         print(f"  {_sched} -> orbit")
-        print("  Stage-2 method: pso_coast (direct insertion); planned-deadline t_go")
+        if getattr(sim_params, "SEGMENTED_LAW_TERMINATED_ARCS", False):
+            print("  Stage-2 method: thrust-coast-thrust, both burns ended by the final "
+                  "law's own t_go (arc 1 -> PMP coast start, arc 3 -> orbit)")
+        else:
+            print("  Stage-2 method: pso_coast (direct insertion); planned-deadline t_go")
         print("=" * 60)
 
         # Suppress noisy per-step prints during the swarm evaluation
@@ -663,7 +680,8 @@ def execute():
         best_x     = seg_out['best_x']
         best_f     = seg_out['best_f']
         segs       = seg_out['segs']
-        kick_angle_optimal = best_x[3] - np.pi / 2.0
+        # gamma_p is x[1] when the final law ends the burns ([dtc, gamma_p]), else x[3]
+        kick_angle_optimal = best_x[1 if segs.coast_start is not None else 3] - np.pi / 2.0
         _report_segmented(result_seg, segs, best_x, best_f, data,
                           optimized_altitudes=seg_out.get('optimized_altitudes'))
 
