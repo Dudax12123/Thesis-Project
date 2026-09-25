@@ -14,11 +14,13 @@ can be kept or dropped.
 
 ## 0. State at the time of writing
 
-- **The user kept every item** (2026-09-25).
+- **The user kept every item** (2026-09-25), and later that day added L (with M and N, found
+  while doing it).
 - **Commits (pushed):**
+  - `1ff794c`: items L, M, N, with their tests and docs.
   - `bee52ed`: items C, D, E, G, with their tests and docs.
   - `fa9db0e` (R2) and `1fb975d` (R1), from earlier.
-- **Tests:** 220 pass (`PY -m pytest Tese/src/tests/ -q`).
+- **Tests:** 232 pass (`PY -m pytest Tese/src/tests/ -q`).
 - **Nothing has been launched.** The stale archives have not been moved yet. Step 0 of section 4
   is done; start at step 1.
 
@@ -37,6 +39,9 @@ can be kept or dropped.
 | **E** | `pmp_vacuum` = the best polished vacuum (seed 3, 250×1000 + the same polish, **23 952.1 kg**). No 750×1500 vacuum swarm exists, so the two §6.4 rows started from different budgets. | same as D | pushed `bee52ed` | Keep the raw seed-42 vacuum archive (22 032.4 kg); §6.4 then sets a polished row against a raw one. |
 | **F** | §6.7 showcase laws and the two reference-tracking cases kept as defined. | no code | decision | — |
 | **G** | **Segmented re-run fix.** After the altitude switch, `_thrust_phase` restarts from the event root (`t_events[1]`/`y_events[1]`), not the last 0.5 s grid point. The archived flight now equals the one the swarm scored (J identical under `"cycle"`). The swarm path is unchanged. | `segmented_guidance_solver._thrust_phase` | pushed `bee52ed` | Revert the hunk; archived segmented rows then differ from their optimum by J 1e-3–3e-2. |
+| **L** | **Segmented: peg_new ends both burns** (`SEGMENTED_LAW_TERMINATED_ARCS=True` on #20, #21). Arc 1 aims at the reference's **coast start** (164.7 km, 7590.5 m/s, 2.81°) and ends on peg_new's own t_go (10 s freeze); the swarm's coast follows; arc 3 aims at the orbit and ends on peg_new's t_go. The swarm picks `[Δt_c, γ_p]` (+ the hand-off, now capped at 0.98 × 164.7 = 161.4 km). Before, peg_new aimed at the orbit in both burns and the swarm cut arc 1 (the pso_coast arc-1 gap). On the reference's kick and coast: arc-1 miss +0.03 km / −0.13 m/s / +0.045°, arc 3 1.4 s, 25 490.3 kg; 0.096 s per flight (swarm-timed 0.129 s). | `segmented_guidance_solver` (`run_segmented_law_terminated`, `reference_coast_start`, `_Segments.coast_start`, `_altitude_bounds`); `simulation_parameters.py` §8a-bis; `build_matrix()` both segmented cases; `main.py` report; archive extras `arc1_target`/`arc1_achieved`/arc times | pushed `1ff794c` | Remove the override from #20/#21: they then fly the swarm-timed form with `[Δt_c, burn %, coast start %, γ_p]` and aim both burns at the orbit. |
+| **M** | **Segmented fairing jettison.** The segmented solver never made the `shed_fairing_if_due` checks at Stage-2 start and ignition that every other PSO architecture makes; a kick staging below 65 km carried 1900 kg to orbit (the reference's own kick does: 1443 kg of extra propellant at it). Now made in both segmented forms. | `run_segmented_trajectory`, `run_segmented_law_terminated` | pushed `1ff794c` | A defect fix; dropping it leaves #20/#21 penalised for low-staging kicks that no other architecture pays for. |
+| **N** | **Smoke flies a copy of the tracked reference.** The 8×4 token reference ended its first burn at 31.7 km, below the 120 km hand-off, so L refuses it. `SMOKE_BUDGET` no longer lowers `PMP_REFERENCE_PSO_*`; `_prepare_smoke_reference` copies `pmp_reference.npz` over `pmp_reference_smoke.npz` and exits if it does not match the case's cache key. The tracked file still cannot be written by a smoke run. | `run_results_matrix.SMOKE_BUDGET`, `_prepare_smoke_reference`, `run_case` | pushed `1ff794c` | Needed by L for step 2. |
 | **H** | `show_seg_opt_alt` keeps its 10 km altitude floor. If its optimum switches below Stage-2 ignition (~69 km), report that its Stage-1 peg_new part refreshed in the RHS; the cycle refresh does not reach the Stage-1 hook. | no code | decision | Raise the floor, or extend the refresh fix to Stage 1 (code). |
 | **I1** | Run the 15 cases **in parallel**, one process per case. | run procedure | decision | Sequential: one driver invocation, ~5–6 days. |
 | **I2** | Move the 6 superseded folders aside before the run. | run procedure | decision | The batch overwrites them in place. |
@@ -47,7 +52,7 @@ can be kept or dropped.
 **Not changed, by user decision:**
 - `TGO_ESTIMATOR` (apollo keeps the rocket-equation t_go).
 - Arc-1 targeting under `pso_coast` (still aims at the final orbit; the waypoint version stays
-  reverted).
+  reverted). The segmented cases get it through L; the `pso_coast` cases do not.
 - The λ′-drop / turn-angle cap (on hold).
 - The unprojected Earth-rotation credit.
 
@@ -90,8 +95,9 @@ can be kept or dropped.
 | `PSO_COAST_EXP_A_*` / `EXP_B_*` | 0 – 1.6 / −0.05 – 0.005 | show_exp_shooting |
 | `PSO_DIRECT_LB` / `UB` | `[1.50, 50]` / `[1.57, 100]` | gt_direct (kept) |
 | `DIRECT_GRID_GAMMA_P_BOUNDS` / `_POINTS` / `DIRECT_BRENT_XATOL_GAMMA_P` | (1.50, 1.57) rad / 500 / 1e-7 rad | peg_direct (C) |
-| `PSO_MG_LB` / `UB` | `[0, 0, 0, 1.50]` / `[2000, 100, 100, 1.57]` (+ altitude fraction 0–1) | segmented |
-| `MULTI_GUIDANCE_ALT_LB` / `ALT_UB` | 10 km / 500 km (effective upper bound `min(500 km, 0.98 × reference apogee)`) | show_seg_opt_alt |
+| `PSO_MG_LB` / `UB` | `[0, 0, 0, 1.50]` / `[2000, 100, 100, 1.57]`; under L only entries 0 and 3 are read: `[Δt_c, γ_p]` (+ altitude fraction 0–1) | segmented |
+| `MULTI_GUIDANCE_ALT_LB` / `ALT_UB` | 10 km / 500 km; effective upper bound `min(500 km, 0.98 × reference apogee, 0.98 × reference coast start)` = **161.4 km** under L | show_seg_opt_alt |
+| `APOLLO_FREEZE_THRESHOLD` for the segmented arc-1 target | 10 s (not `SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD` = 2 s, at which peg_new's burn never ends) | #20, #21 (L) |
 | `INDIRECT_PMP_STAGE2_FRAME` / `INDIRECT_PMP_TRANSVERSALITY` | `"rotating_pseudo_forces"` / `"duration_stationarity"` | PMP replay |
 | `PMP_REFERENCE_PSO_PARTICLES` × `_GENERATIONS` | 250 × 1000 | reference cache key: **do not change** (it would rebuild the tracked `pmp_reference.npz`) |
 | `PMP_REFERENCE_CACHE` | `Tese/src/Output/pmp_reference.npz` (tracked) | segmented, reference_track |
@@ -137,8 +143,8 @@ flight.
 | 17 | show_exp_shooting | 6.7 | exp_shooting | pso_coast PSO 250×1000 | `GUIDANCE_MODE=exp_shooting` | 4 + a, b | — | **fly** | ~10–16 h |
 | 18 | show_ref_track | 6.7 | peg_new | reference_track (no search) | + `COAST_METHOD=reference_track` | reference's 7-vector | already outside the ODE | **fly** | ~1 s |
 | 19 | show_ref_track_apollo | 6.7 | apollo | reference_track (no search) | + `GUIDANCE_MODE=apollo`, `COAST_METHOD=reference_track` | reference's 7-vector | already outside the ODE | **fly** | ~1 s |
-| 20 | show_seg_fixed_alt | 6.7 | gravity_turn → peg_new @ 120 km | segmented PSO 250×1000 | `MULTI_GUIDANCE_ENABLED=True`, `..._OPTIMIZE_ALTITUDES=False`, `GUIDANCE_SEGMENTS=[("gravity_turn",0),("peg_new",120e3)]` | 4 | yes (Stage 2) | **fly** | ~10–16 h |
-| 21 | show_seg_opt_alt | 6.7 | gravity_turn → peg_new @ swarm altitude | segmented PSO 250×1000 | same, `..._OPTIMIZE_ALTITUDES=True` | 4 + altitude fraction | yes (Stage 2; H) | **fly** | ~10–16 h |
+| 20 | show_seg_fixed_alt | 6.7 | gravity_turn → peg_new @ 120 km; peg_new ends both burns (L) | segmented PSO 250×1000 | `MULTI_GUIDANCE_ENABLED=True`, `..._OPTIMIZE_ALTITUDES=False`, `SEGMENTED_LAW_TERMINATED_ARCS=True`, `GUIDANCE_SEGMENTS=[("gravity_turn",0),("peg_new",120e3)]` | `[Δt_c, γ_p]` | peg_new burns outside the ODE already (L) | **fly** | ~7–10 h (0.096 s per flight) |
+| 21 | show_seg_opt_alt | 6.7 | gravity_turn → peg_new @ swarm altitude ≤ 161.4 km (L) | segmented PSO 250×1000 | same, `..._OPTIMIZE_ALTITUDES=True` | `[Δt_c, γ_p]` + altitude fraction | Stage 2 as #20; Stage 1 in-RHS if the switch lands there (H) | **fly** | ~7–10 h |
 
 **Totals.**
 - **Keep 6:** #1–6.
@@ -156,8 +162,8 @@ flight.
 
 ### Step 0: review, commit, test
 
-1. Decide on items C, D, E, G, T, K (section 1).
-2. Run `PY -m pytest Tese/src/tests/ -q` (expect 220 passed, or fewer tests if items are dropped).
+1. Decide on items C, D, E, G, L, M, N, T, K (section 1).
+2. Run `PY -m pytest Tese/src/tests/ -q` (expect 232 passed, or fewer tests if items are dropped).
 3. Commit and push, so every manifest names a committed state:
    - end the commit message with the repository's attribution line;
    - mask the git token in any output with `sed -E 's#//[^@]*@#//***@#'`.
@@ -176,8 +182,11 @@ PY Tese/src/run_results_matrix.py --smoke --out Output/results_matrix_smoke
 
 - **Always pass `--out` with `--smoke`:** without it the token-budget results overwrite the real
   `Output/results_matrix/`.
-- The smoke run redirects its reference cache to `pmp_reference_smoke.npz`, so the tracked cache
-  is safe.
+- The smoke run redirects its reference cache to `pmp_reference_smoke.npz`, a copy of the tracked
+  one (N), so the tracked cache is safe. A case that exits with "does not match this case's
+  configuration" has found a reference the production run would rebuild: stop and investigate.
+- Checked on 2026-09-25 for #18–21 (`--smoke --only show_seg_,show_ref_track` into the scratchpad):
+  all four dispatch, and the tracked cache stays unmodified.
 - **Expect all 21 cases to dispatch.** `gt_direct` finishes suborbital by design, and the token
   budget means nothing numerically.
 
@@ -227,6 +236,10 @@ row in the folder. Expect 21 rows.
   0.7598833804841622; `pmp_vacuum` 23 952.1 kg.
 - **`show_seg_opt_alt`:** read `optimized_altitudes` from the npz. If it is below the Stage-2
   ignition altitude (~69 km), report H.
+- **Both segmented cases (L):** compare `arc1_achieved` with `arc1_target` in the npz. A miss much
+  larger than the ~0.03 km / 0.1 m/s measured on the reference's plan means peg_new did not
+  reach the coast start at the swarm's kick. Read `t_arc3_end − t_arc3_start` as well: arc 3 is
+  expected to be a second or two, as in `show_ref_track`.
 - **`peg_direct`:** read `direct_grid_gamma_p_on_bound`. If it is True, the optimum sits on the
   edge of the kick box.
 - **Figures:** `PY Tese/src/Plots/results_figures/make_all.py`.
@@ -250,4 +263,13 @@ row in the folder. Expect 21 rows.
   below circular, and part of the PMP margin is the coast-to-target this allows. The archive's
   eccentricity column cannot show it.
 - **Arc 1 under `pso_coast`** aims at the final orbit (documented, not fixed).
+- **Segmented (L).**
+  - peg_new aims arc 1 at the PMP reference's coast start and ends both burns on its own t_go,
+    so the segmented rows use the same targets as `show_ref_track`. They differ from it in the
+    gravity-turn prefix and in the kick and coast the swarm picks.
+  - Their difference from `peg_baseline` is not only the schedule: the arc-1 target and the
+    cutoff rule differ too.
+  - The optimised hand-off is capped at 161.4 km.
+  - Every segmented archive flown before 2026-09-25 is the swarm-timed form, and those with a
+    low-staging kick also carried the fairing (M).
 - **show_seg_opt_alt:** if its switch lands in Stage 1, that part refreshed in the RHS (H).
