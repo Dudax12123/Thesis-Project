@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds sixteen files (213 tests as of 2026-09-24). pytest is installed
+Tests — `Tese/src/tests/` holds sixteen files (214 tests as of 2026-09-25). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -152,8 +152,9 @@ Dispatch order (from `main.py`) — each level overrides the ones below it:
    flight that ended apollo's arc 1 966 m/s short.
    - `GUIDANCE_REFRESH_MODE = "cycle"` (2026-09-24) applies the same fix to every guided arc of
      `pso_coast`, `direct` and the segmented Stage 2, through `pso_coast_solver.solve_guided_arc`.
-   - The default is `"in_rhs"`, which is byte-identical to before, so the matrix still flies the
-     defect until the switch is flipped.
+   - The config default is `"in_rhs"`, which is byte-identical to before. The results matrix
+     flies `"cycle"` (`run_results_matrix.BASELINE`, decision 2026-09-25), so every
+     results-matrix archive flown before that date is `"in_rhs"`.
    - Measured by `dev-notes/refresh_ab.py`; see worktree.md §4. `main.py`'s final `else` runs the apogee-check search for any value it does not
    recognise, so a new value needs its own branch there.
 

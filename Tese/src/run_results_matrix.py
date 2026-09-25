@@ -198,6 +198,14 @@ BASELINE = {
     # longer describes them.
     "TGO_ESTIMATOR": "rocket_equation",
     "GUIDANCE_TGO_USE_PSO_PLAN": False,
+    # The closed-loop laws refresh their coefficients once per guidance cycle on
+    # the state the integrator accepted, not inside the ODE right-hand side where
+    # 96-99 % of refreshes landed on solve_ivp's trial points (decision
+    # 2026-09-25; dev-notes/refresh_ab.py, worktree.md §4). Reaches the cases
+    # whose Stage 2 is steered by apollo or peg_new under pso_coast, direct or the
+    # segmented solver; every other case flies identically either way. Every
+    # results-matrix archive flown before this is "in_rhs".
+    "GUIDANCE_REFRESH_MODE": "cycle",
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.
     # Required for the pressure loss of Auxiliary/losses.py to be meaningful.
     "ISP_1_MODE": "pressure",

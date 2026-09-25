@@ -24,6 +24,8 @@ import Simulation.direct_pso_solver as dps
 # and the J their rows report (<case>.json J_prime), flown at 250x1000. peg_direct's row
 # (J 3.061334676353464) predates peg_new's 2026-09-23 realignment with Mahajan & Condon's
 # Algorithm 1; until the case is re-flown, its J is the realigned law's at the same x.
+# Both rows were flown with the coefficient refresh inside the ODE ("in_rhs"); the matrix
+# baseline has flown "cycle" since 2026-09-25, so these tests ask for "in_rhs" by name.
 PEG_DIRECT_X = [1.5661366962720822, 91.87527871677494]
 PEG_DIRECT_J = 5.948042294131451
 GT_DIRECT_X = [1.5480496369878718, 78.91330864548283]
@@ -69,7 +71,7 @@ def test_unknown_optimizer_raises(monkeypatch):
 @pytest.mark.parametrize("case, x, J", [("peg_direct", PEG_DIRECT_X, PEG_DIRECT_J),
                                         ("gt_direct", GT_DIRECT_X, GT_DIRECT_J)])
 def test_default_path_reproduces_the_archived_rows(monkeypatch, case, x, J):
-    _configure(monkeypatch, case)
+    _configure(monkeypatch, case, GUIDANCE_REFRESH_MODE="in_rhs")
     assert not dps.law_terminated()
     assert dps._decision_bounds() == (sim_params.PSO_DIRECT_LB, sim_params.PSO_DIRECT_UB)
     assert dps.compute_direct_objective(dps.run_pso_direct_trajectory(*x)) == J

@@ -62,6 +62,12 @@ def test_the_default_is_the_historic_in_rhs_refresh():
     assert sim_params.GUIDANCE_REFRESH_MODE == "in_rhs"
 
 
+def test_the_results_matrix_flies_the_cycle_refresh():
+    # decision 2026-09-25: every matrix case, through the frozen baseline
+    assert rm.BASELINE["GUIDANCE_REFRESH_MODE"] == "cycle"
+    assert all("GUIDANCE_REFRESH_MODE" not in c["overrides"] for c in rm.build_matrix())
+
+
 def test_an_unknown_mode_is_refused(monkeypatch):
     monkeypatch.setattr(sim_params, "GUIDANCE_REFRESH_MODE", "sometimes")
     with pytest.raises(ValueError, match="GUIDANCE_REFRESH_MODE"):
@@ -71,7 +77,7 @@ def test_an_unknown_mode_is_refused(monkeypatch):
 @pytest.mark.parametrize("case, x, J_in_rhs, J_cycle", MEASURED,
                          ids=[m[0] for m in MEASURED])
 def test_both_modes_reproduce_the_measurement(monkeypatch, case, x, J_in_rhs, J_cycle):
-    _configure(monkeypatch, case)
+    _configure(monkeypatch, case, GUIDANCE_REFRESH_MODE="in_rhs")
     assert _J(monkeypatch, x) == J_in_rhs
     monkeypatch.setattr(sim_params, "GUIDANCE_REFRESH_MODE", "cycle")
     assert _J(monkeypatch, x) == J_cycle
@@ -113,7 +119,8 @@ def test_cycle_mode_updates_only_on_accepted_cycle_boundaries(monkeypatch, case,
 
 def test_laws_with_nothing_to_refresh_are_not_split(monkeypatch):
     """gravity_turn under pso_coast: the switch leaves the flight bit for bit alone."""
-    _configure(monkeypatch, "peg_baseline", GUIDANCE_MODE="gravity_turn")
+    _configure(monkeypatch, "peg_baseline", GUIDANCE_MODE="gravity_turn",
+               GUIDANCE_REFRESH_MODE="in_rhs")
     J_in_rhs = _J(monkeypatch, PEG_BASELINE_X)
     monkeypatch.setattr(sim_params, "GUIDANCE_REFRESH_MODE", "cycle")
     assert _J(monkeypatch, PEG_BASELINE_X) == J_in_rhs
