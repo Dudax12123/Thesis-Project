@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds eighteen files (232 tests as of 2026-09-25). pytest is installed
+Tests — `Tese/src/tests/` holds nineteen files (242 tests as of 2026-09-26). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -345,6 +345,23 @@ unpowered coast to separation, the separation being a planned interval integrate
 compares against a planned time rather than an integrated state and is reached only on the legacy
 `apogee_check` path (measured: ~49 ms late; every PSO architecture uses an explicit
 `_T_IGNITION_DELAY` instead).
+
+**The archived thrust record comes from a right-hand-side log, so it had the same disease (fixed
+2026-09-26).** `rocket_dynamics` appends `F_T` (and the pseudo-force magnitudes and `t`) on every
+call, trial points included, and the thrust channel is interpolated from that log. Past a cutoff
+root the integrator had already probed with the engine on: every archive showed 0.2–0.9 s of phantom
+Stage-1 thrust after MECO and a ramp over the samples before it, and the legacy path also at its
+Stage-2 cutoff, where it additionally fed the unsorted log to `np.interp`. `dv_ideal` and the
+budget `residual` were off by −23.5 to +9.7 m/s; the trajectories never were (the log is
+output-only). Now `_close_logged_burn(t_cut)` trims the log at each root-found cutoff and closes
+the burn as a step, and **`ra.thrust_on_grid()` is the one reader** — use it, never
+`interpolate_to_time(ra.time_history, ra.thrust_history, …)`, for any new thrust channel.
+`tests/test_thrust_record.py` pins it (the recorded Stage-1 thrust integrates to `M_PROP_1` on both
+dispatchers). The 21 matrix archives were repaired in place from bit-identical re-flights
+(`dev-notes/repair_thrust_record.py`; each manifest has a `repairs` entry; originals in
+`Output/results_matrix_prerepair_20260926/`). With the record right, the residual closes to
+~0 m/s in both rotation-off cases and sits at −112 to −138 m/s in every rotation-on case: the
+unprojected rotation credit.
 
 **Fairing jettison is a planned altitude crossing, and all five architectures share it.**
 `FAIRING_JETTISON_MODE` defaults to `"altitude"` — `ALT_NO_ATMOSPHERE`, 65 km — rather than to

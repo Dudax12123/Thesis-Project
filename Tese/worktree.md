@@ -1024,6 +1024,29 @@ Each is legal to set but does something other than what you'd expect. With `file
         against 86–120 km. The swarm is expected to stay clear of it.
   - `tests/test_results_matrix_config.py` pins these.
 
+- **The thrust channel was read from the ODE right-hand-side log, trial points included (found
+  and FIXED 2026-09-26).** Every archive showed 0.2–0.9 s of phantom Stage-1 thrust after MECO and
+  a ramp over the samples before it; the legacy `apogee_check` path also at its Stage-2 cutoff, and
+  it fed the unsorted log straight to `np.interp`. Only the record was wrong, never the flight, but
+  `dv_ideal` and `residual` were off by −23.5 to +9.7 m/s.
+  - Fix: `rocket_ascent._close_logged_burn` trims the log at each root-found cutoff (MECO in
+    `_fly_stage1`, the legacy Stage-2 cutoff before its coast) and closes the burn as a step;
+    `rocket_ascent.thrust_on_grid` is the one reader, used by all six assemblers and `main.py`.
+  - `tests/test_thrust_record.py`: the recorded Stage-1 thrust integrates to `M_PROP_1` on both
+    dispatchers. The pre-fix code misses by 72–103 kg against a 20 kg tolerance.
+  - The 21 results-matrix archives were repaired in place from bit-identical re-flights
+    (`dev-notes/repair_thrust_record.py`): thrust channel and budget fields only, a `repairs`
+    entry in each manifest, originals in `Output/results_matrix_prerepair_20260926/`. Archives
+    elsewhere under `Output/` still carry the old record.
+  - With the record right, the budget `residual` is ~0 in both rotation-off cases and −112 to
+    −138 m/s in every rotation-on case: the unprojected rotation credit (see above).
+
+- **J′ does not rank the laws the way propellant does (2026-09-26).** The objective adds weighted
+  insertion misses to the burn term, and a swarm that stops short of converging its cutoff time can
+  leave a 0.5–1 m/s overspeed that costs ~8 kg of propellant but ~5 s of burn in J′
+  (`show_linear_tangent`, `show_exp_shooting`). Rank on `prop_remaining_kg` and read accuracy
+  beside it (F6.12 prints the apoapsis-periapsis spread on each bar; F6.13 plots the trade).
+
 - **The default config (`indirect_pmp`) makes most of §2.3/§2.2 inert.** Out of the box,
   `COAST_METHOD="direct"`, `KICK_PROFILE_MODE`, `RUN_FAST`, and the `DIRECT_*` settings are ignored
   until you change `GUIDANCE_MODE` away from `indirect_pmp`.

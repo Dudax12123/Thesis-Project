@@ -145,6 +145,18 @@ def loss_accumulation(cases):
     return st.save(fig, "results_loss_accumulation.png")
 
 
+def _orbit_spread_km(case):
+    """Apoapsis minus periapsis at insertion [km], or None without elements.
+
+    For a target that is circular by definition the gap is the whole miss;
+    accuracy_vs_propellant plots the same quantity.
+    """
+    peri, apo = case.row.get("periapsis_km"), case.row.get("apoapsis_km")
+    if peri is None or apo is None:
+        return None
+    return abs(apo - peri)
+
+
 def law_ranking(cases):
     """F6.12 -- the summary figure: propellant remaining, every law, one bar.
 
@@ -163,7 +175,8 @@ def law_ranking(cases):
         prop = case.row.get("prop_remaining_kg")
         if prop is None:
             continue
-        records.append((st.law_label(case.law), prop / 1e3, case.reached_orbit))
+        records.append((st.law_label(case.law), prop / 1e3, case.reached_orbit,
+                        _orbit_spread_km(case)))
 
     valid = sorted([r for r in records if r[2]], key=lambda r: r[1])
     invalid = sorted([r for r in records if not r[2]], key=lambda r: r[1])
@@ -172,14 +185,24 @@ def law_ranking(cases):
         return _skip("F6.12 law ranking", ["any case with a propellant figure"])
 
     fig, ax = plt.subplots(figsize=st.bar_size(len(records)))
-    for i, (label, prop_t, ok) in enumerate(records):
+    for i, (label, prop_t, ok, spread) in enumerate(records):
         ax.barh(i, prop_t, height=0.62,
                 color=st.BASELINE if ok else st.FAILED,
                 hatch=None if ok else "//",
                 edgecolor="white", linewidth=0.5)
-        ax.annotate("%.2f t" % prop_t, xy=(prop_t, i), xytext=(4, 0),
-                    textcoords="offset points", fontsize=7, va="center",
-                    color=st.INK if ok else st.FAILED)
+        # The accuracy the propellant was bought with, beside it. The swarm's
+        # objective trades the two, so J' ranks linear tangent and polynomial
+        # shooting below laws they beat on propellant: each ended 0.5-1 m/s
+        # fast (a 2-4 km spread), which J' penalises and a propellant bar alone
+        # does not show.
+        # Inside the bar's end: outside, the longer label ran across the
+        # reference line that sits just past the longest bars.
+        text = "%.2f t" % prop_t
+        if spread is not None:
+            text += "  (%.1f km)" % spread
+        ax.annotate(text, xy=(prop_t, i), xytext=(-4, 0),
+                    textcoords="offset points", fontsize=7, va="center", ha="right",
+                    color="white" if ok else st.INK)
 
     ref = cases.get("pmp_baseline")
     note = None
@@ -202,6 +225,9 @@ def law_ranking(cases):
     # every row, so any note placed inside sits on top of one of them or ends
     # up crowding the legend.
     footnotes = []
+    if any(r[3] is not None for r in records):
+        footnotes.append("in brackets: apoapsis-periapsis spread at insertion, "
+                         "as in the accuracy figure")
     if invalid:
         footnotes.append("hatched: target orbit not reached, not ranked")
     if note:

@@ -261,7 +261,24 @@ row in the folder. Expect 21 rows.
   apollo. For apollo's 2 km altitude miss, see worktree §4 (causes and proposed fixes).
 - **Earth-rotation credit.** Because the credit is unprojected, the insertion state is ~125 m/s
   below circular, and part of the PMP margin is the coast-to-target this allows. The archive's
-  eccentricity column cannot show it.
+  eccentricity column cannot show it. The delta-v budget's `residual` column can: since the
+  thrust-record repair (below) it is −0.03 and −0.10 m/s in the two rotation-off cases and −112 to
+  −138 m/s in every rotation-on case.
+- **Rank on propellant, and show accuracy beside it; do not rank on J′.** J′ is the Stage-2 burn
+  fraction plus weighted misses in altitude, speed and flight-path angle. Two laws ended fast:
+  `show_linear_tangent` by 1.04 m/s (penalty 0.0145, 500.0 × 503.7 km) and `show_exp_shooting` by
+  0.54 m/s (0.0076, 500.0 × 502.0 km). Trimming that speed is ~0.03 s of burn (~8 kg), but the
+  penalty is worth ~5 s, so it is the swarm's cutoff time left unconverged at the budget, not a
+  worse trajectory. On J′ linear tangent ranks below `gt_baseline` and bilinear tangent; on
+  propellant it leads the pso_coast laws (+149 kg over the gravity turn). F6.12 ranks on
+  propellant and now prints each case's apoapsis-periapsis spread beside the bar; F6.13 plots the
+  trade. No cutoff polish was applied to any row, so all are equally converged.
+- **Thrust record repaired (2026-09-26).** Every archive's thrust channel carried phantom Stage-1
+  thrust after MECO (and a ramp before it), read back from the ODE right-hand-side log; the
+  trajectories were unaffected. All 21 archives were repaired in place from bit-identical
+  re-flights (`dev-notes/repair_thrust_record.py`, a `repairs` entry in each manifest): only the
+  thrust channel and the budget fields changed, `dv_ideal` by −23.5 to +9.7 m/s. Quote
+  `dv_ideal` and `residual` only from the repaired rows.
 - **Arc 1 under `pso_coast`** aims at the final orbit (documented, not fixed).
 - **Segmented (L).**
   - peg_new aims arc 1 at the PMP reference's coast start and ends both burns on its own t_go,
