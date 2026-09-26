@@ -103,7 +103,7 @@ def _emit_run_card(time, data, thrust_data, time_thrust, alpha_data,
     time = _np.asarray(time, dtype=float)
     # The suites take thrust and alpha on their own grids; the card needs them
     # on the state grid, which is what the harness stores.
-    thrust = interpolate_to_time(time_thrust, thrust_data, time)
+    thrust = ra.thrust_on_grid(time, time_thrust, thrust_data)
     alpha = interpolate_to_time(alpha_time_data, alpha_data, time)
 
     label = guidance_label or sim_params.GUIDANCE_MODE
@@ -260,7 +260,7 @@ def _archive_run(time, data, thrust_data, time_thrust, alpha_data,
         # The Case layer wants thrust and alpha on the state grid; the raw
         # channels go into the archive too, on whatever grid they were produced
         # on, so the twenty-plot suite can be replayed exactly.
-        thrust = interpolate_to_time(time_thrust, thrust_data, t)
+        thrust = ra.thrust_on_grid(t, time_thrust, thrust_data)
         alpha = interpolate_to_time(alpha_time_data, alpha_data, t)
         saved = store.save_run(
             sim_params, t, data, thrust, alpha, result or {},

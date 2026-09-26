@@ -1162,7 +1162,7 @@ def run_indirect_full(optimal_params, verbose=True):
     # (A previous index-slice zeroed all of Stage 1 whenever the grid was denser
     # than the RHS-eval count, leaving plots showing only Stage 2.)
     from Plots.plot_state_utils import interpolate_to_time
-    thrust_stage1 = interpolate_to_time(ra.time_history, ra.thrust_history, t_stage1)
+    thrust_stage1 = ra.thrust_on_grid(t_stage1)
     alpha_stage1  = interpolate_to_time(ra.alpha_time_history, ra.alpha_history, t_stage1)
 
     thrust_full = np.concatenate([thrust_stage1, thrust_stage2])

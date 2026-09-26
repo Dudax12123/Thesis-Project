@@ -339,7 +339,7 @@ def _assemble(t_st1, y_st1, segments, gs, y_insertion, t_insertion, t_coast_star
     time_full = np.concatenate([t_st1, t2])
     data_full = np.concatenate([y_st1[:5, :], y2], axis=1)
     thrust_full = np.concatenate(
-        [interpolate_to_time(ra.time_history, ra.thrust_history, t_st1), th2])
+        [ra.thrust_on_grid(t_st1), th2])
     alpha_full = np.concatenate(
         [interpolate_to_time(ra.alpha_time_history, ra.alpha_history, t_st1), alpha2])
 

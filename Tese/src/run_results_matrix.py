@@ -679,8 +679,11 @@ def _dispatch(sim_params, case=None):
         # case carries six, and gt_apogee would be the one case in Chapter 6
         # with no latitude channel to plot.
         data = ra.append_latitude_row(data)
-        thrust = np.interp(time_a, time_thrust, thrust)
-        alpha = np.interp(time_a, alpha_time, alpha)
+        # The logs are in right-hand-side call order, not time order, and
+        # np.interp assumes increasing sample times; both helpers sort first.
+        from Plots.plot_state_utils import interpolate_to_time
+        thrust = ra.thrust_on_grid(time_a, time_thrust, thrust)
+        alpha = interpolate_to_time(alpha_time, alpha, time_a)
         # The brute grid's only decision variable: the kick angle [rad].
         return (time_a, data, thrust, alpha, result, None, None,
                 {'decision_vector': [float(kick)]})

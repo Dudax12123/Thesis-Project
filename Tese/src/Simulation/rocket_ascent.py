@@ -2064,6 +2064,65 @@ def _coast_to_stage_separation(t_meco, state_meco):
                      events=[interrupt_ground_collision], atol=1e-8)
 
 
+def _close_logged_burn(t_cut):
+    """End the right-hand-side log at a root-found cutoff, as a step.
+
+    rocket_dynamics appends F_T, the pseudo-force magnitudes and t on every
+    call, and solve_ivp calls it at trial times beyond the step it accepts --
+    past a terminal event's root too, with the engine still on. Interpolated
+    onto the output grid, those samples read as up to ~0.9 s of full thrust
+    after MECO, and the coast's zero logged at the cutoff instant pulled the
+    last samples before it into a ramp. Every results-matrix archive flown
+    before 2026-09-26 carries both; they put 5-22 m/s into dv_ideal.
+
+    Drops every entry later than ``t_cut`` -- none belongs to the trajectory
+    flown -- and closes the burn with one sample just before the cutoff that
+    repeats the last entry at or before it, so the next phase's samples, which
+    start at t_cut, make the record a step. Call it at each cutoff before the
+    following phase starts logging. The four logs are appended together, so
+    they are trimmed together.
+    """
+    logs = (thrust_history, coriolis_mag_history, centrifugal_mag_history)
+    if not all(len(log) == len(time_history) for log in logs):
+        raise RuntimeError("right-hand-side logs out of step: "
+                           + ", ".join(str(len(log)) for log in logs + (time_history,)))
+    keep = [i for i, t in enumerate(time_history) if t <= t_cut]
+    if not keep:
+        return
+    # The latest entry at or before the cutoff; among equal times the one
+    # written last, which is the one prepare_monotonic_series keeps.
+    last = max(keep, key=lambda i: (time_history[i], i))
+    closing = [log[last] for log in logs]
+    for log in logs + (time_history,):
+        log[:] = [log[i] for i in keep]
+    for log, value in zip(logs, closing):
+        log.append(value)
+    time_history.append(float(np.nextafter(float(t_cut), -np.inf)))
+
+
+def thrust_on_grid(t_grid, time_log=None, thrust_log=None):
+    """The logged thrust interpolated onto an output grid.
+
+    The log (by default this module's time_history / thrust_history) is
+    sorted, and the sample written last at an instant wins, as in
+    interpolate_to_time: that is the phase starting there. A grid that holds an
+    instant twice -- one phase's last point and the next phase's first -- reads
+    its first copy just before the instant, so a burn that ends there keeps its
+    thrust on the burn side of the step instead of losing half a grid step of
+    it to the trapezoid.
+    """
+    from Plots.plot_state_utils import interpolate_to_time
+
+    tq = np.array(t_grid, dtype=float)
+    if tq.size > 1:
+        first_copy = np.zeros(tq.size, dtype=bool)
+        first_copy[:-1] = tq[1:] == tq[:-1]
+        tq[first_copy] = np.nextafter(tq[first_copy], -np.inf)
+    return interpolate_to_time(time_history if time_log is None else time_log,
+                               thrust_history if thrust_log is None else thrust_log,
+                               tq)
+
+
 def _fly_stage1(initial_state, time_horizon=500.0, use_kick_helper=True):
     """Fly Stage 1 from lift-off to stage separation, in root-found segments.
 
@@ -2148,6 +2207,7 @@ def _fly_stage1(initial_state, time_horizon=500.0, use_kick_helper=True):
     if sim_params.EVENTS_PRINT:
         print(f"Main engine cutoff at t = {t_meco:.4f} s "
               f"(m = {state_meco[4]:.3f} kg, target {_stage1_burnout_mass():.3f} kg)")
+    _close_logged_burn(t_meco)
 
     # --- Coast to stage separation -----------------------------------------
     sol_coast = _coast_to_stage_separation(t_meco, state_meco)
@@ -2611,7 +2671,10 @@ def run(initial_kick_angle, azimuth_override=None):
             # pseudo-forces (Coriolis / centrifugal) are automatically
             # skipped by rocket_dynamics().
             PROPAGATING_IN_INERTIAL_FRAME = True
-            
+
+            # The coast is flown from sol_2's last grid point, so that is the
+            # cutoff; sol_2's trial samples past it had the engine on.
+            _close_logged_burn(init_time_3)
             sol_3 = simulate_trajectory(init_time_3, time_3, initial_state_3,
                                        False, False)
 

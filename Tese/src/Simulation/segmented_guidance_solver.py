@@ -853,7 +853,7 @@ def run_segmented_full(optimal_params, segs, verbose=True):
 
     # ---- Stage 1 (from this run's ra.*_history; run_stage1 was called once) ----
     y1 = np.asarray(y_stage1, dtype=float)[:5, :]
-    thrust_stage1 = interpolate_to_time(ra.time_history, ra.thrust_history, t_stage1)
+    thrust_stage1 = ra.thrust_on_grid(t_stage1)
     alpha_stage1  = interpolate_to_time(ra.alpha_time_history, ra.alpha_history, t_stage1)
 
     # ---- Combine Stage 1 + Stage 2 ----
