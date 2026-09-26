@@ -276,5 +276,31 @@
     "P_0": 101325,
     "RHO_0": 1.225,
     "R_EARTH": 6378000.0
-  }
+  },
+  "repairs": [
+    {
+      "date": "2026-09-26",
+      "git": {
+        "commit": "b92d16f894f2a9e01ddcdb064abdcce962babd94",
+        "branch": "main",
+        "describe": "b92d16f-dirty",
+        "dirty": true
+      },
+      "what": "thrust channel rebuilt from a bit-identical re-flight with rocket_ascent._close_logged_burn / thrust_on_grid; delta-v budget fields recomputed through run_record.collect_row; trajectory, alpha and every other row field unchanged",
+      "script": "dev-notes/repair_thrust_record.py",
+      "thrust_samples_changed": 48,
+      "budget_before": {
+        "dv_ideal": 8920.06,
+        "dv_gravity": 1501.97,
+        "dv_drag": 45.688,
+        "dv_steering": 101.056,
+        "dv_pressure": 68.764,
+        "dv_losses": 1717.477,
+        "dv_gain": 311.538,
+        "dv_achieved": 7612.687,
+        "residual": -98.567,
+        "pressure_applicable": true
+      }
+    }
+  ]
 }

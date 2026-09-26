@@ -28,7 +28,7 @@
   "periapsis_km": 498.8620567466533,
   "period_min": 94.59000950793687,
   "prop_remaining_kg": 22168.721415826363,
-  "dv_ideal": 8782.552,
+  "dv_ideal": 8777.915,
   "dv_gravity": 1211.444,
   "dv_drag": 0.0,
   "dv_steering": 0.0,
@@ -36,6 +36,6 @@
   "dv_losses": 1278.837,
   "dv_gain": 311.538,
   "dv_achieved": 7884.433,
-  "residual": -69.18,
+  "residual": -73.817,
   "pressure_applicable": true
 }
