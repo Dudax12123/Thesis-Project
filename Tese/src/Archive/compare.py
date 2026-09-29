@@ -1,7 +1,7 @@
 """Overlay any N archived runs, and say what actually differs between them.
 
 The Chapter 6 figures cannot do this. Every one of them names its cases --
-``sec62_gravity_turn.py`` asks for "gt_baseline" and "gt_vacuum" by name, and
+``sec62_gravity_turn.py`` asks for "gt_baseline" and "gt_norot" by name, and
 there are ten more like it -- because each is a fixed comparison the chapter
 makes. That is right for the thesis and useless for the question "how does the
 run I just flew compare with the one from last week", which is the question a

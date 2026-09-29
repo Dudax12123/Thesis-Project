@@ -1,10 +1,11 @@
-"""Section 6.7 figures -- breadth at reduced depth, and the cost of the search.
+"""Sections 6.5, 6.6 and Appendix A figures -- the remaining laws, the segmented
+schedule, and the cost of the search.
 
 Outputs
 -------
-results_showcase_laws.png      F6.14
-results_segmented_handoff.png  F6.15
-results_solve_cost.png         F6.16
+results_showcase_laws.png      fig:showcase_laws
+results_segmented_handoff.png  fig:segmented_handoff
+results_solve_cost.png         fig:solve_cost (Appendix A)
 """
 
 import matplotlib.pyplot as plt

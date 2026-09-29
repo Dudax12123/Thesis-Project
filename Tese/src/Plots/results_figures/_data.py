@@ -190,6 +190,31 @@ class Case:
             return len(self.time)
         return max(int(np.searchsorted(self.time, self.t_seco, "right")), 2)
 
+    @property
+    def t_insertion(self):
+        """When the vehicle reaches its orbit [s].
+
+        SECO for every architecture but one. The apogee check cuts its engine
+        below the target and coasts up to apogee, where an impulsive
+        circularisation inserts it; nothing records that instant, so it is read
+        as the one velocity jump after SECO (every archive carries ~1000 s of
+        orbit after insertion, so the end of the time axis is not it either).
+        """
+        if self.architecture != "apogee_check" or self.t_seco is None:
+            return self.t_seco
+        after = np.where(self.time > self.t_seco + 1.0)[0]
+        if len(after) < 2:
+            return self.t_seco
+        jumps = np.abs(np.diff(self.v[after]))
+        return float(self.time[after[int(np.argmax(jumps)) + 1]])
+
+    def insertion_index(self):
+        """Index one past insertion: the ascent, excluding the orbit after it."""
+        t_ins = self.t_insertion
+        if t_ins is None:
+            return len(self.time)
+        return max(int(np.searchsorted(self.time, t_ins, "right")), 2)
+
     def coast_intervals(self, floor_frac=0.01):
         """Unpowered spans of the ascent, as [(t_start, t_end), ...].
 
@@ -198,7 +223,10 @@ class Case:
         ``pso_coast`` records where it placed a coast -- and the arc structure
         is exactly what the architecture comparison is about. Everything after
         SECO is excluded: the terminal ballistic arc is not a coast the
-        optimiser chose.
+        optimiser chose. The one exception is the apogee check, whose coast to
+        apogee follows its SECO and ends at the impulsive circularisation.
+        The staging interval after MECO is left out: it is a planned separation
+        delay, not a coast.
         """
         end = self.cutoff_index()
         thrust = self.thrust[:end]
@@ -216,9 +244,17 @@ class Case:
                 start = None
         if start is not None:
             spans.append((start, time[-1]))
-        # Staging is a discontinuity, not a coast; anything shorter than a few
-        # seconds is the separation transient rather than a chosen arc.
-        return [(a, b) for a, b in spans if (b - a) > 5.0]
+        # Staging is a discontinuity, not a coast. The separation delay after
+        # MECO runs 8 s, longer than the 5 s transient floor, so it is dropped
+        # by where it starts rather than by how long it lasts.
+        spans = [(a, b) for a, b in spans
+                 if (b - a) > 5.0
+                 and not (self.t_meco is not None and abs(a - self.t_meco) < 1.0)]
+        t_ins = self.t_insertion
+        if (self.architecture == "apogee_check" and t_ins is not None
+                and self.t_seco is not None and t_ins > self.t_seco + 5.0):
+            spans.append((self.t_seco, t_ins))
+        return spans
 
     def loss_histories(self):
         """Cumulative gravity/drag/steering/pressure losses over the powered arc."""

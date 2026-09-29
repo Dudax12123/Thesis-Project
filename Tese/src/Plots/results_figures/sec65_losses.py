@@ -1,14 +1,14 @@
-"""Sections 6.5 and 6.6 figures -- the loss budget and the ranking.
+"""Section 6.7 and Appendix A figures -- the loss budget and the ranking.
 
-Neither section owns any runs. Both re-read the cases already reported, which
-is why the chapter is shorter than the matrix is wide.
+Section 6.7 owns no runs. It re-reads the cases already reported, which is why
+the chapter is shorter than the matrix is wide.
 
 Outputs
 -------
-results_loss_budget.png            F6.10
-results_loss_accumulation.png      F6.11
-results_law_ranking.png            F6.12
-results_accuracy_vs_propellant.png F6.13
+results_loss_budget.png            fig:loss_budget
+results_loss_accumulation.png      fig:loss_accumulation (Appendix A)
+results_law_ranking.png            fig:law_ranking
+results_accuracy_vs_propellant.png fig:accuracy_vs_propellant (Appendix A)
 """
 
 import matplotlib.pyplot as plt
@@ -17,12 +17,12 @@ import numpy as np
 from . import _data
 from . import _style as st
 
-# The cases the budget is drawn for: the three laws at the baseline, and the
-# drag-free counterpart of each that has one. Not every case in the matrix --
-# the full budget goes to the appendix table.
+# The cases the budget is drawn for: the gravity turn, PEG and the reference at
+# the baseline, and the drag-free counterparts of the last two (gt_vacuum is
+# archived but not reported). Not every case in the matrix -- the full budget
+# goes to the chapter's table.
 BUDGET_CASES = [
     ("gt_baseline", "Gravity turn"),
-    ("gt_vacuum", "Gravity turn, vac."),
     ("peg_baseline", "PEG"),
     ("peg_vacuum", "PEG, vac."),
     ("pmp_baseline", "Indirect PMP"),

@@ -1,14 +1,19 @@
-"""Sections 6.3 and 6.4 figures -- the closed-loop law and the reference.
+"""Sections 6.1 and 6.3 figures -- the reference and powered explicit guidance.
+
+Since 2026-09-29 this law carries two of the secondary factors: direct
+insertion (drawn with the coast-parameter flight against the reference) and the
+atmosphere. gt_direct and peg_vacuum_norot are archived but not reported, which
+retired the two-law direct contrast and the two-step environment ladder.
 
 Outputs
 -------
-results_peg_vs_gt.png             F6.6
-results_direct_contrast.png       F6.7
-results_peg_environment.png       F6.8
-results_reference_trajectory.png  F6.9
+results_peg_vs_reference.png      fig:peg_vs_reference
+results_peg_atmosphere.png        fig:peg_atmosphere
+results_reference_trajectory.png  fig:reference_trajectory
 """
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from . import _data
 from . import _style as st
@@ -18,157 +23,141 @@ def _skip(name, missing):
     print("  [skip] %s -- missing %s" % (name, ", ".join(missing)))
 
 
-def peg_vs_gt(cases):
-    """F6.6 -- the closed-loop baseline against the passive one.
+def _to_insertion(case, *channels):
+    """The time axis and *channels* up to insertion, dropping the orbit after it.
 
-    Panel (b) is the point of the pair. The gravity turn commands alpha = 0
-    after the kick, so its trace is flat by construction and the difference
-    between the two curves is the whole of what the closed-loop law is doing.
+    Every archive carries some 1000 s of flight after insertion. On a time axis
+    that ends where the reference inserts, that tail would read as flight still
+    in progress.
     """
-    missing = _data.missing_from(cases, "gt_baseline", "peg_baseline")
-    if missing:
-        return _skip("F6.6 peg vs gravity turn", missing)
-    gt, peg = cases["gt_baseline"], cases["peg_baseline"]
-
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    for case, colour in ((gt, st.BASELINE), (peg, st.VARIANT)):
-        s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
-        ax_a.plot(s_km, alt_km, color=colour, label=st.law_label(case.law))
-    ax_a.set_xlabel("Downrange [km]")
-    ax_a.set_ylabel("Altitude [km]")
-    st.panel_tag(ax_a, "a")
-    st.tidy(ax_a)
-
-    for case, colour in ((gt, st.BASELINE), (peg, st.VARIANT)):
-        t, al = st.thin(case.time, case.alpha_deg)
-        ax_b.plot(t, al, color=colour, label=st.law_label(case.law))
-    ax_b.axhline(0.0, color=st.FAINT, linewidth=0.8)
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel(r"Angle of attack $\alpha$ [deg]")
-    st.add_events(ax_b, peg, coast=False)
-    st.panel_tag(ax_b, "b")
-    st.tidy(ax_b)
-
-    fig.tight_layout()
-    return st.save(fig, "results_peg_vs_gt.png")
+    end = case.insertion_index()
+    return (case.time[:end],) + tuple(np.asarray(ch)[:end] for ch in channels)
 
 
-def direct_contrast(cases):
-    """F6.7 -- both laws under both swarm architectures.
+def peg_vs_reference(cases):
+    """PEG under the coast-parameter and direct-insertion architectures, and the
+    reference.
 
-    The load-bearing figure of the architecture argument: the direct
-    single-burn insertion closes for the law that enforces terminal constraints
-    explicitly and cannot for the passive one, whatever budget it is given. Two
-    laws times two architectures is the smallest comparison that separates the
-    law from the architecture as the cause.
+    Panel (a) is the arc structure: the reference coasts for most of its
+    flight, and the question is what the two PEG flights do instead. Panel (b)
+    is limited to the first burn, which is where the steering differs; the
+    reference's final burn, at the end of its coast, is a fraction of a second.
+    The y-range covers the bulk of each flight's steering (2nd-98th percentile
+    of its steered samples), so the coast-parameter flight's last-seconds swing
+    of some +-85 deg does not flatten the reference's +-8 deg; the clipped
+    peaks are printed rather than hidden.
     """
-    names = ("gt_baseline", "gt_direct", "peg_baseline", "peg_direct")
+    names = ("pmp_baseline", "peg_baseline", "peg_direct")
     missing = _data.missing_from(cases, *names)
     if missing:
-        return _skip("F6.7 direct contrast", missing)
+        return _skip("peg vs reference", missing)
 
     entries = [
-        (cases["gt_baseline"], st.BASELINE, "-", "Gravity turn, PSO coast"),
-        (cases["gt_direct"], st.BASELINE, "--", "Gravity turn, direct"),
-        (cases["peg_baseline"], st.VARIANT, "-", "PEG, PSO coast"),
-        (cases["peg_direct"], st.VARIANT, "--", "PEG, direct"),
+        (cases["pmp_baseline"], st.REFERENCE, "-", "Reference (indirect PMP)"),
+        (cases["peg_baseline"], st.BASELINE, "-",
+         "PEG, %s" % st.arch_label("pso_coast")),
+        (cases["peg_direct"], st.VARIANT, "--", "PEG, %s" % st.arch_label("direct")),
     ]
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
     for case, colour, style, label in entries:
-        s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
-        ax_a.plot(s_km, alt_km, color=colour, linestyle=style, label=label)
-        if not case.reached_orbit:
-            peri = case.row.get("periapsis_km")
-            if peri is not None:
-                ax_a.annotate("periapsis %.0f km" % peri,
-                              xy=(case.downrange_km[-1], case.alt_km[-1]),
-                              xytext=(-4, -12), textcoords="offset points",
-                              fontsize=7, color=colour, ha="right")
-    ax_a.set_xlabel("Downrange [km]")
+        t, alt_km = _to_insertion(case, case.alt_km)
+        t, alt_km = st.thin(t, alt_km)
+        ax_a.plot(t, alt_km, color=colour, linestyle=style, label=label)
+        for t0, t1 in case.coast_intervals():
+            ax_a.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
+    ax_a.set_xlabel("Time [s]")
     ax_a.set_ylabel("Altitude [km]")
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a)
+    st.tidy(ax_a, legend_loc="lower right")
 
-    for case, colour, style, label in entries:
-        t, al = st.thin(case.time, case.alpha_deg)
-        ax_b.plot(t, al, color=colour, linestyle=style, label=label)
+    ref = cases["pmp_baseline"]
+    peg_ends = [c.t_seco for c, _col, _s, _l in entries[1:] if c.t_seco is not None]
+    first_burn_end = [t for t in peg_ends + [ref.t_coast_start] if t is not None]
+    t_hi = 1.06 * max(first_burn_end) if first_burn_end else None
+
+    shown = []
+    lo, hi = 0.0, 0.0
+    for case, _colour, _style, _label in entries:
+        t, al = _to_insertion(case, case.alpha_deg)
+        al = al[t <= (t_hi if t_hi is not None else t[-1])]
+        shown.append(al)
+        steered = al[np.abs(al) > 1e-6]
+        if steered.size:
+            lo = min(lo, float(np.nanpercentile(steered, 2.0)))
+            hi = max(hi, float(np.nanpercentile(steered, 98.0)))
+    pad = 0.12 * max(hi - lo, 1.0)
+    lo, hi = lo - pad, hi + pad
+
+    clipped = []
+    for (case, colour, style, label), al in zip(entries, shown):
+        t, al_full = _to_insertion(case, case.alpha_deg)
+        ax_b.plot(t, al_full, color=colour, linestyle=style, label=label)
+        peaks = [v for v in (float(np.nanmin(al)), float(np.nanmax(al)))
+                 if v < lo or v > hi]
+        if peaks:
+            clipped.append((colour, label, peaks))
     ax_b.axhline(0.0, color=st.FAINT, linewidth=0.8)
+    ax_b.set_ylim(lo, hi)
+    if t_hi is not None:
+        ax_b.set_xlim(0.0, t_hi)
+    for i, (colour, label, peaks) in enumerate(clipped):
+        ax_b.annotate("%s: peaks %s" % (label, ", ".join("%+.0f" % v for v in peaks))
+                      + r"$^\circ$, clipped",
+                      xy=(0.02, 0.95 - 0.07 * i), xycoords="axes fraction",
+                      fontsize=6.3, color=colour, va="top")
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel(r"Angle of attack $\alpha$ [deg]")
     st.panel_tag(ax_b, "b")
     st.tidy(ax_b, legend=False)
 
     fig.tight_layout()
-    return st.save(fig, "results_direct_contrast.png")
+    return st.save(fig, "results_peg_vs_reference.png")
 
 
-def peg_environment(cases):
-    """F6.8 -- the environment removed in two single-factor steps.
+def peg_atmosphere(cases):
+    """PEG at the baseline against the drag-free run.
 
-    Read left to right as a ladder: the vacuum run differs from the baseline
-    only in the atmosphere, and the third differs from the vacuum run only in
-    the rotation. Neither is read directly against the baseline, which would be
-    a two-factor comparison.
+    The two runs differ on two counts and not one: ``INCLUDE_DRAG=False`` is the
+    master no-atmosphere switch, so the vacuum case also drops the fairing and
+    flies vacuum thrust and vacuum Isp. Panel (b) shows both consequences at
+    once -- the drag integral vanishes, and the gravity loss changes because the
+    trajectory it is flown along has changed.
     """
-    names = ("peg_baseline", "peg_vacuum", "peg_vacuum_norot")
-    missing = _data.missing_from(cases, *names)
+    missing = _data.missing_from(cases, "peg_baseline", "peg_vacuum")
     if missing:
-        return _skip("F6.8 peg environment", missing)
-
-    labels = ("Baseline", "No atmosphere", "No atmosphere, no rotation")
-    colours = (st.BASELINE, st.VARIANT2, st.VARIANT)
+        return _skip("peg atmosphere", missing)
+    base, vac = cases["peg_baseline"], cases["peg_vacuum"]
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    for name, colour, label in zip(names, colours, labels):
-        case = cases[name]
-        s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
+    for case, colour, label in ((base, st.BASELINE, "With atmosphere"),
+                                (vac, st.VARIANT, "No atmosphere")):
+        _t, s_km, alt_km = _to_insertion(case, case.downrange_km, case.alt_km)
+        s_km, alt_km = st.thin(s_km, alt_km)
         ax_a.plot(s_km, alt_km, color=colour, label=label)
     ax_a.set_xlabel("Downrange [km]")
     ax_a.set_ylabel("Altitude [km]")
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a)
+    st.tidy(ax_a, legend_loc="lower right")
 
-    # Stage 1 burns roughly 460 t of the 489 t on board, so on an axis that has
-    # to show the launch mass the quantity being compared -- what is left at
-    # insertion, some 2 t apart across the three cases -- occupies the bottom
-    # few percent and the three end labels land on each other. The main panel
-    # keeps the depletion for context; the inset carries the comparison.
-    ax_zoom = ax_b.inset_axes([0.40, 0.36, 0.57, 0.58])
-    end_labels = []
-    for name, colour, label in zip(names, colours, labels):
-        case = cases[name]
-        t, prop = st.thin(case.time, case.prop_kg)
-        ax_b.plot(t, prop / 1e3, color=colour, label=label)
-
-        tail = case.time >= (case.t_meco or 0.0)
-        t_tail, prop_tail = st.thin(case.time[tail], case.prop_kg[tail])
-        ax_zoom.plot(t_tail, prop_tail / 1e3, color=colour, linewidth=1.0)
-        remaining = case.row.get("prop_remaining_kg")
-        if remaining is not None:
-            end_labels.append(ax_zoom.annotate(
-                "%.1f t" % (remaining / 1e3),
-                xy=(t_tail[-1], prop_tail[-1] / 1e3), xytext=(3, 0),
-                textcoords="offset points", fontsize=6.5, color=colour))
-
-    ax_zoom.set_title("After MECO", fontsize=6.5, pad=2)
-    ax_zoom.tick_params(labelsize=6)
-    ax_zoom.margins(x=0.22)
-    for side in ("top", "right"):
-        ax_zoom.spines[side].set_visible(False)
-
+    for case, colour, tag in ((base, st.BASELINE, "atm."), (vac, st.VARIANT, "vac.")):
+        hist = case.loss_histories()
+        t = case.time[:case.cutoff_index()]
+        t, grav, drag = st.thin(t, hist["gravity"], hist["drag"])
+        ax_b.plot(t, grav, color=colour, label="Gravity (%s)" % tag)
+        ax_b.plot(t, drag, color=colour, linestyle="--",
+                  label="Drag (%s)" % tag)
     ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel("Propellant remaining [t]")
+    ax_b.set_ylabel(r"Cumulative loss [m/s]")
     st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend=False)
+    st.tidy(ax_b, legend_loc="upper left")
 
     fig.tight_layout()
-    st.dodge_labels(fig, end_labels)
-    return st.save(fig, "results_peg_environment.png")
+    return st.save(fig, "results_peg_atmosphere.png")
 
 
 def reference_trajectory(cases):
-    """F6.9 -- the indirect optimum, with the flyable baselines behind it.
+    """The indirect optimum, with the flyable baselines behind it.
 
     The two flyable laws are drawn faint rather than omitted so the yardstick is
     seen against what it is a yardstick for. Panel (b) shows the pitch, because
@@ -178,7 +167,7 @@ def reference_trajectory(cases):
     """
     missing = _data.missing_from(cases, "pmp_baseline")
     if missing:
-        return _skip("F6.9 reference trajectory", missing)
+        return _skip("reference trajectory", missing)
 
     primary = [(cases["pmp_baseline"], st.REFERENCE, "-", "Indirect PMP")]
     if "pmp_vacuum" in cases:
@@ -215,4 +204,4 @@ def reference_trajectory(cases):
     return st.save(fig, "results_reference_trajectory.png")
 
 
-FIGURES = [peg_vs_gt, direct_contrast, peg_environment, reference_trajectory]
+FIGURES = [reference_trajectory, peg_vs_reference, peg_atmosphere]

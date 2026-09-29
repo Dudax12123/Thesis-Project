@@ -1,16 +1,17 @@
-"""Section 6.2 figures -- the gravity turn along its four secondary axes.
+"""Section 6.2 figures -- the gravity turn along its three secondary axes.
 
-Five figures. The first is the reporting template of Section 6.1, shown in full
-once here and cited by every later section rather than repeated; the other four
-are each the baseline overlaid with the single case that differs from it.
+Four figures. The first is the baseline flight as a run card; the other three
+are each the baseline overlaid with the single case that differs from it. The
+atmosphere is not among them: since 2026-09-29 it is varied on powered explicit
+guidance (sec63_peg.peg_atmosphere), and gt_vacuum and gt_direct are archived
+but not reported.
 
 Outputs
 -------
-results_gt_baseline_card.png   F6.1
-results_gt_architecture.png    F6.2
-results_gt_atmosphere.png      F6.3
-results_gt_rotation.png        F6.4
-results_gt_engine.png          F6.5
+results_gt_baseline_card.png   fig:gt_baseline_card
+results_gt_architecture.png    fig:gt_architecture
+results_gt_rotation.png        fig:gt_rotation
+results_gt_engine.png          fig:gt_engine
 """
 
 import matplotlib.pyplot as plt
@@ -39,10 +40,15 @@ def baseline_card(cases):
     return run_card.draw(cases["gt_baseline"], "results_gt_baseline_card.png")
 
 
-def _overlay_trajectory(ax, entries):
-    """Altitude against downrange for several cases, in the shared house style."""
+def _overlay_trajectory(ax, entries, to_insertion=False):
+    """Altitude against downrange for several cases, in the shared house style.
+
+    *to_insertion* drops the orbit each archive carries after insertion, for a
+    figure whose cases insert at very different times.
+    """
     for case, colour, label, style in entries:
-        s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
+        end = case.insertion_index() if to_insertion else len(case.time)
+        s_km, alt_km = st.thin(case.downrange_km[:end], case.alt_km[:end])
         ax.plot(s_km, alt_km, color=colour, label=label, linestyle=style)
     ax.set_xlabel("Downrange [km]")
     ax.set_ylabel("Altitude [km]")
@@ -67,46 +73,32 @@ def _derivative(time, values):
 
 
 def architecture(cases):
-    """F6.2 -- the same law under three optimization architectures.
+    """The same law under the coast-parameter and the apogee-check architectures.
 
-    The direct run is expected to finish suborbital and is drawn, annotated
-    with its periapsis, rather than suppressed: paired with ``peg_direct`` in
-    Section 6.3 it is the chapter's argument for why coast arcs exist.
+    The direct-insertion architecture is compared on powered explicit guidance
+    instead (sec63_peg.peg_vs_reference); gt_direct is archived, not reported.
     """
-    names = ("gt_baseline", "gt_apogee", "gt_direct")
+    names = ("gt_baseline", "gt_apogee")
     missing = _data.missing_from(cases, *names)
     if missing:
-        return _skip("F6.2 architecture", missing)
+        return _skip("gt architecture", missing)
 
-    colours = (st.BASELINE, st.VARIANT2, st.VARIANT)
+    colours = (st.BASELINE, st.VARIANT2)
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
 
-    entries = []
-    for name, colour in zip(names, colours):
-        case = cases[name]
-        label = st.arch_label(case.architecture)
-        if not case.reached_orbit:
-            label += " (suborbital)"
-        entries.append((case, colour, label, "-"))
-    _overlay_trajectory(ax_a, entries)
-
-    failed = [c for c in (cases[n] for n in names) if not c.reached_orbit]
-    for case in failed:
-        peri = case.row.get("periapsis_km")
-        if peri is not None:
-            ax_a.annotate("periapsis %.0f km" % peri,
-                          xy=(case.downrange_km[-1], case.alt_km[-1]),
-                          xytext=(-4, -12), textcoords="offset points",
-                          fontsize=7, color=st.VARIANT, ha="right")
+    _overlay_trajectory(ax_a, [
+        (cases[name], colour, st.arch_label(cases[name].architecture), "-")
+        for name, colour in zip(names, colours)], to_insertion=True)
     st.panel_tag(ax_a, "a")
     st.tidy(ax_a)
 
-    # (b) the same three in time, with each one's arc structure shaded. The
-    # single continuous burn of the direct architecture reads here as the
-    # absence of a coast, which is the whole of the explanation.
+    # (b) the same two in time, with each one's arc structure shaded: a guided
+    # final burn after the swarm's coast against a coast to apogee closed by an
+    # impulsive circularisation.
     for name, colour in zip(names, colours):
         case = cases[name]
-        t, alt_km = st.thin(case.time, case.alt_km)
+        end = case.insertion_index()
+        t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
         ax_b.plot(t, alt_km, color=colour, label=st.arch_label(case.architecture))
         for t0, t1 in case.coast_intervals():
             ax_b.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
@@ -117,44 +109,6 @@ def architecture(cases):
 
     fig.tight_layout()
     return st.save(fig, "results_gt_architecture.png")
-
-
-def atmosphere(cases):
-    """F6.3 -- baseline against the drag-free run.
-
-    The two runs differ on two counts and not one: ``INCLUDE_DRAG=False`` is the
-    master no-atmosphere switch, so the vacuum case also drops the fairing and
-    flies vacuum thrust and vacuum Isp. Panel (b) shows both consequences at
-    once -- the drag integral vanishes, and the gravity loss changes because the
-    trajectory it is flown along has changed.
-    """
-    missing = _data.missing_from(cases, "gt_baseline", "gt_vacuum")
-    if missing:
-        return _skip("F6.3 atmosphere", missing)
-    base, vac = cases["gt_baseline"], cases["gt_vacuum"]
-
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    _overlay_trajectory(ax_a, [
-        (base, st.BASELINE, "With atmosphere", "-"),
-        (vac, st.VARIANT, "No atmosphere", "-"),
-    ])
-    st.panel_tag(ax_a, "a")
-    st.tidy(ax_a)
-
-    for case, colour, tag in ((base, st.BASELINE, "atm."), (vac, st.VARIANT, "vac.")):
-        hist = case.loss_histories()
-        t = case.time[:case.cutoff_index()]
-        t, grav, drag = st.thin(t, hist["gravity"], hist["drag"])
-        ax_b.plot(t, grav, color=colour, label="Gravity (%s)" % tag)
-        ax_b.plot(t, drag, color=colour, linestyle="--",
-                  label="Drag (%s)" % tag)
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel(r"Cumulative loss [m/s]")
-    st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend_loc="upper left")
-
-    fig.tight_layout()
-    return st.save(fig, "results_gt_atmosphere.png")
 
 
 def rotation(cases):
@@ -287,4 +241,4 @@ def engine(cases):
     return st.save(fig, "results_gt_engine.png")
 
 
-FIGURES = [baseline_card, architecture, atmosphere, rotation, engine]
+FIGURES = [baseline_card, architecture, rotation, engine]

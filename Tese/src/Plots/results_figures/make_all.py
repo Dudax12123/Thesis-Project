@@ -9,7 +9,7 @@ run once.
 This is not the per-run debugging suite. ``Plots/new_metrics`` still exists and
 is still what ``main.py`` fires for a single interactive run; it draws twenty
 plots for one trajectory, which is right for finding a bug and wrong for a
-chapter. These sixteen draw comparisons across cases instead.
+chapter. These draw comparisons across cases instead.
 
 Usage
 -----
@@ -41,22 +41,24 @@ from Plots.results_figures import sec63_peg as sec63
 from Plots.results_figures import sec65_losses as sec65
 from Plots.results_figures import sec67_capabilities as sec67
 
-# Every case the sixteen figures can draw on, in chapter order.
+# The eighteen cases Chapter 6 reports, in chapter order. The matrix flies three
+# more -- gt_direct, gt_vacuum and peg_vacuum_norot -- which stay archived but
+# are not reported (decision 2026-09-29), so no figure draws them.
 ALL_CASES = [
-    "gt_baseline", "gt_apogee", "gt_direct", "gt_vacuum", "gt_norot",
-    "gt_sea_level_engine",
-    "peg_baseline", "peg_direct", "peg_vacuum", "peg_vacuum_norot",
     "pmp_baseline", "pmp_vacuum",
-    "show_cpr", "show_linear_tangent", "show_bilinear_tangent", "show_apollo",
-    "show_exp_shooting", "show_ref_track", "show_ref_track_apollo",
+    "gt_baseline", "gt_apogee", "gt_norot", "gt_sea_level_engine",
+    "peg_baseline", "peg_direct", "peg_vacuum",
+    "show_ref_track",
+    "show_cpr", "show_linear_tangent", "show_bilinear_tangent",
+    "show_exp_shooting", "show_apollo", "show_ref_track_apollo",
     "show_seg_fixed_alt", "show_seg_opt_alt",
 ]
 
 SECTIONS = [
     ("6.2  Gravity turn", sec62.FIGURES),
-    ("6.3  Powered explicit guidance / 6.4  Reference", sec63.FIGURES),
-    ("6.5  Losses / 6.6  Comparison", sec65.FIGURES),
-    ("6.7  Capabilities", sec67.FIGURES),
+    ("6.1  Reference / 6.3  Powered explicit guidance", sec63.FIGURES),
+    ("6.7  Comparison / Appendix A", sec65.FIGURES),
+    ("6.5  Remaining laws / 6.6  Segmented / Appendix A", sec67.FIGURES),
 ]
 
 
