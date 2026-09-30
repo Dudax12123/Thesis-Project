@@ -350,6 +350,9 @@ def _thrust_phase(t0, duration, y0, gs, segs, mgr, teval_fn=None, stop_at_final=
             t_cur = float(sol.t[-1])
             y_cur = sol.y[:5, -1].copy()
         if crossed:
+            # The ended integration probed past the crossing with the old law;
+            # left in the log, those samples interleave with the new law's.
+            gs.discard_logs_after(t_cur)
             mgr["idx"] += 1
             gs.restart_for_new_burn()
             segs.apply(gs, mgr["idx"])

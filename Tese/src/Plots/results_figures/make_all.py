@@ -41,24 +41,15 @@ from Plots.results_figures import sec63_peg as sec63
 from Plots.results_figures import sec65_losses as sec65
 from Plots.results_figures import sec67_capabilities as sec67
 
-# The eighteen cases Chapter 6 reports, in chapter order. The matrix flies three
-# more -- gt_direct, gt_vacuum and peg_vacuum_norot -- which stay archived but
-# are not reported (decision 2026-09-29), so no figure draws them.
-ALL_CASES = [
-    "pmp_baseline", "pmp_vacuum",
-    "gt_baseline", "gt_apogee", "gt_norot", "gt_sea_level_engine",
-    "peg_baseline", "peg_direct", "peg_vacuum",
-    "show_ref_track",
-    "show_cpr", "show_linear_tangent", "show_bilinear_tangent",
-    "show_exp_shooting", "show_apollo", "show_ref_track_apollo",
-    "show_seg_fixed_alt", "show_seg_opt_alt",
-]
+# The cases Chapter 6 reports; the list lives in _data so the figures that draw
+# every case (the ranking, the accuracy trade, the arc structure) share it.
+ALL_CASES = _data.REPORTED_CASES
 
 SECTIONS = [
+    ("6.1  Reference / 6.3-6.4  Powered explicit guidance", sec63.FIGURES),
     ("6.2  Gravity turn", sec62.FIGURES),
-    ("6.1  Reference / 6.3  Powered explicit guidance", sec63.FIGURES),
-    ("6.7  Comparison / Appendix A", sec65.FIGURES),
-    ("6.5  Remaining laws / 6.6  Segmented / Appendix A", sec67.FIGURES),
+    ("6.5  Remaining laws / 6.6  Segmented / 6.7  Cost", sec67.FIGURES),
+    ("6.7  Comparison", sec65.FIGURES),
 ]
 
 

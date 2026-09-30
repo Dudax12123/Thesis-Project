@@ -97,6 +97,30 @@ NOZZLE_LABELS = {
     "vacuum": "Constant vacuum nozzle",
 }
 
+# One name per reported case, for the figures that draw every case at once
+# (the ranking, the accuracy trade, the arc structure). A law's name alone does
+# not identify a case there: PEG is flown four ways and the gravity turn five.
+CASE_LABELS = {
+    "pmp_baseline": "Reference (indirect PMP)",
+    "pmp_vacuum": "Reference, no atmosphere",
+    "gt_baseline": "Gravity turn",
+    "gt_apogee": "Gravity turn, apogee check",
+    "gt_norot": "Gravity turn, non-rotating Earth",
+    "gt_sea_level_engine": "Gravity turn, sea-level nozzle",
+    "peg_baseline": "PEG",
+    "peg_direct": "PEG, direct insertion",
+    "peg_vacuum": "PEG, no atmosphere",
+    "show_ref_track": "PEG, coast-start waypoint",
+    "show_cpr": "Constant pitch rate",
+    "show_linear_tangent": "Linear tangent",
+    "show_bilinear_tangent": "Bilinear tangent",
+    "show_exp_shooting": "Polynomial shooting",
+    "show_apollo": "Apollo",
+    "show_ref_track_apollo": "Apollo, coast-start waypoint",
+    "show_seg_fixed_alt": "Segmented, hand-off fixed",
+    "show_seg_opt_alt": "Segmented, hand-off optimised",
+}
+
 # Linestyles for the faint background traces a figure draws for orientation.
 # The colour carries "this is context, not the subject"; the linestyle is what
 # separates one context trace from another, because two of them in the same
@@ -114,6 +138,10 @@ def arch_label(name):
 
 def nozzle_label(name):
     return NOZZLE_LABELS.get(name, str(name))
+
+
+def case_label(name):
+    return CASE_LABELS.get(name, str(name))
 
 
 def context_style(index):

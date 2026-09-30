@@ -252,6 +252,26 @@ class GuidanceState:
         self.exp_shoot_a = None
         self.exp_shoot_b = None
 
+    def discard_logs_after(self, t_cut):
+        """Drop the output logs' entries later than *t_cut*.
+
+        solve_ivp evaluates the right-hand side at trial times beyond the step
+        it goes on to accept, and every evaluation appends to these logs. When
+        an event ends an integration and the next one flies a different law
+        from the same instant -- the segmented schedule's hand-off -- the
+        entries the ended integration made past the event interleave with the
+        new law's once the log is sorted by time, and the recorded alpha dips
+        to the old law's value for single samples (show_seg_fixed_alt: the
+        gravity turn's alpha = 0 logged up to 9 s past the 120 km hand-off,
+        found 2026-09-30). Call it at the event, before the next law flies.
+        The logs are output-only, so no flight and no objective value changes.
+        """
+        for times, values in ((self.time_log, self.alpha_log),
+                              (self.tgo_time_log, self.tgo_log)):
+            kept = [(t, v) for t, v in zip(times, values) if t <= t_cut]
+            times[:] = [t for t, _v in kept]
+            values[:] = [v for _t, v in kept]
+
 
 @dataclass
 class SegmentTarget:

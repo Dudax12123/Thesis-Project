@@ -36,6 +36,19 @@ from Plots import plot_state_utils as psu
 
 DEFAULT_ROOT = _SRC / "Output" / "results_matrix"
 
+# The eighteen cases Chapter 6 reports, in chapter order. The matrix flies three
+# more -- gt_direct, gt_vacuum and peg_vacuum_norot -- which stay archived but
+# are not reported (decision 2026-09-29), so no figure draws them.
+REPORTED_CASES = [
+    "pmp_baseline", "pmp_vacuum",
+    "gt_baseline", "gt_apogee", "gt_norot", "gt_sea_level_engine",
+    "peg_baseline", "peg_direct", "peg_vacuum",
+    "show_ref_track",
+    "show_cpr", "show_linear_tangent", "show_bilinear_tangent",
+    "show_exp_shooting", "show_apollo", "show_ref_track_apollo",
+    "show_seg_fixed_alt", "show_seg_opt_alt",
+]
+
 
 def _scalar(z, key):
     """A 0-d array back to a float, with the harness NaN convention as None."""
@@ -170,6 +183,21 @@ class Case:
         laws = [str(x) for x in self._z["segment_laws"]]
         alts = [float(a) for a in self._z["segment_altitudes"]]
         return list(zip(laws, alts))
+
+    @property
+    def extremal_budget(self):
+        """(particles, generations) of the swarm a re-flown PMP extremal came from.
+
+        The results matrix re-flies the indirect-PMP rows from a stored, polished
+        decision vector instead of swarming them, so their wall clock and
+        evaluation count describe the re-flight, not the search. The search
+        itself ran offline; this is the part of its cost the archive records.
+        None for every case that ran its own search.
+        """
+        if "extremal_swarm_budget" not in self._z.files:
+            return None
+        budget = np.atleast_1d(self._z["extremal_swarm_budget"])
+        return tuple(int(b) for b in budget)
 
     @property
     def optimized_altitudes(self):

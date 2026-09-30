@@ -18,20 +18,29 @@ import numpy as np
 from . import _style as st
 
 
-def draw(case, filename, title=None):
+def draw(case, filename, title=None, background=None, background_label=None):
     """Draw the run card for one :class:`~._data.Case` and save it.
 
     Panels absent from the data are handled rather than assumed: a run without
     an atmosphere has no dynamic pressure worth plotting, and a case with no
     recorded arc times simply gets no event markers.
+
+    *background*, when given, is a second case drawn faint behind the first in
+    every panel -- the reference behind a law's card -- and named once, in
+    panel (a)'s legend, as *background_label*. It gets no markers, shading or
+    annotations of its own: the card still describes one flight.
     """
     fig, axes = plt.subplots(2, 2, figsize=st.WIDE_4)
     (ax_a, ax_b), (ax_c, ax_d) = axes
+    faint = {"color": st.FAINT, "linewidth": 1.0, "zorder": 1}
 
     # (a) the trajectory in space. The dashed line is the target orbit, not the
     # state reached: the curve continues past insertion along the terminal
     # ballistic arc, so marking the insertion state as a horizontal line would
     # suggest the trajectory stops there.
+    if background is not None:
+        s_km, alt_km = st.thin(background.downrange_km, background.alt_km)
+        ax_a.plot(s_km, alt_km, label=background_label, **faint)
     s_km, alt_km = st.thin(case.downrange_km, case.alt_km)
     ax_a.plot(s_km, alt_km, color=st.BASELINE)
     target = case.row.get("target_alt_km")
@@ -50,10 +59,14 @@ def draw(case, filename, title=None):
     # (b) the trajectory in time, with the arc structure
     t, alt_km, v = st.thin(case.time, case.alt_km, case.v)
     st.shade_coast(ax_b, case, label="Coast")
+    ax_bv = ax_b.twinx()
+    if background is not None:
+        tb, alt_b, v_b = st.thin(background.time, background.alt_km, background.v)
+        ax_b.plot(tb, alt_b, **faint)
+        ax_bv.plot(tb, v_b / 1e3, linestyle="--", **faint)
     ax_b.plot(t, alt_km, color=st.BASELINE, label="Altitude")
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel("Altitude [km]", color=st.BASELINE)
-    ax_bv = ax_b.twinx()
     ax_bv.plot(t, v / 1e3, color=st.ACCENT, linewidth=1.1)
     ax_bv.set_ylabel("Speed [km/s]", color=st.ACCENT)
     ax_bv.spines["top"].set_visible(False)
@@ -65,6 +78,9 @@ def draw(case, filename, title=None):
     # Pitch is drawn wide and underneath: a law commanding alpha = 0 puts theta
     # and gamma on top of each other by definition, and a same-weight trace
     # would simply be hidden.
+    if background is not None:
+        tb, th_b = st.thin(background.time, background.theta_deg)
+        ax_c.plot(tb, th_b, **faint)
     t, gam, th, al = st.thin(case.time, case.gamma_deg, case.theta_deg,
                              case.alpha_deg)
     ax_c.plot(t, th, color=st.BASELINE, linewidth=2.6, alpha=0.55,
@@ -92,6 +108,10 @@ def draw(case, filename, title=None):
         ax_d.set_xticks([])
         ax_d.set_yticks([])
     else:
+        if background is not None and background.row.get("include_drag") is not False:
+            tb, q_b = st.thin(background.time, background.q)
+            b_atm = tb <= (background.t_meco if background.t_meco else tb[-1])
+            ax_d.plot(tb[b_atm], q_b[b_atm] / 1e3, **faint)
         ax_d.plot(t[in_atm], q[in_atm] / 1e3, color=st.BASELINE)
         ax_d.set_xlabel("Time [s]")
         ax_d.set_ylabel("Dynamic pressure [kPa]", color=st.BASELINE)

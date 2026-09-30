@@ -37,7 +37,11 @@ def baseline_card(cases):
     missing = _data.missing_from(cases, "gt_baseline")
     if missing:
         return _skip("F6.1 baseline card", missing)
-    return run_card.draw(cases["gt_baseline"], "results_gt_baseline_card.png")
+    # The reference faint behind it, when the batch has it: the card is read
+    # against Section 6.1's, and the overlay saves the reader the page-turn.
+    return run_card.draw(cases["gt_baseline"], "results_gt_baseline_card.png",
+                         background=cases.get("pmp_baseline"),
+                         background_label="Reference (indirect PMP)")
 
 
 def _overlay_trajectory(ax, entries, to_insertion=False):

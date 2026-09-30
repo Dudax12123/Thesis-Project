@@ -301,6 +301,34 @@
         "residual": -99.163,
         "pressure_applicable": true
       }
+    },
+    {
+      "date": "2026-09-30",
+      "git": {
+        "commit": "9237c284b557644e1b40feae479c0b95ce05e43b",
+        "branch": "main",
+        "describe": "9237c28-dirty",
+        "dirty": true
+      },
+      "what": "alpha channel rebuilt from a bit-identical re-flight with GuidanceState.discard_logs_after at the segmented hand-off (the gravity turn's trial-point samples past the crossing had interleaved with peg_new's); delta-v budget fields recomputed through run_record.collect_row; trajectory, thrust and every other row field unchanged",
+      "script": "dev-notes/repair_alpha_record.py",
+      "alpha_samples_changed": 6,
+      "alpha_changed_span_s": [
+        237.88391560333264,
+        246.38391560333264
+      ],
+      "budget_before": {
+        "dv_ideal": 8916.225,
+        "dv_gravity": 1522.095,
+        "dv_drag": 41.136,
+        "dv_steering": 100.43,
+        "dv_pressure": 68.247,
+        "dv_losses": 1731.909,
+        "dv_gain": 311.538,
+        "dv_achieved": 7612.683,
+        "residual": -116.828,
+        "pressure_applicable": true
+      }
     }
   ]
 }

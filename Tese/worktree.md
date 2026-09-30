@@ -1041,6 +1041,24 @@ Each is legal to set but does something other than what you'd expect. With `file
   - With the record right, the budget `residual` is ~0 in both rotation-off cases and −112 to
     −138 m/s in every rotation-on case: the unprojected rotation credit (see above).
 
+- **The alpha channel had the same disease at the segmented law hand-off (found and FIXED
+  2026-09-30).** Stage-2 alpha is interpolated from `GuidanceState.alpha_log`, which the RHS
+  appends on every call. When `segmented_guidance_solver._thrust_phase` ends an integration at
+  the altitude hand-off, that integration has already probed past the crossing with the old
+  law; sorted into the log, those entries interleaved with the new law's.
+  - `show_seg_fixed_alt` (hand-off in Stage 2 at 120 km): 6 samples of the gravity turn's
+    alpha = 0 at 237.9–246.4 s, dips of up to 9.9° from peg_new's ~11°, and `dv_steering`
+    100.43 m/s where the flight's is 100.92. The flight and J were never affected (the log is
+    output-only). A scan of the 18 reported archives found no other case; `show_seg_opt_alt`
+    hands over in Stage 1, inside one integration.
+  - Fix: `GuidanceState.discard_logs_after(t_cut)` (alpha and t_go logs), called at the
+    crossing. `tests/test_alpha_record.py` pins it (and fails without it); the exact J and
+    final-mass pins in `tests/test_segmented_law_terminated.py` still hold.
+  - `show_seg_fixed_alt` repaired in place from a bit-identical re-flight
+    (`dev-notes/repair_alpha_record.py`): alpha channel and budget fields only, a `repairs`
+    entry in its manifest, CSV row rebuilt, originals in
+    `Output/results_matrix_prerepair_20260930/`.
+
 - **J′ does not rank the laws the way propellant does (2026-09-26).** The objective adds weighted
   insertion misses to the burn term, and a swarm that stops short of converging its cutoff time can
   leave a 0.5–1 m/s overspeed that costs ~8 kg of propellant but ~5 s of burn in J′
