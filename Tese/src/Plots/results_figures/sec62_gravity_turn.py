@@ -72,6 +72,39 @@ def _derivative(time, values):
     return time[keep], np.gradient(values[keep], time[keep])
 
 
+def _mass_flow(time, mass, step_factor=10.0):
+    """Mass flow -dm/dt of a burn, and the times of any discrete mass drops in it.
+
+    The fairing leaves the vehicle as a ~1.9 t step taken inside one integrator
+    sample (~1 ms), which a derivative across it reads as a flow of ~10^6 kg/s --
+    enough to set the axis and flatten the real ~2.7 t/s curve onto zero. Any
+    sample-to-sample drop faster than *step_factor* times the median burn rate
+    is such a step: the trace is split there and each piece differentiated on
+    its own, so the step is reported as an event rather than as flow.
+    """
+    time = np.asarray(time, dtype=float)
+    mass = np.asarray(mass, dtype=float)
+    keep = np.ones(time.size, dtype=bool)
+    keep[1:] = np.diff(time) > 0.0
+    time, mass = time[keep], mass[keep]
+
+    rate = -np.diff(mass) / np.diff(time)
+    typical = np.median(rate)
+    cuts = np.where(rate > step_factor * typical)[0] if typical > 0.0 else []
+
+    t_out, mdot_out, t_steps = [], [], []
+    start = 0
+    for end in list(cuts) + [time.size - 1]:
+        if end - start >= 1:
+            t_piece, dm = _derivative(time[start:end + 1], mass[start:end + 1])
+            t_out.append(t_piece)
+            mdot_out.append(-dm)
+        if end < time.size - 1:
+            t_steps.append(time[end])
+        start = end + 1
+    return np.concatenate(t_out), np.concatenate(mdot_out), t_steps
+
+
 def architecture(cases):
     """The same law under the coast-parameter and the apogee-check architectures.
 
@@ -182,38 +215,72 @@ def engine(cases):
     ax_mdot = ax_a.twinx()
     ax_mdot.set_ylabel("Mass flow [kg/s]  (dotted)")
     ax_mdot.spines["top"].set_visible(False)
+    thrust_peak, mdot_shown, jettisons = 0.0, [], []
     for case, colour in ((base, st.BASELINE), (sl, st.VARIANT)):
         label = st.nozzle_label(case.row.get("thrust_1_mode", "?"))
         end = case.t_meco if case.t_meco else case.time[-1]
         sel = case.time <= end
         t, thr = st.thin(case.time[sel], case.thrust[sel])
         ax_a.plot(t, thr / 1e3, color=colour, label=label)
+        thrust_peak = max(thrust_peak, float(np.max(thr)) / 1e3)
         # Mass flow from the mass trace itself, so it reflects the Isp actually
         # flown rather than a nominal value.
-        t_d, mdot = _derivative(case.time[sel], case.mass[sel])
-        t2, mdot = st.thin(t_d, -mdot)
+        t_d, mdot, t_steps = _mass_flow(case.time[sel], case.mass[sel])
+        t2, mdot = st.thin(t_d, mdot)
         ax_mdot.plot(t2, mdot, color=colour, linestyle=":", linewidth=1.0)
+        mdot_shown.append(mdot)
+        jettisons.extend((t_s, colour) for t_s in t_steps)
+
+    # The two quantities share the panel in separate bands: thrust along the
+    # top, mass flow along the bottom, the legend in the empty middle. The mass
+    # flow differs between the nozzles by ~1.6 %, so its axis is zoomed to its
+    # own range -- on an axis from zero the difference the figure exists to show
+    # would be a pixel.
+    ax_a.set_ylim(0.0, 1.10 * thrust_peak)
+    lo = min(float(np.min(m)) for m in mdot_shown)
+    hi = max(float(np.max(m)) for m in mdot_shown)
+    span = max(hi - lo, 1.0)
+    ax_mdot.set_ylim(lo - 0.25 * span, hi + 2.6 * span)
+    ax_mdot.ticklabel_format(axis="y", style="plain", useOffset=False)
+
+    for i, (t_s, colour) in enumerate(sorted(jettisons)):
+        ax_a.axvline(t_s, color=colour, linestyle="--", linewidth=0.7, alpha=0.7)
+        if i == 0:
+            ax_a.annotate("Fairing jettison", xy=(t_s, 0.62),
+                          xycoords=("data", "axes fraction"), xytext=(-2, 0),
+                          textcoords="offset points", fontsize=6.5, color=st.GREY,
+                          rotation=90, ha="right", va="center")
+
     ax_a.set_xlabel("Time [s]")
     ax_a.set_ylabel("Stage-1 thrust [kN]  (solid)")
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="lower right")
+    st.tidy(ax_a, legend_loc="center left")
 
     # The two nozzle models are compared on what reaches orbit, and that
     # difference is a couple of tonnes against a 517 t launch mass -- invisible
     # on an axis scaled to the launch mass. The inset zooms the post-MECO tail,
     # where the whole of the difference is.
-    ax_zoom = ax_b.inset_axes([0.42, 0.38, 0.55, 0.56])
+    # The inset starts at half width so the MECO labels beside the cut-off
+    # lines stay clear of its tick labels.
+    ax_zoom = ax_b.inset_axes([0.50, 0.38, 0.47, 0.56])
     end_labels = []
+    meco_row = 0
     for case, colour in ((base, st.BASELINE), (sl, st.VARIANT)):
         t, m = st.thin(case.time, case.mass)
         ax_b.plot(t, m / 1e3, color=colour,
                   label=st.nozzle_label(case.row.get("thrust_1_mode", "?")))
         if case.t_meco is not None:
             ax_b.axvline(case.t_meco, color=colour, linestyle=":", linewidth=0.9)
-            ax_b.annotate("MECO %.0f s" % case.t_meco,
-                          xy=(case.t_meco, 1.0), xycoords=("data", "axes fraction"),
-                          xytext=(2, -9), textcoords="offset points",
-                          fontsize=6.5, color=colour, rotation=90, va="top")
+            # The two cut-offs are under 2 s apart on a ~1800 s axis, so their
+            # lines coincide and rotated labels would print on top of each
+            # other. They are stacked beside the lines instead, to the tenth of
+            # a second the shift is measured in.
+            ax_b.annotate("MECO %.1f s" % case.t_meco,
+                          xy=(case.t_meco, 0.97 - 0.08 * meco_row),
+                          xycoords=("data", "axes fraction"), xytext=(4, 0),
+                          textcoords="offset points", fontsize=6.5, color=colour,
+                          ha="left", va="top")
+            meco_row += 1
 
         tail = case.time >= (case.t_meco or 0.0)
         t_tail, m_tail = st.thin(case.time[tail], case.mass[tail])

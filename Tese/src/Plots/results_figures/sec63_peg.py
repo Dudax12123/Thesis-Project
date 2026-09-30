@@ -7,9 +7,10 @@ retired the two-law direct contrast and the two-step environment ladder.
 
 Outputs
 -------
+results_reference_card.png        fig:reference_card
+results_reference_trajectory.png  fig:reference_trajectory
 results_peg_vs_reference.png      fig:peg_vs_reference
 results_peg_atmosphere.png        fig:peg_atmosphere
-results_reference_trajectory.png  fig:reference_trajectory
 """
 
 import matplotlib.pyplot as plt
@@ -17,6 +18,7 @@ import numpy as np
 
 from . import _data
 from . import _style as st
+from . import run_card
 
 
 def _skip(name, missing):
@@ -32,6 +34,19 @@ def _to_insertion(case, *channels):
     """
     end = case.insertion_index()
     return (case.time[:end],) + tuple(np.asarray(ch)[:end] for ch in channels)
+
+
+def reference_card(cases):
+    """The reference as a run card, the format of every later trajectory figure.
+
+    The chapter opens on the reference, so this is where the reader first meets
+    the four panels. The drawing is run_card.py's, shared with the gravity-turn
+    baseline card and with main.py's interactive card.
+    """
+    missing = _data.missing_from(cases, "pmp_baseline")
+    if missing:
+        return _skip("reference card", missing)
+    return run_card.draw(cases["pmp_baseline"], "results_reference_card.png")
 
 
 def peg_vs_reference(cases):
@@ -204,4 +219,4 @@ def reference_trajectory(cases):
     return st.save(fig, "results_reference_trajectory.png")
 
 
-FIGURES = [reference_trajectory, peg_vs_reference, peg_atmosphere]
+FIGURES = [reference_card, reference_trajectory, peg_vs_reference, peg_atmosphere]
