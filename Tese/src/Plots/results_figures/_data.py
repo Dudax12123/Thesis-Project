@@ -224,12 +224,16 @@ class Case:
 
         SECO for every architecture but one. The apogee check cuts its engine
         below the target and coasts up to apogee, where an impulsive
-        circularisation inserts it; nothing records that instant, so it is read
-        as the one velocity jump after SECO (every archive carries ~1000 s of
-        orbit after insertion, so the end of the time axis is not it either).
+        circularisation inserts it. Archives since 2026-09-30 record that
+        instant (``t_circularisation``). Older ones did not, so it is read as
+        the one velocity jump after SECO (every archive carries ~1000 s of orbit
+        after insertion, so the end of the time axis is not it either).
         """
         if self.architecture != "apogee_check" or self.t_seco is None:
             return self.t_seco
+        recorded = _scalar(self._z, "t_circularisation")
+        if recorded is not None:
+            return recorded
         after = np.where(self.time > self.t_seco + 1.0)[0]
         if len(after) < 2:
             return self.t_seco

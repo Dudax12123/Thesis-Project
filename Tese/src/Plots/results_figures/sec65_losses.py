@@ -344,7 +344,9 @@ def accuracy_vs_propellant(cases):
     fig.tight_layout()
     # Placed last: the de-collider measures rendered extents, so it has to run
     # after every artist that moves them.
-    st.dodge_labels(fig, labels)
+    # Downward: the cluster near zero spread sits under the reference line,
+    # and pushed up its labels land on the points above them.
+    st.dodge_labels(fig, labels, downward=True)
     return st.save(fig, "results_accuracy_vs_propellant.png")
 
 

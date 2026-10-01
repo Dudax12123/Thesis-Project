@@ -189,7 +189,7 @@ def tidy(ax, legend=True, legend_loc="best", legend_kw=None):
         ax.legend(loc=legend_loc, **(legend_kw or {}))
 
 
-def dodge_labels(fig, annotations, pad=1.0):
+def dodge_labels(fig, annotations, pad=1.0, downward=False):
     """Nudge point labels apart vertically until none of them overlap.
 
     Several of the laws land within a few hundred kilograms and a few hundred
@@ -200,26 +200,34 @@ def dodge_labels(fig, annotations, pad=1.0):
     numbers move.
 
     Labels are placed from the bottom up, each pushed clear of every label
-    already placed that shares its horizontal span.
+    already placed that shares its horizontal span -- or, with ``downward``,
+    from the top down, each pushed below. Downward suits a figure whose labels
+    crowd under a ceiling (the reference line), where pushing them up only
+    stacks them over the points above.
     """
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
     to_points = 72.0 / fig.dpi
+    sign = -1.0 if downward else 1.0
 
     placed = []
-    for ann in sorted(annotations, key=lambda a: a.xy[1]):
+    for ann in sorted(annotations, key=lambda a: a.xy[1], reverse=downward):
         box = ann.get_window_extent(renderer=renderer)
-        # One pass is enough: `placed` is in ascending order, so clearing the
-        # highest overlapping box clears every box below it too.
-        rise = 0.0
+        # One pass is enough: `placed` is in placing order, so clearing the
+        # furthest overlapping box clears every box before it too.
+        shift = 0.0
         for other in placed:
             horizontal_overlap = (box.x1 + pad > other.x0
                                   and box.x0 - pad < other.x1)
-            if horizontal_overlap and other.y1 + pad > box.y0 + rise:
-                rise = other.y1 + pad - box.y0
-        if rise > 0.0:
+            if not horizontal_overlap:
+                continue
+            if downward and other.y0 - pad < box.y1 - shift:
+                shift = box.y1 - (other.y0 - pad)
+            elif not downward and other.y1 + pad > box.y0 + shift:
+                shift = other.y1 + pad - box.y0
+        if shift > 0.0:
             dx, dy = ann.get_position()
-            ann.set_position((dx, dy + rise * to_points))
+            ann.set_position((dx, dy + sign * shift * to_points))
             fig.canvas.draw()
             box = ann.get_window_extent(renderer=renderer)
         placed.append(box)

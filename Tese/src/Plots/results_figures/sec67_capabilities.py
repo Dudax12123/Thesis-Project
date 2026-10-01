@@ -22,11 +22,23 @@ from . import _style as st
 SHOWCASE = ["show_cpr", "show_linear_tangent", "show_bilinear_tangent",
             "show_exp_shooting", "show_apollo"]
 
-# One representative case per architecture for the cost panel. gt_apogee and
-# show_ref_track run no swarm and have no convergence curve to draw; their bars
-# are there because that is itself part of the cost comparison.
+# One representative case per architecture: the convergence curve in panel (a)
+# of the cost figure, and the row order and colour of panel (b), which draws
+# every reported case of each architecture. gt_apogee and show_ref_track run no
+# swarm and have no convergence curve to draw.
 COST_CASES = ["gt_baseline", "peg_direct", "pmp_baseline", "show_seg_opt_alt",
               "gt_apogee", "show_ref_track"]
+
+# What the searches of each architecture are, for panel (b)'s notes. {evals} is
+# the evaluation count(s) of the cases drawn.
+_COST_NOTES = {
+    "pso_coast": "swarm, {evals} evaluations each",
+    "segmented": "swarm, {evals} evaluations each",
+    "direct": "kick grid + Brent, {evals} flights",
+    "apogee_check": "kick grid, {evals} flights",
+    "indirect_pmp": "offline: swarm, {evals} evals, + refinement",
+    "reference_track": "no search, one flight each",
+}
 
 # The coast strips along the foot of the showcase trajectory panel, in axes
 # fractions: the first strip's bottom, each strip's height, and the pitch.
@@ -246,32 +258,74 @@ def segmented_handoff(cases):
     return st.save(fig, "results_segmented_handoff.png")
 
 
-def _cost_note(case):
-    """What one architecture's bar in the cost panel measures, in words.
+def _search_cost(case):
+    """(wall clock [s], evaluations) of the search that produced this case, or
+    None when it was not recorded.
 
-    Returns (wall clock [min] or None when the matrix did not time the search,
-    note). The indirect-PMP row is re-flown from a stored extremal, so its
-    archived wall clock (about a second) and evaluation count (the batch's
-    budget, not the extremal's) describe the re-flight; drawing them as a bar
-    would present the cheapest step as the cost of the most expensive search.
+    A stored extremal is re-flown in about a second, so its own wall clock and
+    evaluation count describe the re-flight. Its archive records the offline
+    swarm and refinement it came from (search_*), and that is the cost. Every
+    other case's search ran inside the batch and is the run itself.
     """
-    wall = (case.row.get("wall_clock_s") or 0.0) / 60.0
-    n_eval = case.row.get("n_evaluations") or 0
-    config = case.manifest.get("config") or {}
+    row = case.row
+    if row.get("search_wall_clock_s") is not None:
+        return float(row["search_wall_clock_s"]), row.get("search_n_evaluations")
     if case.extremal_budget is not None:
-        particles, generations = case.extremal_budget
-        return None, (r"not timed: extremal re-flown (%d$\times$%d swarm + polish, "
-                      "offline)" % (particles, generations))
-    shown = "%.0f min" % wall if wall >= 1.0 else "%.0f s" % (wall * 60.0)
-    if case.architecture == "direct" and config.get("DIRECT_OPTIMIZER") == "grid_brent":
-        return wall, "%s  (%d flights: kick grid + Brent, no swarm)" % (shown, n_eval)
-    if case.architecture == "apogee_check":
-        return wall, "%s  (kick grid, no swarm)" % shown
-    if case.architecture == "reference_track":
-        return wall, "%s  (no search)" % shown
-    if n_eval:
-        return wall, "%s  (%d evals)" % (shown, n_eval)
-    return wall, "%s  (no swarm)" % shown
+        return None                    # an archive written before search_* existed
+    return float(row.get("wall_clock_s") or 0.0), row.get("n_evaluations")
+
+
+def _duration(seconds, unit_of=None):
+    """Seconds as the unit that suits ``unit_of`` (default: the value itself)."""
+    ref = seconds if unit_of is None else unit_of
+    if ref < 90.0:
+        return "%.0f s" % seconds, "s"
+    if ref < 5400.0:
+        return "%.0f min" % (seconds / 60.0), "min"
+    return "%.1f h" % (seconds / 3600.0), "h"
+
+
+def _duration_range(lo, hi):
+    if np.isclose(lo, hi, rtol=0.05):
+        return _duration(hi)[0]
+    shown_hi, unit = _duration(hi)
+    shown_lo = _duration(lo, unit_of=hi)[0].rsplit(" ", 1)[0]
+    return "%s–%s" % (shown_lo, shown_hi)
+
+
+def _cost_colours(cases):
+    """One colour per architecture of COST_CASES, shared by both panels: the
+    reference's for the indirect row, the variant cycle in order for the rest."""
+    palette = iter([c for c in st.VARIANT_CYCLE if c != st.REFERENCE] * 2)
+    return {n: (st.REFERENCE if cases[n].architecture == "indirect_pmp" else next(palette))
+            for n in COST_CASES if n in cases}
+
+
+def _cost_rows(cases):
+    """Panel (b)'s rows: (architecture, colour, [wall clock s], note), one per
+    architecture of COST_CASES, each over every reported case it flew."""
+    colours = _cost_colours(cases)
+    rows = []
+    for rep in (n for n in COST_CASES if n in cases):
+        arch = cases[rep].architecture
+        colour = colours[rep]
+        members = [cases[n] for n in _data.REPORTED_CASES
+                   if n in cases and cases[n].architecture == arch]
+        costs = [_search_cost(c) for c in members]
+        timed = [c for c in costs if c is not None]
+        if not timed:
+            rows.append((st.arch_label(arch), colour, [],
+                         "not recorded (%d case%s)" % (len(members),
+                                                       "" if len(members) == 1 else "s")))
+            continue
+        walls = [w for w, _n in timed]
+        evals = sorted({int(n) for _w, n in timed if n})
+        note = _COST_NOTES.get(arch, "{evals} evaluations").format(
+            evals=" / ".join("{:,}".format(n).replace(",", r"$\,$") for n in evals) or "?")
+        count = "" if len(timed) == 1 else "%d cases; " % len(timed)
+        rows.append((st.arch_label(arch), colour, walls,
+                     "%s   (%s%s)" % (_duration_range(min(walls), max(walls)), count, note)))
+    return rows
 
 
 def solve_cost(cases):
@@ -282,17 +336,18 @@ def solve_cost(cases):
     this work has met, where an apparently incapable configuration proved
     merely under-converged. It ranks nothing. Only the coast-parameter and
     segmented architectures run a swarm inside the matrix. Panel (b) is the
-    wall clock of one representative solve per architecture.
+    wall clock of every reported case, grouped by architecture, on a log axis:
+    one law's search takes 1.7 h and another's 15.5 h under the same
+    architecture, and a single representative would hide which. The indirect
+    row is the offline swarm and refinement its stored extremal came from.
     """
     present = [n for n in COST_CASES if n in cases]
     if not present:
         return _skip("solve cost", COST_CASES)
-    palette = [c for c in st.VARIANT_CYCLE if c != st.REFERENCE]
-    colours = {n: (st.REFERENCE if cases[n].architecture == "indirect_pmp"
-                   else palette[i % len(palette)])
-               for i, n in enumerate(present)}
+    colours = _cost_colours(cases)
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2,
+                                     gridspec_kw={"width_ratios": [1.0, 1.7]})
 
     drawn = 0
     for name in present:
@@ -312,25 +367,32 @@ def solve_cost(cases):
     ax_a.set_xlabel("Generation")
     ax_a.set_ylabel(r"Best objective $J'$")
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_kw={"fontsize": 6.5})
+    st.tidy(ax_a, legend_loc="upper right", legend_kw={"fontsize": 6.5})
 
-    rows = [(st.arch_label(cases[n].architecture), colours[n]) + _cost_note(cases[n])
-            for n in present]
-    walls = [w for _l, _c, w, _n in rows if w is not None]
-    x_max = max(walls + [1.0]) * 1.55
-    for i, (_label, colour, wall, note) in enumerate(rows):
-        if wall is not None:
-            ax_b.barh(i, wall, height=0.6, color=colour, edgecolor="white",
-                      linewidth=0.5)
-        ax_b.annotate(note, xy=(wall or 0.0, i), xytext=(4, 0),
-                      textcoords="offset points", fontsize=6.3, va="center",
-                      color=st.INK if wall is not None else st.GREY,
-                      style="normal" if wall is not None else "italic")
+    # (b) every case's search, in hours on a log axis: the range of each
+    # architecture as a line, each case as a dot, the note above the line.
+    rows = _cost_rows(cases)
+    all_h = [w / 3600.0 for _l, _c, walls, _n in rows for w in walls]
+    x_lo = 10 ** np.floor(np.log10(min(all_h + [1.0])))
+    for i, (_label, colour, walls, note) in enumerate(rows):
+        hours = [w / 3600.0 for w in walls]
+        if hours:
+            ax_b.plot([min(hours), max(hours)], [i, i], color=colour, linewidth=5,
+                      alpha=0.35, solid_capstyle="round")
+            ax_b.plot(hours, [i] * len(hours), "o", color=colour, markersize=4)
+        # From the left edge, inside the axes: anchored at the dots, the long
+        # notes of the slow rows ran off the figure and squeezed both panels.
+        ax_b.annotate(note, xy=(0.02, i), xycoords=("axes fraction", "data"),
+                      xytext=(0, 5), textcoords="offset points", fontsize=6.3,
+                      va="bottom",
+                      color=st.INK if hours else st.GREY,
+                      style="normal" if hours else "italic")
+    ax_b.set_xscale("log")
+    ax_b.set_xlim(x_lo, 10 ** np.ceil(np.log10(max(all_h + [1.0])) + 0.3))
     ax_b.set_yticks(np.arange(len(rows)))
     ax_b.set_yticklabels([r[0] for r in rows])
-    ax_b.invert_yaxis()
-    ax_b.set_xlabel("Wall clock [min]")
-    ax_b.set_xlim(0, x_max)
+    ax_b.set_ylim(len(rows) - 0.5, -0.8)
+    ax_b.set_xlabel("Wall clock of the search [h]")
     st.panel_tag(ax_b, "b")
     st.tidy(ax_b, legend=False)
 
