@@ -1,19 +1,19 @@
 {
   "schema": 1,
   "run_id": "gt_apogee",
-  "created_utc": "2026-09-30T19:39:01+00:00",
-  "created_local": "2026-09-30T20:39:01",
-  "wall_clock_s": 56.7,
+  "created_utc": "2026-10-01T01:52:40+00:00",
+  "created_local": "2026-10-01T02:52:40",
+  "wall_clock_s": 60.9,
   "source": "matrix:gt_apogee",
   "label": "6.2 / architecture",
   "architecture": "apogee_check",
   "guidance_mode": "gravity_turn",
   "n_evaluations": 1000,
   "git": {
-    "commit": "71da0d51c94591a83da9fa698903bf961cdb4d6d",
+    "commit": "ccc4e183a87edc0297c9e400d73dab5d24fabc66",
     "branch": "main",
-    "describe": "71da0d5-dirty",
-    "dirty": true
+    "describe": "ccc4e18",
+    "dirty": false
   },
   "env": {
     "python": "3.11.15",

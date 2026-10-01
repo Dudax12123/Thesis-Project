@@ -13,7 +13,7 @@
   "pseudo_forces_requested": true,
   "pseudo_forces_flown": true,
   "circularisation_dv": 1.1183020765802212,
-  "wall_clock_s": 56.7,
+  "wall_clock_s": 60.9,
   "n_evaluations": 1000,
   "t_meco": 146.01508834994166,
   "t_seco": 413.7837341588327,
