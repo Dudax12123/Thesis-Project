@@ -45,7 +45,7 @@ def architecture(sim_params):
     return sim_params.COAST_METHOD
 
 
-def powered_arc_ends_in_rotating_frame(arch):
+def powered_arc_ends_in_rotating_frame(arch, sim_params=None):
     """Whether the delta-v budget window closes on a rotating-frame sample.
 
     ``dv_achieved`` is ``v[-1] - v[0]`` over the powered arc, so which FRAME
@@ -66,7 +66,12 @@ def powered_arc_ends_in_rotating_frame(arch):
     Keyed on the architecture rather than sniffed from the data: the obvious
     test -- "is v[-1] near circular speed?" -- would silently flip on any case
     that inserts off-target, which is exactly when the budget matters most.
+
+    ``apogee_check`` under APOGEE_CHECK_COAST_FRAME = "rotating" is the same:
+    its coast is never converted, so the window ends on the rotating SECO sample.
     """
+    if arch == "apogee_check" and sim_params is not None:
+        return getattr(sim_params, "APOGEE_CHECK_COAST_FRAME", "inertial") == "rotating"
     return arch == "indirect_pmp"
 
 
@@ -80,7 +85,7 @@ def _correct_dv_achieved_frame(row, sim_params, data, idx):
     """
     from Simulation import rocket_ascent as ra
 
-    if not powered_arc_ends_in_rotating_frame(row.get('architecture')):
+    if not powered_arc_ends_in_rotating_frame(row.get('architecture'), sim_params):
         return
     # With the rotation off there is no rotating/inertial distinction to fix.
     if not sim_params.ENABLE_EARTH_ROTATION:
@@ -125,11 +130,20 @@ _PSO_BUDGET_ATTRS = {
 }
 
 
-def n_evaluations(sim_params):
-    """The swarm budget this architecture was given, as function evaluations.
+def n_evaluations(sim_params, extra=None):
+    """The trajectories this run's search evaluated: the swarm budget the
+    architecture was given, as function evaluations.
 
     The direct architecture's grid_brent optimiser has no budget to multiply out;
-    it reports the trajectories it actually flew."""
+    it reports the trajectories it actually flew, and so does the apogee check's
+    brute grid. A dispatcher that knows better says so in
+    ``extra['n_evaluations']``: a stored extremal re-flown is one flight,
+    whatever budget the configuration names."""
+    if extra and extra.get('n_evaluations') is not None:
+        return int(extra['n_evaluations'])
+    if architecture(sim_params) == 'apogee_check':
+        from Simulation import solver
+        return solver.BRUTE_GRID_POINTS
     if (architecture(sim_params) == 'direct'
             and getattr(sim_params, 'DIRECT_OPTIMIZER', 'pso') == 'grid_brent'):
         from Simulation import direct_pso_solver as dps
@@ -479,12 +493,15 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         # its residual cannot be compared with the direct-insertion paths.
         'circularisation_dv': float(result.get('circularisation_dv', 0.0)),
         'wall_clock_s': round(wall_clock, 1),
-        'n_evaluations': n_evaluations(sim_params),
+        'n_evaluations': n_evaluations(sim_params, extra),
         't_meco': as_float(ra.time_main_engine_cutoff),
         't_seco': as_float(ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL),
         'J_prime': None if J is None else float(J),
         'crashed': bool(result.get('crashed', False)),
     })
+    # The cost of a search that ran outside this run -- a stored extremal's
+    # swarm and refinement -- beside the cost of the run itself.
+    row.update({k: v for k, v in (extra or {}).items() if k.startswith('search_')})
 
     if row['crashed'] or result.get('state_final') is None:
         return row
@@ -708,7 +725,7 @@ def manifest(sim_params, run_id, wall_clock=None, source=None, label=None,
         'label': label or "",
         'architecture': architecture(sim_params),
         'guidance_mode': guidance_label(sim_params, extra),
-        'n_evaluations': n_evaluations(sim_params),
+        'n_evaluations': n_evaluations(sim_params, extra),
         'git': git_info(),
         'env': env_info(),
         'config': module_snapshot(sim_params),

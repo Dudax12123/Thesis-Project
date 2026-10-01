@@ -27,6 +27,7 @@ import Guidance.peg_guidance_new as peg_new_mod
 import Guidance.exp_shooting_guidance as exp_shoot_mod
 import numpy as np
 from scipy.integrate import solve_ivp
+from scipy.optimize import brentq
 
 #===================================================
 # Global Variables
@@ -66,6 +67,18 @@ time_raise = sim_params.DURATION_INITIAL_KICK / 2.0  # Half-duration for triangu
 # For single burn optimization
 SINGLE_BURN_FULL_SIMULATION = False
 TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = None
+# Set by run(): whether its final state is inertial (the "inertial" apogee-check
+# coast converts at SECO) or rotating, like every other architecture's. Callers
+# read this rather than inferring the frame from the configuration.
+FINAL_STATE_INERTIAL = False
+# Set by run() in full simulation: the instant of the impulsive circularisation
+# at apogee [s], or None.
+TIME_CIRCULARISATION = None
+# Set by run() under the "rotating" apogee-check coast: the state just after the
+# circularisation, which is the insertion. The trajectory runs 1000 s past it,
+# and a rotating-frame state that far downrange does not convert to the orbit
+# the way the "inertial" coast's last sample does. None otherwise.
+STATE_INSERTION = None
 
 # PSO coast mode markers — written by pso_coast_solver.run_pso_coast_full()
 # so that event-marker code (plot_state_utils.event_times) can pick them up.
@@ -2218,6 +2231,195 @@ def _fly_stage1(initial_state, time_horizon=500.0, use_kick_helper=True):
     return merged(t_meco, float(sol_coast.t[-1]), False, None)
 
 
+# ===========================================================================
+# apogee_check with APOGEE_CHECK_COAST_FRAME = "rotating"
+# ===========================================================================
+
+# Longest coast searched for the next apoapsis [s]: more than one orbit, so a
+# state just past apoapsis still finds the next one.
+_APOAPSIS_COAST_HORIZON_S = 8000.0
+# Probe step when bracketing the rotating-frame cutoff after the conversion-based one [s].
+_SECO_BRACKET_STEP_S = 10.0
+
+
+def _coast_rates(t, y):
+    """The coast every population-based architecture flies: pso_coast_solver's
+    Stage-2 ODE with the engine off -- no drag, pseudo-forces per
+    _pseudo_forces_active(). Imported here because that module imports this one."""
+    from Simulation import pso_coast_solver as pcs
+    return pcs._stage2_ode_guidance(t, y, 0.0, r.ISP_2, None)
+
+
+def _coast_to_apoapsis(t0, y0, t_eval_step=None, horizon=_APOAPSIS_COAST_HORIZON_S,
+                       stop_at_apoapsis=True):
+    """Ballistic coast from (t0, y0) in the rotating frame, to the next apoapsis
+    (gamma crossing zero downwards) or to ``horizon``.
+
+    The step sequence does not depend on ``t_eval``, so the cutoff search (no
+    output grid) and the flown coast (TIME_STEP grid) reach the same apoapsis
+    to the last bit. Tolerances are pso_coast_solver's.
+    """
+    from Simulation import pso_coast_solver as pcs
+
+    def apoapsis(t, y):
+        return y[3]
+    apoapsis.terminal, apoapsis.direction = True, -1
+
+    def crash(t, y):
+        return y[1] - c.R_EARTH
+    crash.terminal, crash.direction = True, -1
+
+    t_eval = None
+    if t_eval_step is not None:
+        t_eval = np.arange(t0 + t_eval_step, t0 + horizon, t_eval_step)
+    events = [crash, apoapsis] if stop_at_apoapsis else [crash]
+    return solve_ivp(_coast_rates, (t0, t0 + horizon), np.asarray(y0, dtype=float)[:5],
+                     t_eval=t_eval, events=events, rtol=pcs._RTOL, atol=pcs._ATOL,
+                     max_step=pcs._MAX_STEP)
+
+
+def _apoapsis_radius_miss(t0, y0, r_target):
+    """Radius of the rotating-frame coast's next apoapsis minus r_target [m];
+    -r_target when the coast crashes or finds no apoapsis within the horizon."""
+    sol = _coast_to_apoapsis(t0, y0)
+    if len(sol.t_events[1]) == 0:
+        return -r_target
+    return float(sol.y_events[1][0][1]) - r_target
+
+
+def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
+    """Cutoff, coast and circularisation of apogee_check in the rotating frame.
+
+    ``sol_2`` ended at the conversion-based cutoff (interrupt_single_burn_traj).
+    That conversion credits the full w*r*cos(lat) at SECO, more than the
+    rotating-frame physics credits off a due-east heading. The rotating apoapsis
+    is therefore still below the target there, and the burn is continued (dense
+    output) until it is not. SECO is the root of the rotating apoapsis miss.
+    The coast to that apoapsis is flown on the other architectures' coast ODE,
+    and the impulsive burn there goes to their insertion target:
+    v_circular_rotating at the apoapsis radius, gamma 0.
+
+    Returns run()'s 11-tuple.
+    """
+    global TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL, second_stage_cutoff
+    global CRASH_DETECTED, CRASH_TIME, TIME_CIRCULARISATION, FINAL_STATE_INERTIAL
+    global STATE_INSERTION
+
+    def logs():
+        return (np.array(thrust_history), np.array(time_history), np.array(alpha_history),
+                np.array(alpha_time_history), np.array(coriolis_mag_history),
+                np.array(centrifugal_mag_history))
+
+    def infeasible(t_out, y_out):
+        return (t_out, y_out, None, 9999999.0, 9999999.0) + logs()
+
+    r_target = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    t_a = float(sol_2.t[-1])
+    y_a = np.asarray(sol_2.y[:, -1], dtype=float)
+    t_asc = np.concatenate((sol_1.t, sol_2.t))
+    y_asc = np.concatenate((sol_1.y, sol_2.y), axis=1)
+
+    if _apoapsis_radius_miss(t_a, y_a, r_target) >= 0.0:
+        raise RuntimeError(
+            "apogee_check (rotating coast): the rotating-frame apoapsis is already "
+            "at the target when the conversion-based apogee reaches it. The cutoff "
+            "search assumes the conversion credits more than the rotating frame, "
+            "which holds for any launch off due east; this configuration breaks it.")
+
+    # --- continue the burn, with dense output, until the rotating apoapsis is reached
+    burn_events = [interrupt_radius_check, interrupt_stage_2_burnt, interrupt_ground_collision]
+    for ev in burn_events:
+        ev.terminal, ev.direction = True, 0
+    t_burnout_cap = t_a + r.M_PROP_2 / (r.F_THRUST_2 / (c.G_0 * r.ISP_2)) + 1.0
+    burn = solve_ivp(rocket_dynamics, (t_a, t_burnout_cap), y_a, dense_output=True,
+                     max_step=1, events=burn_events, atol=1e-8)
+    if len(burn.t_events[2]) > 0:
+        return infeasible(t_asc, y_asc)
+    t_end = float(burn.t[-1])
+
+    def miss(t):
+        return _apoapsis_radius_miss(t, burn.sol(t), r_target)
+
+    lo, hi = t_a, None
+    probe = t_a
+    while probe < t_end:
+        probe = min(probe + _SECO_BRACKET_STEP_S, t_end)
+        if miss(probe) >= 0.0:
+            hi = probe
+            break
+        lo = probe
+    if hi is None:
+        return infeasible(t_asc, y_asc)       # burnt out below the target apoapsis
+    t_seco = float(brentq(miss, lo, hi, xtol=1e-6))
+    y_seco = np.asarray(burn.sol(t_seco), dtype=float)
+
+    t_grid = np.arange(t_a + sim_params.TIME_STEP, t_seco, sim_params.TIME_STEP)
+    t_asc = np.concatenate((t_asc, t_grid, [t_seco]))
+    y_asc = np.concatenate((y_asc, burn.sol(t_grid) if len(t_grid) else np.empty((5, 0)),
+                            y_seco[:, None]), axis=1)
+
+    # --- coast to the apoapsis and the impulsive burn to the target
+    coast = _coast_to_apoapsis(t_seco, y_seco,
+                               t_eval_step=sim_params.TIME_STEP if SINGLE_BURN_FULL_SIMULATION
+                               else None)
+    if len(coast.t_events[0]) > 0 or len(coast.t_events[1]) == 0:
+        return infeasible(t_asc, y_asc)
+    t_apo = float(coast.t_events[1][0])
+    y_apo = np.asarray(coast.y_events[1][0], dtype=float)
+
+    v_target = earth_rot.v_circular_rotating(y_apo[1], LAUNCH_LATITUDE_RAD,
+                                             sim_params.ENABLE_EARTH_ROTATION)
+    dv_signed = v_target - y_apo[2]
+    delta_v = abs(dv_signed)
+
+    m_propellant_left = y_seco[4] - (r.M_STRUCTURE_2 + r.M_PAYLOAD + fairing_in_mass)
+    m_propellant_used = r.M_PROP_2 - m_propellant_left
+    m_propellant_required = y_apo[4] * (1 - np.exp(-delta_v / (c.G_0 * r.ISP_2)))
+    if m_propellant_required < m_propellant_left:
+        m_propellant_total_used_2nd_stage = m_propellant_used + m_propellant_required
+    else:
+        m_propellant_total_used_2nd_stage = 999999999.
+    if calculate_burn_time(y_apo[4], delta_v) > sim_params.MAX_ACCEPTED_BURN_TIME:
+        m_propellant_total_used_2nd_stage = 999999999.
+    alt_stop = y_seco[1] - c.R_EARTH
+
+    if sim_params.EVENTS_PRINT:
+        print(f"    [rotating coast] SECO T+{t_seco:.3f} s (conversion cutoff T+{t_a:.2f} s), "
+              f"apoapsis {(y_apo[1] - c.R_EARTH)/1e3:.3f} km at T+{t_apo:.1f} s, "
+              f"dv {dv_signed:+.2f} m/s -> objective {m_propellant_total_used_2nd_stage}")
+
+    if not SINGLE_BURN_FULL_SIMULATION:
+        return (t_asc, y_asc, alt_stop, delta_v, m_propellant_total_used_2nd_stage) + logs()
+
+    TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = t_seco
+    TIME_CIRCULARISATION = t_apo
+    FINAL_STATE_INERTIAL = False
+    second_stage_cutoff = True
+    _close_logged_burn(t_seco)
+
+    print("\t* Optimal altitude to stop burning: \t\t", alt_stop / 1000, "km")
+    print("\t* Optimal time to stop burning: \t\t", t_seco, "s")
+    print("\t* Coast to apoapsis (rotating frame): \t\t", t_apo - t_seco, "s")
+    print("\t* Circularisation delta-v (signed): \t\t", dv_signed, "m/s")
+    print("\t* Propellant required by circularization:\t", m_propellant_required, "kg")
+    print("\t* Total propellant used: \t\t\t", m_propellant_total_used_2nd_stage, "kg")
+
+    state_4 = y_apo.copy()
+    state_4[2] = v_target
+    state_4[4] -= m_propellant_required
+    STATE_INSERTION = state_4.copy()
+    after = _coast_to_apoapsis(t_apo, state_4, t_eval_step=sim_params.TIME_STEP,
+                               horizon=sim_params.DURATION_AFTER_SIMULATION,
+                               stop_at_apoapsis=False)
+    t_out = np.concatenate((t_asc, coast.t, [t_apo, t_apo], after.t))
+    y_out = np.concatenate((y_asc, coast.y, y_apo[:, None], state_4[:, None], after.y), axis=1)
+    if len(after.t_events[0]) > 0:
+        CRASH_DETECTED = True
+        CRASH_TIME = float(after.t_events[0][0])
+        return (t_out, y_out, None, None, None) + logs()
+    return (t_out, y_out, alt_stop, delta_v, m_propellant_total_used_2nd_stage) + logs()
+
+
 def run(initial_kick_angle, azimuth_override=None):
     """
     Main function to run the rocket trajectory simulation with coasting single burn.
@@ -2264,6 +2466,7 @@ def run(initial_kick_angle, azimuth_override=None):
     global LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
     global LAST_DIRECT_MECO, LAST_DIRECT_INSERTION_REACHED
     global PROPAGATING_IN_INERTIAL_FRAME, TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    global FINAL_STATE_INERTIAL, TIME_CIRCULARISATION, STATE_INSERTION
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
     global time_raise
@@ -2273,6 +2476,9 @@ def run(initial_kick_angle, azimuth_override=None):
     # Reset global variables
     #===================================================
     reset_stage1_ramp_state()   # restart the Stage-1 Isp/thrust ramp from sea level
+    FINAL_STATE_INERTIAL = False
+    TIME_CIRCULARISATION = None
+    STATE_INSERTION = None
     _IN_PSO_STAGE1 = False   # legacy run() path: CPR Stage-1 behaviour is active
     # apogee_check integrates both stages through rocket_dynamics, so it can carry
     # the pseudo-forces for the whole ascent.
@@ -2556,6 +2762,15 @@ def run(initial_kick_angle, azimuth_override=None):
     if sim_params.EVENTS_PRINT:
         print(f"    apogee target diff = {diff/1000:.2f} km (tol = {epsilon/1000:.2f} km)")
 
+    coast_frame = getattr(sim_params, "APOGEE_CHECK_COAST_FRAME", "inertial")
+    if coast_frame not in ("inertial", "rotating"):
+        raise ValueError("APOGEE_CHECK_COAST_FRAME must be 'inertial' or 'rotating', got %r"
+                         % (coast_frame,))
+    if diff < epsilon and coast_frame == "rotating":
+        # The conversion-based cutoff above only brackets SECO from below here.
+        return _finish_single_burn_rotating(
+            sol_1, sol_2, r.M_FAIRING if not fairing_jettisoned else 0.0)
+
     if diff < epsilon:
         # ----- Calculate delta v -----
         # Circularise at the ACHIEVED apogee radius so the post-burn orbit is
@@ -2607,8 +2822,13 @@ def run(initial_kick_angle, azimuth_override=None):
             return time_steps_simulation, data, alt_stop, delta_v, m_propellant_total_used_2nd_stage, thrust_data, time_thrust, alpha_data, alpha_time_data, coriolis_mag_data, centrifugal_mag_data
         else:
             TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL = sol_2.t[-1]
-            r.C_D = 0.
-            
+            # No `r.C_D = 0.` here any more (removed 2026-09-30). It never
+            # reached the flight -- atm.drag_force bound C_D=0.3 as a default
+            # when it was imported -- but Auxiliary.losses, imported lazily
+            # after the flight, bound 0 instead, and every archived apogee_check
+            # budget recorded no drag loss (gt_apogee: 34.9 m/s).
+            FINAL_STATE_INERTIAL = bool(sim_params.ENABLE_EARTH_ROTATION)
+
             # Print result of masses
             print("\t* Optimal altitude to stop burning: \t\t", alt_stop / 1000, "km")
             print("\t* Optimal time to stop burning: \t\t", 
@@ -2711,6 +2931,7 @@ def run(initial_kick_angle, azimuth_override=None):
 
             # 3. Simulation after circularization burn
             init_time_4 = sol_3.t[-1]
+            TIME_CIRCULARISATION = float(init_time_4)
             time_4 = sim_params.DURATION_AFTER_SIMULATION
 
             sol_4 = simulate_trajectory(init_time_4, time_4, initial_state_4,
@@ -2811,6 +3032,7 @@ def run_stage1(initial_kick_angle):
     global LAUNCH_AZIMUTH, LAUNCH_AZIMUTH_INERTIAL, LAUNCH_LATITUDE_RAD, LAUNCH_ROTATION_SPEED
     global AZIMUTH_MODE_USED, LAST_ACHIEVED_INCLINATION_DEG, LAST_INCLINATION_DRIFT_DEG
     global PROPAGATING_IN_INERTIAL_FRAME, TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
+    global FINAL_STATE_INERTIAL, TIME_CIRCULARISATION, STATE_INSERTION
     global _isp1_last_update_time, _isp1_current
     global _thrust1_last_update_time, _thrust1_current
     global time_raise
@@ -2818,6 +3040,9 @@ def run_stage1(initial_kick_angle):
 
     # --- Reset globals (identical to the reset block in run()) ---------------
     reset_stage1_ramp_state()   # restart the Stage-1 Isp/thrust ramp from sea level
+    FINAL_STATE_INERTIAL = False
+    TIME_CIRCULARISATION = None
+    STATE_INSERTION = None
     _IN_PSO_STAGE1 = True   # suppress legacy CPR Stage-1 behaviour (see flag def)
     time_kick_start = None
     kick_performed = False

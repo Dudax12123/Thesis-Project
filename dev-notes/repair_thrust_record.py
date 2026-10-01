@@ -124,9 +124,11 @@ def _refly(sp, arch, x):
         from Plots.plot_state_utils import interpolate_to_time
         ra.SINGLE_BURN_FULL_SIMULATION = True
         (t, d, _alt, delta_v, _m, th_log, t_log, al_log, al_t, _c, _f) = ra.run(float(x[0]))
-        res = {'crashed': False, 'state_final': np.asarray(d)[:, -1],
+        res = {'crashed': False,
+               'state_final': (np.asarray(d)[:, -1] if ra.STATE_INSERTION is None
+                               else np.asarray(ra.STATE_INSERTION)),
                'circularisation_dv': float(delta_v),
-               'state_final_inertial': bool(sp.ENABLE_EARTH_ROTATION)}
+               'state_final_inertial': bool(ra.FINAL_STATE_INERTIAL)}
         d = ra.append_latitude_row(d)
         return (t, d, ra.thrust_on_grid(t, t_log, th_log),
                 interpolate_to_time(al_t, al_log, t), res)

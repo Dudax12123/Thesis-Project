@@ -1435,25 +1435,25 @@ def execute():
             # not the ARCHIVED one: SINGLE_BURN_FULL_SIMULATION is True on this
             # branch, so data[:, -1] is post-circularisation and already in the
             # inertial frame, and Archive/run_record converted it a second time.
+            # The "rotating" coast hands back its insertion state: its last
+            # sample, 1000 s on, is a rotating-frame state far downrange.
+            state_insertion = (np.asarray(data)[:, -1] if ra.STATE_INSERTION is None
+                               else np.asarray(ra.STATE_INSERTION))
             result_opt = {
                 'crashed': bool(_simulation_failed),
-                'state_final': np.asarray(data)[:, -1],
+                'state_final': state_insertion,
                 'circularisation_dv': float(delta_v),
-                'state_final_inertial': bool(sim_params.ENABLE_EARTH_ROTATION),
+                'state_final_inertial': bool(ra.FINAL_STATE_INERTIAL),
             }
 
             if not _simulation_failed:
                 # Calculate final orbital elements
-                r_final = data[1, -1]
-                v_final = data[2, -1]
-                gamma_final = data[3, -1]
-                # In full simulation mode, post-SECO coast/circularization phases are already
-                # propagated in inertial speed/FPA when Earth rotation is enabled.
-                state_already_inertial = (
-                    sim_params.ENABLE_EARTH_ROTATION
-                    and ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL is not None
-                    and time[-1] > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
-                )
+                r_final = state_insertion[1]
+                v_final = state_insertion[2]
+                gamma_final = state_insertion[3]
+                # The "inertial" apogee-check coast converts at SECO, so its final
+                # state is already inertial; the "rotating" one is not. run() says which.
+                state_already_inertial = bool(ra.FINAL_STATE_INERTIAL)
 
                 if not state_already_inertial:
                     v_final, gamma_final = ra.get_inertial_state_components(r_final, v_final, gamma_final, np.deg2rad(sim_params.LAUNCH_LATITUDE))

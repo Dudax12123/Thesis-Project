@@ -207,6 +207,12 @@ BASELINE = {
     # segmented solver; every other case flies identically either way. Every
     # results-matrix archive flown before this is "in_rhs".
     "GUIDANCE_REFRESH_MODE": "cycle",
+    # gt_apogee's coast is flown in the rotating frame with the pseudo-forces,
+    # the physics every other case flies, and inserts at their target (decision
+    # 2026-09-30). The "inertial" coast converted at SECO with the full w*r*cos(lat)
+    # and was measured to credit gt_apogee 0.36-0.70 t (worktree.md §4). Reaches
+    # the apogee_check case only.
+    "APOGEE_CHECK_COAST_FRAME": "rotating",
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.
     # Required for the pressure loss of Auxiliary/losses.py to be meaningful.
     "ISP_1_MODE": "pressure",
@@ -326,6 +332,23 @@ PMP_VACUUM_EXTREMAL = [-7.271789438061455e-06, -0.0053205593975460975, -0.999985
                        1432.2234132163621, 74.15337334433919, 99.98408704190528,
                        1.5088990082793967]
 
+# What the two extremals cost to find, offline: the seed-3 swarm each was
+# refined from (its archived row) plus the refinement
+# (dev-notes/pmp_swarm_polish.py, "polish wall time" in
+# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum}.log). The matrix
+# re-flies each in about a second, so without these the archive would present
+# that second as the cost of the most expensive search in the chapter. The
+# refinement's trajectory count is not recorded: its Jacobian flights are not
+# in least_squares' nfev.
+PMP_BASELINE_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=44349.9,
+                           refine_wall_clock_s=1057.0,
+                           tail_improvement_frac=4.119707563891331e-08,
+                           note="750x1500 swarm (seed 3) + refinement, offline")
+PMP_VACUUM_SEARCH = dict(n_evaluations=250000, swarm_wall_clock_s=13119.0,
+                         refine_wall_clock_s=1512.0,
+                         tail_improvement_frac=6.447103698404185e-09,
+                         note="250x1000 swarm (seed 3) + refinement, offline")
+
 
 def build_matrix():
     """The 21 production cases, in chapter order.
@@ -441,7 +464,7 @@ def build_matrix():
                           source="Output/pmp_polish_750x1500/pmp_baseline/"
                                  "b750half_start0_20260921_162253 (seed 3, 750x1500 swarm "
                                  "+ half-step polish; = pmp_reference.npz)",
-                          seed=3, swarm_budget=[750, 1500])))
+                          seed=3, swarm_budget=[750, 1500], search=PMP_BASELINE_SEARCH)))
     cases.append(dict(name="pmp_vacuum", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp",
                                  "INCLUDE_DRAG": False},
@@ -450,7 +473,7 @@ def build_matrix():
                           source="Output/pmp_polish/pmp_vacuum/"
                                  "s3half_start0_20260921_163026 (seed 3, 250x1000 swarm "
                                  "+ half-step polish)",
-                          seed=3, swarm_budget=[250, 1000])))
+                          seed=3, swarm_budget=[250, 1000], search=PMP_VACUUM_SEARCH)))
 
     # --- Section 6.7: capability showcase ---------------------------------
     for law in SHOWCASE_LAWS:
@@ -594,10 +617,21 @@ def _dispatch(sim_params, case=None):
             params = [float(v) for v in ext["x"]]
             time_a, data, thrust, alpha, _, result = run_indirect_full(params, verbose=True)
             J = float(ips.compute_augmented_objective(result))
-            return (time_a, data, thrust, alpha, result, J, None,
-                    {'decision_vector': params, 'extremal_source': ext["source"],
+            extra = {'decision_vector': params, 'extremal_source': ext["source"],
                      'extremal_seed': int(ext["seed"]),
-                     'extremal_swarm_budget': [int(v) for v in ext["swarm_budget"]]})
+                     'extremal_swarm_budget': [int(v) for v in ext["swarm_budget"]],
+                     # This run is one flight; the search behind it ran offline.
+                     'n_evaluations': 1}
+            search = ext.get("search")
+            if search:
+                extra.update({
+                    'search_n_evaluations': int(search["n_evaluations"]),
+                    'search_wall_clock_s': float(search["swarm_wall_clock_s"]
+                                                 + search["refine_wall_clock_s"]),
+                    'search_refine_wall_clock_s': float(search["refine_wall_clock_s"]),
+                    'search_tail_improvement_frac': float(search["tail_improvement_frac"]),
+                    'search_note': str(search["note"])})
+            return (time_a, data, thrust, alpha, result, J, None, extra)
         params, J = run_pso_optimization(verbose=True)
         time_a, data, thrust, alpha, _, result = run_indirect_full(params, verbose=True)
         return (time_a, data, thrust, alpha, result, J, ips.LAST_PSO_HISTORY,
@@ -663,16 +697,21 @@ def _dispatch(sim_params, case=None):
         # final state so the collector does not need a special case.
         #
         # state_final_inertial is load-bearing and cannot be inferred by the
-        # collector. rocket_ascent converts the state to the inertial frame
-        # BEFORE it propagates the post-SECO coast, so data[:, -1] is already
-        # inertial here -- converting it again yields a=7807 km, e=0.119,
-        # apoapsis 2359 km for what is really a circular 499 km orbit. The
-        # collector cannot work this out from the trajectory, because on the PSO
-        # paths state_final is the solver's burn-end state (rotating frame) even
-        # though the archived trajectory runs long past it.
-        result = {'crashed': False, 'state_final': np.asarray(data)[:, -1],
+        # collector. The "inertial" coast (APOGEE_CHECK_COAST_FRAME) converts the
+        # state to the inertial frame BEFORE it propagates the post-SECO coast, so
+        # data[:, -1] is already inertial there -- converting it again yields
+        # a=7807 km, e=0.119, apoapsis 2359 km for what is really a circular
+        # 499 km orbit. The "rotating" coast never converts. The collector cannot
+        # work this out from the trajectory, because on the PSO paths state_final
+        # is the solver's burn-end state (rotating frame) even though the archived
+        # trajectory runs long past it; run() reports it. The "rotating" coast
+        # also hands back its insertion state, since its last sample, 1000 s on,
+        # is a rotating-frame state far downrange.
+        state_final = (np.asarray(data)[:, -1] if ra.STATE_INSERTION is None
+                       else np.asarray(ra.STATE_INSERTION))
+        result = {'crashed': False, 'state_final': state_final,
                   'circularisation_dv': float(delta_v),
-                  'state_final_inertial': bool(sim_params.ENABLE_EARTH_ROTATION)}
+                  'state_final_inertial': bool(ra.FINAL_STATE_INERTIAL)}
         # Latitude is derived, not integrated, and ra.run() does not append it --
         # the PSO solvers do it themselves and main.py does it for this branch.
         # Without it the archived case carries five state rows where every other
@@ -685,8 +724,12 @@ def _dispatch(sim_params, case=None):
         thrust = ra.thrust_on_grid(time_a, time_thrust, thrust)
         alpha = interpolate_to_time(alpha_time, alpha, time_a)
         # The brute grid's only decision variable: the kick angle [rad].
+        # t_circularisation: the impulsive burn at apogee, which the figures
+        # used to find as the largest velocity step after SECO.
         return (time_a, data, thrust, alpha, result, None, None,
-                {'decision_vector': [float(kick)]})
+                {'decision_vector': [float(kick)],
+                 't_circularisation': (float('nan') if ra.TIME_CIRCULARISATION is None
+                                       else float(ra.TIME_CIRCULARISATION))})
 
     raise ValueError("unrecognised architecture: %r" % arch)
 

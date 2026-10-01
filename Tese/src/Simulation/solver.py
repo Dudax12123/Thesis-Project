@@ -19,6 +19,10 @@ from Auxiliary import constants as c
 from Input_File import simulation_parameters as sim_params
 from Simulation import rocket_ascent as ra
 
+# Points of the brute kick grid. brute runs with finish=None, so this is exactly
+# the number of trajectories the search flies; the archive reports it.
+BRUTE_GRID_POINTS = 1000
+
 
 #===================================================
 # Coasting Single Burn Optimization
@@ -89,7 +93,7 @@ def find_initial_kick_angle_coast_single_burn():
     result = brute(
         objective,
         ranges=bounds,
-        Ns=1000,
+        Ns=BRUTE_GRID_POINTS,
         finish=None,
         full_output=True
     )

@@ -1,19 +1,19 @@
 {
   "schema": 1,
   "run_id": "gt_apogee",
-  "created_utc": "2026-09-17T22:43:52+00:00",
-  "created_local": "2026-09-17T23:43:52",
-  "wall_clock_s": 54.7,
+  "created_utc": "2026-09-30T19:39:01+00:00",
+  "created_local": "2026-09-30T20:39:01",
+  "wall_clock_s": 56.7,
   "source": "matrix:gt_apogee",
   "label": "6.2 / architecture",
   "architecture": "apogee_check",
   "guidance_mode": "gravity_turn",
-  "n_evaluations": null,
+  "n_evaluations": 1000,
   "git": {
-    "commit": "8203d94b38aa51a0111f696002bda33f9f59afbc",
+    "commit": "71da0d51c94591a83da9fa698903bf961cdb4d6d",
     "branch": "main",
-    "describe": "8203d94",
-    "dirty": false
+    "describe": "71da0d5-dirty",
+    "dirty": true
   },
   "env": {
     "python": "3.11.15",
@@ -28,6 +28,7 @@
     "ALPHA_HIGHEST": -0.04363323129985824,
     "ALPHA_LOWEST": -0.09599310885968812,
     "ALT_NO_ATMOSPHERE": 65000.0,
+    "APOGEE_CHECK_COAST_FRAME": "rotating",
     "APOGEE_MATCH_TOL_FRAC": 0.0002,
     "APOLLO_FREEZE_THRESHOLD": 10.0,
     "APOLLO_THRUST_MAGNITUDE_CONTROL": false,
@@ -43,9 +44,23 @@
     "COMPUTE_CROSS_HEADING_COUNTER_FORCE": true,
     "CPR_THETA_DOT": 0.4,
     "CPR_THETA_DOT_MODE": "manual",
+    "DIRECT_BRENT_XATOL_GAMMA_P": 1e-07,
+    "DIRECT_BRENT_XATOL_T_BURN_PCT": 1e-07,
+    "DIRECT_GRID_GAMMA_P_BOUNDS": [
+      1.5,
+      1.57
+    ],
+    "DIRECT_GRID_GAMMA_P_POINTS": 500,
+    "DIRECT_GRID_T_BURN_PCT_BOUNDS": [
+      50.0,
+      100.0
+    ],
+    "DIRECT_GRID_T_BURN_PCT_POINTS": 21,
     "DIRECT_INSERTION_ALTITUDE_TOL_KM": 5.0,
     "DIRECT_INSERTION_FPA_TOL_DEG": 0.5,
     "DIRECT_INSERTION_VELOCITY_TOL_MS": 10.0,
+    "DIRECT_LAW_TERMINATED_CUTOFF": false,
+    "DIRECT_OPTIMIZER": "pso",
     "DURATION_AFTER_SIMULATION": 1000.0,
     "DURATION_INITIAL_KICK": 45.0,
     "DYNAMIC_PRESSURE_THRESHOLD": 1000.0,
@@ -55,6 +70,7 @@
     "GAMMA_REF_DEG": 1.0,
     "GUIDANCE_COEFFICIENTS_FIXED": true,
     "GUIDANCE_MODE": "gravity_turn",
+    "GUIDANCE_REFRESH_MODE": "cycle",
     "GUIDANCE_SEGMENTS": [
       [
         "gravity_turn",
@@ -217,6 +233,7 @@
     "RUN_FAST": false,
     "SAVE_PLOTS": false,
     "SAVE_PLOTS_DIR": "Output_Plots",
+    "SEGMENTED_LAW_TERMINATED_ARCS": false,
     "SEGMENT_INTERMEDIATE_FREEZE_THRESHOLD": 2.0,
     "SEGMENT_TARGET_SOURCE": "pmp",
     "TARGET_ORBITAL_ALTITUDE": 500000.0,
@@ -230,7 +247,7 @@
   "vehicle": {
     "A": 10.52,
     "A_E": 6.118924253639279,
-    "C_D": 0.0,
+    "C_D": 0.3,
     "C_L": 0.1,
     "EPSILON_1": 0.04943325545020951,
     "EPSILON_2": 0.0403852127990059,
@@ -264,31 +281,5 @@
     "P_0": 101325,
     "RHO_0": 1.225,
     "R_EARTH": 6378000.0
-  },
-  "repairs": [
-    {
-      "date": "2026-09-26",
-      "git": {
-        "commit": "b92d16f894f2a9e01ddcdb064abdcce962babd94",
-        "branch": "main",
-        "describe": "b92d16f-dirty",
-        "dirty": true
-      },
-      "what": "thrust channel rebuilt from a bit-identical re-flight with rocket_ascent._close_logged_burn / thrust_on_grid; delta-v budget fields recomputed through run_record.collect_row; trajectory, alpha and every other row field unchanged",
-      "script": "dev-notes/repair_thrust_record.py",
-      "thrust_samples_changed": 1842,
-      "budget_before": {
-        "dv_ideal": 8782.552,
-        "dv_gravity": 1211.444,
-        "dv_drag": 0.0,
-        "dv_steering": 0.0,
-        "dv_pressure": 67.393,
-        "dv_losses": 1278.837,
-        "dv_gain": 311.538,
-        "dv_achieved": 7884.433,
-        "residual": -69.18,
-        "pressure_applicable": true
-      }
-    }
-  ]
+  }
 }

@@ -533,6 +533,19 @@ MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of
 # fraction of the target radius. Tight (0.0002 ≈ 1.4 km) now that the apogee
 # interrupt and the SECO conversion use the same (launch) latitude.
 APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fraction of r_target)
+# apogee_check: the physics of the coast from SECO to apogee.
+# - "inertial" (default; byte-identical to the path as it was): at SECO the state
+#   is converted with the full w*r*cos(lat) and the coast is flown without the
+#   pseudo-forces. No other architecture ever converts before insertion. The
+#   conversion credits the whole unprojected rotation speed at SECO, while the
+#   rotating-frame physics every other case flies credits less off a due-east
+#   heading (measured 2026-09-30 on gt_apogee: a 137.6 m/s shortfall at SECO).
+# - "rotating": the coast is flown in the rotating frame with the pseudo-forces,
+#   on pso_coast_solver's own coast ODE. SECO is root-found so that coast's
+#   apoapsis is the target altitude. The impulsive burn there goes to the target
+#   every coast case inserts at: v_circular_rotating (the unprojected credit), gamma 0.
+#   It may be a retro-burn; its cost is |dv|. The results matrix flies this.
+APOGEE_CHECK_COAST_FRAME = "inertial"            # "inertial" | "rotating"
 
 
 # ===================================================================

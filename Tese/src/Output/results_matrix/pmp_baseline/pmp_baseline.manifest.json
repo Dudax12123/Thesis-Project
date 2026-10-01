@@ -1,19 +1,19 @@
 {
   "schema": 1,
   "run_id": "pmp_baseline",
-  "created_utc": "2026-09-25T15:09:38+00:00",
-  "created_local": "2026-09-25T16:09:38",
-  "wall_clock_s": 1.3,
+  "created_utc": "2026-09-30T19:36:19+00:00",
+  "created_local": "2026-09-30T20:36:19",
+  "wall_clock_s": 0.5,
   "source": "matrix:pmp_baseline",
   "label": "6.4 / reference",
   "architecture": "indirect_pmp",
   "guidance_mode": "indirect_pmp",
-  "n_evaluations": 250000,
+  "n_evaluations": 1,
   "git": {
-    "commit": "97613a1d92b63d75170734124b390aa402d3a84a",
+    "commit": "71da0d51c94591a83da9fa698903bf961cdb4d6d",
     "branch": "main",
-    "describe": "97613a1",
-    "dirty": false
+    "describe": "71da0d5-dirty",
+    "dirty": true
   },
   "env": {
     "python": "3.11.15",
@@ -28,6 +28,7 @@
     "ALPHA_HIGHEST": -0.04363323129985824,
     "ALPHA_LOWEST": -0.09599310885968812,
     "ALT_NO_ATMOSPHERE": 65000.0,
+    "APOGEE_CHECK_COAST_FRAME": "rotating",
     "APOGEE_MATCH_TOL_FRAC": 0.0002,
     "APOLLO_FREEZE_THRESHOLD": 10.0,
     "APOLLO_THRUST_MAGNITUDE_CONTROL": false,
@@ -64,7 +65,7 @@
     "DURATION_INITIAL_KICK": 45.0,
     "DYNAMIC_PRESSURE_THRESHOLD": 1000.0,
     "ENABLE_EARTH_ROTATION": true,
-    "EVENTS_PRINT": false,
+    "EVENTS_PRINT": true,
     "FAIRING_JETTISON_MODE": "altitude",
     "GAMMA_REF_DEG": 1.0,
     "GUIDANCE_COEFFICIENTS_FIXED": true,
@@ -280,31 +281,5 @@
     "P_0": 101325,
     "RHO_0": 1.225,
     "R_EARTH": 6378000.0
-  },
-  "repairs": [
-    {
-      "date": "2026-09-26",
-      "git": {
-        "commit": "b92d16f894f2a9e01ddcdb064abdcce962babd94",
-        "branch": "main",
-        "describe": "b92d16f-dirty",
-        "dirty": true
-      },
-      "what": "thrust channel rebuilt from a bit-identical re-flight with rocket_ascent._close_logged_burn / thrust_on_grid; delta-v budget fields recomputed through run_record.collect_row; trajectory, alpha and every other row field unchanged",
-      "script": "dev-notes/repair_thrust_record.py",
-      "thrust_samples_changed": 48,
-      "budget_before": {
-        "dv_ideal": 8868.149,
-        "dv_gravity": 1512.806,
-        "dv_drag": 43.107,
-        "dv_steering": 37.634,
-        "dv_pressure": 68.481,
-        "dv_losses": 1662.028,
-        "dv_gain": 311.538,
-        "dv_achieved": 7612.683,
-        "residual": -95.024,
-        "pressure_applicable": true
-      }
-    }
-  ]
+  }
 }

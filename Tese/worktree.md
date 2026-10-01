@@ -343,6 +343,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `ALPHA_LOWEST` / `ALPHA_HIGHEST` (L210–211) | float rad | `-deg2rad(5.5)` / `-deg2rad(2.5)` | Kick-angle search bounds (triangular convention). | brute-force search + triangular only; **not** linked to the `[1.50,1.57]` gamma_p PSO bounds. |
 | `MAX_ACCEPTED_BURN_TIME` (L212) | float s | `100.` | Max accepted delta-v burn time during search. | apogee_check/brute-force search. |
 | `APOGEE_MATCH_TOL_FRAC` (L216) | float (fraction of r_target) | `0.0002` | Apogee-match acceptance tolerance. | `apogee_check` only. |
+| `APOGEE_CHECK_COAST_FRAME` | `inertial`, `rotating` | `inertial` | Physics of the coast from SECO to apogee. `inertial`, the path as it was: the SECO state is converted with the full ω·r·cos φ and coasted without pseudo-forces, then circularised to √(μ/r). `rotating`: the coast is flown on `pso_coast_solver`'s coast ODE (rotating frame, pseudo-forces), SECO is root-found so that coast's apoapsis is the target, and the burn there goes to `v_circular_rotating` (the other cases' target, possibly a retro-burn, cost \|Δv\|). | `apogee_check` only; the results matrix flies `rotating` (§4). `run()` reports the frame of its final state in `ra.FINAL_STATE_INERTIAL` and, under `rotating`, the insertion state in `ra.STATE_INSERTION`. |
 | `RUN_FAST` (L220) | `True`/`False` | `False` | Skip kick optimisation, use `OPTIMAL_KICK_ANGLES`. | `apogee_check` only; **silently ignored** under PSO paths; needs an entry in `OPTIMAL_KICK_ANGLES`. |
 | `OPTIMAL_KICK_ANGLES` (L224) | dict {mode: rad} | per-mode (e.g. gravity_turn −3°, apollo −4.5°) | Pre-computed kick angles for fast mode. | `RUN_FAST=True`; **no entry for `cpr`/`indirect_pmp`** → falls back to `INITIAL_KICK_ANGLE`. |
 | `INITIAL_KICK_ANGLE` (L237) | float rad | `-deg2rad(3.0)` | Manual single-run kick angle / fast-mode fallback. | single-run + `RUN_FAST` fallback. |
@@ -1058,6 +1059,41 @@ Each is legal to set but does something other than what you'd expect. With `file
     (`dev-notes/repair_alpha_record.py`): alpha channel and budget fields only, a `repairs`
     entry in its manifest, CSV row rebuilt, originals in
     `Output/results_matrix_prerepair_20260930/`.
+
+- **The apogee check coasted in a different frame from every other case, and its budget
+  recorded no drag (both found and FIXED 2026-09-30).**
+  - Frame. At SECO the `apogee_check` path converted the state with the full ω·r·cos φ
+    (420.5 m/s at 184 km) and flew the half-orbit coast without pseudo-forces. No other
+    architecture converts before insertion, and the rotating-frame physics they fly credits
+    less off a due-east heading: coasted that way, gt_apogee's SECO state peaked at 184.6 km,
+    not 499 km. At the old kick the other cases' physics costs 695 kg more. New
+    `APOGEE_CHECK_COAST_FRAME = "rotating"` (§2) flies their coast and their target. The
+    matrix flies it (`run_results_matrix.BASELINE`); the config default stays `inertial`, which
+    is bit-identical to before.
+  - Result: gt_apogee re-searched (1000-point grid, 57 s): 22 168.7 → **21 534.2 kg**. SECO
+    252.6 km, 1132 s coast, circularisation 1.1 m/s (was 89.8). The search now finds what the
+    swarms find: the shared target is the apoapsis of a sub-circular ellipse, reachable by
+    coasting (see the unprojected-credit disclosure above). It still leads gt_baseline, by
+    0.85 t instead of 1.48 t.
+  - Drag. The full-simulation branch of `run()` set `rocket_specs.C_D = 0` after SECO and
+    never restored it. The flight never saw it: `atmosphere.drag_force` had bound C_D = 0.3 as
+    a default at import. `Auxiliary.losses`, imported lazily after the flight, bound 0 instead,
+    so every archived apogee_check budget recorded `dv_drag = 0` (gt_apogee: 34.9 m/s at the old
+    kick, 30.8 m/s now; residual −113 m/s, with the other rotation-on cases). Line removed.
+  - `tests/test_apogee_check_coast.py` pins both (the drag test fails with the line back).
+  - Originals of gt_apogee, pmp_baseline, pmp_vacuum and the CSV in
+    `Output/results_matrix_pre_apogee_fix_20260930/`.
+
+- **The cost of the two PMP rows is recorded (2026-09-30).** They are extremals re-flown in
+  about a second, and their rows used to say 250 000 evaluations (the batch's configured budget)
+  and 1 s. They now record `n_evaluations = 1` and, from `run_results_matrix.PMP_*_SEARCH`,
+  `search_n_evaluations` / `search_wall_clock_s` / `search_refine_wall_clock_s` /
+  `search_tail_improvement_frac` / `search_note`: the seed-3 swarm (750×1500: 1 125 000
+  evaluations, 44 350 s; 250×1000: 250 000, 13 119 s) plus the refinement (1 057 s / 1 512 s,
+  from `Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum}.log`). The refinement's
+  trajectory count is not recorded: its Jacobian flights are not in `least_squares`' nfev.
+  The apogee check now records its 1000 grid flights (`solver.BRUTE_GRID_POINTS`). The two
+  rows were re-flown, bit-identical.
 
 - **J′ does not rank the laws the way propellant does (2026-09-26).** The objective adds weighted
   insertion misses to the burn term, and a swarm that stops short of converging its cutoff time can
