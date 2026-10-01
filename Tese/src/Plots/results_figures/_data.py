@@ -206,6 +206,50 @@ class Case:
         alts = [float(a) for a in np.atleast_1d(self._z["optimized_altitudes"])]
         return alts or None
 
+    @property
+    def decision_vector(self):
+        """The optimiser's full-precision decision vector, or None."""
+        if "decision_vector" not in self._z.files:
+            return None
+        return np.atleast_1d(np.asarray(self._z["decision_vector"], dtype=float))
+
+    @property
+    def gamma_p(self):
+        """The flight-path angle the kick leaves [rad], wherever the case stores it.
+
+        Each architecture puts it in a different slot of its decision vector:
+        fourth for pso_coast, seventh for the PMP, alone for law-terminated
+        direct insertion, second for the law-terminated segmented schedule. The
+        reference-tracking cases fly the reference's, and record it in the
+        schedule they realised. The apogee check stores the kick itself,
+        gamma_p - pi/2 (solver.find_initial_kick_angle_coast_single_burn).
+        """
+        x = self.decision_vector
+        arch = self.architecture
+        if arch == "reference_track" and "realised_schedule" in self._z.files:
+            return float(self._z["realised_schedule"][3])
+        if x is None:
+            return None
+        if arch == "apogee_check":
+            return float(x[0]) + np.pi / 2.0
+        slot = {"pso_coast": 3, "indirect_pmp": 6, "direct": 0}.get(arch)
+        if arch == "segmented":
+            # [delta_tc, gamma_p (, hand-off)] law-terminated; the default form
+            # is pso_coast's four base variables.
+            slot = 1 if len(x) <= 3 else 3
+        return None if slot is None or slot >= len(x) else float(x[slot])
+
+    def waypoint_miss(self):
+        """(dh [m], dv [m/s], dgamma [deg]) at the end of the first burn against
+        the coast-start waypoint it aimed at, or None for a case that aimed at
+        none. Read from the stored target and achieved state, not re-derived."""
+        if "arc1_target" not in self._z.files or "arc1_achieved" not in self._z.files:
+            return None
+        target = np.asarray(self._z["arc1_target"], dtype=float)
+        achieved = np.asarray(self._z["arc1_achieved"], dtype=float)
+        dr, dv, dgamma = (achieved[:3] - target[:3])
+        return float(dr), float(dv), float(np.rad2deg(dgamma))
+
     # --- derived accounting ---------------------------------------------
     def cutoff_index(self):
         """Index one past SECO -- the powered ascent, excluding the final coast.

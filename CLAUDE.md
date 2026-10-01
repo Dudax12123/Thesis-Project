@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds twenty-one files (253 tests as of 2026-10-01). pytest is installed
+Tests — `Tese/src/tests/` holds twenty-two files (273 tests as of 2026-10-01). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -121,6 +121,21 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
 - `--smoke` flies a copy of the tracked reference (`_prepare_smoke_reference`), not a token one.
 - `gt_apogee` flies `APOGEE_CHECK_COAST_FRAME = "rotating"` (`BASELINE`, 2026-09-30): its coast
   is the other architectures' coast, not a converted inertial one (see Architecture below).
+
+Chapter 6's figures and tables are drawn offline from these archives, straight into the thesis
+repo. After re-flying any case, re-run both (from `Tese/src`, with `PYTHONPATH=.`):
+
+```bash
+FIG_OUT=C:/Users/eduar/Desktop/Tese/Thesis_Overleaf/Figures C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m Plots.results_figures.make_all
+```
+
+```bash
+TAB_OUT=C:/Users/eduar/Desktop/Tese/Thesis_Overleaf/Tables C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe -m Plots.results_figures.tables
+```
+
+The thesis draws each table body with `\resultstable{<name>}` (an `\input` of `Tables/<name>.tex`),
+so no number in a Chapter 6 table is typed by hand; never edit those files in Overleaf. Captions
+and labels stay in `Thesis_Results.tex`.
 
 Two flags exist so a subset can be rehearsed without editing config or endangering the real batch:
 `--budget P,G` sets every swarm architecture's PSO budget in memory (`--budget 50,100`), and
@@ -203,7 +218,8 @@ Simulation/
 Guidance/                one module per law, pure functions returning α (or coefficients)
 Auxiliary/               constants, atmosphere, gravity, earth_rotation, rocket_specs
 Plots/new_metrics/       one file per metric; new_plot_runner.py runs the ~20-plot suite
-Plots/results_figures/   the Chapter 6 figure set; _data.Case is THE loader for any archive
+Plots/results_figures/   the Chapter 6 figures (make_all) and tables (tables); _data.Case is
+                         THE loader for any archive
 Archive/                 run_record (row + channels + manifest, shared with the harness),
                          store (naming, writing, finding), compare (generic N-way overlay
                          + manifest diff), cli; entry point Tese/src/run_archive.py
