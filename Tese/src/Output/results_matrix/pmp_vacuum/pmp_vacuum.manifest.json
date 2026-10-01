@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "run_id": "pmp_vacuum",
-  "created_utc": "2026-09-30T19:36:20+00:00",
-  "created_local": "2026-09-30T20:36:20",
+  "created_utc": "2026-10-01T01:53:35+00:00",
+  "created_local": "2026-10-01T02:53:35",
   "wall_clock_s": 0.5,
   "source": "matrix:pmp_vacuum",
   "label": "6.4 / reference",
@@ -10,10 +10,10 @@
   "guidance_mode": "indirect_pmp",
   "n_evaluations": 1,
   "git": {
-    "commit": "71da0d51c94591a83da9fa698903bf961cdb4d6d",
+    "commit": "d5de5b3f276d584441963a56353d22b232e59e5c",
     "branch": "main",
-    "describe": "71da0d5-dirty",
-    "dirty": true
+    "describe": "d5de5b3",
+    "dirty": false
   },
   "env": {
     "python": "3.11.15",
