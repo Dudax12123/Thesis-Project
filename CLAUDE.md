@@ -60,7 +60,7 @@ Dependency/import sanity check:
 C:/Users/eduar/miniforge3/envs/pygmo-env/python.exe dev-notes/check_readiness.py
 ```
 
-Tests — `Tese/src/tests/` holds nineteen files (242 tests as of 2026-09-26). pytest is installed
+Tests — `Tese/src/tests/` holds twenty-one files (253 tests as of 2026-10-01). pytest is installed
 in `pygmo-env` only:
 
 ```bash
@@ -119,6 +119,8 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
   reference's coast start and arc 3 at the orbit, on its own t_go, and the swarm picks
   `[Δt_c, γ_p]` (+ the hand-off altitude).
 - `--smoke` flies a copy of the tracked reference (`_prepare_smoke_reference`), not a token one.
+- `gt_apogee` flies `APOGEE_CHECK_COAST_FRAME = "rotating"` (`BASELINE`, 2026-09-30): its coast
+  is the other architectures' coast, not a converted inertial one (see Architecture below).
 
 Two flags exist so a subset can be rehearsed without editing config or endangering the real batch:
 `--budget P,G` sets every swarm architecture's PSO budget in memory (`--budget 50,100`), and
@@ -126,9 +128,10 @@ Two flags exist so a subset can be rehearsed without editing config or endangeri
 `PMP_REFERENCE_PSO_*`, which is part of the PMP cache key — changing it rebuilds and overwrites
 the tracked `pmp_reference.npz`.
 
-Note what `--budget` cannot reach. `apogee_check` runs no PSO at all: its cost is the `Ns=1000`
-brute grid in `solver.py`, and every grid point is a complete `ra.run()` ascent, so `gt_apogee`
-costs the same at any budget (**measured: 48 s**). And `PSO_DIRECT_*` ships at 50×100 already, so
+Note what `--budget` cannot reach. `apogee_check` runs no PSO at all: its cost is the
+1000-point brute grid in `solver.py` (`solver.BRUTE_GRID_POINTS`, which the archive records as
+`n_evaluations`), and every grid point is a complete `ra.run()` ascent, so `gt_apogee` costs the
+same at any budget (**measured: 57–61 s** with the rotating coast; 48 s before it). And `PSO_DIRECT_*` ships at 50×100 already, so
 `--budget 50,100` leaves the two `direct` cases at full production fidelity. `show_ref_track` runs no
 search at all (~1 s each), and neither does `show_ref_track_apollo`; they fly the plan stored in
 the reference cache.
@@ -169,6 +172,9 @@ Dispatch order (from `main.py`) — each level overrides the ones below it:
      results-matrix archive flown before that date is `"in_rhs"`.
    - Measured by `dev-notes/refresh_ab.py`; see worktree.md §4. `main.py`'s final `else` runs the apogee-check search for any value it does not
    recognise, so a new value needs its own branch there.
+   - `apogee_check`'s coast from SECO to apogee is chosen by `APOGEE_CHECK_COAST_FRAME`
+     (2026-09-30). The config default is `"inertial"`, the old path and bit-identical to it; the
+     matrix flies `"rotating"`. See "The apogee check" under Architecture.
 
 Nine guidance laws: `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`,
 `peg_new`, `exp_shooting`, `indirect_pmp`. Not all pair with all coast methods — see the
@@ -363,6 +369,32 @@ dispatchers). The 21 matrix archives were repaired in place from bit-identical r
 ~0 m/s in both rotation-off cases and sits at −112 to −138 m/s in every rotation-on case: the
 unprojected rotation credit.
 
+**The apogee check coasted in its own frame, and its budget recorded no drag (both fixed
+2026-09-30).**
+- **Frame.** The legacy path converted the SECO state with the full ω·r·cos φ
+  (`ecef_to_eci_velocity`, launch latitude) and flew the half-orbit coast without pseudo-forces.
+  No other architecture converts before insertion, and the rotating-frame physics they fly
+  credits only the share of that speed along the heading. Coasted their way, gt_apogee's SECO
+  state peaked at 184.6 km, not 499 km, and the old row was over-credited by ~0.7 t.
+- **The "rotating" coast** (`ra._finish_single_burn_rotating`): the conversion-based event
+  (`interrupt_single_burn_traj`) now only brackets SECO from below. The burn continues with dense
+  output, and SECO is root-found so that a coast on `pso_coast_solver`'s own coast ODE
+  (`_coast_to_apoapsis`, same tolerances) reaches its apoapsis at the target. The impulsive burn
+  there goes to `v_circular_rotating`, the shared target, and may be a retro-burn costing |Δv|.
+  It raises if the bracket assumption fails (a launch due east could break it).
+  - gt_apogee re-flown: 22 168.7 → 21 534.2 kg, circularisation 89.8 → 1.1 m/s. Its search now
+    finds the same coast-to-target the swarms find.
+- **Read the frame, do not infer it.** `run()` sets `ra.FINAL_STATE_INERTIAL`,
+  `ra.TIME_CIRCULARISATION` and, under "rotating", `ra.STATE_INSERTION`. `main.py`, the matrix
+  and `dev-notes/repair_thrust_record.py` read them. Under "rotating" the last sample is 1000 s
+  past insertion, far downrange: converting it gave 712 × 256 km.
+- **Drag.** The full-simulation branch set `rocket_specs.C_D = 0` after SECO and never restored
+  it. The flight never saw it, because `atmosphere.drag_force` binds `C_D` as a default argument
+  at import. `Auxiliary.losses` binds it the same way but is imported lazily, after the flight,
+  so every apogee_check budget recorded `dv_drag = 0` (gt_apogee: 34.9 m/s). The line is gone.
+- `tests/test_apogee_check_coast.py` pins both; the drag test fails with the line back.
+  Originals are in `Output/results_matrix_pre_apogee_fix_20260930/`.
+
 **Fairing jettison is a planned altitude crossing, and all five architectures share it.**
 `FAIRING_JETTISON_MODE` defaults to `"altitude"` — `ALT_NO_ATMOSPHERE`, 65 km — rather than to
 whatever `ATMOSPHERE_EXIT_METHOD` happens to be. Under the old q-based rule the jettison landed
@@ -429,6 +461,12 @@ the solver's console printout is rounded and does not re-fly to the archived ins
   `_IN_PSO_STAGE1` (suppresses legacy CPR Stage-1 behaviour that otherwise crashes `brentq` event
   bracketing), `_stage1_kick_handled_by_gamma_jump` (prevents a double kick),
   `_SEGMENTED_ALPHA_HOOK` (`None` on every non-segmented run). Preserve that property when editing.
+- **Never change a constant in `rocket_specs` (or `constants`) at run time.** Several helpers take
+  them as default arguments bound at import (`atmosphere.drag_force(q, C_D=r.C_D, A=r.A)`,
+  `losses.loss_histories`, `losses.delta_v_budget`). A runtime assignment therefore reaches only
+  the modules imported after it: half the code sees the old value and half the new. That is how
+  the apogee check's `r.C_D = 0` left the flight untouched but zeroed every recorded drag loss.
+  Pass the value explicitly, or gate the term with a flag the dynamics reads.
 - **Two output roots, and neither depends on cwd.** `Tese/src/Output/` is **data only** — run
   archives, the results-matrix batch, `pmp_reference.npz`. `Tese/src/Output_Plots/` is **every
   figure** — `<run_id>/` per run, plus `comparisons/` and `chapter_figures/`. Both are gitignored
