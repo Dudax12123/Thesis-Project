@@ -1,6 +1,6 @@
 # Chapter 4 review: implementation spec
 
-Written 2026-10-02 and **not yet applied**: the session ran out of usage before any thesis edit.
+Written 2026-10-02. **Applied** in thesis commit `08ba055`, pushed 2026-10-02, with one correction: the brute-force CPR ramp starts at the end of the vertical rise, not at lift-off. The label fix `1e34ad8` followed.
 
 **User decision for this pass:**
 - Implement the Chapter 4 review.
