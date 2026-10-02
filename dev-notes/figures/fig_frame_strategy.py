@@ -64,12 +64,12 @@ ax.text(10.42, 5.18, "inertial (ECI) frame,\ntwo-body propagation",
         color=AMBER, fontsize=10.5, ha="right", va="top", style="italic",
         linespacing=1.3)
 ax.text(10.42, 2.95,
-        "orbital elements $a$, $e$, apoapsis,\nperiapsis and $i$ are evaluated\nhere and only here",
+        "orbital elements $a$, $e$, apoapsis,\nperiapsis and $i$ are evaluated\nin this frame",
         color=GREY, fontsize=8.1, ha="right", va="top", linespacing=1.4)
 
 leader(ax, (SECO, 1.98), (SECO - 0.02, 1.46), color=GREY)
 note(ax, SECO + 0.16, 1.36,
-     "frame switch at SECO:\n"
+     "frame switch at insertion:\n"
      r"ECEF $\rightarrow$ ECI," "\n"
      "pseudo-forces deactivated",
      fontsize=8.2, ha="left", va="top", edge="#cccccc")
