@@ -57,7 +57,7 @@ ax.add_patch(Rectangle((0.55, PY), IGN - 0.55, SH + 0.06, fc="#ececec",
 ax.text(0.5 * (0.55 + IGN), PY + (SH + 0.06) / 2, "stage 1 · kick · staging",
         ha="center", va="center", fontsize=7.4, color=INK, zorder=5)
 ax.text(IGN + 0.20, PY + (SH + 0.06) / 2,
-        "identical for every architecture —\nthey differ only after ignition",
+        "identical for every architecture; only the\nsegmented mode steers before ignition",
         fontsize=8.2, color=GREY, ha="left", va="center", style="italic",
         linespacing=1.35)
 span(0.55, IGN, PY - 0.10, r"carries the kick variable ($\alpha$ or $\gamma_p$)",
@@ -72,9 +72,9 @@ ax.text(DIMX, PY + SH + 0.24, "design-vector\ndimension", fontsize=7.6,
 
 NAMES = [(5.20, "Brute-force\nkick search", "1"),
          (4.15, "Coast-parameter\nPSO", "4"),
-         (3.10, "Direct-insertion\nPSO", "2"),
+         (3.10, "Direct-insertion\nPSO", "2\n(1)"),
          (1.95, "Indirect PMP\nPSO", "7"),
-         (0.60, "Segmented\nmulti-law", "$4+(n\\!-\\!1)$")]
+         (0.60, "Segmented\nmulti-law", "$4+(n\\!-\\!1)$\n(2–3)")]
 for y, name, dim in NAMES:
     ax.text(IGN - 0.20, y + SH / 2, name, fontsize=8.0, color=INK, ha="right",
             va="center", linespacing=1.3)
@@ -89,7 +89,8 @@ ax.plot([8.15, 8.15], [y - 0.11, y + SH + 0.11], color=INK, lw=1.4, zorder=7)
 ax.text(8.70, y + SH / 2,
         "event: apogee $=r_{\\rm target}$;\nimpulsive circularisation",
         fontsize=7.0, color=INK, ha="left", va="center", linespacing=1.3)
-span(0.55, IGN, y - 0.10, r"only variable: kick angle $\alpha$", color=ACCENT)
+span(0.55, IGN, y - 0.10, r"only variable: $\gamma_p$ ($\alpha$ under the triangular kick)",
+     color=ACCENT, fs=6.6)
 
 # (2) coast-parameter PSO
 y = 4.15
@@ -102,7 +103,7 @@ span(IGN, END, y - 0.36, r"$\Delta t_r$ %", fs=7.6)
 # (3) direct-insertion PSO
 y = 3.10
 arcs(y, [("T", IGN, 7.35)])
-cutoff(7.35, y, "event: circular\nvelocity reached")
+cutoff(7.35, y, "planned cut-off, or the\nlaw's own $t_{go}$", event=False)
 span(IGN, 7.35, y - 0.10, r"$t_{\rm burn}$ %", fs=7.6)
 
 # (4) indirect PMP PSO
@@ -122,6 +123,11 @@ span(IGN, END, y - 0.10,
 y = 0.60
 arcs(y, [("T", IGN, 5.60), ("C", 5.60, 7.00), ("T", 7.00, END)])
 cutoff(END, y, "planned cut-off", event=False)
+ax.annotate("", xy=(IGN - 0.55, y + SH + 0.17), xytext=(IGN, y + SH + 0.17),
+            arrowprops=dict(arrowstyle="-|>", color=GREEN, lw=1.0,
+                            mutation_scale=8), zorder=6)
+ax.text(IGN - 0.62, y + SH + 0.17, "law 1 starts at\nthe kick, in stage 1",
+        fontsize=6.4, color=GREEN, ha="right", va="center", linespacing=1.2)
 for x0, x1, lab, c in ((IGN, 4.30, "law 1", GREEN), (4.30, 5.15, "law 2", AMBER),
                        (5.15, END, "law 3 (final)", ACCENT)):
     ax.add_patch(Rectangle((x0, y + SH + 0.06), x1 - x0, 0.22, fc="white",
@@ -131,7 +137,7 @@ for x0, x1, lab, c in ((IGN, 4.30, "law 1", GREEN), (4.30, 5.15, "law 2", AMBER)
 for xb in (4.30, 5.15):
     ax.plot([xb, xb], [y, y + SH], color=INK, lw=0.9, ls=(0, (2, 1.6)),
             zorder=6)
-ax.text(END + 0.16, y + SH + 0.17, "hand-off altitudes\n(optimised)",
+ax.text(END + 0.16, y + SH + 0.17, "hand-off altitudes\n(fixed or optimised)",
         fontsize=6.9, color=GREY, ha="left", va="center", linespacing=1.25)
 span(5.60, 7.00, y - 0.10, "a coast falls inside the final segment",
      color=ACCENT)
@@ -148,6 +154,8 @@ ax.text(3.87, LY + 0.10, "cut-off located by an event", fontsize=7.4,
 ax.plot([7.15, 7.15], [LY, LY + 0.20], color=GREY, lw=1.1, ls=(0, (3, 2.2)))
 ax.text(7.27, LY + 0.10, "cut-off planned in advance", fontsize=7.4,
         color=GREY, va="center")
+ax.text(DIMX, LY + 0.10, "(law-terminated)", fontsize=7.0, color=GREY,
+        ha="center", va="center")
 
 ax.set_xlim(-1.75, 12.45)
 ax.set_ylim(-0.45, 7.15)

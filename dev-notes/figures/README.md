@@ -55,13 +55,14 @@ Two carry curves, and **neither is simulator output**:
   Integrating a literal −3° angle of attack held for 45 s over-turns badly —
   `gamma` goes negative before 160 s — because the simulator's triangular
   profile ramps *pitch*, not `alpha`.
-- `fig_segmented_schedule.py` — an illustrative ascent shape. Altitude is
-  plotted against time, not downrange: on a downrange axis both hand-offs and
-  staging fall inside the first few per cent of the plot and the point of the
-  figure disappears. The spec permits either.
+- `fig_segmented_schedule.py` — the law-terminated schedule flown in Chapter 6
+  (gravity turn, then vector PEG aimed at the coast-start waypoint). The shape
+  is illustrative but placed on the flown events of `show_seg_fixed_alt` and the
+  reference (MECO 146 s at ~62 km, coast start 411 s at 165 km, insertion
+  ~1700 s). Altitude is plotted against time, with the coast compressed behind
+  an axis break.
 
-Both should be rebuilt from a real run once the PSO regeneration owed from the
-pseudo-force fix has happened.
+`fig_kick_profiles.py` should be rebuilt from a real run.
 
 ## The results figures are elsewhere
 

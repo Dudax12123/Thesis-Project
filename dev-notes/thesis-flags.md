@@ -2,6 +2,24 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Decisions of 2026-10-03 ("still open" page of the Chapter 5 Review artifact)
+
+- **Done, uncommitted:**
+  - T7: `tables.caption_values` writes `Tables/caption_values.tex`; the preamble inputs it and the two Ch. 6 captions use `\circDvApogee` and `\dragAfterSeparation`.
+  - C1, C2, C9, C10: stale comments fixed.
+  - C5: `APOGEE_CHECK_COAST_FRAME` now defaults to `"rotating"`; CLAUDE.md and worktree.md updated; 273 tests pass.
+- **Round 4 applied, uncommitted:**
+  - T1 + T2 (FIG2): arc-structure figure redrawn into `Figures/`, with its caption and drawing note.
+  - T12 (T12b): the Hamiltonian jumps at the switches.
+  - T15 (T15a–d): Ch. 1 is a short introduction, Ch. 2 the phases and arcs, Ch. 4 the guidance split; B9 says the kick is a step in γ.
+  - T16: WIKI (Teren 1966 replaces the Orbiter wiki, whose entry is deleted), BEN (bib title and TM number), MAH (cited as the preprint), R12 and R4 reworded. R11 needed no change.
+- **Still open from T16:** R8 (Betts 1998 not in `References/`: kept until the user checks it) and R10 (rejected: both Apollo t_go citations stay, though Bennett was checked and does not give the truncation, and Chandler & Smith 1967 is not in `References/`).
+- **T3 (FIG3): approved and applied.** Segmented-schedule figure redrawn for the law-terminated schedule flown, with a new caption, its introducing sentence and its drawing note. The §3.4 sentence now says only the segmented mode steers before ignition.
+- **No edit:** T9 (Ch. 5 keeps the seed-3 sentence; closed), T17 and T18 (parked), T8 (to be written with the Ch. 6 results).
+- **On hold by the user:** T13 (spelling), C8 (time-to-go constant).
+- **Closed with no change:** C3, C4, C6.
+- **C7:** approved, but the user deletes the folder; the staging copies are byte-identical to the matrix archives.
+
 ## Thesis: open
 
 - **T1. The direct architecture is "cut at circular velocity", but no such event exists.**
@@ -26,7 +44,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
 - **T8. The PEG coast rows collapsed to direct insertion** (old "flag 2"). peg_new under `pso_coast` coasts 0.5 s. The Ch. 6 treatment is deferred.
 - **T9. The PMP swarms are presented as 250×1000, seed 42** (user decision 2026-10-01, R3: omit the exception).
   - In fact the PMP extremals come from seed-3 swarms, the atmospheric one at 750×1500 (`run_results_matrix.py` l.467, l.476).
-  - Ch. 5 l.581–583 still states this, against `tab:pso_settings` and `tab:fixed_conditions` ("seed 42").
+  - Ch. 5's optimal-reference paragraph (§5.2.3) still states this, against `tab:pso_settings` ("seed 42"). Since `12f255e`, Ch. 6 §6.7 also points to `tab:pso_settings` for "the fixed seed".
   - Decide whether Ch. 5 keeps the sentence.
 - **T10. CLOSED 2026-10-02 (Ch. 3 de-duplication, A4).** Ch. 4 §4.4.1 now gives the open-loop tangent form flown under `pso_coast` (`eq:tangent_openloop`) with its bounds, and l.374–375 names the tangent and exponential laws together.
 - **T11. CLOSED 2026-10-02 (Ch. 4 review, A1/R3).** §4.4.4.2 now cites `mahajan2025peg`, added to the bib.
@@ -109,15 +127,15 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - The plan is in `~/.claude/plans/let-s-review-section-3-4-serialized-blanket.md`.
   - `fig_frame_strategy.py` was relabelled and re-rendered.
 - Ch. 4 review applied 2026-10-02 (thesis `08ba055`, label fix `1e34ad8`); the spec is `dev-notes/ch4-implementation-spec.md`.
-
-## Closed 2026-10-03
-
-- Ch. 5 review, rounds 1 and 2, applied to the thesis working tree on top of `c3f2447`; uncommitted.
-  - Decisions are stored on the "Chapter 5 Review" artifact (https://claude.ai/artifact/TyN3GYgPDrfmm3xadCy8KJ), db collection `reviews`, one doc per item ID.
-  - Rejected: O1 (title), O10, X7, X8. Left as is: D10, E3. Parked: T17 (X6), T18 (O7).
-  - Ch. 5 is now §5.1 (Vehicle, with 5.1.1 Engine Model, 5.1.2 Payload Fairing, 5.1.3 Baseline Mission) and §5.2 Experimental Design. Numerical settings moved to Ch. 3 §3.3.1.
   - Ch. 4: A1–A3, A5–A7, B1–B8, B10, C2–C8, O1–O12, R1–R3, R5–R7, R9, R13, E1–E9, K1–K5.
   - Ch. 3: B4. Ch. 6: B7. Bib: `mahajan2025peg`, `orbiterwiki_peg`.
   - Excluded by the user: A4, A8, C8 (code), and anything in Ch. 1 or Ch. 2 (C1, B9).
   - Not implementable without the sources: T16.
   - Ch. 4 went from 6431 to 5270 words; the thesis from 35578 to 34442.
+
+## Closed 2026-10-03
+
+- Ch. 5 review, rounds 1 and 2, applied and pushed as thesis `12f255e`.
+  - Decisions are stored on the "Chapter 5 Review" artifact (https://claude.ai/artifact/TyN3GYgPDrfmm3xadCy8KJ), db collection `reviews`, one doc per item ID.
+  - Rejected: O1 (title), O10, X7, X8. Left as is: D10, E3. Parked: T17 (X6), T18 (O7).
+  - Ch. 5 is now §5.1 (Vehicle, with 5.1.1 Engine Model, 5.1.2 Payload Fairing, 5.1.3 Baseline Mission) and §5.2 Experimental Design. Numerical settings moved to Ch. 3 §3.3.1.
