@@ -343,7 +343,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `ALPHA_LOWEST` / `ALPHA_HIGHEST` (L210–211) | float rad | `-deg2rad(5.5)` / `-deg2rad(2.5)` | Kick-angle search bounds (triangular convention). | brute-force search + triangular only; **not** linked to the `[1.50,1.57]` gamma_p PSO bounds. |
 | `MAX_ACCEPTED_BURN_TIME` (L212) | float s | `100.` | Max accepted delta-v burn time during search. | apogee_check/brute-force search. |
 | `APOGEE_MATCH_TOL_FRAC` (L216) | float (fraction of r_target) | `0.0002` | Apogee-match acceptance tolerance. | `apogee_check` only. |
-| `APOGEE_CHECK_COAST_FRAME` | `inertial`, `rotating` | `inertial` | Physics of the coast from SECO to apogee. `inertial`, the path as it was: the SECO state is converted with the full ω·r·cos φ and coasted without pseudo-forces, then circularised to √(μ/r). `rotating`: the coast is flown on `pso_coast_solver`'s coast ODE (rotating frame, pseudo-forces), SECO is root-found so that coast's apoapsis is the target, and the burn there goes to `v_circular_rotating` (the other cases' target, possibly a retro-burn, cost \|Δv\|). | `apogee_check` only; the results matrix flies `rotating` (§4). `run()` reports the frame of its final state in `ra.FINAL_STATE_INERTIAL` and, under `rotating`, the insertion state in `ra.STATE_INSERTION`. |
+| `APOGEE_CHECK_COAST_FRAME` | `inertial`, `rotating` | `rotating` (since 2026-10-03) | Physics of the coast from SECO to apogee. `inertial`, the path as it was: the SECO state is converted with the full ω·r·cos φ and coasted without pseudo-forces, then circularised to √(μ/r). `rotating`: the coast is flown on `pso_coast_solver`'s coast ODE (rotating frame, pseudo-forces), SECO is root-found so that coast's apoapsis is the target, and the burn there goes to `v_circular_rotating` (the other cases' target, possibly a retro-burn, cost \|Δv\|). | `apogee_check` only; the results matrix flies `rotating` (§4). `run()` reports the frame of its final state in `ra.FINAL_STATE_INERTIAL` and, under `rotating`, the insertion state in `ra.STATE_INSERTION`. |
 | `RUN_FAST` (L220) | `True`/`False` | `False` | Skip kick optimisation, use `OPTIMAL_KICK_ANGLES`. | `apogee_check` only; **silently ignored** under PSO paths; needs an entry in `OPTIMAL_KICK_ANGLES`. |
 | `OPTIMAL_KICK_ANGLES` (L224) | dict {mode: rad} | per-mode (e.g. gravity_turn −3°, apollo −4.5°) | Pre-computed kick angles for fast mode. | `RUN_FAST=True`; **no entry for `cpr`/`indirect_pmp`** → falls back to `INITIAL_KICK_ANGLE`. |
 | `INITIAL_KICK_ANGLE` (L237) | float rad | `-deg2rad(3.0)` | Manual single-run kick angle / fast-mode fallback. | single-run + `RUN_FAST` fallback. |
@@ -1068,8 +1068,8 @@ Each is legal to set but does something other than what you'd expect. With `file
     less off a due-east heading: coasted that way, gt_apogee's SECO state peaked at 184.6 km,
     not 499 km. At the old kick the other cases' physics costs 695 kg more. New
     `APOGEE_CHECK_COAST_FRAME = "rotating"` (§2) flies their coast and their target. The
-    matrix flies it (`run_results_matrix.BASELINE`); the config default stays `inertial`, which
-    is bit-identical to before.
+    matrix flies it (`run_results_matrix.BASELINE`); the config default stayed `inertial`, which
+    is bit-identical to before, until 2026-10-03, when it became `rotating`.
   - Result: gt_apogee re-searched (1000-point grid, 57 s): 22 168.7 → **21 534.2 kg**. SECO
     252.6 km, 1132 s coast, circularisation 1.1 m/s (was 89.8). The search now finds what the
     swarms find: the shared target is the apoapsis of a sub-circular ellipse, reachable by

@@ -346,11 +346,11 @@ def shed_fairing_if_due(t, state):
     evaluates the RHS at speculative times, and latching a discontinuity there is
     the exact bug that jettisoned the fairing at T+7.5 s.
 
-    Accuracy: exact whenever the criterion was met before staging, which under
-    ALT_NO_ATMOSPHERE = 65 km is every trajectory that reaches a normal MECO
-    (71-135 km in the measured set). A trajectory that stages lower sheds at the
-    next arc boundary instead of at the crossing itself -- late by at most one
-    arc, rather than never.
+    Accuracy: exact whenever the criterion was met before staging. Under
+    ALT_NO_ATMOSPHERE = 65 km that is not every trajectory: six reported cases of
+    the results matrix reach MECO at 60.6-66.3 km. A trajectory that stages lower
+    sheds at the next arc boundary instead of at the crossing itself -- late by
+    at most one arc, rather than never.
 
     Returns the state, with M_FAIRING removed from element 4 if it fired. Works
     on the 5-element physical state and on the indirect solver's 8-element

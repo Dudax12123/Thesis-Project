@@ -403,7 +403,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     delta_tc        : float   Coast phase duration [s]          (bounds: [0, 2000])
     delta_tr_pct    : float   Stage-2 burn as % of T_MAX_2 [%] (bounds: [0, 100])
     coast_start_pct : float   Coast start as % of burn time [%] (bounds: [0, 100])
-    gamma_p         : float   Pitch maneuver (kick) angle [rad] (bounds: [1.54, 1.57])
+    gamma_p         : float   Pitch maneuver (kick) angle [rad] (bounds: [1.50, 1.57])
     verbose         : bool    If True, print intermediate results
 
     Returns
@@ -424,7 +424,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # -----------------------------------------------------------------
     # Phase 1: Stage 1 gravity turn
     # -----------------------------------------------------------------
-    # gamma_p is the pitch maneuver angle in [1.54, 1.57] rad (~ 88–90 deg).
+    # gamma_p is the pitch maneuver angle in [1.50, 1.57] rad (~ 86–90 deg).
     # With the instantaneous pitch-over now in place, the kick is a discontinuous
     # gamma jump applied exactly at TIME_TO_START_KICK:  gamma_post = pi/2 + kick_angle.
     # Setting kick_angle = gamma_p - pi/2 therefore makes gamma_post == gamma_p
@@ -446,7 +446,7 @@ def run_indirect_trajectory(lambda0_r, lambda0_v, lambda0_g,
     # "rotating_pseudo_forces" form, and only with the run switch on -- tied to
     # the switch the driving solver set, never read off the config alone.
     pf2 = _stage2_pseudo_forces() and bool(ra._PSEUDO_FORCES_THIS_RUN)
-    kick_angle = gamma_p - np.pi / 2.0   # maps [1.54, 1.57] -> [-0.031, -0.001] rad
+    kick_angle = gamma_p - np.pi / 2.0   # maps [1.50, 1.57] -> [-0.071, -0.001] rad
 
     # Normalize the initial costate vector to unit norm. The trajectory depends
     # only on the costate DIRECTION (the control law and linear costate ODEs are

@@ -188,8 +188,8 @@ Dispatch order (from `main.py`) — each level overrides the ones below it:
    - Measured by `dev-notes/refresh_ab.py`; see worktree.md §4. `main.py`'s final `else` runs the apogee-check search for any value it does not
    recognise, so a new value needs its own branch there.
    - `apogee_check`'s coast from SECO to apogee is chosen by `APOGEE_CHECK_COAST_FRAME`
-     (2026-09-30). The config default is `"inertial"`, the old path and bit-identical to it; the
-     matrix flies `"rotating"`. See "The apogee check" under Architecture.
+     (2026-09-30). The config default is `"rotating"` since 2026-10-03, as the matrix flies;
+     `"inertial"` is the old path, kept bit-identical. See "The apogee check" under Architecture.
 
 Nine guidance laws: `gravity_turn`, `linear_tangent`, `bilinear_tangent`, `apollo`, `cpr`, `peg`,
 `peg_new`, `exp_shooting`, `indirect_pmp`. Not all pair with all coast methods — see the

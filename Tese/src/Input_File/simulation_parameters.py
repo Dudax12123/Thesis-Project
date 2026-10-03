@@ -18,7 +18,7 @@ Table of contents
   3.  AERODYNAMICS / PHYSICS TOGGLES
   4.  AZIMUTH / INCLINATION TARGETING
   5.  STAGE-1 ENGINE MODEL          (Isp / thrust modes)
-  6.  ATMOSPHERE-EXIT MARKER        (guidance-start trigger)
+  6.  ATMOSPHERE-EXIT MARKER        (fairing rule, reference-cache key)
   7.  KICK MANEUVER & ASCENT PROFILE
   8.  GUIDANCE MODE SELECTION
         8a. shared guidance parameters
@@ -149,9 +149,11 @@ THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear r
 
 
 # ===================================================================
-# 6. ATMOSPHERE-EXIT MARKER  (guidance-start trigger)
+# 6. ATMOSPHERE-EXIT MARKER  (fairing rule, reference-cache key)
 # ===================================================================
-# Choose how to detect when the rocket exits the atmosphere and guidance should start:
+# How "the atmosphere has been left" is detected. It starts no guidance: every law
+# engages at Stage-2 ignition. Only FAIRING_JETTISON_MODE = "atmosphere_exit" and
+# the PMP reference-cache key read it.
 #   "altitude":         Use altitude threshold (traditional method)
 #   "dynamic_pressure": Use dynamic pressure threshold (more physically meaningful)
 #   "aerothermal_flux": Use aerothermal flux threshold (Phi = 0.5*rho*v^3)
@@ -167,8 +169,8 @@ ALT_NO_ATMOSPHERE = 65e3                        # altitude threshold for atmosph
 #                      A planned event, exactly as a real vehicle flies it: the
 #                      same altitude for every architecture and every particle,
 #                      so it cannot move with the trajectory.
-#   "atmosphere_exit": follow ATMOSPHERE_EXIT_METHOD, i.e. drop it wherever the
-#                      guidance-start criterion happens to be met. The old
+#   "atmosphere_exit": follow ATMOSPHERE_EXIT_METHOD, i.e. drop it wherever that
+#                      criterion happens to be met. The old
 #                      behaviour, kept so the choice can be shown to matter.
 #
 # Why the default changed to "altitude". Under "atmosphere_exit" with the
@@ -200,7 +202,7 @@ DURATION_INITIAL_KICK = 45.                     # duration of the triangular alp
 #                      directly over [ALPHA_LOWEST, ALPHA_HIGHEST] rad.
 #   "instantaneous" : discontinuous gamma jump via _run_stage1a_with_kick
 #                      (same mechanism as pso_coast/indirect_pmp). Kick angle
-#                      convention becomes gamma_p in [1.54, 1.57] rad, with
+#                      convention becomes gamma_p in [1.50, 1.57] rad (PSO_COAST_LB/UB[3]), with
 #                      kick_angle = gamma_p - pi/2 computed internally.
 KICK_PROFILE_MODE = "triangular"   # Options: "triangular", "instantaneous"
 
@@ -301,7 +303,7 @@ GUIDANCE_REFRESH_MODE = "in_rhs"   # Options: "in_rhs", "cycle"
 
 # -------------- Time-to-go estimator (apollo / linear_tangent / bilinear_tangent / cpr-"tgo") --------------
 # Selects how t_go is estimated for the modes that consume it as a scalar:
-#   "rocket_equation": gravity-blind  T_BUP·(1−exp(−VG/Ve))   (current default)
+#   "rocket_equation": gravity-blind  T_BUP·(1−exp(−VG/Ve))   (the results matrix flies this)
 #   "peg_new":         peg_new's gravity-aware estimate  τ·(1−exp(−‖v_go‖/Ve))
 #                      with the radial gravity loss folded in (predictor-corrector).
 # Affects apollo / linear_tangent / bilinear_tangent and cpr in "tgo" mode (cpr
@@ -534,7 +536,7 @@ MAX_ACCEPTED_BURN_TIME = 100.                    # maximum accepted burn time of
 # interrupt and the SECO conversion use the same (launch) latitude.
 APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fraction of r_target)
 # apogee_check: the physics of the coast from SECO to apogee.
-# - "inertial" (default; byte-identical to the path as it was): at SECO the state
+# - "inertial" (byte-identical to the path as it was): at SECO the state
 #   is converted with the full w*r*cos(lat) and the coast is flown without the
 #   pseudo-forces. No other architecture ever converts before insertion. The
 #   conversion credits the whole unprojected rotation speed at SECO, while the
@@ -544,8 +546,9 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 #   on pso_coast_solver's own coast ODE. SECO is root-found so that coast's
 #   apoapsis is the target altitude. The impulsive burn there goes to the target
 #   every coast case inserts at: v_circular_rotating (the unprojected credit), gamma 0.
-#   It may be a retro-burn; its cost is |dv|. The results matrix flies this.
-APOGEE_CHECK_COAST_FRAME = "inertial"            # "inertial" | "rotating"
+#   It may be a retro-burn; its cost is |dv|. The default since 2026-10-03, and what
+#   the results matrix and the thesis fly.
+APOGEE_CHECK_COAST_FRAME = "rotating"            # "inertial" | "rotating"
 
 
 # ===================================================================
