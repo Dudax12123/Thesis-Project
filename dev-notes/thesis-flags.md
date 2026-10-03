@@ -13,10 +13,8 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - The segmented row partitions Stage 2 only, but a law can start in Stage 1 (§3.4.5).
   - Its dimensions do not match the law-terminated forms flown: direct has 1 variable, segmented 2–3.
   - Source: `dev-notes/figures/fig_architecture_arc_structures.py`.
-- **T3. Two other schematics are stale.**
-  - `fig:segmented_schedule` (`segmented_schedule.png`).
-  - `fig:dependency_tree` (`module_dependency_graph.png`): it predates `reference_track_solver`, as its source comment in Ch. 5 says.
-  - Scripts are in `dev-notes/figures/`.
+- **T3. One other schematic is stale:** `fig:segmented_schedule` (`segmented_schedule.png`). Script in `dev-notes/figures/`.
+  - `fig:dependency_tree` is no longer built: the user commented out Ch. 5 §5.2 Software Implementation on 2026-10-03.
 - **T4. CLOSED 2026-10-01 (R5).** §3.4.4 and the `tab:pso_settings` caption now name the law-terminated segmented form flown.
 - **T5. CLOSED 2026-10-02 (S10).** The burnout, radius-check, horizontal-flight and apogee-match rows exist on the brute-force path only (`rocket_ascent.py` l.1903); the swarm paths carry only `_event_crash`. They are now marked † in `tab:events`.
 - **T6. CLOSED 2026-10-02 (S10).** The "timeline emerges from the physics" sentence is deleted.
@@ -54,6 +52,12 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - **Bennett 1970:** the new Apollo paragraph cites `bennett1970lunar` for the vertical-first thrust priority. The attribution comes from the `apollo_guidance` docstring (Luminary P12). Verify it against the paper.
   - **`mahajan2025peg`:** its `booktitle` is "AAS/AIAA Astrodynamics Specialist Conference", inferred from the PDF name (ASC25). The PDF says only "(Preprint) AAS 25-844".
   - **`orbiterwiki_peg`:** a wiki page, last edited 26 Sep 2021, now the source of the classical scalar variant. The page was checked on 2026-10-02 and gives sin(pitch) = A + B·t + C, C = (μ/r² − ω²r)/a₀. Decide whether a wiki source is acceptable; the variant is not flown.
+- **T17. Two cases have no reference of their own environment** (Ch. 5 review X6, 2026-10-03).
+  - `gt_norot` and `gt_sea_level_engine`. Ch. 5 §5.2.4 quotes the shortfall against "the reference of the same environment" and has no clause for them; Ch. 6 `tab:gt_results` handles them locally.
+  - User decision: address it later by adding a reference for those cases, not by rewording.
+- **T18. The rotation-credit disclosure is now stated nowhere** (Ch. 5 review O7, user decision 2026-10-03: "drop it").
+  - Ch. 5's "Two conventions" paragraph is commented out, and Ch. 3's and Ch. 6's pointers to it are removed. Ch. 6's `\discuss` notes still name the convention.
+  - The single-seed limitation survives in Ch. 6 §6.7.
 
 ## Thesis: check when compiling in Overleaf
 
@@ -68,6 +72,11 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - the new `eq:apollo_priority`;
   - the shortened §4.4.4 (PEG);
   - the two new bib entries: `@misc` with `url`/`urldate`, as the SpaceX entries use.
+- **K6.** The Ch. 5 review, round 1 (2026-10-03):
+  - `tab:fixed_conditions` now has a wrapping `p{0.5\textwidth}` value column and a factor block;
+  - `tab:stage_params` has three `\multicolumn{2}{c}` rows (C_D, C_L, reference area);
+  - the new `tab:numerics` in Ch. 3 §3.3.1;
+  - Ch. 5's new `\begin{comment}` block around the reporting conventions.
 
 ## Code repository
 
@@ -99,7 +108,14 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
 - Ch. 3 cross-chapter de-duplication (A1–A11, B1–B2, C1–C17, O1–O2) applied 2026-10-02; thesis `6327c4e`, figure script `0b91c5f`.
   - The plan is in `~/.claude/plans/let-s-review-section-3-4-serialized-blanket.md`.
   - `fig_frame_strategy.py` was relabelled and re-rendered.
-- Ch. 4 review applied 2026-10-02, uncommitted; the spec is `dev-notes/ch4-implementation-spec.md`.
+- Ch. 4 review applied 2026-10-02 (thesis `08ba055`, label fix `1e34ad8`); the spec is `dev-notes/ch4-implementation-spec.md`.
+
+## Closed 2026-10-03
+
+- Ch. 5 review, rounds 1 and 2, applied to the thesis working tree on top of `c3f2447`; uncommitted.
+  - Decisions are stored on the "Chapter 5 Review" artifact (https://claude.ai/artifact/TyN3GYgPDrfmm3xadCy8KJ), db collection `reviews`, one doc per item ID.
+  - Rejected: O1 (title), O10, X7, X8. Left as is: D10, E3. Parked: T17 (X6), T18 (O7).
+  - Ch. 5 is now §5.1 (Vehicle, with 5.1.1 Engine Model, 5.1.2 Payload Fairing, 5.1.3 Baseline Mission) and §5.2 Experimental Design. Numerical settings moved to Ch. 3 §3.3.1.
   - Ch. 4: A1–A3, A5–A7, B1–B8, B10, C2–C8, O1–O12, R1–R3, R5–R7, R9, R13, E1–E9, K1–K5.
   - Ch. 3: B4. Ch. 6: B7. Bib: `mahajan2025peg`, `orbiterwiki_peg`.
   - Excluded by the user: A4, A8, C8 (code), and anything in Ch. 1 or Ch. 2 (C1, B9).
