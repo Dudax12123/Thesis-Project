@@ -2,13 +2,43 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Outline review, round 3 applied 2026-10-04 (thesis pushed as `3cf2451`)
+
+- **Applied:** all 18 round-3 items, W3-01 … W4-10, approved on the Thesis Outline and Cuts artifact with no comments. They carry out the round-1 decisions on Ch. 3–4 and four answers given in the chat:
+  - the appendix also takes classical PEG and the exponential shooting fallback;
+  - Teofilatto's two-segment programme and CFPAR move there as they are;
+  - `fig:kick_profiles` moves whole;
+  - N3-13 is written now, with `pmp_norot` added.
+  - Files: Ch. 3, Ch. 4, Ch. 5, Ch. 6 (two consequential edits), `Thesis.tex`, and the new `Thesis_Appendix_Guidance.tex` ("Additional Guidance Options", the only appendix built).
+  - Script: `apply_round3.py` in that session's scratchpad.
+  - One edit beyond the drafted wording: CPR is now defined at its first use (Ch. 4 §4.3.3), because the CFPAR sentence that defined it moved to the appendix.
+  - Sweep clean.
+- **Estimate:** Ch. 3 23.0 → 20.4 pp, Ch. 4 15.1 → 9.9 pp, Ch. 1–7 86.6 → 78.5 pp. The appendix adds 4.2 pp outside the 80-page limit.
+  - With ≈ 8 pp of Ch. 6 prose to come, ≈ 6.5 pp remain to cut.
+  - The 100-page total now holds ≈ 80 + 11–13 (bibliography) + 4.2 (appendix), leaving ≈ 3–5 pp for any Ch. 6 floats moved to an appendix.
+- **No edit, by decision:** N3-01 (the promoted sections were intended), N3-02, N3-09, N3-14. N3-10 and N3-11 were verified: the flown forms are already described.
+- **Still to decide:** round 1 for Chapters 5–7 (N5-01 … N7-01).
+- **T22. `pmp_norot` in Ch. 6.** Ch. 5 now lists it (`tab:case_matrix`, nineteen cases) and names the non-rotating reference in §5.2.4, but Ch. 6 has no row, figure or prose for it.
+  - Once the 750×1500 runs are adopted, add it to `Plots/results_figures` (tables and the reference figures).
+  - Give `gt_norot` its shortfall against it in `tab:gt_results`.
+  - Then revisit T17.
+- **T23. Recheck the N3-13 wording when the runs finish.** Ch. 3 (`tab:pso_settings`: Indirect 750/1500, "seeds 1–4 and 42"; §3.6 and §3.7) and Ch. 5 §5.2.3 now say that every reference comes from 750×1500 swarms flown from five seeds, with the best refined extremal kept.
+  - If the D3 gate keeps today's 250×1000 `pmp_vacuum`, these lines need an exception.
+  - Also confirm the seed list for all three references.
+- **K9.** Check when compiling in Overleaf:
+  - Appendix A: its heading and TOC entry, and the numbering of `fig:kick_profiles` and `eq:kick_profile` (A.1);
+  - the new `eq:optimal_ascent_problem`: its long `\text{}` row inside `aligned` may overrun the line;
+  - `tab:events` (`l l l`, no wrapping);
+  - `tab:guidance_laws` without its code-name column;
+  - §3.3, which now carries two labels.
+
 ## Outline review, round 2 applied 2026-10-04 (thesis pushed as `9495a8b`; plot-library change `bed33f5`)
 
 - **Applied:** W0-01 … W2-13 from the "Round 2" section of the Thesis Outline and Cuts artifact.
   - Files: `Thesis.tex`, Ch. 1, the rebuilt Ch. 2 (script `rebuild_ch2.py` in that session's scratchpad), Ch. 3, Ch. 4, Ch. 5, Ch. 6 and the nomenclature.
   - Re-rendered from code: `tables.py` and `sec65_losses.py` now read ΔV; the outputs are `Tables/loss_budget.tex`, `results_loss_budget.png` and `results_loss_accumulation.png`.
   - Sweep clean. Estimate: Ch. 2 25.3 → 14.4 pp; Ch. 1–7 97.3 → 86.6 pp, plus about 3 blank pages removed. About 15 pp still to cut once Ch. 6 prose (+8 pp) is written.
-- **Still to decide:** round 1 for Chapters 3–7 (N3-01 … N7-01).
+- **Still to decide:** round 1 for Chapters 3–7 (N3-01 … N7-01). Ch. 3–4 were decided and applied in round 3 (above).
 - **T19. `tab:env_params` has no source for ω_E** (7.2921159e-5 rad/s, from `constants.OMEGA_EARTH`). Name one.
 - **T20. Reporting Δi and the lateral load in Ch. 6** (user, N2-09). Not yet defined how or where. Before reporting:
   - fix C11;
@@ -85,13 +115,15 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
 
   They do not update when a case is re-flown.
 - **T8. The PEG coast rows collapsed to direct insertion** (old "flag 2"). peg_new under `pso_coast` coasts 0.5 s. The Ch. 6 treatment is deferred.
-- **T9. The PMP swarms are presented as 250×1000, seed 42** (user decision 2026-10-01, R3: omit the exception).
+- **T9. CLOSED 2026-10-04 (outline round 3, W3-07).** `tab:pso_settings` and Ch. 5 §5.2.3 now give the references as 750×1500 from five seeds; the laws keep 250×1000 at seed 42. Follow-up in T23. History:
+- **T9 (as filed). The PMP swarms are presented as 250×1000, seed 42** (user decision 2026-10-01, R3: omit the exception).
   - In fact the PMP extremals come from seed-3 swarms, the atmospheric one at 750×1500 (`run_results_matrix.py` l.467, l.476).
   - Ch. 5's optimal-reference paragraph (§5.2.3) still states this, against `tab:pso_settings` ("seed 42"). Since `12f255e`, Ch. 6 §6.7 also points to `tab:pso_settings` for "the fixed seed".
   - Decide whether Ch. 5 keeps the sentence.
 - **T10. CLOSED 2026-10-02 (Ch. 3 de-duplication, A4).** Ch. 4 §4.4.1 now gives the open-loop tangent form flown under `pso_coast` (`eq:tangent_openloop`) with its bounds, and l.374–375 names the tangent and exponential laws together.
 - **T11. CLOSED 2026-10-02 (Ch. 4 review, A1/R3).** §4.4.4.2 now cites `mahajan2025peg`, added to the bib.
-- **T12. §3.4.3.3 (Multi-arc integration) may overstate the corner conditions.**
+- **T12. CLOSED 2026-10-04 (outline round 3, W3-06).** The Multi-arc integration subsubsection is gone; §3.6.3 is now three paragraphs that no longer restate the corner conditions. History:
+- **T12 (as filed). §3.4.3.3 (Multi-arc integration) may overstate the corner conditions.**
   - It says the costates "and the Hamiltonian remain continuous by the Weierstrass–Erdmann corner conditions, so no interior jump conditions are imposed".
   - The costates are continuous by construction. H continuity at a thrust/coast switch is an optimality condition, which the penalty enforces only through Eq. `duration_stationarity`; integration does not impose it.
   - Verify against `dev-notes/pmp_duration_conditions.py` before rewording.
@@ -117,6 +149,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - `gt_norot` and `gt_sea_level_engine`. Ch. 5 §5.2.4 quotes the shortfall against "the reference of the same environment" and has no clause for them; Ch. 6 `tab:gt_results` handles them locally.
   - User decision: address it later by adding a reference for those cases, not by rewording.
   - 2026-10-04: plan in `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`. A new `pmp_norot` reference (750×1500, five seeds, refined) covers `gt_norot`. The user chose not to build one for `gt_sea_level_engine`, so `tab:gt_results` keeps its local treatment of that case.
+  - 2026-10-04 (round 3): Ch. 5 §5.2.4 now names the non-rotating reference, and `tab:case_matrix` lists `pmp_norot`. Ch. 6 waits for the runs (T22).
 - **T18. The rotation-credit disclosure is now stated nowhere** (Ch. 5 review O7, user decision 2026-10-03: "drop it").
   - Ch. 5's "Two conventions" paragraph is commented out, and Ch. 3's and Ch. 6's pointers to it are removed. Ch. 6's `\discuss` notes still name the convention.
   - The single-seed limitation survives in Ch. 6 §6.7.
