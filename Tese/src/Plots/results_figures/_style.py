@@ -75,7 +75,7 @@ LAW_LABELS = {
     "cpr": "Constant pitch rate",
     "peg": "PEG",
     "peg_new": "PEG (vector P-C)",
-    "exp_shooting": "Polynomial shooting",
+    "exp_shooting": "Exponential pitch",
     "indirect_pmp": "Indirect (PMP)",
 }
 
@@ -114,7 +114,7 @@ CASE_LABELS = {
     "show_cpr": "Constant pitch rate",
     "show_linear_tangent": "Linear tangent",
     "show_bilinear_tangent": "Bilinear tangent",
-    "show_exp_shooting": "Polynomial shooting",
+    "show_exp_shooting": "Exponential pitch",
     "show_apollo": "Apollo",
     "show_ref_track_apollo": "Apollo, coast-start waypoint",
     "show_seg_fixed_alt": "Segmented, hand-off fixed",

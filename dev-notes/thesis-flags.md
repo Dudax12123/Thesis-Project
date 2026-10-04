@@ -132,7 +132,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - gt_baseline, evaluated the same way at insertion (latitude 48.4°, 3 896 km downrange): 61.09°, a "drift" of +9.49°. With the great-circle heading at that latitude: 51.35° (−0.25°). At the launch latitude: 49.83° (−1.77°).
   - It is computed only on the legacy `run()` path and is not archived; the swarm architectures never compute it. The pmp archives carry no latitude row.
   - Blocks XR1 (Ch. 6 reporting the inclination gap and the lateral load, so that Ch. 7's Future Work stays true). Peak lateral load under thrust for gt_baseline: 21.5 kN (0.71 m/s², t = 820 s).
-- **C12.** `_style.case_label("show_exp_shooting")` prints "Polynomial shooting" in the figure legends, while Ch. 4 and `tab:showcase_laws` call it the exponential pitch law (seen in `results_showcase_laws.png`, 2026-10-04).
+- **C12. FIXED 2026-10-04, uncommitted.** `_style.LAW_LABELS` and `CASE_LABELS` printed "Polynomial shooting" for `exp_shooting`; both now read "Exponential pitch", as Ch. 4 and `tab:showcase_laws` do. All 18 results figures were re-rendered into the thesis. Five changed: showcase laws, law ranking, arc structure and the accuracy trade carry the label. The fifth, `results_solve_cost.png`, was stale: it showed gt_apogee's search as 57 s, while the archive from the 2026-10-01 clean re-run records 61 s.
 
 ## Closed 2026-10-01
 
