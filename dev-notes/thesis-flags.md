@@ -2,6 +2,16 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Decisions of 2026-10-04 (Chapter 6 Review artifact, 31 items)
+
+- **Applied, uncommitted:** FX1, FX3, MV1, MV2, MV4, DP1–DP7, CA1–CA4, DN1–DN6, OR1, OR2, OR3, CM1.
+  - Ch. 5 gains three statements: why the sea-level engine is the alternative (§5.1.1), what `peg_direct` changes besides the architecture (§5.2.3), and the two checks on the delta-v budget (§5.2.4).
+  - Ch. 6 §6.7.1 keeps one printed sentence; its verification paragraphs moved to Ch. 5.
+  - OR1/OR2: `show_apollo` left `tab:showcase_laws` and `fig:showcase_laws` (now a 2×2 grid), and `peg_baseline` left `tab:segmented_results`. Done in `tables.py` and `sec67_capabilities.py`, re-rendered into the thesis.
+  - OR3: `Thesis_Appendix_A.tex` is reduced to its heading and a comment.
+- **Rejected, no edit:** RC1 and RC2 (T18 stays parked), FX2 (the seed sentence of §6.7.3 stays; see T9), MV3 (post-separation drag stays in the `tab:loss_budget` caption only; see C3).
+- **XR1: option (b), applied.** The inclination diagnostic is unreliable (C11), so Ch. 6 reports neither number. The "Optional" bullet of §6.2.2 is gone; §6.2.4 and Ch. 7's two Future Work items now say the out-of-plane forcing is computed (Section `ssec:pseudo_forces`) rather than reported.
+
 ## Decisions of 2026-10-03 ("still open" page of the Chapter 5 Review artifact)
 
 - **Done, uncommitted:**
@@ -76,6 +86,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
 - **T18. The rotation-credit disclosure is now stated nowhere** (Ch. 5 review O7, user decision 2026-10-03: "drop it").
   - Ch. 5's "Two conventions" paragraph is commented out, and Ch. 3's and Ch. 6's pointers to it are removed. Ch. 6's `\discuss` notes still name the convention.
   - The single-seed limitation survives in Ch. 6 §6.7.
+  - Raised again by the Ch. 6 review (2026-10-04, RC1/RC2); both rejected, so this stays parked. The definition exists (Ch. 2 l.258, Ch. 3 l.449); its consequence does not: insertion 129.2 m/s short of circular while the h_a/h_p columns read 500 km. Also, `tab:loss_budget` Gain = ω r_target cos φ sin ψ = 311.5 m/s, not Eq. `dv_gain` (409 m/s), and the residual (−112 to −138) is mostly that 129.2 m/s credit gap, not the pseudo-force work Ch. 2 l.677 names.
 
 ## Thesis: check when compiling in Overleaf
 
@@ -95,6 +106,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - `tab:stage_params` has three `\multicolumn{2}{c}` rows (C_D, C_L, reference area);
   - the new `tab:numerics` in Ch. 3 §3.3.1;
   - Ch. 5's new `\begin{comment}` block around the reporting conventions.
+- **K7.** The Ch. 6 review (2026-10-04): `fig:showcase_laws` as a 2×2 grid; the longer explanatory paragraph of Ch. 5 §5.2.4; §6.7.1 now one sentence ahead of its notes.
 
 ## Code repository
 
@@ -115,6 +127,12 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - Ch. 4 Eq. `tgo_rocket` documents the code faithfully and calls it "exact". The decision (fix and re-fly, or disclose) sets the thesis wording.
 - **C9.** In `simulation_parameters.py`, the l.304 comment calls `"rocket_equation"` the "current default", but l.310 sets `TGO_ESTIMATOR = "peg_new"`. The matrix overrides it to `"rocket_equation"`. Separately, `apollo_guidance.estimate_apollo_time_to_go` (the truncated form) is called only by its tests.
 - **C10.** The `simulation_parameters.py` l.203 comment still gives γ_p ∈ [1.54, 1.57] rad for the instantaneous kick. The bounds are [1.50, 1.57] (l.689, l.760, l.808).
+- **C11. The achieved-inclination diagnostic uses the launch heading far from the launch site** (found 2026-10-04 while preparing XR1).
+  - `rocket_ascent.py` l.2731 passes `heading_stop = LAUNCH_AZIMUTH` to `earth_rotation.achieved_inclination_from_local_state` at the stop latitude. Latitude follows the great circle (`get_latitude_from_downrange`); the heading does not.
+  - gt_baseline, evaluated the same way at insertion (latitude 48.4°, 3 896 km downrange): 61.09°, a "drift" of +9.49°. With the great-circle heading at that latitude: 51.35° (−0.25°). At the launch latitude: 49.83° (−1.77°).
+  - It is computed only on the legacy `run()` path and is not archived; the swarm architectures never compute it. The pmp archives carry no latitude row.
+  - Blocks XR1 (Ch. 6 reporting the inclination gap and the lateral load, so that Ch. 7's Future Work stays true). Peak lateral load under thrust for gt_baseline: 21.5 kN (0.71 m/s², t = 820 s).
+- **C12.** `_style.case_label("show_exp_shooting")` prints "Polynomial shooting" in the figure legends, while Ch. 4 and `tab:showcase_laws` call it the exponential pitch law (seen in `results_showcase_laws.png`, 2026-10-04).
 
 ## Closed 2026-10-01
 
