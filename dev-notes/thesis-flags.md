@@ -2,6 +2,39 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Outline review, round 2 applied 2026-10-04 (thesis pushed as `9495a8b`; the plot-library edits are not committed)
+
+- **Applied:** W0-01 … W2-13 from the "Round 2" section of the Thesis Outline and Cuts artifact.
+  - Files: `Thesis.tex`, Ch. 1, the rebuilt Ch. 2 (script `rebuild_ch2.py` in that session's scratchpad), Ch. 3, Ch. 4, Ch. 5, Ch. 6 and the nomenclature.
+  - Re-rendered from code: `tables.py` and `sec65_losses.py` now read ΔV; the outputs are `Tables/loss_budget.tex`, `results_loss_budget.png` and `results_loss_accumulation.png`.
+  - Sweep clean. Estimate: Ch. 2 25.3 → 14.4 pp; Ch. 1–7 97.3 → 86.6 pp, plus about 3 blank pages removed. About 15 pp still to cut once Ch. 6 prose (+8 pp) is written.
+- **Still to decide:** round 1 for Chapters 3–7 (N3-01 … N7-01).
+- **T19. `tab:env_params` has no source for ω_E** (7.2921159e-5 rad/s, from `constants.OMEGA_EARTH`). Name one.
+- **T20. Reporting Δi and the lateral load in Ch. 6** (user, N2-09). Not yet defined how or where. Before reporting:
+  - fix C11;
+  - compute both offline from the 18 archives;
+  - choose the held or the great-circle heading for F⊥.
+  - Ch. 2 l.306 keeps "reported over the ascent in Chapter 6" until the Ch. 6 location is set. Ch. 7's two Future Work items and the §6.2.4 note then go back from "computed" to "reported".
+- **T21. CLOSED 2026-10-04.** Ch. 2's pressure-loss equation changed form (W2-13): ∫ p_a A_e/m dt, against vacuum thrust. `Auxiliary/losses.py` l.14 and l.85 integrate exactly this, so the thesis now matches the archived numbers.
+- **K8.** Check when compiling in Overleaf:
+  - the rebuilt Ch. 2: the Ascent Phases `[H]` figure now opens the chapter;
+  - `tab:env_params` in Ch. 5;
+  - chapters now open on any page.
+- **C13.** `results_loss_accumulation.png`: the vertical "MECO" label overlaps the legend (pre-existing, visible after the re-render).
+
+## Outline and page-cut review of 2026-10-04 (open)
+
+- On the "Thesis Outline and Cuts" artifact (https://claude.ai/artifact/WhBU2mbE9WyBqeaGydw9dB): an outline of every heading with page estimates, and 69 items N0-01 … N7-01. Decisions go to db collection `reviews` and heading tags and notes to `outline`.
+- Estimate, ±15 %: 97.3 pp of content in Ch. 1–7, plus ≈ 3 blank pages, plus ≈ 8 pp of Ch. 6 prose still to come. That puts the cut needed for 80 pp at ≈ 28 pp.
+- Offered: Tier 1 12.0 pp, Tier 2 9.4 pp, Tier 3 7.7 pp. The script is `page_estimate.py` in that session's scratchpad.
+- New findings filed only there:
+  - Ch. 2 l.315 still says the lateral load is reported in Ch. 6 (stale since XR1).
+  - Ch. 2 l.349 and l.397–404 claim A_G and Δi are reported.
+  - `tab:force_params` labels 6378 km the mean Earth radius; it is the equatorial radius.
+  - Ch. 3 §3.5–§3.8 were promoted to `\section` in Overleaf `bb9a883`.
+  - Ch. 5 l.108 still says "demonstration case".
+  - Ch. 7 l.95 cites a vehicle limitation that §6.7.3 does not print.
+
 ## Decisions of 2026-10-04 (Chapter 6 Review artifact, 31 items)
 
 - **Applied, uncommitted:** FX1, FX3, MV1, MV2, MV4, DP1–DP7, CA1–CA4, DN1–DN6, OR1, OR2, OR3, CM1.
