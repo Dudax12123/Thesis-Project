@@ -1009,6 +1009,19 @@ Each is legal to set but does something other than what you'd expect. With `file
       `dev-notes/pmp_swarm_polish.py`.
     - The archive's manifest carries the batch's `PSO_SEED`/budget. The extremal's own
       provenance is in `extremal_source` / `extremal_seed` / `extremal_swarm_budget`.
+    - **2026-10-04: one recipe for every reference**
+      (`dev-notes/pmp-references-750x1500-plan-2026-10-04.md`).
+      - Every reference is to be built the way `pmp_baseline` was: a 750×1500 swarm from seeds
+        1/2/3/4/42, each refined, the best kept.
+      - `pmp_vacuum` is re-searched under `--swarm-extremal`, which swarms a case that otherwise
+        replays its extremal and is refused on any other case.
+      - A new case, `pmp_norot`, is the reference for `gt_norot`: the same three rotation
+        switches, so the two match on every environment key. It swarms until its extremal is
+        stored. With the rotation off its target is a true circular orbit (√(μ/r), no credit),
+        so it carries no coast-to-apoapsis margin.
+      - The stored rotating-Earth extremals are no starting point there: the same kick stages
+        9 km lower and 4° flatter, and Stage 2 crashes.
+      - `gt_sea_level_engine` stays without a reference (user, 2026-10-04).
   - **§6.7.**
     - The five showcase laws and the two reference-tracking cases are kept as defined.
     - The reference-tracking cases now follow the very extremal §6.4 presents.

@@ -5,6 +5,12 @@ production batch (run_results_matrix.build_matrix):
   peg_direct   peg_new ends its own burn; the kick is found by grid + Brent
   pmp_*        polished extremals re-flown from their decision vectors, not swarmed;
                pmp_baseline is the extremal the tracked reference cache holds
+
+and on 2026-10-04 (dev-notes/pmp-references-750x1500-plan-2026-10-04.md):
+
+  pmp_norot        the reference of gt_norot's environment, swarmed until its
+                   refined extremal is stored
+  --swarm-extremal re-swarms a stored extremal's case, to start a new search for it
 """
 
 import contextlib
@@ -13,6 +19,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -30,8 +37,8 @@ def _configure(monkeypatch, case_name, **extra):
         monkeypatch.setattr(sim_params, key, value)
 
 
-def test_the_matrix_has_21_cases():
-    assert len(CASES) == 21
+def test_the_matrix_has_22_cases():
+    assert len(CASES) == 22
 
 
 def test_peg_direct_is_law_terminated_and_grid_searched():
@@ -48,6 +55,45 @@ def test_the_pmp_rows_are_stored_extremals():
         assert len(ext["x"]) == 7 and ext["seed"] == 3
     assert CASES["pmp_baseline"]["extremal"]["swarm_budget"] == [750, 1500]
     assert CASES["pmp_vacuum"]["extremal"]["swarm_budget"] == [250, 1000]
+
+
+def test_pmp_norot_flies_gt_norots_environment(monkeypatch):
+    """The reference differs from the case it serves in the law alone, so
+    sec65_losses matches the two on every environment key; with the rotation off
+    both stages are free of pseudo-forces and the target is the circular speed."""
+    import Simulation.indirect_pso_solver as ips
+    from Auxiliary import constants as c
+    ref = dict(CASES["pmp_norot"]["overrides"])
+    law = dict(CASES["gt_norot"]["overrides"])
+    assert ref.pop("GUIDANCE_MODE") == "indirect_pmp"
+    assert law.pop("GUIDANCE_MODE") == "gravity_turn"
+    assert ref == law and ref["ENABLE_EARTH_ROTATION"] is False
+    _configure(monkeypatch, "pmp_norot")
+    r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    assert ips.terminal_speed_target(r_t) == float(np.sqrt(c.MU_EARTH / r_t))
+    assert ips._stage2_pseudo_forces() is False
+
+
+def test_swarm_extremal_drops_the_stored_point_and_only_there():
+    case = rm._select_case("pmp_vacuum", swarm_extremal=True)
+    assert case["extremal"] is None
+    assert rm._select_case("pmp_vacuum")["extremal"]["x"] == rm.PMP_VACUUM_EXTREMAL
+    with pytest.raises(SystemExit):
+        rm._select_case("pmp_norot", swarm_extremal=True)    # nothing to swarm instead of
+
+
+def test_a_pmp_case_without_its_extremal_is_searched(monkeypatch):
+    """--swarm-extremal reaches the swarm branch of _dispatch: the point flown is the
+    search's (stubbed here), and no extremal provenance is written beside it."""
+    import Simulation.indirect_pso_solver as ips
+    _configure(monkeypatch, "pmp_vacuum")
+    monkeypatch.setattr(ips, "run_pso_optimization",
+                        lambda verbose=True: (list(rm.PMP_VACUUM_EXTREMAL), 0.0))
+    with contextlib.redirect_stdout(io.StringIO()):
+        out = rm._dispatch(sim_params, rm._select_case("pmp_vacuum", swarm_extremal=True))
+    extra = out[7]
+    assert extra["decision_vector"] == rm.PMP_VACUUM_EXTREMAL
+    assert "extremal_source" not in extra
 
 
 def test_pmp_baseline_is_the_extremal_the_reference_cache_holds(monkeypatch):

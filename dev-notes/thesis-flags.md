@@ -83,6 +83,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
 - **T17. Two cases have no reference of their own environment** (Ch. 5 review X6, 2026-10-03).
   - `gt_norot` and `gt_sea_level_engine`. Ch. 5 §5.2.4 quotes the shortfall against "the reference of the same environment" and has no clause for them; Ch. 6 `tab:gt_results` handles them locally.
   - User decision: address it later by adding a reference for those cases, not by rewording.
+  - 2026-10-04: plan in `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`. A new `pmp_norot` reference (750×1500, five seeds, refined) covers `gt_norot`. The user chose not to build one for `gt_sea_level_engine`, so `tab:gt_results` keeps its local treatment of that case.
 - **T18. The rotation-credit disclosure is now stated nowhere** (Ch. 5 review O7, user decision 2026-10-03: "drop it").
   - Ch. 5's "Two conventions" paragraph is commented out, and Ch. 3's and Ch. 6's pointers to it are removed. Ch. 6's `\discuss` notes still name the convention.
   - The single-seed limitation survives in Ch. 6 §6.7.

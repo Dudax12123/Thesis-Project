@@ -89,10 +89,11 @@ Multi-mode batch scripts (older, cover only the four classical laws):
 `Tese/src/all_guidance_plotting/run_all_guidance_methods.py`,
 `Tese/src/guidance_comparison/compare_guidance_methods.py`.
 
-The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 21 cases (classical
+The Chapter 6 results set is produced by `Tese/src/run_results_matrix.py` — 22 cases (classical
 `peg`'s `show_peg` was dropped 2026-09-22, so Chapter 6 flies eight of the nine laws; §6.7's
 `show_ref_track` and `show_ref_track_apollo`, added 2026-09-23, are peg_new and apollo flying the
-PMP reference's plan with no optimiser),
+PMP reference's plan with no optimiser; §6.4's `pmp_norot`, added 2026-10-04, is the PMP of
+`gt_norot`'s non-rotating environment),
 one frozen baseline with one factor changed at a time, each case in its **own subprocess** so no module
 global can leak between them, and each writing its archive into its **own folder**
 (`Output/results_matrix/<case>/<case>.npz` + `.json` + `.manifest.json`), with one
@@ -115,6 +116,13 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
 - `peg_direct` is law-terminated with the grid + Brent kick search.
 - The two §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
   swarmed** (`pmp_baseline` = the tracked reference cache's extremal).
+  - Since 2026-10-04 every reference is being brought to `pmp_baseline`'s recipe (750×1500 from
+    five seeds, each refined, the best kept): `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
+  - `pmp_norot` has no stored extremal yet, so `--case pmp_norot` swarms it.
+  - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` is re-searched); the harness
+    refuses it on any other case.
+  - `dev-notes/pmp_swarm_polish.py --case` takes any `indirect_pmp` case, and refuses a start
+    flown in another environment (drag, rotation, pseudo-forces, engine modes).
 - Both segmented cases fly `SEGMENTED_LAW_TERMINATED_ARCS = True`: peg_new ends arc 1 at the
   reference's coast start and arc 3 at the orbit, on its own t_go, and the swarm picks
   `[Δt_c, γ_p]` (+ the hand-off altitude).

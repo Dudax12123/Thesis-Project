@@ -38,6 +38,12 @@ the ten cases of Chapter 6 sections 6.2 and 6.3):
     python Tese/src/run_results_matrix.py --only gt_,peg_ --budget 50,100 \
         --out Output/results_matrix_r50x100
 
+A new search for a stored Section 6.4 extremal -- its swarm at another budget
+and seed, into its own root, refined afterwards by dev-notes/pmp_swarm_polish.py:
+
+    python Tese/src/run_results_matrix.py --case pmp_vacuum --swarm-extremal \
+        --budget 750,1500 --set PSO_SEED=3 --out Output/pmp_budget_750x1500/pmp_vacuum/seed_3
+
 Note what --budget does NOT reach. COAST_METHOD="apogee_check" runs no PSO at
 all -- its cost is the Ns=1000 brute grid in solver.py, and every grid point is
 a complete ra.run() ascent -- so gt_apogee costs the same at any budget and is
@@ -351,7 +357,7 @@ PMP_VACUUM_SEARCH = dict(n_evaluations=250000, swarm_wall_clock_s=13119.0,
 
 
 def build_matrix():
-    """The 21 production cases, in chapter order.
+    """The 22 production cases, in chapter order.
 
     The design is one frozen baseline with **one factor changed at a time**, but
     the factors are varied *within* each guidance law rather than across all
@@ -447,9 +453,9 @@ def build_matrix():
     # partials -- see pseudo_forces_flown in the collected row and the
     # force_model_note of Plots/results_figures/_data.py.
     #
-    # Both rows are POLISHED extremals, re-flown from their decision vectors
-    # rather than swarmed (decision 2026-09-25, reversing 2026-09-17's "raw swarm
-    # only"): the swarm alone does not find the PMP optimum, and pmp_baseline must
+    # The next two rows are POLISHED extremals, re-flown from their decision
+    # vectors rather than swarmed (decision 2026-09-25, reversing 2026-09-17's "raw
+    # swarm only"): the swarm alone does not find the PMP optimum, and pmp_baseline must
     # be the very extremal that show_ref_track, show_ref_track_apollo and the
     # segmented waypoints follow -- the tracked pmp_reference.npz, whose
     # decision_vector is this one. Each came from a seed-3 swarm refined by
@@ -474,6 +480,19 @@ def build_matrix():
                                  "s3half_start0_20260921_163026 (seed 3, 250x1000 swarm "
                                  "+ half-step polish)",
                           seed=3, swarm_budget=[250, 1000], search=PMP_VACUUM_SEARCH)))
+    # The reference of gt_norot's environment, which had none (thesis flag T17):
+    # the same three switches, so the two match on every key sec65_losses
+    # compares. No stored extremal yet, so --case swarms it. It is being built by
+    # the pmp_baseline recipe -- 750x1500 from five seeds, each refined, the best
+    # kept (dev-notes/pmp-references-750x1500-plan-2026-10-04.md) -- and receives
+    # its extremal once that is done. With the rotation off the target is a true
+    # circular orbit, so unlike the two rows above it carries no coast-to-apoapsis
+    # margin from the unprojected rotation credit.
+    cases.append(dict(name="pmp_norot", section="6.4", factor="reference",
+                      overrides={"GUIDANCE_MODE": "indirect_pmp",
+                                 "ENABLE_EARTH_ROTATION": False,
+                                 "INCLUDE_PSEUDO_FORCES": False,
+                                 "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False}))
 
     # --- Section 6.7: capability showcase ---------------------------------
     for law in SHOWCASE_LAWS:
@@ -750,12 +769,29 @@ def _dispatch(sim_params, case=None):
 # directly.
 
 
-def run_case(name, smoke=False, budget=None, sets=None):
-    """Run one case in this process and write its row and trajectory."""
+def _select_case(name, swarm_extremal=False):
+    """The case dict run_case flies.
+
+    ``swarm_extremal`` runs the swarm of a case that otherwise replays a stored
+    extremal -- how a new search for that extremal starts (another budget or
+    seed, refined offline afterwards). Refused for a case that has none, where
+    the flag would silently change nothing.
+    """
     cases = {c['name']: c for c in build_matrix()}
     if name not in cases:
         raise SystemExit("unknown case %r — known: %s" % (name, ", ".join(sorted(cases))))
     case = cases[name]
+    if swarm_extremal:
+        if not case.get('extremal'):
+            raise SystemExit("--swarm-extremal: %r has no stored extremal; it swarms "
+                             "without the flag" % name)
+        case = dict(case, extremal=None)
+    return case
+
+
+def run_case(name, smoke=False, budget=None, sets=None, swarm_extremal=False):
+    """Run one case in this process and write its row and trajectory."""
+    case = _select_case(name, swarm_extremal)
 
     from Input_File import simulation_parameters as sim_params
     _apply(sim_params, BASELINE)
@@ -879,6 +915,10 @@ def main():
     parser.add_argument("--out", metavar="DIR",
                         help="write into this root instead of Output/results_matrix "
                              "(relative paths resolve against Tese/src)")
+    parser.add_argument("--swarm-extremal", action="store_true",
+                        help="run the swarm of a case that otherwise replays a stored "
+                             "extremal (the Section 6.4 rows), to start a new search for "
+                             "it; pair it with --budget, --set PSO_SEED=N and --out")
     args = parser.parse_args()
 
     if args.smoke and args.budget:
@@ -889,7 +929,8 @@ def main():
         _set_output_dir(args.out)
 
     if args.case:
-        run_case(args.case, smoke=args.smoke, budget=budget, sets=sets)
+        run_case(args.case, smoke=args.smoke, budget=budget, sets=sets,
+                 swarm_extremal=args.swarm_extremal)
         return
 
     cases = build_matrix()
@@ -922,6 +963,10 @@ def main():
             cmd += ["--budget", args.budget]
         for item in args.set:
             cmd += ["--set", item]
+        # Only where there is an extremal to swarm instead of: the child refuses
+        # the flag on any other case.
+        if args.swarm_extremal and case.get('extremal'):
+            cmd.append("--swarm-extremal")
         # The child re-imports this module, so OUTPUT_DIR is back at its default
         # unless --out is forwarded. Passing the resolved path rather than the
         # user's string keeps parent and child writing to the same place however

@@ -20,6 +20,8 @@ Starting points (--start, repeatable):
                   solver printed it (rounded: re-flown it misses the insertion by ~100 m)
   refined JSON    any JSON holding ``u = [a, b, coast s, burn %, coast start %, gamma_p]``,
                   the SLSQP refinement format
+An archive start must share --case's environment (ENVIRONMENT_KEYS: drag, rotation,
+pseudo-forces, engine modes) or it is refused.
 The 2026-09-13 refinement points B and C (pseudo-force-free Stage 1, inertial Stage 2) are
 stale and are polished only with --old-refine-starts.
 
@@ -78,6 +80,13 @@ UNITS = np.array([1.0, 0.01, 1e-4, 0.01, 0.01])
 S = np.array([1e-3, 1e-3, 1.0, 1.0, 1.0])   # scale of u = [a, b, D1, Dc, D3]
 
 POLISH_OUT = SRC / "Output" / "pmp_polish"
+
+# The settings that define a reference's environment. A start flown under any other value of
+# one of them is a different problem: its extremal family does not exist under --case's
+# configuration (a rotating start crashes on a non-rotating Earth), and the archive written
+# from it would record a configuration it was never searched under.
+ENVIRONMENT_KEYS = ("INCLUDE_DRAG", "ENABLE_EARTH_ROTATION", "INCLUDE_PSEUDO_FORCES",
+                    "THRUST_1_MODE", "ISP_1_MODE")
 
 
 def x_from(u, gp):
@@ -378,9 +387,10 @@ def load_start(path, case):
         if man.exists():
             cfg = json.loads(man.read_text(encoding="utf-8")).get("config", {})
             seed = cfg.get("PSO_SEED")
-            if cfg.get("INCLUDE_DRAG") is not None and bool(cfg["INCLUDE_DRAG"]) != bool(sp.INCLUDE_DRAG):
-                raise SystemExit(f"{path} was flown with INCLUDE_DRAG={cfg['INCLUDE_DRAG']}, "
-                                 f"--case {case} has {sp.INCLUDE_DRAG}")
+            for key in ENVIRONMENT_KEYS:
+                if cfg.get(key) is not None and cfg[key] != getattr(sp, key):
+                    raise SystemExit(f"{path} was flown with {key}={cfg[key]!r}, "
+                                     f"--case {case} has {getattr(sp, key)!r}")
         u, gp = u_from_x(x)
         return u, gp, seed, f"archive {path}"
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -419,7 +429,9 @@ def write_archive(u, gp, root, name, label, seed):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--case", default="pmp_baseline", choices=["pmp_baseline", "pmp_vacuum"],
+    pmp_cases = [cs["name"] for cs in rrm.build_matrix()
+                 if cs["overrides"].get("GUIDANCE_MODE") == "indirect_pmp"]
+    ap.add_argument("--case", default="pmp_baseline", choices=pmp_cases,
                     help="results-matrix case whose configuration is applied")
     ap.add_argument("--start", action="append", default=[],
                     help="starting point: archive .npz, x JSON or refined-u JSON (repeatable)")
