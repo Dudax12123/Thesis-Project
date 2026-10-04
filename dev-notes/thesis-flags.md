@@ -2,6 +2,29 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Outline review, round 4 applied 2026-10-04 (thesis pushed as `3b42c1f`)
+
+- **Applied:** all 10 round-4 items, W5-01 … W7-01, approved on the Thesis Outline and Cuts artifact with no comments. They carry out the round-1 decisions on Ch. 5–7:
+  - 12 approved; N6-07, N6-10 and N6-11 rejected; N6-01 is information only.
+  - Chat answers: N5-04 goes to §5.2.1, with a pointer in §6.2.4; N6-05 moves to the appendix; N7-01 drops the §6.7.3 clause; the N6-02 card carries the waypoint and the tangent fit.
+  - Files: Ch. 5, Ch. 6, Ch. 7, `Thesis.tex` (re-enables `Thesis_Appendix_A.tex`), and `Thesis_Appendix_A.tex` ("Supplementary Results", Appendix B: `fig:accuracy_vs_propellant`, `tab:full_results`, `fig:solve_cost`).
+  - Figures: `results_reference_card`, `results_peg_waypoint` and the new `results_gt_axes` rendered into `Figures/`. Five orphaned PNGs removed with `git rm` (staged): `results_reference_trajectory`, `results_peg_vs_reference`, `results_gt_{architecture,rotation,engine}`.
+  - Script: `apply_round4.py` in that session's scratchpad.
+  - Sweep clean.
+- **Estimate:** Ch. 5 9.3 → 9.1 pp, Ch. 6 17.8 → 14.2 pp, Ch. 1–7 78.5 → 74.7 pp. Appendix B adds 2.5 pp, so the appendices hold 6.7 pp. With ≈ 8 pp of Ch. 6 prose to come, ≈ 2.7 pp remain to cut.
+- **Plot library, uncommitted (code repo):**
+  - `run_card.draw(waypoint=, pitch_fits=)` and `_panels.waypoint_figure(extra=)`.
+  - `sec62.secondary_axes` → `results_gt_axes.png`, using `_style.TALL_6`.
+  - `sec63.reference_trajectory` and `sec63.peg_vs_reference` are removed.
+  - 276 tests pass.
+- **T24. The 100-page total is tight.** The appendices hold 6.7 pp (A 4.2, B 2.5), so the total is ≈ 80 + 11–13 (bibliography) + 6.7 ≈ 98–100 pp. Any further float sent to an appendix has to come out of the 80, not be added on top. Calibrate against the Overleaf PDF before moving more.
+  - The reference card's faint drag-free line is today's 250×1000 `pmp_vacuum`. Redraw it after the D3 gate (T23).
+- **K10.** Check when compiling in Overleaf:
+  - Appendix B: its heading, TOC entry, and the numbering of its floats (B.1, B.2);
+  - the sideways `tab:full_results` inside the appendix;
+  - `fig:gt_axes` (6.3 × 7.8 in at text width) with its caption, on one page;
+  - the reference card's panel (b) legend, which now names the waypoint.
+
 ## Outline review, round 3 applied 2026-10-04 (thesis pushed as `3cf2451`)
 
 - **Applied:** all 18 round-3 items, W3-01 … W4-10, approved on the Thesis Outline and Cuts artifact with no comments. They carry out the round-1 decisions on Ch. 3–4 and four answers given in the chat:
@@ -17,7 +40,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - With ≈ 8 pp of Ch. 6 prose to come, ≈ 6.5 pp remain to cut.
   - The 100-page total now holds ≈ 80 + 11–13 (bibliography) + 4.2 (appendix), leaving ≈ 3–5 pp for any Ch. 6 floats moved to an appendix.
 - **No edit, by decision:** N3-01 (the promoted sections were intended), N3-02, N3-09, N3-14. N3-10 and N3-11 were verified: the flown forms are already described.
-- **Still to decide:** round 1 for Chapters 5–7 (N5-01 … N7-01).
+- **Still to decide:** round 1 for Chapters 5–7 (N5-01 … N7-01). Decided 2026-10-04; see round 4 above.
 - **T22. `pmp_norot` in Ch. 6.** Ch. 5 now lists it (`tab:case_matrix`, nineteen cases) and names the non-rotating reference in §5.2.4, but Ch. 6 has no row, figure or prose for it.
   - Once the 750×1500 runs are adopted, add it to `Plots/results_figures` (tables and the reference figures).
   - Give `gt_norot` its shortfall against it in `tab:gt_results`.

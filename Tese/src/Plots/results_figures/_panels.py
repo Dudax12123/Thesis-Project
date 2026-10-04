@@ -181,15 +181,17 @@ def mark_instant(ax, t, text, colour=st.INK):
                 color=colour, rotation=90, ha="right", va="bottom")
 
 
-def waypoint_figure(cases, orbit_name, waypoint_name, law, filename):
+def waypoint_figure(cases, orbit_name, waypoint_name, law, filename, extra=()):
     """One law with its first burn aimed at the orbit and at the waypoint.
 
     The pso_coast flight aims its first burn at the final orbit across a coast
     it is never told about; the reference-tracking flight aims the same law at
     the reference's coast-start state. The reference is drawn with both, and
-    the waypoint is marked in both panels.
+    the waypoint is marked in both panels. *extra* holds further
+    ``(case_name, colour, linestyle, label)`` entries, drawn after the
+    orbit-aimed flight.
     """
-    names = ("pmp_baseline", orbit_name, waypoint_name)
+    names = ("pmp_baseline", orbit_name, waypoint_name) + tuple(e[0] for e in extra)
     missing = _data.missing_from(cases, *names)
     if missing:
         print("  [skip] %s -- missing %s" % (filename, ", ".join(missing)))
@@ -199,8 +201,11 @@ def waypoint_figure(cases, orbit_name, waypoint_name, law, filename):
     entries = [
         (ref, st.REFERENCE, "-", "Reference (indirect PMP)"),
         (cases[orbit_name], st.BASELINE, "-", "%s, first burn to the orbit" % law),
-        (cases[waypoint_name], st.VARIANT, "--", "%s, first burn to the waypoint" % law),
     ]
+    entries += [(cases[name], colour, style, label)
+                for name, colour, style, label in extra]
+    entries.append(
+        (cases[waypoint_name], st.VARIANT, "--", "%s, first burn to the waypoint" % law))
     wp = waypoint(ref)
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)

@@ -15,10 +15,12 @@ much less than the plot count suggests.
 import matplotlib.pyplot as plt
 import numpy as np
 
+from . import _panels as pn
 from . import _style as st
 
 
-def draw(case, filename, title=None, background=None, background_label=None):
+def draw(case, filename, title=None, background=None, background_label=None,
+         waypoint=None, pitch_fits=None):
     """Draw the run card for one :class:`~._data.Case` and save it.
 
     Panels absent from the data are handled rather than assumed: a run without
@@ -29,6 +31,12 @@ def draw(case, filename, title=None, background=None, background_label=None):
     every panel -- the reference behind a law's card -- and named once, in
     panel (a)'s legend, as *background_label*. It gets no markers, shading or
     annotations of its own: the card still describes one flight.
+
+    *waypoint*, a :func:`._panels.waypoint` dict, is marked on panel (b), whose
+    legend then names its state. *pitch_fits* are ``(t, theta_deg, rms_deg)``
+    curves drawn dotted over the pitch of panel (c). Both exist for the
+    reference card, which carries the waypoint the later cases aim at and the
+    linear-tangent fit of its steering.
     """
     fig, axes = plt.subplots(2, 2, figsize=st.WIDE_4)
     (ax_a, ax_b), (ax_c, ax_d) = axes
@@ -71,8 +79,11 @@ def draw(case, filename, title=None, background=None, background_label=None):
     ax_bv.set_ylabel("Speed [km/s]", color=st.ACCENT)
     ax_bv.spines["top"].set_visible(False)
     st.add_events(ax_b, case)
+    if waypoint is not None:
+        pn.mark_waypoint(ax_b, waypoint)
     st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend=False)
+    st.tidy(ax_b, legend=waypoint is not None, legend_loc="lower right",
+            legend_kw={"fontsize": 6.3})
 
     # (c) all three angles -- theta is alpha + gamma, so only two are free.
     # Pitch is drawn wide and underneath: a law commanding alpha = 0 puts theta
@@ -87,6 +98,12 @@ def draw(case, filename, title=None, background=None, background_label=None):
               label=r"Pitch $\theta$")
     ax_c.plot(t, gam, color=st.GREEN, label=r"Flight path $\gamma$")
     ax_c.plot(t, al, color=st.ACCENT, label=r"Angle of attack $\alpha$")
+    if pitch_fits:
+        rms = ", ".join("%.2f" % fit[2] for fit in pitch_fits)
+        for i, (t_fit, th_fit, _rms) in enumerate(pitch_fits):
+            ax_c.plot(t_fit, th_fit, color=st.INK, linestyle=":", linewidth=1.1,
+                      label=None if i else
+                      r"Linear-tangent fit (RMS %s$^\circ$)" % rms)
     ax_c.axhline(0.0, color=st.FAINT, linewidth=0.8)
     ax_c.set_xlabel("Time [s]")
     ax_c.set_ylabel("Angle [deg]")

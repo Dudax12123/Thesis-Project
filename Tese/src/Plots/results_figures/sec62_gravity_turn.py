@@ -1,7 +1,9 @@
 """Section 6.2 figures -- the gravity turn along its three secondary axes.
 
-Four figures. The first is the baseline flight as a run card; the other three
-are each the baseline overlaid with the single case that differs from it. The
+Two figures. The first is the baseline flight as a run card; the second has
+one row per secondary axis, each the baseline overlaid with the single case
+that differs from it. The rows were three figures of their own until the
+outline review of 2026-10-04 (N6-03) merged them; each is drawn as it was. The
 atmosphere is not among them: since 2026-09-29 it is varied on powered explicit
 guidance (sec63_peg.peg_atmosphere), and gt_vacuum and gt_direct are archived
 but not reported.
@@ -9,9 +11,7 @@ but not reported.
 Outputs
 -------
 results_gt_baseline_card.png   fig:gt_baseline_card
-results_gt_architecture.png    fig:gt_architecture
-results_gt_rotation.png        fig:gt_rotation
-results_gt_engine.png          fig:gt_engine
+results_gt_axes.png            fig:gt_axes
 """
 
 import matplotlib.pyplot as plt
@@ -109,24 +109,19 @@ def _mass_flow(time, mass, step_factor=10.0):
     return np.concatenate(t_out), np.concatenate(mdot_out), t_steps
 
 
-def architecture(cases):
+def _architecture_row(cases, ax_a, ax_b, tags):
     """The same law under the coast-parameter and the apogee-check architectures.
 
     The direct-insertion architecture is compared on powered explicit guidance
-    instead (sec63_peg.peg_vs_reference); gt_direct is archived, not reported.
+    instead (sec63_peg.peg_waypoint); gt_direct is archived, not reported.
     """
     names = ("gt_baseline", "gt_apogee")
-    missing = _data.missing_from(cases, *names)
-    if missing:
-        return _skip("gt architecture", missing)
-
     colours = (st.BASELINE, st.VARIANT2)
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
 
     _overlay_trajectory(ax_a, [
         (cases[name], colour, st.arch_label(cases[name].architecture), "-")
         for name, colour in zip(names, colours)], to_insertion=True)
-    st.panel_tag(ax_a, "a")
+    st.panel_tag(ax_a, tags[0])
     st.tidy(ax_a)
 
     # (b) the same two in time, with each one's arc structure shaded: a guided
@@ -141,32 +136,25 @@ def architecture(cases):
             ax_b.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel("Altitude [km]")
-    st.panel_tag(ax_b, "b")
+    st.panel_tag(ax_b, tags[1])
     st.tidy(ax_b, legend=False)
 
-    fig.tight_layout()
-    return st.save(fig, "results_gt_architecture.png")
 
+def _rotation_row(cases, ax_a, ax_b, tags):
+    """Baseline against the non-rotating Earth.
 
-def rotation(cases):
-    """F6.4 -- baseline against the non-rotating Earth.
-
-    Panel (b) is deliberately a null result for one of the two cases: the
+    The second panel is deliberately a null result for one of the two cases: the
     pseudo-force channels are recomputed under the same gate the equations of
     motion use, so the non-rotating run is identically zero rather than small.
     That is the evidence the switch did what it claims.
     """
-    missing = _data.missing_from(cases, "gt_baseline", "gt_norot")
-    if missing:
-        return _skip("F6.4 rotation", missing)
     base, norot = cases["gt_baseline"], cases["gt_norot"]
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
     _overlay_trajectory(ax_a, [
         (base, st.BASELINE, "Rotating Earth", "-"),
         (norot, st.VARIANT, "Non-rotating", "-"),
     ])
-    st.panel_tag(ax_a, "a")
+    st.panel_tag(ax_a, tags[0])
     # The legend is pinned rather than left on loc="best". Matplotlib scores the
     # artists in the axes and knows nothing about an inset_axes child, so "best"
     # picked the same lower-right corner as the latitude inset and drew the
@@ -194,27 +182,21 @@ def rotation(cases):
                   label="Centrifugal (%s)" % tag)
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel(r"Pseudo-force accel. [m/s$^2$]")
-    st.panel_tag(ax_b, "b")
+    st.panel_tag(ax_b, tags[1])
     st.tidy(ax_b)
 
-    fig.tight_layout()
-    return st.save(fig, "results_gt_rotation.png")
 
-
-def engine(cases):
-    """F6.5 -- the pressure-dependent nozzle against a constant sea-level one.
+def _engine_row(cases, ax_a, ax_b, tags):
+    """The pressure-dependent nozzle against a constant sea-level one.
 
     This is the one figure in which thrust and mass flow earn separate curves.
     Everywhere else mass flow is the thrust trace rescaled by a constant, since
     Isp is fixed per stage; under the pressure model Isp varies with altitude,
     so the two curves genuinely differ, and that difference is the case.
+    Returns the end-of-trace labels of the inset, for st.dodge_labels once the
+    whole figure is laid out.
     """
-    missing = _data.missing_from(cases, "gt_baseline", "gt_sea_level_engine")
-    if missing:
-        return _skip("F6.5 engine model", missing)
     base, sl = cases["gt_baseline"], cases["gt_sea_level_engine"]
-
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
 
     ax_mdot = ax_a.twinx()
     ax_mdot.set_ylabel("Mass flow [kg/s]  (dotted)")
@@ -257,7 +239,7 @@ def engine(cases):
 
     ax_a.set_xlabel("Time [s]")
     ax_a.set_ylabel("Stage-1 thrust [kN]  (solid)")
-    st.panel_tag(ax_a, "a")
+    st.panel_tag(ax_a, tags[0])
     st.tidy(ax_a, legend_loc="center left")
 
     # The two nozzle models are compared on what reaches orbit, and that
@@ -302,14 +284,33 @@ def engine(cases):
 
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel("Total mass [t]")
-    st.panel_tag(ax_b, "b")
+    st.panel_tag(ax_b, tags[1])
     # No legend here: it would repeat panel (a)'s in the same two colours, and
     # the only corner with room for it is the one the inset occupies.
     st.tidy(ax_b, legend=False)
+    return end_labels
+
+
+def secondary_axes(cases):
+    """The gravity turn along its three secondary axes, one row each.
+
+    Rows: the architecture (a, b), the rotation of the Earth (c, d) and the
+    Stage-1 engine model (e, f), each the baseline against the one case that
+    differs from it.
+    """
+    names = ("gt_baseline", "gt_apogee", "gt_norot", "gt_sea_level_engine")
+    missing = _data.missing_from(cases, *names)
+    if missing:
+        return _skip("gt secondary axes", missing)
+
+    fig, axes = plt.subplots(3, 2, figsize=st.TALL_6)
+    _architecture_row(cases, *axes[0], tags="ab")
+    _rotation_row(cases, *axes[1], tags="cd")
+    end_labels = _engine_row(cases, *axes[2], tags="ef")
 
     fig.tight_layout()
     st.dodge_labels(fig, end_labels)
-    return st.save(fig, "results_gt_engine.png")
+    return st.save(fig, "results_gt_axes.png")
 
 
-FIGURES = [baseline_card, architecture, rotation, engine]
+FIGURES = [baseline_card, secondary_axes]

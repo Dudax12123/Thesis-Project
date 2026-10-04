@@ -57,6 +57,7 @@ WIDE_1 = (6.3, 3.4)      # one panel, full width
 WIDE_2 = (6.3, 2.9)      # two panels side by side
 WIDE_4 = (6.3, 5.0)      # 2x2 card
 TALL_1 = (6.3, 4.2)      # one panel, ranking bars
+TALL_6 = (6.3, 7.8)      # 3x2, one comparison per row; with its caption, inside the text block
 
 # Tese/src, three levels up from Plots/results_figures/_style.py.
 _SRC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
