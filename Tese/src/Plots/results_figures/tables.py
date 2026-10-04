@@ -65,15 +65,14 @@ SWARM_POINT_KG = {
     "pmp_vacuum": 21853.81760379891,
 }
 
-# The thesis's names for the five laws of Section 6.5, which differ from the
-# figure legends' in one place: Chapter 4 calls exp_shooting the exponential
-# pitch law.
+# The thesis's names for the four open-loop laws of Section 6.5.1, which differ
+# from the figure legends' in one place: Chapter 4 calls exp_shooting the
+# exponential pitch law. show_apollo is tabulated once, in apollo_waypoint.
 SHOWCASE = [
     ("show_cpr", "Constant pitch rate"),
     ("show_linear_tangent", "Linear tangent"),
     ("show_bilinear_tangent", "Bilinear tangent"),
     ("show_exp_shooting", "Exponential pitch"),
-    ("show_apollo", "Apollo"),
 ]
 
 ARCH_SHORT = {
@@ -351,7 +350,8 @@ def showcase_laws(cases):
 
 
 def segmented_results(cases):
-    names = ["show_seg_fixed_alt", "show_seg_opt_alt", "show_ref_track", "peg_baseline"]
+    # peg_baseline is left out: tab:peg_results and tab:peg_waypoint carry it.
+    names = ["show_seg_fixed_alt", "show_seg_opt_alt", "show_ref_track"]
     if _missing(cases, names, "segmented_results"):
         return None
     rows = []

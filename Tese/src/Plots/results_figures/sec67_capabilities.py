@@ -16,11 +16,11 @@ from . import _data
 from . import _panels as pn
 from . import _style as st
 
-# The remaining laws at the baseline, in the chapter's order: the open-loop
-# laws, then Apollo. peg_new and apollo flying the reference's plan have their
-# own figures (sec63_peg.peg_waypoint, apollo_waypoint below).
+# The open-loop laws at the baseline, in the chapter's order. show_apollo is
+# drawn once, in apollo_waypoint below, beside the Apollo law flying the
+# reference's plan; peg_new's pair is sec63_peg.peg_waypoint.
 SHOWCASE = ["show_cpr", "show_linear_tangent", "show_bilinear_tangent",
-            "show_exp_shooting", "show_apollo"]
+            "show_exp_shooting"]
 
 # One representative case per architecture: the convergence curve in panel (a)
 # of the cost figure, and the row order and colour of panel (b), which draws
@@ -50,15 +50,16 @@ def _skip(name, missing):
 
 
 def showcase_laws(cases):
-    """The remaining laws at the baseline, with the reference faint for scale.
+    """The open-loop laws at the baseline, with the reference faint for scale.
 
     Panel (a) is altitude against time up to insertion. Each law's coasts are a
     strip in its colour along the foot of the panel rather than a span shaded
-    over the curves: five overlapping translucent spans mix into colours no law
-    has. Panel (b) is small multiples rather than an overlay because alpha is
-    what distinguishes these laws from one another, and five alpha traces on
-    shared axes would be a solid block. Each small panel keeps the same limits,
-    and carries the reference's alpha faint behind the law's.
+    over the curves: overlapping translucent spans mix into colours no law has.
+    Panel (b) is small multiples rather than an overlay because alpha is what
+    distinguishes these laws from one another, and their alpha traces on shared
+    axes would be a solid block. Each small panel keeps the same limits, and
+    carries the reference's alpha faint behind the law's. Up to four laws sit
+    on a two-column grid, more on three.
     """
     present = [n for n in SHOWCASE if n in cases]
     if not present:
@@ -71,10 +72,11 @@ def showcase_laws(cases):
 
     # Wider than the standard text-width figure: the trajectory legend sits
     # outside the axes, and the grid keeps its own width regardless.
-    n_rows = -(-len(SHOWCASE) // 3)
+    n_cols = 2 if len(SHOWCASE) <= 4 else 3
+    n_rows = -(-len(SHOWCASE) // n_cols)
     fig_h = 5.6 + 1.62 * (n_rows - 2)
     fig = plt.figure(figsize=(7.4, fig_h))
-    grid = fig.add_gridspec(1 + n_rows, 3, height_ratios=[1.45] + [1.0] * n_rows,
+    grid = fig.add_gridspec(1 + n_rows, n_cols, height_ratios=[1.45] + [1.0] * n_rows,
                             hspace=0.62, wspace=0.35, right=0.80)
     ax_traj = fig.add_subplot(grid[0, :])
 
@@ -101,7 +103,7 @@ def showcase_laws(cases):
     ax_traj.set_ylabel("Altitude [km]")
     st.panel_tag(ax_traj, "a")
     st.tidy(ax_traj, legend=False)
-    # Outside the axes: six entries over a trajectory panel cover the curves
+    # Outside the axes: five entries over a trajectory panel cover the curves
     # they are labelling whichever corner they are put in.
     ax_traj.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=1,
                    fontsize=6.8)
@@ -122,7 +124,7 @@ def showcase_laws(cases):
 
     first_small = None
     for i, name in enumerate(SHOWCASE):
-        ax = fig.add_subplot(grid[1 + i // 3, i % 3])
+        ax = fig.add_subplot(grid[1 + i // n_cols, i % n_cols])
         if first_small is None:
             first_small = ax
         if name not in cases:
@@ -148,16 +150,16 @@ def showcase_laws(cases):
                         fontsize=6, color=st.GREY, ha="right")
         ax.set_title(st.case_label(name), fontsize=7.5, pad=3)
         ax.tick_params(labelsize=6.5)
-        if i % 3 == 0:
+        if i % n_cols == 0:
             ax.set_ylabel(r"$\alpha$ [deg]", fontsize=7.5)
         # Label time on every panel with nothing beneath it, including the
         # panel above an empty last slot.
-        if i + 3 >= len(SHOWCASE):
+        if i + n_cols >= len(SHOWCASE):
             ax.set_xlabel("Time [s]", fontsize=7.5)
         st.tidy(ax, legend=False)
     # The unused slots of the last row stay empty.
-    for j in range(len(SHOWCASE), 3 * n_rows):
-        fig.add_subplot(grid[1 + j // 3, j % 3]).axis("off")
+    for j in range(len(SHOWCASE), n_cols * n_rows):
+        fig.add_subplot(grid[1 + j // n_cols, j % n_cols]).axis("off")
 
     # 0.43 in above the first small panel: where the tag sat in the fixed
     # 5.6 in layout this replaced.
