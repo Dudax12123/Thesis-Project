@@ -405,7 +405,7 @@ def loss_budget(cases):
                      num(r["dv_gain"]), num(r["residual"])])
     return tabular(
         "l r r r r r r r",
-        bold("Case", r"$\Delta v_{ideal}$", "Gravity", "Drag", "Steering", "Pressure",
+        bold("Case", r"$\Delta V_{\mathrm{ideal}}$", "Gravity", "Drag", "Steering", "Pressure",
              "Gain", "Residual"),
         ["", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]"], rows)
 

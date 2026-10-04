@@ -102,7 +102,7 @@ def loss_budget(cases):
     ax.set_yticklabels([label for _n, label in present])
     ax.invert_yaxis()
     ax.axvline(0.0, color=st.INK, linewidth=0.8)
-    ax.set_xlabel(r"$\Delta v$ [m/s]   (losses right of zero, gain left)")
+    ax.set_xlabel(r"$\Delta V$ [m/s]   (losses right of zero, gain left)")
     # Below the axes in one row, not inside them: the bars span the full width
     # at every row, so there is no interior corner a legend can occupy without
     # covering a segment or one of the total labels.
@@ -145,7 +145,7 @@ def loss_accumulation(cases):
         st.add_events(ax, case, coast=False, seco=False)
 
     ax.set_xlabel("Time [s]")
-    ax.set_ylabel(r"Cumulative $\Delta v$ loss [m/s]")
+    ax.set_ylabel(r"Cumulative $\Delta V$ loss [m/s]")
     st.tidy(ax, legend_loc="upper left")
     fig.tight_layout()
     return st.save(fig, "results_loss_accumulation.png")
