@@ -2,7 +2,7 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
-## Outline review, round 2 applied 2026-10-04 (thesis pushed as `9495a8b`; the plot-library edits are not committed)
+## Outline review, round 2 applied 2026-10-04 (thesis pushed as `9495a8b`; plot-library change `bed33f5`)
 
 - **Applied:** W0-01 … W2-13 from the "Round 2" section of the Thesis Outline and Cuts artifact.
   - Files: `Thesis.tex`, Ch. 1, the rebuilt Ch. 2 (script `rebuild_ch2.py` in that session's scratchpad), Ch. 3, Ch. 4, Ch. 5, Ch. 6 and the nomenclature.
