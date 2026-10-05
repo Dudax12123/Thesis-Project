@@ -56,13 +56,12 @@ DASH = "---"
 
 # Propellant left at the swarm point each stored extremal was refined from. The
 # re-flown extremals' archives do not carry it; the swarm archives do
-# (Output/pmp_budget_750x1500/{pmp_baseline,pmp_norot}/seed_3/ and
-# Output/pmp_seeds/pmp_vacuum/seed_3/, untracked), and
-# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum,norot_b750half_s3}.log
-# print it as the refinement's "start 0".
+# (Output/pmp_budget_750x1500/{pmp_baseline,pmp_vacuum,pmp_norot}/seed_3/,
+# untracked), and Output/pmp_refine/pmp_swarm_polish_{b750half,vacuum_b750half_s3,
+# norot_b750half_s3}.log print it as the refinement's "start 0".
 SWARM_POINT_KG = {
     "pmp_baseline": 20432.367052514797,
-    "pmp_vacuum": 21853.81760379891,
+    "pmp_vacuum": 21977.460563307217,
     "pmp_norot": 17638.87219156476,
 }
 

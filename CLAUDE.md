@@ -116,11 +116,15 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
 - `peg_direct` is law-terminated with the grid + Brent kick search.
 - The three §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
   swarmed** (`pmp_baseline` = the tracked reference cache's extremal).
-  - Since 2026-10-04 every reference is being brought to `pmp_baseline`'s recipe (750×1500 from
-    five seeds, each refined, the best kept): `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
+  - Since 2026-10-05 every reference follows `pmp_baseline`'s recipe: a 750×1500 swarm from five
+    seeds, each refined, seed 3's half-step extremal kept (user decision, to match the baseline).
+    See `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
   - `pmp_norot` stores its seed-3 half-step extremal since 2026-10-05 (19 384.5 kg). Its
     γ_p continuation was stopped by the 2000 s coast bound with the propellant still rising.
-  - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` is re-searched); the harness
+  - `pmp_vacuum` stores its 750×1500 seed-3 half-step extremal since 2026-10-05 (23 928.9 kg).
+    It is 23.2 kg below the 250×1000 one it replaced: they are the same family, whose end is
+    where the last burn vanishes, and the old one's last converged step landed nearer that end.
+  - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` was re-searched); the harness
     refuses it on any other case.
   - `dev-notes/pmp_swarm_polish.py --case` takes any `indirect_pmp` case, and refuses a start
     flown in another environment (drag, rotation, pseudo-forces, engine modes).

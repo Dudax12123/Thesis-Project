@@ -1002,9 +1002,8 @@ Each is legal to set but does something other than what you'd expect. With `file
     - `pmp_baseline` is the tracked `pmp_reference.npz` extremal: seed 3, 750×1500 swarm plus the
       half-step polish, 22 261.2 kg. `show_ref_track`, `show_ref_track_apollo` and the segmented
       waypoints follow this same extremal.
-    - `pmp_vacuum` is the best polished vacuum: seed 3, 250×1000 plus the same polish,
-      23 952.1 kg. No 750×1500 vacuum swarm exists, so the two rows started from different
-      budgets.
+    - `pmp_vacuum` was the best polished vacuum: seed 3, 250×1000 plus the same polish,
+      23 952.1 kg. Replaced on 2026-10-05 by a 750×1500 one (below).
     - This reverses the 2026-09-17 "raw swarm only" decision, so Chapter 5/6 must describe
       `dev-notes/pmp_swarm_polish.py`.
     - The archive's manifest carries the batch's `PSO_SEED`/budget. The extremal's own
@@ -1027,6 +1026,17 @@ Each is legal to set but does something other than what you'd expect. With `file
       - The stored rotating-Earth extremals are no starting point there: the same kick stages
         9 km lower and 4° flatter, and Stage 2 crashes.
       - `gt_sea_level_engine` stays without a reference (user, 2026-10-04).
+      - **2026-10-05: `pmp_vacuum` rebuilt at 750×1500.**
+        - Seeds 1/2/3/4/42 swarmed at 21 977–22 758 kg. Refined, every γ_p continuation
+          ended where the last burn vanishes, as for the rotating baseline.
+        - First passes: 23 520–23 941 kg. Seeds 1 and 4 reach that end ~400 kg lower, at
+          γ_p ≈ 1.5135.
+        - Seed 3's half-step extremal is kept (user decision): 23 928.9 kg, γ_p 1.5091949,
+          coast 1 413.0 s, final burn 0.069 s, residual −111.4 m/s.
+        - That is 23.2 kg below the 250×1000 extremal it replaces (γ_p 1.5088990, final burn
+          0.040 s). Both lie on one family; the old run's last converged step landed nearer
+          its end, and the new run's next step read 23 951.9 kg without converging.
+        - All three references now come from 750×1500 seed-3 swarms.
   - **§6.7.**
     - The five showcase laws and the two reference-tracking cases are kept as defined.
     - The reference-tracking cases now follow the very extremal §6.4 presents.
@@ -1108,7 +1118,8 @@ Each is legal to set but does something other than what you'd expect. With `file
   `search_n_evaluations` / `search_wall_clock_s` / `search_refine_wall_clock_s` /
   `search_tail_improvement_frac` / `search_note`: the seed-3 swarm (750×1500: 1 125 000
   evaluations, 44 350 s; 250×1000: 250 000, 13 119 s) plus the refinement (1 057 s / 1 512 s,
-  from `Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum}.log`). The refinement's
+  from `Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum}.log`). Since 2026-10-05
+  `pmp_vacuum`'s are 1 125 000 / 77 859 s / 1 875 s (`pmp_swarm_polish_vacuum_b750half_s3.log`). The refinement's
   trajectory count is not recorded: its Jacobian flights are not in `least_squares`' nfev.
   The apogee check now records its 1000 grid flights (`solver.BRUTE_GRID_POINTS`). The two
   rows were re-flown, bit-identical.

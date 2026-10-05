@@ -334,9 +334,9 @@ def _parse_budget(text):
 PMP_BASELINE_EXTREMAL = [-8.164825684552658e-06, -0.00595717532331387, -0.9999822558403237,
                          1446.8331219788931, 75.9779861533329, 99.99030152462818,
                          1.5371391567133106]
-PMP_VACUUM_EXTREMAL = [-7.271789438061455e-06, -0.0053205593975460975, -0.999985845697237,
-                       1432.2234132163621, 74.15337334433919, 99.98408704190528,
-                       1.5088990082793967]
+PMP_VACUUM_EXTREMAL = [-8.069189947507993e-06, -0.005900376853838753, -0.9999825925924265,
+                       1413.0005385089771, 74.1783676289156, 99.97252603239527,
+                       1.5091948773513164]
 PMP_NOROT_EXTREMAL = [-1.0914176923388558e-05, -0.008577678362397203, -0.9999632109806801,
                       1942.8147739745943, 79.08219237111366, 98.80827067929603,
                       1.5398904676413143]
@@ -344,7 +344,7 @@ PMP_NOROT_EXTREMAL = [-1.0914176923388558e-05, -0.008577678362397203, -0.9999632
 # What the three extremals cost to find, offline: the seed-3 swarm each was
 # refined from (its archived row) plus the refinement
 # (dev-notes/pmp_swarm_polish.py, "polish wall time" in
-# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum,norot_b750half_s3}.log).
+# Output/pmp_refine/pmp_swarm_polish_{b750half,vacuum_b750half_s3,norot_b750half_s3}.log).
 # The matrix re-flies each in about a second, so without these the archive would
 # present that second as the cost of the most expensive search in the chapter. The
 # refinement's trajectory count is not recorded: its Jacobian flights are not
@@ -353,10 +353,10 @@ PMP_BASELINE_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=44349.9,
                            refine_wall_clock_s=1057.0,
                            tail_improvement_frac=4.119707563891331e-08,
                            note="750x1500 swarm (seed 3) + refinement, offline")
-PMP_VACUUM_SEARCH = dict(n_evaluations=250000, swarm_wall_clock_s=13119.0,
-                         refine_wall_clock_s=1512.0,
-                         tail_improvement_frac=6.447103698404185e-09,
-                         note="250x1000 swarm (seed 3) + refinement, offline")
+PMP_VACUUM_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=77859.4,
+                         refine_wall_clock_s=1875.0,
+                         tail_improvement_frac=6.667251009839871e-06,
+                         note="750x1500 swarm (seed 3) + refinement, offline")
 PMP_NOROT_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=49926.5,
                         refine_wall_clock_s=666.0,
                         tail_improvement_frac=1.0373927015367263e-09,
@@ -467,9 +467,8 @@ def build_matrix():
     # segmented waypoints follow -- the tracked pmp_reference.npz, whose
     # decision_vector is this one. Each came from a seed-3 swarm refined by
     # dev-notes/pmp_swarm_polish.py (Levenberg-Marquardt on the orbit and
-    # duration-stationarity conditions, half-step). The two started from
-    # different swarm budgets, which Chapter 6 states: no 750x1500 vacuum swarm
-    # exists.
+    # duration-stationarity conditions, half-step), and since 2026-10-05 all three
+    # from a 750x1500 swarm (dev-notes/pmp-references-750x1500-plan-2026-10-04.md).
     cases.append(dict(name="pmp_baseline", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp"},
                       extremal=dict(
@@ -478,15 +477,20 @@ def build_matrix():
                                  "b750half_start0_20260921_162253 (seed 3, 750x1500 swarm "
                                  "+ half-step polish; = pmp_reference.npz)",
                           seed=3, swarm_budget=[750, 1500], search=PMP_BASELINE_SEARCH)))
+    # Rebuilt at 750x1500 on 2026-10-05 (seed 3's half-step extremal, user
+    # decision). It replaced the 250x1000 seed-3 extremal of 2026-09-21, which
+    # left 23.2 kg more: both lie on one family ended where the last burn
+    # vanishes, and that one's last converged step landed nearer the end
+    # (final burn 0.040 s against 0.069 s here).
     cases.append(dict(name="pmp_vacuum", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp",
                                  "INCLUDE_DRAG": False},
                       extremal=dict(
                           x=PMP_VACUUM_EXTREMAL,
-                          source="Output/pmp_polish/pmp_vacuum/"
-                                 "s3half_start0_20260921_163026 (seed 3, 250x1000 swarm "
-                                 "+ half-step polish)",
-                          seed=3, swarm_budget=[250, 1000], search=PMP_VACUUM_SEARCH)))
+                          source="Output/pmp_polish_750x1500/pmp_vacuum/"
+                                 "b750half_s3_start0_20261005_153341 (seed 3, 750x1500 "
+                                 "swarm + half-step polish)",
+                          seed=3, swarm_budget=[750, 1500], search=PMP_VACUUM_SEARCH)))
     # The reference of gt_norot's environment, which had none (thesis flag T17):
     # the same three switches, so the two match on every key sec65_losses
     # compares. Built by the pmp_baseline recipe -- 750x1500 from five seeds, each

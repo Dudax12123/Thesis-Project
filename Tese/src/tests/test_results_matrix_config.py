@@ -53,9 +53,7 @@ def test_the_pmp_rows_are_stored_extremals():
     for name in ("pmp_baseline", "pmp_vacuum", "pmp_norot"):
         ext = CASES[name]["extremal"]
         assert len(ext["x"]) == 7 and ext["seed"] == 3
-    assert CASES["pmp_baseline"]["extremal"]["swarm_budget"] == [750, 1500]
-    assert CASES["pmp_norot"]["extremal"]["swarm_budget"] == [750, 1500]
-    assert CASES["pmp_vacuum"]["extremal"]["swarm_budget"] == [250, 1000]
+        assert ext["swarm_budget"] == [750, 1500]    # one recipe for every reference
 
 
 def test_pmp_norot_flies_gt_norots_environment(monkeypatch):
