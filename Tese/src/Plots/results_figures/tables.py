@@ -56,13 +56,14 @@ DASH = "---"
 
 # Propellant left at the swarm point each stored extremal was refined from. The
 # re-flown extremals' archives do not carry it; the swarm archives do
-# (Output/pmp_budget_750x1500/pmp_baseline/seed_3/ and
+# (Output/pmp_budget_750x1500/{pmp_baseline,pmp_norot}/seed_3/ and
 # Output/pmp_seeds/pmp_vacuum/seed_3/, untracked), and
-# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum}.log print it as
-# the refinement's "start 0".
+# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum,norot_b750half_s3}.log
+# print it as the refinement's "start 0".
 SWARM_POINT_KG = {
     "pmp_baseline": 20432.367052514797,
     "pmp_vacuum": 21853.81760379891,
+    "pmp_norot": 17638.87219156476,
 }
 
 # The thesis's names for the four open-loop laws of Section 6.5.1, which differ
@@ -248,7 +249,7 @@ def _missing(cases, names, table):
 
 # --- the tables --------------------------------------------------------------
 def reference_results(cases):
-    names = ["pmp_baseline", "pmp_vacuum"]
+    names = ["pmp_baseline", "pmp_vacuum", "pmp_norot"]
     if _missing(cases, names, "reference_results"):
         return None
     rows = []
@@ -428,7 +429,7 @@ def _pct_range(values):
 def architecture_cost(cases):
     """One row per architecture, over every reported case it flew. Where its
     cases share one budget the wall clock is a range; where each ran its own
-    (the two extremals) the values are listed per case."""
+    (the extremals) the values are listed per case."""
     rows = []
     for arch, label in COST_ROWS:
         members = [cases[n] for n in _data.REPORTED_CASES

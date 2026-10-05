@@ -104,6 +104,7 @@ NOZZLE_LABELS = {
 CASE_LABELS = {
     "pmp_baseline": "Reference (indirect PMP)",
     "pmp_vacuum": "Reference, no atmosphere",
+    "pmp_norot": "Reference, non-rotating Earth",
     "gt_baseline": "Gravity turn",
     "gt_apogee": "Gravity turn, apogee check",
     "gt_norot": "Gravity turn, non-rotating Earth",

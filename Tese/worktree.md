@@ -996,7 +996,7 @@ Each is legal to set but does something other than what you'd expect. With `file
     `DIRECT_OPTIMIZER = "grid_brent"`: peg_new ends its own burn, and the kick is the only
     variable (~520 flights). It differs from `gt_direct` in the cutoff rule as well as the law.
   - **§6.4.**
-    - The two PMP rows are **polished extremals re-flown from stored decision vectors**
+    - The three PMP rows are **polished extremals re-flown from stored decision vectors**
       (`build_matrix` `extremal=`, `run_results_matrix.PMP_*_EXTREMAL`), not swarmed. Each takes
       ~1–2 s.
     - `pmp_baseline` is the tracked `pmp_reference.npz` extremal: seed 3, 750×1500 swarm plus the
@@ -1016,9 +1016,14 @@ Each is legal to set but does something other than what you'd expect. With `file
       - `pmp_vacuum` is re-searched under `--swarm-extremal`, which swarms a case that otherwise
         replays its extremal and is refused on any other case.
       - A new case, `pmp_norot`, is the reference for `gt_norot`: the same three rotation
-        switches, so the two match on every environment key. It swarms until its extremal is
-        stored. With the rotation off its target is a true circular orbit (√(μ/r), no credit),
-        so it carries no coast-to-apoapsis margin.
+        switches, so the two match on every environment key. With the rotation off its target
+        is a true circular orbit (√(μ/r), no credit), so it carries no coast-to-apoapsis margin.
+      - **2026-10-05: `pmp_norot` stored.** Seed 3's half-step extremal, chosen by the user
+        to match `pmp_baseline` (seed 2's first pass left 5.6 kg more): 19 384.5 kg, coast
+        1 942.8 s, a real 3.2 s final burn, residual −1.6 m/s. Every seed's γ_p continuation
+        was stopped by the 2000 s coast bound, not at an interior optimum, with the
+        propellant still rising; this is the last converged point. `gt_norot` now has a
+        shortfall (1 788 kg) in `tab:gt_results`.
       - The stored rotating-Earth extremals are no starting point there: the same kick stages
         9 km lower and 4° flatter, and Stage 2 crashes.
       - `gt_sea_level_engine` stays without a reference (user, 2026-10-04).

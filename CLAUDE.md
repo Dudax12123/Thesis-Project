@@ -114,11 +114,12 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
 - The refresh fix is on.
 - The six §6.2 archives are kept.
 - `peg_direct` is law-terminated with the grid + Brent kick search.
-- The two §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
+- The three §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
   swarmed** (`pmp_baseline` = the tracked reference cache's extremal).
   - Since 2026-10-04 every reference is being brought to `pmp_baseline`'s recipe (750×1500 from
     five seeds, each refined, the best kept): `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
-  - `pmp_norot` has no stored extremal yet, so `--case pmp_norot` swarms it.
+  - `pmp_norot` stores its seed-3 half-step extremal since 2026-10-05 (19 384.5 kg). Its
+    γ_p continuation was stopped by the 2000 s coast bound with the propellant still rising.
   - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` is re-searched); the harness
     refuses it on any other case.
   - `dev-notes/pmp_swarm_polish.py --case` takes any `indirect_pmp` case, and refuses a start

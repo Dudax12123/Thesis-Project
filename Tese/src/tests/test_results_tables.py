@@ -116,6 +116,26 @@ class TestArcs:
         assert first == pytest.approx(32.0, abs=0.1) and coast is None and final is None
 
 
+def test_each_case_is_short_of_the_reference_of_its_own_environment():
+    def flown(architecture, prop, drag=True, rotation=True, nozzle="pressure"):
+        case = _case(architecture)
+        case.row.update(include_drag=drag, earth_rotation=rotation,
+                        thrust_1_mode=nozzle, prop_remaining_kg=prop)
+        return case
+
+    cases = {"pmp_baseline": flown("indirect_pmp", 22000.0),
+             "pmp_vacuum": flown("indirect_pmp", 24000.0, drag=False),
+             "pmp_norot": flown("indirect_pmp", 19000.0, rotation=False)}
+    assert tables.shortfall(flown("pso_coast", 20000.0), cases) == 2000.0
+    assert tables.shortfall(flown("pso_coast", 23000.0, drag=False), cases) == 1000.0
+    assert tables.shortfall(flown("pso_coast", 17500.0, rotation=False), cases) == 1500.0
+    # No reference was flown in these environments: no shortfall, never a wrong one.
+    assert tables.shortfall(flown("pso_coast", 20000.0, nozzle="sea_level"), cases) is None
+    assert tables.shortfall(flown("pso_coast", 20000.0, drag=False, rotation=False),
+                            cases) is None
+    assert tables.shortfall(cases["pmp_norot"], cases) is None
+
+
 def test_waypoint_miss_is_achieved_minus_target():
     case = _case("reference_track",
                  arc1_target=[6542696.96, 7590.51395, 0.0490845592],

@@ -36,11 +36,11 @@ from Plots import plot_state_utils as psu
 
 DEFAULT_ROOT = _SRC / "Output" / "results_matrix"
 
-# The eighteen cases Chapter 6 reports, in chapter order. The matrix flies three
+# The nineteen cases Chapter 6 reports, in chapter order. The matrix flies three
 # more -- gt_direct, gt_vacuum and peg_vacuum_norot -- which stay archived but
 # are not reported (decision 2026-09-29), so no figure draws them.
 REPORTED_CASES = [
-    "pmp_baseline", "pmp_vacuum",
+    "pmp_baseline", "pmp_vacuum", "pmp_norot",
     "gt_baseline", "gt_apogee", "gt_norot", "gt_sea_level_engine",
     "peg_baseline", "peg_direct", "peg_vacuum",
     "show_ref_track",

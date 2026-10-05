@@ -328,7 +328,7 @@ def _parse_budget(text):
         raise SystemExit("--budget wants two integers, got %r" % text)
 
 
-# Section 6.4's two rows: polished PMP extremals, full float64 (see build_matrix).
+# Section 6.4's three rows: polished PMP extremals, full float64 (see build_matrix).
 # The baseline one is the tracked pmp_reference.npz's decision_vector (a test
 # keeps the two equal).
 PMP_BASELINE_EXTREMAL = [-8.164825684552658e-06, -0.00595717532331387, -0.9999822558403237,
@@ -337,13 +337,16 @@ PMP_BASELINE_EXTREMAL = [-8.164825684552658e-06, -0.00595717532331387, -0.999982
 PMP_VACUUM_EXTREMAL = [-7.271789438061455e-06, -0.0053205593975460975, -0.999985845697237,
                        1432.2234132163621, 74.15337334433919, 99.98408704190528,
                        1.5088990082793967]
+PMP_NOROT_EXTREMAL = [-1.0914176923388558e-05, -0.008577678362397203, -0.9999632109806801,
+                      1942.8147739745943, 79.08219237111366, 98.80827067929603,
+                      1.5398904676413143]
 
-# What the two extremals cost to find, offline: the seed-3 swarm each was
+# What the three extremals cost to find, offline: the seed-3 swarm each was
 # refined from (its archived row) plus the refinement
 # (dev-notes/pmp_swarm_polish.py, "polish wall time" in
-# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum}.log). The matrix
-# re-flies each in about a second, so without these the archive would present
-# that second as the cost of the most expensive search in the chapter. The
+# Output/pmp_refine/pmp_swarm_polish_{b750half,s3half_vacuum,norot_b750half_s3}.log).
+# The matrix re-flies each in about a second, so without these the archive would
+# present that second as the cost of the most expensive search in the chapter. The
 # refinement's trajectory count is not recorded: its Jacobian flights are not
 # in least_squares' nfev.
 PMP_BASELINE_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=44349.9,
@@ -354,6 +357,10 @@ PMP_VACUUM_SEARCH = dict(n_evaluations=250000, swarm_wall_clock_s=13119.0,
                          refine_wall_clock_s=1512.0,
                          tail_improvement_frac=6.447103698404185e-09,
                          note="250x1000 swarm (seed 3) + refinement, offline")
+PMP_NOROT_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=49926.5,
+                        refine_wall_clock_s=666.0,
+                        tail_improvement_frac=1.0373927015367263e-09,
+                        note="750x1500 swarm (seed 3) + refinement, offline")
 
 
 def build_matrix():
@@ -453,7 +460,7 @@ def build_matrix():
     # partials -- see pseudo_forces_flown in the collected row and the
     # force_model_note of Plots/results_figures/_data.py.
     #
-    # The next two rows are POLISHED extremals, re-flown from their decision
+    # The next three rows are POLISHED extremals, re-flown from their decision
     # vectors rather than swarmed (decision 2026-09-25, reversing 2026-09-17's "raw
     # swarm only"): the swarm alone does not find the PMP optimum, and pmp_baseline must
     # be the very extremal that show_ref_track, show_ref_track_apollo and the
@@ -482,17 +489,26 @@ def build_matrix():
                           seed=3, swarm_budget=[250, 1000], search=PMP_VACUUM_SEARCH)))
     # The reference of gt_norot's environment, which had none (thesis flag T17):
     # the same three switches, so the two match on every key sec65_losses
-    # compares. No stored extremal yet, so --case swarms it. It is being built by
-    # the pmp_baseline recipe -- 750x1500 from five seeds, each refined, the best
-    # kept (dev-notes/pmp-references-750x1500-plan-2026-10-04.md) -- and receives
-    # its extremal once that is done. With the rotation off the target is a true
-    # circular orbit, so unlike the two rows above it carries no coast-to-apoapsis
-    # margin from the unprojected rotation credit.
+    # compares. Built by the pmp_baseline recipe -- 750x1500 from five seeds, each
+    # refined (dev-notes/pmp-references-750x1500-plan-2026-10-04.md). Seed 3's
+    # half-step extremal is kept, as for pmp_baseline (user decision 2026-10-05);
+    # seed 2's first pass left 5.6 kg more. With the rotation off the target is a
+    # true circular orbit, so unlike the two rows above it carries no
+    # coast-to-apoapsis margin from the unprojected rotation credit: its final
+    # burn is a real 3.2 s circularisation. Its gamma_p continuation was stopped
+    # by the 2000 s coast bound with the propellant still rising; this is the
+    # last converged point, 57 s short of it.
     cases.append(dict(name="pmp_norot", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp",
                                  "ENABLE_EARTH_ROTATION": False,
                                  "INCLUDE_PSEUDO_FORCES": False,
-                                 "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False}))
+                                 "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False},
+                      extremal=dict(
+                          x=PMP_NOROT_EXTREMAL,
+                          source="Output/pmp_polish_750x1500/pmp_norot/"
+                                 "b750half_s3_start0_20261005_120633 (seed 3, 750x1500 "
+                                 "swarm + half-step polish)",
+                          seed=3, swarm_budget=[750, 1500], search=PMP_NOROT_SEARCH)))
 
     # --- Section 6.7: capability showcase ---------------------------------
     for law in SHOWCASE_LAWS:

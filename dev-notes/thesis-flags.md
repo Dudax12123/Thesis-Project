@@ -2,6 +2,35 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## `pmp_norot` adoption, 2026-10-05 (code prepared, uncommitted; thesis pending)
+
+- **Result:** seed 3's half-step extremal (user's choice, to match `pmp_baseline`) leaves 19 384.5 kg, on a true 500 km circular orbit.
+  - Coast 1 942.8 s; final burn 3.2 s; residual −1.6 m/s, against −112.5 m/s for `pmp_baseline`.
+  - `gt_norot`'s shortfall is now 1 788 kg, against 1 574 kg for `gt_baseline`.
+  - The rotation is worth 2 877 kg to the reference and 3 091 kg to the gravity turn.
+  - The harness re-flies it from the stored vector in 0.5 s, to the same numbers.
+- **Code (uncommitted, 277 tests pass):**
+  - `PMP_NOROT_EXTREMAL`/`_SEARCH` in `build_matrix`.
+  - `pmp_norot` added to `REPORTED_CASES`, `SWARM_POINT_KG`, `reference_results` and `CASE_LABELS`.
+  - `_reference_for` matches non-rotating cases to `pmp_norot`.
+  - The ranking figure gets a third reference line; its legend is on one row, and its dagger note now names only the sea-level nozzle.
+  - CLAUDE.md and worktree.md updated.
+- **Preview (scratchpad, not in the thesis repo):**
+  - Four tables gain a row: `reference_results`, `loss_budget`, `full_results`, and `architecture_cost`'s indirect cell.
+  - `gt_results` gains the `gt_norot` shortfall.
+  - Four figures gain a bar or point: `law_ranking`, `arc_structure`, `accuracy_vs_propellant`, `solve_cost`.
+  - Estimated +0.1 pp.
+- **Still to do:**
+  - commit;
+  - re-fly into an untracked root, copy in, rebuild the CSV, force-add;
+  - render into `Figures/` and `Tables/`;
+  - apply the agreed thesis wording (the `tab:gt_results` and `tab:architecture_cost` captions, and §6.1 and §6.2.4 notes).
+  - Closes T22, and T17 for `gt_norot`.
+- **T25. The recipe sentence is 5.6 kg off for `pmp_norot`.** Ch. 3 l.711–712 ("the best extremal kept") and Ch. 5 l.592–593 ("the extremal leaving the most propellant was kept") do not hold: seed 2's first pass left 5.6 kg more than the seed-3 extremal kept.
+  - Settle this with T23 at the `pmp_vacuum` gate, which also picks that reference's seed.
+- **T26. Disclose the coast bound in §6.1's prose.** Every `pmp_norot` continuation was stopped by the 2000 s coast bound with the propellant still rising (≈ 60 kg per 0.00025 rad). The extremal kept is the last converged one, 57 s short of the bound.
+  - The pinned-coast solve at 2000 s failed. Its estimate, 19 421.6 kg, puts at most ≈ 40 kg beyond the reference.
+
 ## Outline review, round 4 applied 2026-10-04 (thesis pushed as `3b42c1f`)
 
 - **Applied:** all 10 round-4 items, W5-01 … W7-01, approved on the Thesis Outline and Cuts artifact with no comments. They carry out the round-1 decisions on Ch. 5–7:

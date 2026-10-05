@@ -170,13 +170,19 @@ def _is_reference(case):
 def _reference_for(case, cases):
     """The reference flown in *case*'s environment, and whether it truly matches.
 
-    Drag-free cases are measured against pmp_vacuum and everything else against
-    pmp_baseline. That is an exact match only when the reference also shares
-    the case's Earth rotation and Stage-1 nozzle model. No reference was flown
-    for the non-rotating or the sea-level-nozzle environment, so those two
-    cases get no difference at all (decision 2026-09-30).
+    Drag-free cases are measured against pmp_vacuum, non-rotating ones against
+    pmp_norot and everything else against pmp_baseline. That is an exact match
+    only when the reference also shares the case's remaining settings. No
+    reference was flown for the sea-level-nozzle environment (decision
+    2026-10-04, D1) or for a drag-free non-rotating one, so those cases get no
+    difference at all (decision 2026-09-30).
     """
-    name = "pmp_vacuum" if case.row.get("include_drag") is False else "pmp_baseline"
+    if case.row.get("include_drag") is False:
+        name = "pmp_vacuum"
+    elif case.row.get("earth_rotation") is False:
+        name = "pmp_norot"
+    else:
+        name = "pmp_baseline"
     ref = cases.get(name)
     if ref is None:
         return None, False
@@ -247,7 +253,8 @@ def law_ranking(cases):
                     ha="right", color="white" if ok else st.INK)
 
     for name, style, text in (("pmp_baseline", "--", "Reference"),
-                              ("pmp_vacuum", ":", "Reference, no atmosphere")):
+                              ("pmp_vacuum", ":", "Reference, no atmosphere"),
+                              ("pmp_norot", "-.", "Reference, non-rotating")):
         ref = cases.get(name)
         if ref is not None and ref.row.get("prop_remaining_kg") is not None:
             ref_t = ref.row["prop_remaining_kg"] / 1e3
@@ -259,7 +266,7 @@ def law_ranking(cases):
     ax.set_xlabel("Propellant remaining at insertion [t]")
     ax.set_xlim(0.0, 1.04 * max(r[2] for r in records))
     st.tidy(ax, legend_loc="upper center",
-            legend_kw={"bbox_to_anchor": (0.5, -0.07), "ncol": 2,
+            legend_kw={"bbox_to_anchor": (0.5, -0.07), "ncol": 3,
                        "fontsize": 6.8})
 
     # Under the legend, not inside the axes: the bars start at zero on every
@@ -268,7 +275,7 @@ def law_ranking(cases):
                  " km: apoapsis-periapsis spread at insertion"]
     if unmatched:
         footnotes.append(r"$^\dagger$ no reference was flown for this environment "
-                         r"(non-rotating Earth, sea-level nozzle), so no $\Delta$")
+                         r"(sea-level nozzle), so no $\Delta$")
     if invalid:
         footnotes.append("hatched: target orbit not reached, not ranked")
     for i, text in enumerate(footnotes):

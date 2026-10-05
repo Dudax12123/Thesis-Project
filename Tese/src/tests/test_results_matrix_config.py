@@ -8,8 +8,8 @@ production batch (run_results_matrix.build_matrix):
 
 and on 2026-10-04 (dev-notes/pmp-references-750x1500-plan-2026-10-04.md):
 
-  pmp_norot        the reference of gt_norot's environment, swarmed until its
-                   refined extremal is stored
+  pmp_norot        the reference of gt_norot's environment; since 2026-10-05 its
+                   seed-3 refined extremal, stored like the other two
   --swarm-extremal re-swarms a stored extremal's case, to start a new search for it
 """
 
@@ -50,10 +50,11 @@ def test_peg_direct_is_law_terminated_and_grid_searched():
 
 
 def test_the_pmp_rows_are_stored_extremals():
-    for name in ("pmp_baseline", "pmp_vacuum"):
+    for name in ("pmp_baseline", "pmp_vacuum", "pmp_norot"):
         ext = CASES[name]["extremal"]
         assert len(ext["x"]) == 7 and ext["seed"] == 3
     assert CASES["pmp_baseline"]["extremal"]["swarm_budget"] == [750, 1500]
+    assert CASES["pmp_norot"]["extremal"]["swarm_budget"] == [750, 1500]
     assert CASES["pmp_vacuum"]["extremal"]["swarm_budget"] == [250, 1000]
 
 
@@ -79,7 +80,7 @@ def test_swarm_extremal_drops_the_stored_point_and_only_there():
     assert case["extremal"] is None
     assert rm._select_case("pmp_vacuum")["extremal"]["x"] == rm.PMP_VACUUM_EXTREMAL
     with pytest.raises(SystemExit):
-        rm._select_case("pmp_norot", swarm_extremal=True)    # nothing to swarm instead of
+        rm._select_case("gt_norot", swarm_extremal=True)    # nothing to swarm instead of
 
 
 def test_a_pmp_case_without_its_extremal_is_searched(monkeypatch):
