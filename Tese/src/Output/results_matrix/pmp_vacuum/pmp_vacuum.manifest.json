@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "run_id": "pmp_vacuum",
-  "created_utc": "2026-10-01T01:53:35+00:00",
-  "created_local": "2026-10-01T02:53:35",
+  "created_utc": "2026-10-05T14:40:33+00:00",
+  "created_local": "2026-10-05T15:40:33",
   "wall_clock_s": 0.5,
   "source": "matrix:pmp_vacuum",
   "label": "6.4 / reference",
@@ -10,9 +10,9 @@
   "guidance_mode": "indirect_pmp",
   "n_evaluations": 1,
   "git": {
-    "commit": "d5de5b3f276d584441963a56353d22b232e59e5c",
-    "branch": "main",
-    "describe": "d5de5b3",
+    "commit": "9a52002152721c7eeb9687f37ce72cf7458274bb",
+    "branch": "HEAD",
+    "describe": "9a52002",
     "dirty": false
   },
   "env": {
@@ -149,8 +149,8 @@
       0.0,
       1.5
     ],
-    "PSO_COAST_MAX_GENERATIONS": 1000,
-    "PSO_COAST_N_PARTICLES": 250,
+    "PSO_COAST_MAX_GENERATIONS": 250,
+    "PSO_COAST_N_PARTICLES": 100,
     "PSO_COAST_OMEGA": 0.7298,
     "PSO_COAST_SEED": 42,
     "PSO_COAST_TAN_THETA0_LB_DEG": -20.0,
@@ -175,8 +175,8 @@
       1.5,
       50.0
     ],
-    "PSO_DIRECT_MAX_GENERATIONS": 1000,
-    "PSO_DIRECT_N_PARTICLES": 250,
+    "PSO_DIRECT_MAX_GENERATIONS": 100,
+    "PSO_DIRECT_N_PARTICLES": 50,
     "PSO_DIRECT_OMEGA": 0.7298,
     "PSO_DIRECT_SEED": 42,
     "PSO_DIRECT_UB": [
@@ -206,8 +206,8 @@
       0.0,
       1.5
     ],
-    "PSO_MG_MAX_GENERATIONS": 1000,
-    "PSO_MG_N_PARTICLES": 250,
+    "PSO_MG_MAX_GENERATIONS": 250,
+    "PSO_MG_N_PARTICLES": 100,
     "PSO_MG_OMEGA": 0.7298,
     "PSO_MG_SEED": 42,
     "PSO_MG_UB": [
