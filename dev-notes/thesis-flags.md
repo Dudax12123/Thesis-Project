@@ -2,30 +2,28 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
-## `pmp_norot` adoption, 2026-10-05 (code prepared, uncommitted; thesis pending)
+## `pmp_norot` adopted 2026-10-05 (code `b99acce` + archive `724707a`; thesis `4e30b7e`, not pushed)
 
 - **Result:** seed 3's half-step extremal (user's choice, to match `pmp_baseline`) leaves 19 384.5 kg, on a true 500 km circular orbit.
   - Coast 1 942.8 s; final burn 3.2 s; residual −1.6 m/s, against −112.5 m/s for `pmp_baseline`.
   - `gt_norot`'s shortfall is now 1 788 kg, against 1 574 kg for `gt_baseline`.
   - The rotation is worth 2 877 kg to the reference and 3 091 kg to the gravity turn.
   - The harness re-flies it from the stored vector in 0.5 s, to the same numbers.
-- **Code (uncommitted, 277 tests pass):**
+- **Code (`b99acce`, 277 tests pass):**
   - `PMP_NOROT_EXTREMAL`/`_SEARCH` in `build_matrix`.
   - `pmp_norot` added to `REPORTED_CASES`, `SWARM_POINT_KG`, `reference_results` and `CASE_LABELS`.
   - `_reference_for` matches non-rotating cases to `pmp_norot`.
   - The ranking figure gets a third reference line; its legend is on one row, and its dagger note now names only the sea-level nozzle.
   - CLAUDE.md and worktree.md updated.
-- **Preview (scratchpad, not in the thesis repo):**
+- **Archive (`724707a`):** re-flown at `b99acce`, clean, into `Output/results_matrix_norot_20261005/`, then copied in. The CSV was rebuilt: one row added, the rest unchanged. The `pmp_reference.npz` sha256 is unchanged.
+- **Thesis (`4e30b7e`), rendered byte-identical to the approved preview:**
   - Four tables gain a row: `reference_results`, `loss_budget`, `full_results`, and `architecture_cost`'s indirect cell.
   - `gt_results` gains the `gt_norot` shortfall.
   - Four figures gain a bar or point: `law_ranking`, `arc_structure`, `accuracy_vs_propellant`, `solve_cost`.
   - Estimated +0.1 pp.
-- **Still to do:**
-  - commit;
-  - re-fly into an untracked root, copy in, rebuild the CSV, force-add;
-  - render into `Figures/` and `Tables/`;
-  - apply the agreed thesis wording (the `tab:gt_results` and `tab:architecture_cost` captions, and §6.1 and §6.2.4 notes).
-  - Closes T22, and T17 for `gt_norot`.
+  - Wording E1–E4, approved: the `tab:gt_results` and `tab:architecture_cost` captions, two §6.1 notes, and one §6.2.4 note.
+  - Sweep clean.
+- **Closes T22, and T17 for `gt_norot`.** `gt_sea_level_engine` keeps its local treatment.
 - **T25. The recipe sentence is 5.6 kg off for `pmp_norot`.** Ch. 3 l.711–712 ("the best extremal kept") and Ch. 5 l.592–593 ("the extremal leaving the most propellant was kept") do not hold: seed 2's first pass left 5.6 kg more than the seed-3 extremal kept.
   - Settle this with T23 at the `pmp_vacuum` gate, which also picks that reference's seed.
 - **T26. Disclose the coast bound in §6.1's prose.** Every `pmp_norot` continuation was stopped by the 2000 s coast bound with the propellant still rising (≈ 60 kg per 0.00025 rad). The extremal kept is the last converged one, 57 s short of the bound.
@@ -70,7 +68,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - The 100-page total now holds ≈ 80 + 11–13 (bibliography) + 4.2 (appendix), leaving ≈ 3–5 pp for any Ch. 6 floats moved to an appendix.
 - **No edit, by decision:** N3-01 (the promoted sections were intended), N3-02, N3-09, N3-14. N3-10 and N3-11 were verified: the flown forms are already described.
 - **Still to decide:** round 1 for Chapters 5–7 (N5-01 … N7-01). Decided 2026-10-04; see round 4 above.
-- **T22. `pmp_norot` in Ch. 6.** Ch. 5 now lists it (`tab:case_matrix`, nineteen cases) and names the non-rotating reference in §5.2.4, but Ch. 6 has no row, figure or prose for it.
+- **T22. CLOSED 2026-10-05 (thesis `4e30b7e`).** `pmp_norot` in Ch. 6. Ch. 5 now lists it (`tab:case_matrix`, nineteen cases) and names the non-rotating reference in §5.2.4, but Ch. 6 has no row, figure or prose for it.
   - Once the 750×1500 runs are adopted, add it to `Plots/results_figures` (tables and the reference figures).
   - Give `gt_norot` its shortfall against it in `tab:gt_results`.
   - Then revisit T17.
@@ -197,7 +195,7 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - **Bennett 1970:** the new Apollo paragraph cites `bennett1970lunar` for the vertical-first thrust priority. The attribution comes from the `apollo_guidance` docstring (Luminary P12). Verify it against the paper.
   - **`mahajan2025peg`:** its `booktitle` is "AAS/AIAA Astrodynamics Specialist Conference", inferred from the PDF name (ASC25). The PDF says only "(Preprint) AAS 25-844".
   - **`orbiterwiki_peg`:** a wiki page, last edited 26 Sep 2021, now the source of the classical scalar variant. The page was checked on 2026-10-02 and gives sin(pitch) = A + B·t + C, C = (μ/r² − ω²r)/a₀. Decide whether a wiki source is acceptable; the variant is not flown.
-- **T17. Two cases have no reference of their own environment** (Ch. 5 review X6, 2026-10-03).
+- **T17. Closed for `gt_norot` 2026-10-05 (thesis `4e30b7e`); `gt_sea_level_engine` stays as decided.** Two cases have no reference of their own environment (Ch. 5 review X6, 2026-10-03).
   - `gt_norot` and `gt_sea_level_engine`. Ch. 5 §5.2.4 quotes the shortfall against "the reference of the same environment" and has no clause for them; Ch. 6 `tab:gt_results` handles them locally.
   - User decision: address it later by adding a reference for those cases, not by rewording.
   - 2026-10-04: plan in `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`. A new `pmp_norot` reference (750×1500, five seeds, refined) covers `gt_norot`. The user chose not to build one for `gt_sea_level_engine`, so `tab:gt_results` keeps its local treatment of that case.
