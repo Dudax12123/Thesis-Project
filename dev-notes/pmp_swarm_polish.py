@@ -469,8 +469,12 @@ def main():
     if not (args.swarm or args.start or args.old_refine_starts):
         raise SystemExit("nothing to polish: pass --start, --old-refine-starts, or leave the swarm on")
     archive_root = Path(args.archive_out) if args.archive_out else POLISH_OUT / args.case
-    global V_T
+    global V_T, DC_LB, DC_UB, GP_LB, GP_UB
     V_T = ips.terminal_speed_target(R_T)
+    # Re-read the bounds after the case's overrides: pmp_vacuum carries its own
+    # coast bound (PSO_UB, 2026-10-06), which the module-level values predate.
+    DC_LB, DC_UB = float(sp.PSO_LB[3]), float(sp.PSO_UB[3])
+    GP_LB, GP_UB = float(sp.PSO_LB[6]), float(sp.PSO_UB[6])
 
     t_start = time.time()
     print(f"case {args.case} (INCLUDE_DRAG {sp.INCLUDE_DRAG}) | "

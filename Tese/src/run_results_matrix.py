@@ -331,34 +331,36 @@ def _parse_budget(text):
 # Section 6.4's three rows: polished PMP extremals, full float64 (see build_matrix).
 # The baseline one is the tracked pmp_reference.npz's decision_vector (a test
 # keeps the two equal).
-PMP_BASELINE_EXTREMAL = [-8.164825684552658e-06, -0.00595717532331387, -0.9999822558403237,
-                         1446.8331219788931, 75.9779861533329, 99.99030152462818,
-                         1.5371391567133106]
-PMP_VACUUM_EXTREMAL = [-8.069189947507993e-06, -0.005900376853838753, -0.9999825925924265,
-                       1413.0005385089771, 74.1783676289156, 99.97252603239527,
-                       1.5091948773513164]
-PMP_NOROT_EXTREMAL = [-1.0914176923388558e-05, -0.008577678362397203, -0.9999632109806801,
-                      1942.8147739745943, 79.08219237111366, 98.80827067929603,
-                      1.5398904676413143]
+PMP_BASELINE_EXTREMAL = [-8.872899717256695e-06, -0.0065468515280599675, -0.9999785690985289,
+                         1741.2241903000172, 75.59014899864698, 98.39026111577596,
+                         1.5366391567133137]
+PMP_VACUUM_EXTREMAL = [-8.113784361954927e-06, -0.0064724315369176525, -0.9999790535627066,
+                       2500.0, 73.21423887854357, 98.49945215281618,
+                       1.5039448773513222]
+PMP_NOROT_EXTREMAL = [-1.1535633320292821e-05, -0.009376902100919071, -0.9999560358205348,
+                      2380.4605139671053, 78.89231629929867, 98.90160790709174,
+                      1.5391404676413174]
 
 # What the three extremals cost to find, offline: the seed-3 swarm each was
 # refined from (its archived row) plus the refinement
-# (dev-notes/pmp_swarm_polish.py, "polish wall time" in
-# Output/pmp_refine/pmp_swarm_polish_{b750half,vacuum_b750half_s3,norot_b750half_s3}.log).
+# (dev-notes/pmp_swarm_polish.py, coast bound PSO_UB[3] = 3500 s; first pass and
+# half-step pass, "total wall time" in
+# Output/pmp_polish_launchsite_20261006/logs/<case>_seed_3{,_half}.log, and
+# pmp_vacuum_seed_3_c2500{,_half}.log for the vacuum row).
 # The matrix re-flies each in about a second, so without these the archive would
 # present that second as the cost of the most expensive search in the chapter. The
 # refinement's trajectory count is not recorded: its Jacobian flights are not
 # in least_squares' nfev.
 PMP_BASELINE_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=44349.9,
-                           refine_wall_clock_s=1057.0,
+                           refine_wall_clock_s=2793.0,
                            tail_improvement_frac=4.119707563891331e-08,
                            note="750x1500 swarm (seed 3) + refinement, offline")
 PMP_VACUUM_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=77859.4,
-                         refine_wall_clock_s=1875.0,
+                         refine_wall_clock_s=922.0,
                          tail_improvement_frac=6.667251009839871e-06,
                          note="750x1500 swarm (seed 3) + refinement, offline")
 PMP_NOROT_SEARCH = dict(n_evaluations=1125000, swarm_wall_clock_s=49926.5,
-                        refine_wall_clock_s=666.0,
+                        refine_wall_clock_s=2092.0,
                         tail_improvement_frac=1.0373927015367263e-09,
                         note="750x1500 swarm (seed 3) + refinement, offline")
 
@@ -467,41 +469,39 @@ def build_matrix():
     # segmented waypoints follow -- the tracked pmp_reference.npz, whose
     # decision_vector is this one. Each came from a seed-3 swarm refined by
     # dev-notes/pmp_swarm_polish.py (Levenberg-Marquardt on the orbit and
-    # duration-stationarity conditions, half-step), and since 2026-10-05 all three
-    # from a 750x1500 swarm (dev-notes/pmp-references-750x1500-plan-2026-10-04.md).
+    # duration-stationarity conditions, half-step), all three from a 750x1500 swarm
+    # (dev-notes/pmp-references-750x1500-plan-2026-10-04.md), refined on 2026-10-06
+    # with the PMP coast bound PSO_UB[3] = 3500 s (2500 s for pmp_vacuum, below).
     cases.append(dict(name="pmp_baseline", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp"},
                       extremal=dict(
                           x=PMP_BASELINE_EXTREMAL,
-                          source="Output/pmp_polish_750x1500/pmp_baseline/"
-                                 "b750half_start0_20260921_162253 (seed 3, 750x1500 swarm "
-                                 "+ half-step polish; = pmp_reference.npz)",
+                          source="Output/pmp_polish_launchsite_20261006/pmp_baseline/"
+                                 "seed_3_half/ls3500half_s3_start0_20261006_131915 (seed 3, "
+                                 "750x1500 swarm + half-step polish; = pmp_reference.npz)",
                           seed=3, swarm_budget=[750, 1500], search=PMP_BASELINE_SEARCH)))
-    # Rebuilt at 750x1500 on 2026-10-05 (seed 3's half-step extremal, user
-    # decision). It replaced the 250x1000 seed-3 extremal of 2026-09-21, which
-    # left 23.2 kg more: both lie on one family ended where the last burn
-    # vanishes, and that one's last converged step landed nearer the end
-    # (final burn 0.040 s against 0.069 s here).
+    # Seed 3's half-step extremal (user decision), refined with its own coast bound
+    # of 2500 s (user decision 2026-10-06). Without drag nothing penalises a low
+    # pass, and with 3500 s the family runs on to a coast that grazes the surface
+    # (lowest point 4.3 km) until the trajectory reaches the ground. At 2500 s the
+    # coast is pinned at the bound, where the one-sided coast condition holds.
     cases.append(dict(name="pmp_vacuum", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp",
-                                 "INCLUDE_DRAG": False},
+                                 "INCLUDE_DRAG": False,
+                                 "PSO_UB": [1.0, 1.0, 1.0, 2500.0, 100.0, 100.0, 1.57]},
                       extremal=dict(
                           x=PMP_VACUUM_EXTREMAL,
-                          source="Output/pmp_polish_750x1500/pmp_vacuum/"
-                                 "b750half_s3_start0_20261005_153341 (seed 3, 750x1500 "
-                                 "swarm + half-step polish)",
+                          source="Output/pmp_polish_launchsite_20261006/pmp_vacuum/"
+                                 "seed_3_c2500_half/c2500half_s3_start0_20261006_135036 "
+                                 "(seed 3, 750x1500 swarm + half-step polish, coast <= 2500 s)",
                           seed=3, swarm_budget=[750, 1500], search=PMP_VACUUM_SEARCH)))
     # The reference of gt_norot's environment, which had none (thesis flag T17):
     # the same three switches, so the two match on every key sec65_losses
     # compares. Built by the pmp_baseline recipe -- 750x1500 from five seeds, each
     # refined (dev-notes/pmp-references-750x1500-plan-2026-10-04.md). Seed 3's
-    # half-step extremal is kept, as for pmp_baseline (user decision 2026-10-05);
-    # seed 2's first pass left 5.6 kg more. With the rotation off the target is a
-    # true circular orbit, so unlike the two rows above it carries no
-    # coast-to-apoapsis margin from the unprojected rotation credit: its final
-    # burn is a real 3.2 s circularisation. Its gamma_p continuation was stopped
-    # by the 2000 s coast bound with the propellant still rising; this is the
-    # last converged point, 57 s short of it.
+    # half-step extremal is kept, as for pmp_baseline (user decision). Its gamma_p
+    # continuation ends where the next step no longer converges, at a 2380 s coast
+    # inside the 3500 s bound; its final burn is a 2.9 s circularisation.
     cases.append(dict(name="pmp_norot", section="6.4", factor="reference",
                       overrides={"GUIDANCE_MODE": "indirect_pmp",
                                  "ENABLE_EARTH_ROTATION": False,
@@ -509,9 +509,9 @@ def build_matrix():
                                  "COMPUTE_CROSS_HEADING_COUNTER_FORCE": False},
                       extremal=dict(
                           x=PMP_NOROT_EXTREMAL,
-                          source="Output/pmp_polish_750x1500/pmp_norot/"
-                                 "b750half_s3_start0_20261005_120633 (seed 3, 750x1500 "
-                                 "swarm + half-step polish)",
+                          source="Output/pmp_polish_launchsite_20261006/pmp_norot/"
+                                 "seed_3_half/ls3500half_s3_start0_20261006_130738 (seed 3, "
+                                 "750x1500 swarm + half-step polish)",
                           seed=3, swarm_budget=[750, 1500], search=PMP_NOROT_SEARCH)))
 
     # --- Section 6.7: capability showcase ---------------------------------

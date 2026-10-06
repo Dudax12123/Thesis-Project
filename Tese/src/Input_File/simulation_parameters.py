@@ -591,9 +591,14 @@ PSO_SEED            = 42        # RNG seed for reproducible PSO runs
 # -------------- Decision-variable bounds (Table 6 of paper) ------------------
 # x = [lambda0_r, lambda0_v, lambda0_g, delta_tc, delta_tr_pct, coast_start_pct, gamma_p]
 PSO_LB = [-1.0,  -1.0,  -1.0,   0.0,   0.0,   0.0,  1.50]   # lower bounds
-PSO_UB = [ 1.0,   1.0,   1.0, 2000.0, 100.0, 100.0,  1.57]   # upper bounds
+PSO_UB = [ 1.0,   1.0,   1.0, 3500.0, 100.0, 100.0,  1.57]   # upper bounds
 # lambda0_{r,v,g}   : initial costate values for Stage 2     [−1, 1]
-# delta_tc          : coast phase duration                    [0, 2000] s
+# delta_tc          : coast phase duration                    [0, 3500] s
+#                     3500 s since 2026-10-06, for the PMP references only (user
+#                     decision): the refined extremals coast 1.7-2.4 ks. pmp_vacuum sets
+#                     2500 s in its own case (run_results_matrix), because without drag
+#                     its family runs on to a coast grazing the surface. The law swarms
+#                     keep 2000 s (PSO_COAST_UB, PSO_MG_UB), which none approaches.
 # delta_tr_pct      : Stage-2 burn as % of max propellant time [0, 100] %
 # coast_start_pct   : coast start as % of Stage-2 burn time   [0, 100] %
 # gamma_p           : pitch maneuver angle                    [1.50, 1.57] rad
@@ -864,7 +869,7 @@ PSO_MG_SEED            = 42      # RNG seed for reproducible runs
 # (§8a-bis) the law ends both burns, x = [delta_tc, gamma_p], and only entries 0
 # and 3 are read.
 PSO_MG_LB = [  0.0,    0.0,   0.0,  1.50]   # burn floor = PSO_COAST_LB[1] = PSO_LB[4] (2026-09-16)
-PSO_MG_UB = [2000.0, 100.0, 100.0,  1.57]   # coast bound = PSO_COAST_UB[0] = PSO_UB[3] (2026-09-16)
+PSO_MG_UB = [2000.0, 100.0, 100.0,  1.57]   # coast bound = PSO_COAST_UB[0] (2026-09-16); the PMP's PSO_UB[3] is 3500 s since 2026-10-06
 
 # --- Activation-altitude optimisation (segmented mode only) -----------------
 # When True the segmented PSO also chooses the activation altitudes of every

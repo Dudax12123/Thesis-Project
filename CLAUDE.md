@@ -116,14 +116,22 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
 - `peg_direct` is law-terminated with the grid + Brent kick search.
 - The three §6.4 PMP rows are **polished extremals re-flown from stored decision vectors, not
   swarmed** (`pmp_baseline` = the tracked reference cache's extremal).
-  - Since 2026-10-05 every reference follows `pmp_baseline`'s recipe: a 750×1500 swarm from five
-    seeds, each refined, seed 3's half-step extremal kept (user decision, to match the baseline).
-    See `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
-  - `pmp_norot` stores its seed-3 half-step extremal since 2026-10-05 (19 384.5 kg). Its
-    γ_p continuation was stopped by the 2000 s coast bound with the propellant still rising.
-  - `pmp_vacuum` stores its 750×1500 seed-3 half-step extremal since 2026-10-05 (23 928.9 kg).
-    It is 23.2 kg below the 250×1000 one it replaced: they are the same family, whose end is
-    where the last burn vanishes, and the old one's last converged step landed nearer that end.
+  - Every reference follows one recipe: a 750×1500 swarm from five seeds, each refined, seed 3's
+    half-step extremal kept (user decision). See
+    `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
+  - The refinement runs with the PMP coast bound `PSO_UB[3]` = 3500 s (2026-10-06).
+    `pmp_vacuum` overrides it to 2500 s in its own case: without drag the family runs on to a
+    coast that grazes the surface, 4.3 km at 3500 s. The law swarms keep 2000 s
+    (`PSO_COAST_UB`, `PSO_MG_UB`), which none of them approaches (0–820 s).
+  - The stored extremals (2026-10-06, `Output/pmp_polish_launchsite_20261006/`):
+
+    | Reference | Propellant left | Coast | Final burn | Lowest point after MECO |
+    |---|---|---|---|---|
+    | `pmp_baseline` | 22 620.6 kg | 1 741 s | 4.1 s | 59 km |
+    | `pmp_vacuum` | 24 822.4 kg | 2 500 s (at its bound) | 3.7 s | 57 km |
+    | `pmp_norot` | 19 560.5 kg | 2 380 s | 2.9 s | 60 km |
+
+  - All three are circular at 500 km. The half-step pass changed none of them (0 kg).
   - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` was re-searched); the harness
     refuses it on any other case.
   - `dev-notes/pmp_swarm_polish.py --case` takes any `indirect_pmp` case, and refuses a start

@@ -442,7 +442,7 @@ atmospheric arc.
 | `PSO_OMEGA` (L265) | float | `0.7298` | Inertia weight. |
 | `PSO_VMAX` (L266) | float | `0.5` | Max normalized particle velocity. |
 | `PSO_SEED` (L267) | int | `42` | RNG seed. |
-| `PSO_LB` / `PSO_UB` (L271–272) | list[7] floats | `[-1,-1,-1,0,0,0,1.50]` / `[1,1,1,2000,100,100,1.57]` | Bounds for `[λ0_r, λ0_v, λ0_γ, Δt_c, Δt_r%, coast_start%, γ_p]`. |
+| `PSO_LB` / `PSO_UB` (L271–272) | list[7] floats | `[-1,-1,-1,0,0,0,1.50]` / `[1,1,1,3500,100,100,1.57]` | Bounds for `[λ0_r, λ0_v, λ0_γ, Δt_c, Δt_r%, coast_start%, γ_p]`. The PMP coast bound is 3500 s since 2026-10-06 (the refined references coast 1.7–2.4 ks); `pmp_vacuum` overrides it to 2500 s in its case, because without drag its family runs on to a coast grazing the surface. The law swarms keep 2000 s in `PSO_COAST_UB` / `PSO_MG_UB`. Part of the PMP reference cache key. |
 | `PENALTY_W_J` (L286) | float | `1.0` | Burn-time term weight. |
 | `PENALTY_W_ALTITUDE` (L287) | float | `100.0` | Altitude-error penalty. |
 | `PENALTY_W_VELOCITY` (L288) | float | `100.0` | Velocity-error penalty. |
