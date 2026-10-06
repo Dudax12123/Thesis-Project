@@ -174,12 +174,31 @@ def reset_stage1_ramp_state():
     _thrust1_last_update_time = 0.0
     _thrust1_current = r.F_THRUST_1_SL
 
-# Earth rotation launch geometry (set in run())
-LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Active azimuth in rotating frame [rad]
+# Earth rotation launch geometry (set in run() and run_stage1()). The ascent is
+# planar: the latitude stays LAUNCH_LATITUDE_RAD for the whole flight, and the
+# azimuth enters no equation of motion (earth_rot.planar_pseudoforce_rates) -- it
+# is reported, and read by the achieved-inclination diagnostic only.
+LAUNCH_AZIMUTH = np.deg2rad(90.0)   # Launch azimuth (reporting/diagnostic) [rad]
 LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)  # Geometric azimuth in inertial frame [rad]
-LAUNCH_LATITUDE_RAD = 0.0           # Current launch-site latitude [rad]
+LAUNCH_LATITUDE_RAD = 0.0           # Launch-site latitude, held for the whole ascent [rad]
 LAUNCH_ROTATION_SPEED = 0.0         # Surface rotation speed at launch latitude [m/s]
 AZIMUTH_MODE_USED = "corrected"     # Active azimuth mode used during current run
+
+# The one rotation model the code implements. EARTH_ROTATION_MODEL in
+# simulation_parameters is a LABEL, recorded in every manifest and in the PMP
+# reference cache key so that runs flown under an earlier model are refused
+# rather than reused; it is not a switch, and any other value raises.
+_EARTH_ROTATION_MODEL = "launch_site"
+
+
+def _check_earth_rotation_model():
+    model = getattr(sim_params, "EARTH_ROTATION_MODEL", None)
+    if model != _EARTH_ROTATION_MODEL:
+        raise ValueError(
+            "EARTH_ROTATION_MODEL = %r: this code implements only %r (latitude held "
+            "at launch, rotation credited as the launch-site speed, never resolved on "
+            "the azimuth). Earlier models are reproducible from the git commit their "
+            "manifests record." % (model, _EARTH_ROTATION_MODEL))
 
 # Final inclination metrics from the latest run
 LAST_ACHIEVED_INCLINATION_DEG = np.nan
@@ -441,8 +460,7 @@ def interrupt_velocity_exceeded(t, y):
     v_desired = np.sqrt(c.MU_EARTH / r_desired)
 
     if sim_params.ENABLE_EARTH_ROTATION:
-        lat = get_latitude_from_downrange(y[0])
-        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, lat, r_val)
+        v_inertial, _ = earth_rot.ecef_to_eci_velocity(v, gamma, LAUNCH_LATITUDE_RAD, r_val)
         return v_inertial - v_desired
 
     return v - v_desired
@@ -669,12 +687,12 @@ def set_pseudo_forces_for_run(enabled):
     ``indirect_pmp``'s costate ODEs are -(dH/dx)^T of the drag-free, rotation-
     free EOM. Since 2026-09-16 its Stage-2 STATE equations carry the terms like
     every other architecture while the costate equations stay as published: the
-    omitted partials are 0.01-0.4 % of the retained ones along the arc and the
-    dH/ds that would make lambda_s a fourth costate integrates to ~1.7e-6 over a
-    2000 s coast (tests/test_pmp_stage1_pseudo_forces.py measures both). The
-    inertial form flown between 2026-09-13 and 2026-09-16 was the published
-    formulation to the letter but credited the full, unprojected rotation speed
-    at hand-off -- 121 m/s, ~944 kg, more than the terms credit off the equator.
+    omitted partials are at most 0.3 % of the retained ones along the arc, and
+    dH/ds, which would make lambda_s a fourth costate, is identically zero since the
+    latitude is held at launch (tests/test_pmp_stage1_pseudo_forces.py measures
+    both). The inertial form flown between 2026-09-13 and 2026-09-16 is the
+    published formulation to the letter; since 2026-10-05 the terms credit the same
+    launch-site speed it does, and the two are exact counterparts.
     indirect_pso_solver._stage1_pseudo_forces() refuses any pairing that would
     integrate one force model before staging and another after it.
 
@@ -706,62 +724,16 @@ def _pseudo_forces_active():
 def append_latitude_row(data):
     """Append a latitude row to a [5, N] trajectory array, for plotting only.
 
-    Latitude is not integrated (see rocket_dynamics), but the plot suite reads
-    ``data[5]`` (Plots/plot_state_utils.py). Every architecture therefore
-    synthesises the row here from downrange at output-assembly time; the PSO
-    solvers already do the same thing inline. Returns the array unchanged when a
+    The ascent is planar and the latitude is held at its launch value for the
+    whole flight (see rocket_dynamics), so the row is LAUNCH_LATITUDE_RAD
+    throughout. It is kept because the plot suite and the archive read
+    ``data[5]`` (Plots/plot_state_utils.py). Returns the array unchanged when a
     sixth row is already present or Earth rotation is disabled.
     """
     data = np.asarray(data, dtype=float)
     if data.ndim != 2 or data.shape[0] != 5 or not sim_params.ENABLE_EARTH_ROTATION:
         return data
-    lat_row = np.array([get_latitude_from_downrange(s) for s in data[0]])
-    return np.vstack([data, lat_row])
-
-
-def get_latitude_from_downrange(s):
-    """
-    Compute geocentric latitude from downrange along the launch great-circle.
-
-    This keeps latitude physically bounded in [-pi/2, pi/2] and avoids drift
-    that can appear when integrating latitude with a fixed-heading assumption.
-    """
-    if not sim_params.ENABLE_EARTH_ROTATION:
-        return LAUNCH_LATITUDE_RAD
-
-    sigma = s / c.R_EARTH
-    sin_phi0 = np.sin(LAUNCH_LATITUDE_RAD)
-    cos_phi0 = np.cos(LAUNCH_LATITUDE_RAD)
-
-    # Great-circle relation from launch site with initial inertial azimuth.
-    sin_lat = (sin_phi0 * np.cos(sigma) +
-               cos_phi0 * np.sin(sigma) * np.cos(LAUNCH_AZIMUTH_INERTIAL))
-    sin_lat = np.clip(sin_lat, -1.0, 1.0)
-    return np.arcsin(sin_lat)
-
-
-def get_latitude_rate_from_downrange(s, dsdt):
-    """
-    Compute d(latitude)/dt from great-circle geometry and ds/dt.
-    """
-    if not sim_params.ENABLE_EARTH_ROTATION:
-        return 0.0
-
-    sigma = s / c.R_EARTH
-    sin_phi0 = np.sin(LAUNCH_LATITUDE_RAD)
-    cos_phi0 = np.cos(LAUNCH_LATITUDE_RAD)
-    cos_beta0 = np.cos(LAUNCH_AZIMUTH_INERTIAL)
-
-    u = sin_phi0 * np.cos(sigma) + cos_phi0 * np.sin(sigma) * cos_beta0
-    u = np.clip(u, -1.0, 1.0)
-    du_dsigma = -sin_phi0 * np.sin(sigma) + cos_phi0 * np.cos(sigma) * cos_beta0
-
-    cos_lat = np.sqrt(max(1.0 - u**2, 0.0))
-    cos_lat = max(cos_lat, 1e-10)
-    dlat_dsigma = du_dsigma / cos_lat
-    dsigma_dt = dsdt / c.R_EARTH
-
-    return dlat_dsigma * dsigma_dt
+    return np.vstack([data, np.full(data.shape[1], LAUNCH_LATITUDE_RAD)])
 
 
 def cross_heading_channels_on_grid(time, data):
@@ -773,8 +745,7 @@ def cross_heading_channels_on_grid(time, data):
     crashes (x/y first-dimension mismatch). The counter-force is a pure function of
     state (``m*|a_cross|``), so recompute it on the ``(time, data)`` grid instead:
     length ``len(time)`` by construction, mirroring the EOM's own convention
-    (``heading = LAUNCH_AZIMUTH``, ``lat = get_latitude_from_downrange(s)`` for the
-    5-state indirect path; see the EOM near :func:`get_latitude_from_downrange`).
+    (``earth_rot.planar_pseudoforce_rates`` at ``LAUNCH_LATITUDE_RAD``).
 
     Parameters
     ----------
@@ -819,9 +790,8 @@ def pseudo_force_channels_on_grid(time, data):
     for i in range(n):
         s_i, r_i, v_i, g_i, m_i = (data[0, i], data[1, i], data[2, i],
                                    data[3, i], data[4, i])
-        lat_i = get_latitude_from_downrange(s_i)
-        _, _, _, a_cross_i, cor_i, cen_i = earth_rot.rotating_frame_pseudoforce_rates(
-            v_i, g_i, LAUNCH_AZIMUTH, lat_i, r_i)
+        _, _, _, a_cross_i, cor_i, cen_i = earth_rot.planar_pseudoforce_rates(
+            v_i, g_i, LAUNCH_LATITUDE_RAD, r_i)
         accel_grid[i] = abs(a_cross_i)
         force_grid[i] = m_i * abs(a_cross_i)
         coriolis_grid[i] = cor_i
@@ -1324,15 +1294,10 @@ def rocket_dynamics(t, state):
     global alpha_history, alpha_time_history, theta_history, theta_time_history
     global tgo_history, tgo_time_history
     global cross_heading_counter_force_history, cross_heading_accel_history
-    global LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD
+    global LAUNCH_LATITUDE_RAD
 
     # Get state components
     s, r_val, v, gamma, m = state[:5]
-    heading = LAUNCH_AZIMUTH
-    # Latitude is derived from downrange, never carried as a state (see the
-    # dlat/dt note further down). get_latitude_from_downrange returns the launch
-    # latitude unchanged when Earth rotation is disabled.
-    lat = get_latitude_from_downrange(s)
 
     # Compute altitude above Earth's surface
     alt = r_val - c.R_EARTH
@@ -1758,27 +1723,24 @@ def rocket_dynamics(t, state):
     coriolis_mag_val = 0.0
     centrifugal_mag_val = 0.0
     if _pseudo_forces_active():
-        delta_dvdt, delta_dgammadt, _, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.rotating_frame_pseudoforce_rates(
+        # The ascent is planar: latitude held at its launch value, rotation credited
+        # as the launch-site speed and never resolved on the azimuth
+        # (earth_rot.planar_pseudoforce_rates). The latitude row the plot suite
+        # reads is synthesised at output-assembly time (append_latitude_row).
+        delta_dvdt, delta_dgammadt, _, a_cross_heading_pseudo, coriolis_mag_val, centrifugal_mag_val = earth_rot.planar_pseudoforce_rates(
             v,
             gamma,
-            heading,
-            lat,
+            LAUNCH_LATITUDE_RAD,
             r_val,
         )
         state_differentiated[2] += delta_dvdt
         state_differentiated[3] += delta_dgammadt
 
-    # Cross-heading actuator counter-force (heading held at launch azimuth; no
-    # trajectory effect — see COMPUTE_CROSS_HEADING_COUNTER_FORCE).
+    # Cross-heading actuator counter-force (no cross-range degree of freedom, so
+    # no trajectory effect — see COMPUTE_CROSS_HEADING_COUNTER_FORCE).
     if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
         cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
         cross_heading_accel_history.append(abs(a_cross_heading_pseudo))
-
-    # Latitude is NOT an integrated state: get_latitude_from_downrange(s) is the
-    # exact closed form whose derivative this used to integrate, and downrange is
-    # already state[0]. Deriving it keeps every architecture on one 5-element
-    # state and removes the Stage-1/Stage-2 length mismatch. The latitude row the
-    # plot suite reads is synthesised at output-assembly time instead.
 
     if time_kick_start == None:
         state_differentiated[3] = 0.0
@@ -2496,6 +2458,7 @@ def run(initial_kick_angle, azimuth_override=None):
     current_kick_angle = initial_kick_angle  # Store for use in dynamics
     time_raise = sim_params.DURATION_INITIAL_KICK / 2.0  # Re-derive in case param changed
 
+    _check_earth_rotation_model()
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
     LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)
@@ -2727,7 +2690,9 @@ def run(initial_kick_angle, azimuth_override=None):
     r_stop = sol_2.y[1, -1]
     v_stop = sol_2.y[2, -1]
     gamma_stop = sol_2.y[3, -1]
-    lat_stop = get_latitude_from_downrange(sol_2.y[0, -1]) if sim_params.ENABLE_EARTH_ROTATION else LAUNCH_LATITUDE_RAD
+    # Diagnostic only: resolves the state on the launch azimuth at the launch
+    # latitude, which the dynamics never do (planar_pseudoforce_rates).
+    lat_stop = LAUNCH_LATITUDE_RAD
     heading_stop = LAUNCH_AZIMUTH
 
     # Calculate altitude to stop burning
@@ -3057,6 +3022,7 @@ def run_stage1(initial_kick_angle):
     current_kick_angle = initial_kick_angle
     time_raise = sim_params.DURATION_INITIAL_KICK / 2.0
 
+    _check_earth_rotation_model()
     LAUNCH_AZIMUTH = np.deg2rad(90.0)
     LAUNCH_AZIMUTH_INERTIAL = np.deg2rad(90.0)
     LAUNCH_LATITUDE_RAD = np.deg2rad(sim_params.LAUNCH_LATITUDE)

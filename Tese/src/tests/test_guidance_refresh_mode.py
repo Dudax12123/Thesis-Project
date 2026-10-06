@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from Input_File import simulation_parameters as sim_params
 import run_results_matrix as rm
+import _refly
 import Simulation.pso_coast_solver as pcs
 import Simulation.direct_pso_solver as dps
 import Simulation.segmented_guidance_solver as sgs
@@ -28,12 +29,18 @@ PEG_BASELINE_X = [189.86662128991458, 78.73201854888482, 75.31523373706635, 1.54
 PEG_DIRECT_X = [1.5661366962720822, 91.87527871677494]
 SHOW_APOLLO_X = [0.0, 91.60758745728216, 94.00948186783256, 1.5668927372031136]
 
-# (case, x, J with "in_rhs", J with "cycle") -- dev-notes/refresh_ab.py, 2026-09-24
+# (case, x, J with "in_rhs", J with "cycle") -- dev-notes/refresh_ab.py, 2026-09-24.
+# Re-pinned 2026-10-05 under EARTH_ROTATION_MODEL = "launch_site" (latitude held, the
+# pseudo-forces crediting the launch-site speed) at the same x; the 2026-09-24 values
+# were (196.68278412119147, 193.06019613639359), (5.948042294131451, 4.753001936532169)
+# and (0.9651918327810947, 1.2778648569777045). show_seg_fixed_alt flies the PMP
+# reference, so it waits for the reference to be re-flown under the current model.
 MEASURED = [
-    ("peg_baseline", PEG_BASELINE_X, 196.68278412119147, 193.06019613639359),
-    ("peg_direct", PEG_DIRECT_X, 5.948042294131451, 4.753001936532169),
-    ("show_apollo", SHOW_APOLLO_X, 0.9651918327810947, 1.2778648569777045),
-    ("show_seg_fixed_alt", PEG_BASELINE_X, 194.1997792989455, 190.70919485959266),
+    ("peg_baseline", PEG_BASELINE_X, 192.26428324390105, 188.82657990400705),
+    ("peg_direct", PEG_DIRECT_X, 3.5147273308570246, 6.682037401352892),
+    ("show_apollo", SHOW_APOLLO_X, 3.2709022913922157, 3.371003397971262),
+    pytest.param("show_seg_fixed_alt", PEG_BASELINE_X, 194.1997792989455, 190.70919485959266,
+                 marks=_refly.needs_new_reference),
 ]
 
 
@@ -81,7 +88,7 @@ def test_an_unknown_mode_is_refused(monkeypatch):
 
 
 @pytest.mark.parametrize("case, x, J_in_rhs, J_cycle", MEASURED,
-                         ids=[m[0] for m in MEASURED])
+                         ids=[(m.values if hasattr(m, "values") else m)[0] for m in MEASURED])
 def test_both_modes_reproduce_the_measurement(monkeypatch, case, x, J_in_rhs, J_cycle):
     _configure(monkeypatch, case, GUIDANCE_REFRESH_MODE="in_rhs")
     assert _J(monkeypatch, x) == J_in_rhs

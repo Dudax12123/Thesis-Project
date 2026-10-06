@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from Input_File import simulation_parameters as sim_params
 import run_results_matrix as rm
+import _refly
 import Simulation.segment_reference as segref
 
 CASES = {c["name"]: c for c in rm.build_matrix()}
@@ -103,6 +104,7 @@ def test_pmp_baseline_is_the_extremal_the_reference_cache_holds(monkeypatch):
     assert np.array_equal(cached, np.asarray(rm.PMP_BASELINE_EXTREMAL))
 
 
+@_refly.needs_refly("pmp_baseline")
 def test_pmp_baseline_replays_the_polished_archive(monkeypatch):
     """Re-flown, not searched: J and the delivered mass of the 2026-09-21 polish
     archive (22 261.2 kg propellant remaining), to the last digit."""
@@ -117,6 +119,7 @@ def test_pmp_baseline_replays_the_polished_archive(monkeypatch):
     assert extra["extremal_seed"] == 3
 
 
+@_refly.needs_new_reference
 def test_the_segmented_rerun_flies_the_flight_the_swarm_scored(monkeypatch):
     """The dense re-run restarts from the altitude-switch root, not from the last t_eval
     point before it (up to 0.5 s early until 2026-09-25): its J is the fitness J.

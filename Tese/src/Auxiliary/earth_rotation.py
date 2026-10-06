@@ -99,7 +99,11 @@ def corrected_azimuth(inc_deg, lat_deg, target_altitude):
 
 def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="geometric"):
     """
-    Return the formula-based (geometric) launch azimuth for rotating-frame propagation.
+    Return the formula-based (geometric) launch azimuth.
+
+    Since 2026-10-05 (EARTH_ROTATION_MODEL = "launch_site") the azimuth enters no
+    equation of motion: it is reported, and read by the achieved-inclination
+    diagnostic of the legacy path only.
 
     All AZIMUTH_INCLINATION_MODE options start from the spherical-geometry formula
         sin(beta) = cos(i_target) / cos(phi_launch)
@@ -120,7 +124,7 @@ def select_launch_azimuth(inc_deg, lat_deg, target_altitude, mode="geometric"):
     Returns:
     --------
     beta_active : float
-        Formula azimuth used in rotating-frame propagation [rad] (= beta_inertial)
+        Formula azimuth [rad] (= beta_inertial)
     beta_inertial : float
         Geometric/inertial azimuth [rad]
     v_rot_surface : float
@@ -163,8 +167,9 @@ def ecef_to_eci_velocity(v_ecef, gamma_ecef, lat_rad, r_val):
     v_horizontal = v_ecef * np.cos(gamma_ecef)
     v_radial = v_ecef * np.sin(gamma_ecef)
 
-
-    # Add Earth rotation contribution to eastward inertial component.
+    # The rotation credit: the launch-site speed omega*r*cos(lat), added along-track
+    # in full, never resolved on the launch azimuth. planar_pseudoforce_rates and
+    # v_circular_rotating use the same credit, so the three agree.
     v_rot = c.OMEGA_EARTH * r_val * np.cos(lat_rad)
     v_horizontal_eci = v_horizontal + v_rot
 
@@ -203,6 +208,8 @@ def v_circular_rotating(r_target, lat_rad, enable_rotation=True):
     """
     Rotating-frame circular velocity: sqrt(mu/r_target) - omega*r_target*cos(lat_rad).
 
+    With lat_rad the launch latitude this is exactly level flight under
+    planar_pseudoforce_rates: (v + Omega*r)^2 / r = mu/r^2 with Omega = omega*cos(lat).
     Returns the inertial circular velocity unchanged when enable_rotation is
     False.
     """
@@ -221,27 +228,6 @@ def append_latitude(state, lat_rad, enable_rotation=True):
     if enable_rotation:
         return np.append(np.asarray(state[:5], dtype=float), lat_rad)
     return np.asarray(state[:5], dtype=float)
-
-
-def delta_v_gain(lat_deg, azimuth, radius):
-    """
-    Estimate inertial speed gain from Earth rotation projected onto launch azimuth.
-
-    Parameters:
-    -----------
-    lat_deg : float
-        Latitude [deg]
-    azimuth : float
-        Launch azimuth [rad]
-    radius : float
-        Radius where gain is evaluated [m]
-
-    Returns:
-    --------
-    float
-        Effective eastward inertial speed gain [m/s]
-    """
-    return surface_rotation_velocity(lat_deg, radius=radius) * np.sin(azimuth)
 
 
 def orbit_inclination(lat_deg, beta_inertial):
@@ -396,3 +382,26 @@ def rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, heading_ecef, lat_rad, 
             delta_dheadingdt = a_cross_heading / v_horizontal
 
     return delta_dvdt, delta_dgammadt, delta_dheadingdt, a_cross_heading, coriolis_mag, centrifugal_mag
+
+
+def planar_pseudoforce_rates(v_ecef, gamma_ecef, lat_rad, r_val):
+    """The pseudo-force terms every architecture flies, at the launch latitude.
+
+    The rotation credit of this model is the launch-site speed omega*r*cos(lat),
+    taken along-track in full and never resolved on the launch azimuth. The in-plane
+    terms that agree with that credit are those of a due-east flight, i.e.
+    ``rotating_frame_pseudoforce_rates`` at heading pi/2: a plane rotating at
+    Omega = omega*cos(lat) about its normal,
+
+        delta_dvdt     = Omega^2 * r * sin(gamma)                (Coriolis does no work)
+        delta_dgammadt = 2*Omega + Omega^2 * r * cos(gamma) / v
+
+    so that v_circular_rotating(r, lat) is exactly level flight and
+    ecef_to_eci_velocity its circular orbit. The along-heading horizontal centrifugal
+    component vanishes with the projection: with the latitude held at its launch
+    value it would do work for ever without the latitude ever changing.
+
+    Same return tuple as ``rotating_frame_pseudoforce_rates``; the cross-heading and
+    magnitude diagnostics describe the same due-east flight.
+    """
+    return rotating_frame_pseudoforce_rates(v_ecef, gamma_ecef, np.pi / 2.0, lat_rad, r_val)

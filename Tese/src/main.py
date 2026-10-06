@@ -585,10 +585,11 @@ def execute():
             sim_params.TARGET_ORBITAL_ALTITUDE,
         )
         implied_inclination = earth_rot.orbit_inclination(sim_params.LAUNCH_LATITUDE, beta_formula)
-        expected_gain = earth_rot.delta_v_gain(
+        # The launch-site speed at the target radius, not resolved on the azimuth:
+        # the one rotation credit of the model (losses.launch_site_gain).
+        expected_gain = earth_rot.surface_rotation_velocity(
             sim_params.LAUNCH_LATITUDE,
-            beta_formula,
-            c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
+            radius=c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
         )
 
         print("\n" + "="*60)
@@ -622,7 +623,7 @@ def execute():
         print(f"Target inclination:       {sim_params.TARGET_ORBIT_INCLINATION:.4f} deg")
         print(f"Formula azimuth:          {np.rad2deg(beta_formula):.4f} deg")
         print(f"Surface rotation speed:   {v_rot_surface:.2f} m/s")
-        print(f"Estimated delta-v gain:   {expected_gain:.2f} m/s")
+        print(f"Rotation credit at target:{expected_gain:.2f} m/s  (launch-site speed, not azimuth-resolved)")
         print(f"Implied inclination (formula azimuth): {implied_inclination:.4f} deg")
         if sim_params.AZIMUTH_INCLINATION_MODE == "iterative":
             print(f"Iterative sweep range:    \u00b1{sim_params.AZIMUTH_ITER_RANGE_DEG:.2f} deg")
@@ -1048,10 +1049,6 @@ def execute():
                 # rotating-frame (ground-relative), but orbital elements are
                 # inertial quantities, so convert here (diagnostic only —
                 # mirrors apogee_check). This keeps a good orbit near-circular.
-                #heading_final = ra.LAUNCH_AZIMUTH
-                #lat_final = (ra.get_latitude_from_downrange(sf[0])
-                #             if sim_params.ENABLE_EARTH_ROTATION
-                 #            else np.deg2rad(sim_params.LAUNCH_LATITUDE))
                 v_in, g_in = ra.get_inertial_state_components(
                     sf[1], sf[2], sf[3], np.deg2rad(sim_params.LAUNCH_LATITUDE))
                 a, e, r_apo, r_peri, T = ra.get_orbital_elements(sf[1], v_in, g_in)

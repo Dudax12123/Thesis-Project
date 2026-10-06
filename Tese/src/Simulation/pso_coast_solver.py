@@ -725,10 +725,9 @@ def _stage2_ode_guidance(t, y, thrust, Isp, gs):
     d = ra.diff_eom_base(s, r_val, v, gamma, m, 0.0, 0.0, F_T, a_grav, alpha, Isp)
 
     if ra._pseudo_forces_active():
-        # Latitude from downrange — no state needed, s is already y[0].
-        lat = ra.get_latitude_from_downrange(s)
-        delta_dvdt, delta_dgammadt, _, _, _, _ = earth_rot.rotating_frame_pseudoforce_rates(
-            v, gamma, ra.LAUNCH_AZIMUTH, lat, r_val)
+        # Latitude held at launch; rotation credited as the launch-site speed.
+        delta_dvdt, delta_dgammadt, _, _, _, _ = earth_rot.planar_pseudoforce_rates(
+            v, gamma, ra.LAUNCH_LATITUDE_RAD, r_val)
         d[2] += delta_dvdt
         d[3] += delta_dgammadt
 
@@ -1481,11 +1480,8 @@ def run_pso_coast_full(optimal_params, verbose=True):
     n_stage1 = len(t_stage1)
     n_stage2 = len(t_stage2_full)
 
-    # ---- Latitude row (6th state row) so the latitude plot renders ----
-    # Derived from downrange via great-circle geometry (Earth rotation only).
-    if sim_params.ENABLE_EARTH_ROTATION:
-        lat_row = np.array([ra.get_latitude_from_downrange(s) for s in data_full[0]])
-        data_full = np.vstack([data_full, lat_row])   # rows: s, r, v, γ, m, lat
+    # ---- Latitude row (6th state row): the launch latitude, held (Earth rotation only) ----
+    data_full = ra.append_latitude_row(data_full)   # rows: s, r, v, γ, m, lat
 
     # ---- Assemble full-trajectory history channels for the plot suite ----
     # The shared plot block in main.py reads these from ra.*_history globals.

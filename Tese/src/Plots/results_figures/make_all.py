@@ -64,6 +64,7 @@ def main():
 
     st.use_thesis_style()
     cases = _data.load_many(ALL_CASES, root=args.root)
+    _data.check_one_rotation_model(cases)
 
     print("=" * 70)
     print("CHAPTER 6 FIGURES -- %d of %d cases available"

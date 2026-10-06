@@ -159,6 +159,9 @@ def loss_histories(t, alt, v, gamma, m, thrust, alpha,
 def launch_site_gain():
     """Rotational gain credited by Eq. (dv_gain), read from the active configuration.
 
+    The launch-site speed omega*r*cos(LAUNCH_LATITUDE) at the target radius, not
+    resolved on the launch azimuth: the same credit the target, the frame conversion
+    and the pseudo-force terms carry (earth_rotation.planar_pseudoforce_rates).
     Returns 0.0 when Earth rotation is disabled, which is the physically correct
     credit for a non-rotating Earth rather than a missing value.
     """
@@ -168,15 +171,9 @@ def launch_site_gain():
     if not sim_params.ENABLE_EARTH_ROTATION:
         return 0.0
 
-    _, beta_formula, _ = earth_rot.select_launch_azimuth(
-        sim_params.TARGET_ORBIT_INCLINATION,
+    return float(earth_rot.surface_rotation_velocity(
         sim_params.LAUNCH_LATITUDE,
-        sim_params.TARGET_ORBITAL_ALTITUDE,
-    )
-    return float(earth_rot.delta_v_gain(
-        sim_params.LAUNCH_LATITUDE,
-        beta_formula,
-        c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
+        radius=c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE,
     ))
 
 

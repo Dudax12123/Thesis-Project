@@ -155,21 +155,9 @@ def _rotation_row(cases, ax_a, ax_b, tags):
         (norot, st.VARIANT, "Non-rotating", "-"),
     ])
     st.panel_tag(ax_a, tags[0])
-    # The legend is pinned rather than left on loc="best". Matplotlib scores the
-    # artists in the axes and knows nothing about an inset_axes child, so "best"
-    # picked the same lower-right corner as the latitude inset and drew the
-    # legend straight through it.
+    # No latitude inset since 2026-10-05: the latitude is held at its launch
+    # value for the whole ascent (EARTH_ROTATION_MODEL), so it would be a flat line.
     st.tidy(ax_a, legend_loc="center")
-
-    lat = base.latitude_deg
-    if lat is not None:
-        ax_lat = ax_a.inset_axes([0.58, 0.08, 0.38, 0.26])
-        t, lat_t = st.thin(base.time, lat)
-        ax_lat.plot(t, lat_t, color=st.BASELINE, linewidth=1.0)
-        ax_lat.set_title("Latitude [deg]", fontsize=6.5, pad=2)
-        ax_lat.tick_params(labelsize=6)
-        for side in ("top", "right"):
-            ax_lat.spines[side].set_visible(False)
 
     for case, colour, tag in ((base, st.BASELINE, "rot."),
                               (norot, st.VARIANT, "non-rot.")):

@@ -440,6 +440,28 @@ def load_many(names, root=None):
     return out
 
 
+def check_one_rotation_model(cases):
+    """Refuse a set of cases whose rotation-on rows were flown under different models.
+
+    EARTH_ROTATION_MODEL (2026-10-05) changed the physics of every case flown with
+    the rotation on; a manifest without it predates the change. A figure or table
+    built from a partly re-flown matrix would otherwise compare the two models
+    without saying so. Rotation-off rows are exempt: the change does not touch them.
+    """
+    models = {}
+    for name, case in cases.items():
+        if not case.row.get("earth_rotation"):
+            continue
+        model = (case.manifest.get("config") or {}).get("EARTH_ROTATION_MODEL")
+        models.setdefault(model, []).append(name)
+    if len(models) > 1:
+        raise ValueError(
+            "rotation-on cases flown under different EARTH_ROTATION_MODEL values "
+            "(None = before 2026-10-05): %s. Re-fly the stale ones, or draw from a "
+            "root that holds one model only (--root)."
+            % "; ".join("%s: %s" % (m, ", ".join(sorted(n))) for m, n in models.items()))
+
+
 def missing_from(cases, *names):
     """Which of *names* are absent, so a figure can skip itself cleanly.
 
@@ -468,11 +490,13 @@ def force_model_note(ref, others):
     (``pseudo_forces_flown`` False); until 2026-09-16 Stage 2 was propagated in
     the inertial frame, where no such term exists but where the frame transform
     credits the full, unprojected omega*r*cos(lat) along-track -- about 121 m/s
-    more than the pseudo-force terms credit at the baseline site, drifting
-    further apart over a long coast (tests/test_pmp_stage1_pseudo_forces.py);
-    since 2026-09-16 ("rotating_pseudo_forces", the default) Stage 2 carries the
-    same terms as every ``pso_coast`` case, with costate equations that omit
-    their sub-percent partials, and the force models agree.
+    more than the azimuth-resolved pseudo-force terms of the time credited at the
+    baseline site; since 2026-09-16 ("rotating_pseudo_forces", the default) Stage 2
+    carries the same terms as every ``pso_coast`` case, with costate equations that
+    omit their sub-percent partials, and the force models agree. Since
+    EARTH_ROTATION_MODEL = "launch_site" (2026-10-05) the terms credit the same
+    launch-site speed as the transform, so an inertial Stage 2 flown under it is
+    no longer a different force model either.
 
     Where they do not, the PMP result is a comparison and not an optimality
     bound: some of any gap between it and a closed-loop law is the force model
@@ -504,10 +528,12 @@ def force_model_note(ref, others):
     # Stage 1 carries the terms; the form its Stage 2 was flown in still can.
     # The manifest records it; an archive without one predates the setting and
     # was flown pseudo-force-free, which the loop above already reports.
-    stage2_frame = (ref.manifest.get("config") or {}).get("INDIRECT_PMP_STAGE2_FRAME")
+    config = ref.manifest.get("config") or {}
+    stage2_frame = config.get("INDIRECT_PMP_STAGE2_FRAME")
     if (ref.row.get("architecture") == "indirect_pmp"
             and ref.row.get("pseudo_forces_flown")
             and stage2_frame == "inertial"
+            and config.get("EARTH_ROTATION_MODEL") is None
             and all(c.row.get("architecture") != "indirect_pmp" for c in peers)):
         differences.append("with Stage 2 propagated in the inertial frame "
                            "(unprojected rotation credit)")

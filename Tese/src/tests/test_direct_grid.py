@@ -26,10 +26,13 @@ import Simulation.direct_pso_solver as dps
 # Algorithm 1; until the case is re-flown, its J is the realigned law's at the same x.
 # Both rows were flown with the coefficient refresh inside the ODE ("in_rhs"); the matrix
 # baseline has flown "cycle" since 2026-09-25, so these tests ask for "in_rhs" by name.
+# Re-pinned 2026-10-05 under EARTH_ROTATION_MODEL = "launch_site" (latitude held, the
+# pseudo-forces crediting the launch-site speed): the J is the current model's at the
+# same x (was 5.948042294131451 and 41.13152999339198), until the rows are re-flown.
 PEG_DIRECT_X = [1.5661366962720822, 91.87527871677494]
-PEG_DIRECT_J = 5.948042294131451
+PEG_DIRECT_J = 3.5147273308570246
 GT_DIRECT_X = [1.5480496369878718, 78.91330864548283]
-GT_DIRECT_J = 41.13152999339198
+GT_DIRECT_J = 43.58510094952199
 
 
 def _configure(monkeypatch, case_name, **extra):

@@ -2,6 +2,51 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Launch-site rotation model, 2026-10-05 (code uncommitted; nothing re-flown)
+
+User decision: the latitude is held at launch, and the rotation is credited as the launch-site speed ω·r·cos φ₀ everywhere. That covers the target, the conversion and the budget gain, and also the pseudo-forces (`earth_rotation.planar_pseudoforce_rates`, the ENU terms at heading π/2). The azimuth enters no equation of motion. Label: `EARTH_ROTATION_MODEL = "launch_site"`.
+
+- **T28. Thesis passages to revise** (each discussed first):
+  - **Ch. 2**
+    - l.226–249: Eq. `sim_ecef_eci` is now the model, everywhere, not a shortcut taken in the conversion only. The "optimistic, bounded by ω r (1 − sin ψ) cos φ" sentence becomes the statement of the convention.
+    - l.289–306: ψ appears in the in-plane terms only as π/2. The cross-heading load is that of a due-east flight.
+    - l.345–347: the drift sentence. The inclination is no longer an output of the dynamics.
+    - l.478–479: "latitude follows in closed form from the downrange" becomes "held at its launch value".
+    - Eq. `dv_gain` l.533–539: Gain = ω r cos φ₀ at the insertion radius, 440.8 m/s, not V_eq cos φ.
+    - l.529–531: the residual is the centrifugal work.
+  - **Ch. 5:** the rotation-convention text. T18 changes nature: the insertion is now circular in the model, so the old disclosure ("129 m/s short of circular, h_a/h_p read 500 km") no longer applies. What remains to state is that the credit is a due-east one, optimistic against a 44.98° azimuth.
+  - **Ch. 6:** every credit disclosure and `\discuss` note, the residual column, and the `fig:gt_axes` caption (the latitude inset is removed from `sec62_gravity_turn.py`).
+- **C15. RESOLVED by the change.** No heading or latitude enters the pseudo-forces any more.
+- **C11. Changed.** The inclination diagnostic (legacy `run()` only) now resolves the state on `LAUNCH_AZIMUTH` at the launch latitude. The dynamics never do this, so it reads as the drift of a vehicle that had flown A_I as its ground heading (≈ 49.8°). Decide whether to keep it.
+- **C16. `gt_apogee`'s budget residual is +17.4 m/s, not a few m/s** (verification flight, scratch).
+  - The gain is evaluated at the target radius (440.8 m/s), but `gt_apogee`'s budget window ends at SECO, at 174 km (ω r cos φ₀ = 419.9 m/s). Of the residual, +20.9 m/s is that offset and −3.5 m/s is the centrifugal work.
+  - Fix: evaluate the gain at the radius where the window ends, or extend the window to the apogee (T27).
+  - `gt_baseline`'s residual is −5.8 m/s (was −125.2).
+- **C17. Under the new model `gt_apogee` does a Hohmann-like transfer.**
+  - Measured on the verification flight: SECO at 174 km, 2 721 s coast to apoapsis, 93.0 m/s circularisation (was 1.1). Propellant left: 22 315.9 kg (archived 21 534.2).
+  - The coast exceeds the 2000 s bound the swarms are held to.
+  - Report it or bound it for Ch. 6 fairness.
+- **Review pass (same day).**
+  - The budget identity closes on both verification flights. The residual is −(in-plane centrifugal work) + (gain-radius offset) to within 0.3 m/s.
+  - `pmp_norot` re-flies bit-identical, and `gt_norot`'s archived x re-scores to the identical J′, so the two rotation-off rows stay valid.
+  - Added `_data.check_one_rotation_model`, called by `make_all` and `tables`, so a partly re-flown matrix cannot be drawn mixed.
+  - `force_model_note` no longer flags an inertial Stage 2 flown under the new model.
+  - Left stale, as they were already: `Tese/Project_Description/EARTH_ROTATION_CHANGES.md` and `simulator_eom_dynamics_kinematics.tex` (March 2026), and the legacy suite's latitude plot (now a flat line).
+- **Tests.** 274 pass and 16 skip until the re-fly (`tests/_refly.py`); the skipped ones re-enable themselves when `pmp_baseline` and the matrix rows carry the label. New: `tests/test_rotation_model.py`, plus rewritten level-flight and frame-counterpart tests. Re-pinned to the current model at the same x: `test_direct_grid` (2 J values) and `test_guidance_refresh_mode` (3 cases). The replayed `pmp_baseline` extremal now scores J′ 121.8, against 0.76: it no longer reaches the target.
+- **Not changed, against the plan:** `dev-notes/pmp_swarm_polish.py` `ENVIRONMENT_KEYS` does not get the label. Refusing pre-change archives as starts would block refining the new references from the current extremals, which is the cheapest path to the re-fly.
+
+## Ch. 6 walkthrough, 2026-10-05 (open; decisions on the "Chapter 6 Walkthrough" artifact)
+
+- Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e (db collections `reviews`, `sections`). 87 items, X1–X7 and S1–S7. Source: that session's scratchpad `ch6walk/` (`content.py`, `build.py`).
+- **T27. `gt_apogee`'s ΔV budget is cut at SECO,** so its 1 132 s coast to apogee lies outside the window and its gravity loss (1 378 m/s) is not comparable with the others'. In every other case the coast is inside the window; the reference spends 402 m/s of gravity loss in its coast. Proposed in S7-V1: extend the window to the apogee and add the 1.1 m/s impulse.
+- **C14. `run_card.draw` and `sec62.secondary_axes` draw past insertion.** This affects `fig:gt_baseline_card` (a)/(b) and `fig:gt_axes` (c), (d) and (f). Proposed in S2-F1/S2-F3: clip with `_panels.to_insertion`.
+- **C15. The pseudo-forces hold the heading at the launch azimuth while the latitude follows the great circle.** This is the dynamics counterpart of C11, found 2026-10-05 while working out the rotation-credit projection (T18).
+  - Where: `pso_coast_solver` l.731, `indirect_pso_solver` l.277, `rocket_ascent` l.1331/1761 (legacy) and l.823 (diagnostic). Every architecture does the same, so comparisons between them stay internally consistent.
+  - Effect: the speed at which the model holds level flight at 500 km depends on where a case inserts.
+    - With the heading held: 7 300.5 m/s for `pmp_baseline` (30.3°), 7 320.2 m/s for `peg_baseline` (35.9°), 7 373.5 m/s for `gt_baseline` (48.4°), 7 388.8 m/s for `show_linear_tangent` (51.5°).
+    - With the heading propagated by Clairaut (sin ψ = cos i / cos φ): 7 295–7 301 m/s at every latitude.
+  - Any projected target (ω r cos i, 7 301.1 m/s) is level flight for every case only if this is fixed with it. Script: `projection_check.py` in that session's scratchpad.
+
 ## `pmp_norot` adopted 2026-10-05 (code `b99acce` + archive `724707a`; thesis `4e30b7e`, not pushed)
 
 - **Result:** seed 3's half-step extremal (user's choice, to match `pmp_baseline`) leaves 19 384.5 kg, on a true 500 km circular orbit.
@@ -250,6 +295,10 @@ Started 2026-10-01. Items found while fixing the thesis, parked here so they do 
   - It is computed only on the legacy `run()` path and is not archived; the swarm architectures never compute it. The pmp archives carry no latitude row.
   - Blocks XR1 (Ch. 6 reporting the inclination gap and the lateral load, so that Ch. 7's Future Work stays true). Peak lateral load under thrust for gt_baseline: 21.5 kN (0.71 m/s², t = 820 s).
 - **C12. FIXED 2026-10-04, uncommitted.** `_style.LAW_LABELS` and `CASE_LABELS` printed "Polynomial shooting" for `exp_shooting`; both now read "Exponential pitch", as Ch. 4 and `tab:showcase_laws` do. All 18 results figures were re-rendered into the thesis. Five changed: showcase laws, law ranking, arc structure and the accuracy trade carry the label. The fifth, `results_solve_cost.png`, was stale: it showed gt_apogee's search as 57 s, while the archive from the 2026-10-01 clean re-run records 61 s.
+- **C13. `tab:architecture_cost` prints the indirect row's tail improvement as `0.00000--0.00067`** (found 2026-10-05, when `pmp_vacuum` moved to 750×1500).
+  - `tables._pct_range` keeps enough decimals for the largest value, 6.7×10⁻⁴ % (`pmp_vacuum`), and the smallest, 1.0×10⁻⁷ % (`pmp_norot`), then rounds to zero.
+  - Until 2026-10-05 all three were below 10⁻⁵ % and the cell read `<10^{-5}`.
+  - Fix in `_pct_range`, e.g. print `$\le 0.00067$` when the low end rounds to zero, then re-render the tables.
 
 ## Closed 2026-10-01
 

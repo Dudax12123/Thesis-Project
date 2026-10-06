@@ -11,9 +11,9 @@ and a local refinement reached it ballistically by deleting the circularisation 
 circular speed. "rotating_pseudo_forces" (the default since 2026-09-16) keeps the
 ground-relative state and the laws' target but carries the same Coriolis/centrifugal
 terms every other architecture does in the STATE equations, with the costate equations
-as published: with the terms present the laws' target is level flight -- exactly at the
-equator due east, and at the baseline site it turns down only by the unprojected-credit
-convention every rotation-on case shares. Everything reported outward stays
+as published: with the terms present the laws' target is level flight, at any site and
+azimuth since 2026-10-05, when the terms began crediting the same launch-site speed as the
+target (earth_rotation.planar_pseudoforce_rates). Everything reported outward stays
 ground-relative in every form.
 """
 
@@ -127,20 +127,37 @@ def test_rotating_pseudo_forces_target_is_level_flight_at_the_equator(rotating_e
     assert abs(gdot) < 1e-10
 
 
-def test_rotating_pseudo_forces_target_turns_down_only_by_the_unprojected_credit(
-        rotating_earth, monkeypatch):
-    """At the baseline site (28.5 deg, azimuth 45 deg) the target credits the full
-    omega*r*cos(lat) where the terms credit the azimuth-projected part -- the
-    deliberately kept convention every rotation-on case shares -- so level flight is
-    missed by ~129 m/s and the target turns down at -0.13 deg/min, against
-    -0.45 deg/min for the legacy pseudo-force-free form (an ellipse with periapsis
-    ~890 km below the surface)."""
+@pytest.mark.parametrize("lat_deg, azimuth_deg", [
+    (28.5, 44.98), (28.5, 90.0), (51.6, 0.0), (5.0, 120.0)])
+def test_rotating_pseudo_forces_target_is_level_flight_at_any_site_and_azimuth(
+        rotating_earth, monkeypatch, lat_deg, azimuth_deg):
+    """The rotation is credited as the launch-site speed omega*r*cos(lat) everywhere --
+    target, frame conversion and pseudo-force terms (earth_rotation.
+    planar_pseudoforce_rates) -- with the latitude held at launch, so the laws' target
+    is exactly level flight off the equator too, whatever the azimuth. Until
+    2026-10-05 the terms were resolved on the azimuth: at the baseline site the target
+    then turned down at -0.13 deg/min, the apoapsis of a ~60 km-periapsis ellipse. The
+    legacy pseudo-force-free form still turns down (~-0.45 deg/min at 28.5 deg)."""
     monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
+    _launch_site(monkeypatch, lat_deg, azimuth_deg)
+    rdot, vdot, gdot = _coast_rates_at_target(ips.terminal_speed_target(), pseudo_forces=True)
+    assert abs(rdot) < 1e-12
+    assert abs(vdot) < 1e-9
+    assert abs(gdot) < 1e-10
+    if lat_deg == 28.5:
+        _, _, gdot_legacy = _coast_rates_at_target(ips.terminal_speed_target(),
+                                                   pseudo_forces=False)
+        assert np.rad2deg(gdot_legacy) * 60.0 == pytest.approx(-0.454, abs=0.005)
+
+
+def test_the_pseudo_force_terms_do_not_depend_on_downrange(rotating_earth, monkeypatch):
+    """The latitude is held at its launch value: the terms at a state 5000 km downrange
+    are the terms at the pad's latitude, bit for bit."""
     _launch_site(monkeypatch, 28.5, 44.98)
-    _, _, gdot_terms = _coast_rates_at_target(ips.terminal_speed_target(), pseudo_forces=True)
-    _, _, gdot_legacy = _coast_rates_at_target(ips.terminal_speed_target(), pseudo_forces=False)
-    assert np.rad2deg(gdot_terms) * 60.0 == pytest.approx(-0.129, abs=0.005)
-    assert np.rad2deg(gdot_legacy) * 60.0 == pytest.approx(-0.454, abs=0.005)
+    r_val = c.R_EARTH + 300e3
+    near = ips._stage2_pseudo_rates(0.0, r_val, 6500.0, np.deg2rad(5.0))
+    far = ips._stage2_pseudo_rates(5.0e6, r_val, 6500.0, np.deg2rad(5.0))
+    assert near == far
 
 
 def test_frame_setting_is_inert_with_the_rotation_off(monkeypatch):

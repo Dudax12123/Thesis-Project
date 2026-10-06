@@ -135,6 +135,11 @@ def _reference_input_key():
         #       too). The frame is a key input below, so the change re-keys the
         #       cache by itself -- no schema bump needed.
         ("SCHEMA", "v4-stage1-pseudo-forces"),
+        # 2026-10-05: latitude held at launch, rotation credited as the launch-site
+        # speed in the pseudo-forces too (earth_rotation.planar_pseudoforce_rates).
+        # A label in the config, so every earlier cache is keyed without it and
+        # refused -- no schema bump needed.
+        ("EARTH_ROTATION_MODEL", str(getattr(sim_params, "EARTH_ROTATION_MODEL", None))),
         ("INDIRECT_PMP_STAGE1_PSEUDO_FORCES",
          bool(getattr(sim_params, "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", True))),
         ("INCLUDE_PSEUDO_FORCES", bool(sim_params.INCLUDE_PSEUDO_FORCES)),
@@ -251,6 +256,7 @@ def _run_pmp_reference(verbose):
 _ARCHIVE_MUST_MATCH = (
     "PSO_LB", "PSO_UB",
     "INCLUDE_DRAG", "ENABLE_EARTH_ROTATION", "INCLUDE_PSEUDO_FORCES",
+    "EARTH_ROTATION_MODEL",
     "INDIRECT_PMP_STAGE2_FRAME", "INDIRECT_PMP_STAGE1_PSEUDO_FORCES",
     "INDIRECT_PMP_TRANSVERSALITY",
     "TARGET_ORBITAL_ALTITUDE", "TARGET_ORBIT_INCLINATION", "LAUNCH_LATITUDE",

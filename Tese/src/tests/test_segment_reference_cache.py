@@ -22,7 +22,7 @@ from Input_File import simulation_parameters as sim_params
 import Simulation.segment_reference as segref
 
 _NAMES = ("PSO_SEED", "PSO_LB", "PSO_UB", "INCLUDE_DRAG", "ENABLE_EARTH_ROTATION",
-          "INCLUDE_PSEUDO_FORCES", "INDIRECT_PMP_STAGE2_FRAME",
+          "INCLUDE_PSEUDO_FORCES", "EARTH_ROTATION_MODEL", "INDIRECT_PMP_STAGE2_FRAME",
           "INDIRECT_PMP_STAGE1_PSEUDO_FORCES", "INDIRECT_PMP_TRANSVERSALITY",
           "TARGET_ORBITAL_ALTITUDE", "TARGET_ORBIT_INCLINATION", "LAUNCH_LATITUDE",
           "ISP_1_MODE", "THRUST_1_MODE")
@@ -84,12 +84,22 @@ def test_seeded_cache_is_ignored_once_the_configuration_moves(cache_in_tmp, monk
     ({"GUIDANCE_MODE": "gravity_turn"}, "GUIDANCE_MODE"),
     ({"INDIRECT_PMP_STAGE2_FRAME": "inertial"}, "INDIRECT_PMP_STAGE2_FRAME"),
     ({"PSO_UB": [1.0, 1.0, 1.0, 1000.0, 100.0, 100.0, 1.57]}, "PSO_UB"),
+    # An archive flown before 2026-10-05 has no rotation-model label at all.
+    ({"EARTH_ROTATION_MODEL": None}, "EARTH_ROTATION_MODEL"),
 ])
 def test_an_archive_of_a_different_problem_is_refused(cache_in_tmp, override, named):
     npz, *_ = _write_archive(cache_in_tmp, **override)
     with pytest.raises(ValueError, match=named):
         segref.cache_from_archive(npz, verbose=False)
     assert not (cache_in_tmp / "ref.npz").exists()
+
+
+def test_the_rotation_model_is_part_of_the_cache_key(monkeypatch):
+    """A cache built under another rotation model (or before the label existed) is
+    keyed differently, so the loader rebuilds rather than reusing it."""
+    key_now = segref._reference_input_key()
+    monkeypatch.setattr(sim_params, "EARTH_ROTATION_MODEL", None)
+    assert segref._reference_input_key() != key_now
 
 
 def test_an_archive_without_a_manifest_is_still_cached(cache_in_tmp, capsys):

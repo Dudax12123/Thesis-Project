@@ -866,10 +866,8 @@ def run_segmented_full(optimal_params, segs, verbose=True):
     alpha_full  = np.concatenate([alpha_stage1, alpha_stage2])
     n_stage1, n_stage2 = len(t_stage1), len(t_stage2_full)
 
-    # ---- Latitude row (Earth rotation) so the latitude plot renders ----
-    if sim_params.ENABLE_EARTH_ROTATION:
-        lat_row = np.array([ra.get_latitude_from_downrange(s) for s in data_full[0]])
-        data_full = np.vstack([data_full, lat_row])      # rows: s, r, v, gamma, m, lat
+    # ---- Latitude row (Earth rotation): the launch latitude, held ----
+    data_full = ra.append_latitude_row(data_full)       # rows: s, r, v, gamma, m, lat
 
     # ---- Full-flight history channels for the plot suite (ra.*_history) ----
     theta_full = alpha_full + data_full[3]               # pitch theta = alpha + gamma

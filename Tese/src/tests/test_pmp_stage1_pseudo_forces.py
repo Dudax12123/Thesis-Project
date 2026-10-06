@@ -134,8 +134,8 @@ def _baseline_site(monkeypatch):
 
 def test_rotating_pseudo_forces_stage2_is_the_coast_solvers_physics(rotating_earth, monkeypatch):
     """The point of the default form: the PMP's Stage-2 state ODE with the terms is the
-    coast solver's ODE -- same kernel terms, same pseudo-force call, same latitude from
-    downrange -- so a ballistic arc from the baseline hand-off agrees to integration
+    coast solver's ODE -- same kernel terms, same pseudo-force call, same launch
+    latitude -- so a ballistic arc from the baseline hand-off agrees to integration
     tolerance (measured 2e-9 m, 2e-12 m/s, 7e-16 rad after 600 s)."""
     monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
     _baseline_site(monkeypatch)
@@ -168,9 +168,11 @@ def test_costate_equations_omit_only_negligible_pseudo_force_partials(
     partial derivatives of the pseudo-force terms. Against -dH/dx of the rates
     actually flown (central differences, alpha held fixed as the envelope condition
     dH/dalpha = 0 allows), the coded costate rates are within 3e-5 in norm at every
-    representative state, and dH/ds -- the source of the lambda_s the formulation
-    sets to zero -- is below 3e-9 per metre, under 5e-6 after a 2000 s coast for unit
-    costates. This is the approximation Chapter 3 states; keep it measured."""
+    representative state (measured 2026-10-05: 1.2e-5 to 2.4e-5; 0.3 % at most
+    component-wise). dH/ds -- the source of the lambda_s the formulation sets to zero
+    -- is exactly zero since the latitude is held at its launch value: nothing in the
+    flown rates depends on s. This is the approximation Chapter 3 states; keep it
+    measured."""
     monkeypatch.setattr(sim_params, "INDIRECT_PMP_STAGE2_FRAME", "rotating_pseudo_forces")
     _baseline_site(monkeypatch)
     lam = np.array([0.3, -0.9, 0.3])
@@ -196,7 +198,7 @@ def test_costate_equations_omit_only_negligible_pseudo_force_partials(
     dH_ds = (H_flown(xp) - H_flown(xm)) / 2e3
 
     assert np.linalg.norm(full - coded) / np.linalg.norm(coded) < 1e-4
-    assert abs(dH_ds) < 3e-9
+    assert dH_ds == 0.0
 
 
 def _coast_both_ways(duration):
@@ -229,12 +231,20 @@ def test_inertial_stage2_is_the_exact_counterpart_of_the_rotating_frame_at_the_e
     assert back[0] == pytest.approx(rot[0], abs=1e-2)          # downrange, m
 
 
-def test_the_two_stage2_models_differ_off_the_equator_by_the_credit_convention(
-        rotating_earth, monkeypatch):
-    """Same check at the baseline site (28.5 deg, azimuth 45 deg): the difference is
-    real and grows with the coast, which is what Chapter 6 has to qualify."""
-    monkeypatch.setattr(ra, "_PSEUDO_FORCES_THIS_RUN", True)
-    monkeypatch.setattr(ra, "PROPAGATING_IN_INERTIAL_FRAME", False)
-    rot, back = _coast_both_ways(600.0)
-    assert abs(back[1] - rot[1]) > 1e3                          # kilometres, not metres
-    assert abs(back[2] - rot[2]) > 10.0
+@pytest.mark.parametrize("duration", [600.0, 2000.0])
+def test_the_two_stage2_models_are_exact_counterparts_at_the_baseline_site(
+        rotating_earth, monkeypatch, duration):
+    """Same check at the baseline site (28.5 deg, azimuth 45 deg). Until 2026-10-05 the
+    terms were resolved on the azimuth and the latitude followed a great circle, and the
+    two forms drifted kilometres apart within 600 s. With the latitude held and the
+    rotation credited as the launch-site speed in both (earth_rotation.
+    planar_pseudoforce_rates), they agree to integration tolerance over a full-length
+    coast, the azimuth playing no part."""
+    monkeypatch.setattr(sim_params, "LAUNCH_LATITUDE", 28.5)
+    _baseline_site(monkeypatch)
+    assert ra._pseudo_forces_active()
+    rot, back = _coast_both_ways(duration)
+    assert back[1] == pytest.approx(rot[1], abs=1e-2)          # radius, m
+    assert back[2] == pytest.approx(rot[2], abs=1e-5)          # speed, m/s
+    assert back[3] == pytest.approx(rot[3], abs=1e-8)          # gamma, rad
+    assert back[0] == pytest.approx(rot[0], abs=1e-2)          # downrange, m

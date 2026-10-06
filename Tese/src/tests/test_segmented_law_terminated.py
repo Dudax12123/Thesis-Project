@@ -27,6 +27,7 @@ import Simulation.reference_track_solver as rts
 import Simulation.rocket_ascent as ra
 import Simulation.segment_reference as segref
 import Simulation.segmented_guidance_solver as sgs
+import _refly
 
 CASES = {c["name"]: c for c in rm.build_matrix()}
 
@@ -65,6 +66,7 @@ def test_the_final_law_must_be_peg_new(monkeypatch):
         sgs.validate_schedule()
 
 
+@_refly.needs_new_reference
 def test_a_hand_off_above_the_coast_start_is_refused(monkeypatch):
     _configure(monkeypatch, "show_seg_fixed_alt",
                GUIDANCE_SEGMENTS=[("gravity_turn", 0.0), ("peg_new", 200e3)])
@@ -72,6 +74,7 @@ def test_a_hand_off_above_the_coast_start_is_refused(monkeypatch):
         _segments()
 
 
+@_refly.needs_new_reference
 def test_arc_1_aims_at_the_reference_coast_start(monkeypatch):
     """The same waypoint show_ref_track hands peg_new, at the same 10 s freeze."""
     _configure(monkeypatch, "show_seg_fixed_alt")
@@ -87,6 +90,7 @@ def test_arc_1_aims_at_the_reference_coast_start(monkeypatch):
     assert segs.target_alt[-1] == cs.alt
 
 
+@_refly.needs_new_reference
 def test_the_swarm_searches_the_kick_the_coast_and_the_hand_off(monkeypatch):
     _configure(monkeypatch, "show_seg_opt_alt")
     segs = _segments()
@@ -97,6 +101,7 @@ def test_the_swarm_searches_the_kick_the_coast_and_the_hand_off(monkeypatch):
     assert prob.get_bounds() == ([0.0, 1.50, 0.0], [2000.0, 1.57, 1.0])
 
 
+@_refly.needs_new_reference
 def test_peg_new_ends_arc_1_at_the_coast_start(monkeypatch):
     """Flown on the reference's own kick and coast: the gravity turn to 120 km, then
     peg_new to the coast start, cut by its own t_go -- a miss the size of
@@ -118,6 +123,7 @@ def test_peg_new_ends_arc_1_at_the_coast_start(monkeypatch):
     assert float(result["state_final"][4]) == 25490.33297846938
 
 
+@_refly.needs_new_reference
 def test_the_dense_rerun_flies_the_flight_the_swarm_scored(monkeypatch):
     _configure(monkeypatch, "show_seg_fixed_alt")
     segs = _segments()
@@ -127,12 +133,14 @@ def test_the_dense_rerun_flies_the_flight_the_swarm_scored(monkeypatch):
     assert pcs.compute_coast_objective(out[5]) == J_fit
 
 
+@_refly.needs_new_reference
 def test_the_swarm_timed_runner_refuses_a_law_terminated_schedule(monkeypatch):
     _configure(monkeypatch, "show_seg_fixed_alt")
     with pytest.raises(ValueError, match="run_segmented_law_terminated"):
         sgs.run_segmented_trajectory(100.0, 78.0, 75.0, REFERENCE_X[1], _segments())
 
 
+@_refly.needs_new_reference
 @pytest.mark.parametrize("law_terminated", [True, False])
 def test_the_fairing_is_shed_when_staging_below_the_criterion(monkeypatch, law_terminated):
     """At the reference's kick Stage 2 starts below 65 km; the ignition check sheds
@@ -146,6 +154,7 @@ def test_the_fairing_is_shed_when_staging_below_the_criterion(monkeypatch, law_t
     assert ra.time_fairing_jettison == result["t_ignition"] > result["t_stage2_start"]
 
 
+@_refly.needs_new_reference
 def test_smoke_flies_a_copy_of_the_tracked_reference(monkeypatch, tmp_path):
     assert not any(k.startswith("PMP_REFERENCE_PSO") for k in rm.SMOKE_BUDGET)
     _configure(monkeypatch, "show_seg_fixed_alt", **rm.SMOKE_BUDGET)

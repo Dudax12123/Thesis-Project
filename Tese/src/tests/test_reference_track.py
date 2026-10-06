@@ -21,6 +21,7 @@ from Auxiliary import constants as c
 from Input_File import simulation_parameters as sim_params
 from Archive import run_record
 import run_results_matrix as rm
+import _refly
 import Simulation.pso_coast_solver as pcs
 import Simulation.reference_track_solver as rts
 import Simulation.segment_reference as segref
@@ -171,6 +172,7 @@ def test_the_case_name_leaves_the_6_2_and_6_3_filter_exact():
     assert len(picked) == 10 and not any("ref_track" in n for n in picked)
 
 
+@_refly.needs_new_reference
 def test_the_tracked_cache_holds_the_reference_plan(monkeypatch):
     _configure(monkeypatch, "show_ref_track")
     monkeypatch.setattr(segref, "_run_pmp_reference",
@@ -179,6 +181,7 @@ def test_the_tracked_cache_holds_the_reference_plan(monkeypatch):
     np.testing.assert_array_equal(x, REFERENCE_X)
 
 
+@_refly.needs_refly("pmp_baseline", "show_ref_track")
 def test_the_flight_tracks_the_reference_and_reproduces_its_measurement(monkeypatch):
     _configure(monkeypatch, "show_ref_track")
     monkeypatch.setattr(segref, "_run_pmp_reference",
@@ -204,6 +207,7 @@ def test_the_flight_tracks_the_reference_and_reproduces_its_measurement(monkeypa
     assert len(extra["realised_schedule"]) == 4
 
 
+@_refly.needs_refly("pmp_baseline", "show_ref_track_apollo")
 def test_apollo_arrives_on_the_reference_clock_and_reproduces_its_measurement(monkeypatch):
     _configure(monkeypatch, "show_ref_track_apollo")
     monkeypatch.setattr(segref, "_run_pmp_reference",

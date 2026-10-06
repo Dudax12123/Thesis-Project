@@ -28,6 +28,7 @@ import run_results_matrix as rm
 import Simulation.pso_coast_solver as pcs
 import Simulation.segment_reference as segref
 import Simulation.segmented_guidance_solver as sgs
+import _refly
 
 CASES = {case["name"]: case for case in rm.build_matrix()}
 
@@ -70,6 +71,7 @@ def test_discard_logs_after_trims_both_logs_in_step():
     assert gs.alpha_log is alpha_log             # trimmed in place
 
 
+@_refly.needs_new_reference
 def test_the_recorded_alpha_has_no_old_law_samples_after_the_hand_off(monkeypatch):
     _configure(monkeypatch, "show_seg_fixed_alt")
     segs = sgs._Segments(*segref.get_pmp_reference(verbose=False))

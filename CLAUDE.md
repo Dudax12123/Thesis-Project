@@ -329,24 +329,54 @@ state 9.1 km lower, 44 m/s faster and 4.5° shallower than every other case's). 
 config** (building the segmented PMP reference runs the *indirect* solver, so a config-derived gate
 would mislabel it).
 
+**The rotation model is `EARTH_ROTATION_MODEL = "launch_site"` since 2026-10-05** (a label, not a
+switch; any other value raises). The ascent is planar.
+- The latitude is held at `LAUNCH_LATITUDE` for the whole flight. Nothing follows a great circle,
+  and the `data[5]` row is constant.
+- The rotation is credited as the launch-site speed ω·r·cos φ₀, along-track in full and never
+  resolved on the launch azimuth. The same credit is used in the target (`v_circular_rotating`), the
+  conversion (`ecef_to_eci_velocity`), the budget gain (`losses.launch_site_gain`) and the
+  pseudo-forces (`earth_rotation.planar_pseudoforce_rates`). The last is the ENU terms at heading
+  π/2: a plane rotating at Ω = ω cos φ₀.
+- The target is therefore exact level flight, and its conversion is a circular orbit.
+- The azimuth enters no equation of motion. Only apogee_check's inclination diagnostic reads it.
+
+Before this, two credits were mixed:
+- The pseudo-forces were resolved on the held 44.98° heading, at a great-circle latitude.
+- The budget gain was projected onto the azimuth while the target was not.
+
+So the target was the apoapsis of an ellipse with a ~60 km periapsis (the coast-to-target the PMP
+polish exploited), and the residual sat at −112 to −138 m/s.
+
+**Every rotation-on archive and the tracked `pmp_reference.npz` predate the change.**
+- The label is in the reference cache key and in `segment_reference._ARCHIVE_MUST_MATCH`, so both
+  are refused.
+- Sixteen tests skip until the re-fly (`tests/_refly.py`), then re-enable themselves to be
+  re-pinned.
+- Any segmented, `reference_track` or `pmp_baseline` flight now rebuilds the tracked reference.
+- `--smoke` refuses the reference cases.
+- `make_all` and `tables` refuse rotation-on rows of two models together
+  (`_data.check_one_rotation_model`), so a partly re-flown matrix cannot reach the thesis
+  mixed. The two rotation-off rows, `gt_norot` and `pmp_norot`, are exempt: they re-fly
+  bit-identical under the new code.
+
 **The PMP's Stage 2 carries the pseudo-forces in its state equations, with the costate equations
 kept as published** (decision 7d, 2026-09-16; `INDIRECT_PMP_STAGE2_FRAME="rotating_pseudo_forces"`).
-What the published costate equations omit is the partial derivatives of the Coriolis/centrifugal
-terms: measured along the arc at the baseline site they are 0.01–0.4 % of the retained partials
-component-wise, 3e-5 of the costate-rate vector in norm, and the ∂H/∂s that would make λ_s a fourth
-costate integrates to < 5e-6 over a 2000 s coast for unit costates
-(`tests/test_pmp_stage1_pseudo_forces.py` pins all three). The control law is exact, α not
-appearing in the terms; every Hamiltonian the transversality penalty reads is `λ·f` of the flown
-rates (`_hamiltonian_at`). The target is the laws' own √(μ/r) − v_rot, and with the terms in the
-state equations that is level flight — exactly at the equator due east; at the baseline site it
-turns down at −0.13°/min, the unprojected-credit convention every rotation-on case shares. The
-legacy pseudo-force-free `"rotating"` form turned down at −0.45°/min: its target was the apoapsis
-of an ellipse with periapsis −890 km, and the defect was the missing terms, not the frame. The
-`"inertial"` form flown 2026-09-13 → 2026-09-16 is kept for archived rows: `pallone2016` to the
-letter, but it credits the full ω·r·cos φ at hand-off, 121 m/s ≈ 944 kg more than the terms credit
-off the equator, 125 km / 296 m/s apart after an 1883 s coast (exact counterparts only at the
-equator due east). `_stage1_pseudo_forces()` refuses any pairing that mixes force models within one
-ascent. The swarm's transversality penalty is `INDIRECT_PMP_TRANSVERSALITY`: since 2026-09-13 the
+- **What the costates omit.** The partial derivatives of the Coriolis/centrifugal terms. Measured
+  along the arc at the baseline site (2026-10-05), they are at most 0.3 % of the retained partials
+  component-wise and 2.4e-5 of the costate-rate vector in norm. ∂H/∂s, which would make λ_s a
+  fourth costate, is identically zero, since nothing depends on downrange
+  (`tests/test_pmp_stage1_pseudo_forces.py` pins both).
+- **The control law** is exact, since α does not appear in the terms. Every Hamiltonian the
+  transversality penalty reads is `λ·f` of the flown rates (`_hamiltonian_at`).
+- **The target** is the laws' own √(μ/r) − v_rot. With the terms in the state equations it is
+  level flight at any site and azimuth (`tests/test_pmp_frame.py`).
+- **The legacy pseudo-force-free `"rotating"` form** turns down at −0.45°/min. Its target is the
+  apoapsis of an ellipse with periapsis −890 km, and the defect is the missing terms, not the frame.
+- **The `"inertial"` form** (flown 2026-09-13 → 2026-09-16) is `pallone2016` to the letter. Since
+  2026-10-05 it is the exact counterpart of the default, off the equator too: both credit ω·r·cos φ₀
+  along-track. Before, it credited 121 m/s ≈ 944 kg more than the azimuth-resolved terms.
+- `_stage1_pseudo_forces()` refuses any pairing that mixes force models within one ascent. The swarm's transversality penalty is `INDIRECT_PMP_TRANSVERSALITY`: since 2026-09-13 the
 stationarity conditions of its own burn/coast/burn durations (`H_coast_end = 0`,
 `H_burn1_end = H_last_burn_start`, `H_burn_end < 0`), which need no mass costate. The older Eq. 38
 form took H at Stage-2 ignition and cannot be satisfied.
@@ -355,7 +385,7 @@ form took H at Stage-2 ignition and cannot be satisfied.
 `rocket_dynamics`** — otherwise it silently misses every population-based architecture, which is
 exactly how the pseudo-force gap arose — and mirror it in the PMP's own drag-free kernel,
 `indirect_pso_solver._stage2_state_rates` (the pseudo-forces reach it through the same
-`rotating_frame_pseudoforce_rates` call the coast solver makes; a cross-solver propagation test
+`planar_pseudoforce_rates` call the coast solver makes; a cross-solver propagation test
 guards that one term, nothing guards a new one).
 
 **Never latch an event out of the ODE right-hand side.** `solve_ivp` calls `rocket_dynamics` at
@@ -395,15 +425,17 @@ the burn as a step, and **`ra.thrust_on_grid()` is the one reader** — use it, 
 dispatchers). The 21 matrix archives were repaired in place from bit-identical re-flights
 (`dev-notes/repair_thrust_record.py`; each manifest has a `repairs` entry; originals in
 `Output/results_matrix_prerepair_20260926/`). With the record right, the residual closes to
-~0 m/s in both rotation-off cases and sits at −112 to −138 m/s in every rotation-on case: the
-unprojected rotation credit.
+~0 m/s in both rotation-off cases and sat at −112 to −138 m/s in every rotation-on case. That was
+the two mixed rotation credits, gone with `EARTH_ROTATION_MODEL = "launch_site"` (2026-10-05).
+Since then the rotation-on residual is the in-plane centrifugal work alone.
 
 **The apogee check coasted in its own frame, and its budget recorded no drag (both fixed
 2026-09-30).**
 - **Frame.** The legacy path converted the SECO state with the full ω·r·cos φ
   (`ecef_to_eci_velocity`, launch latitude) and flew the half-orbit coast without pseudo-forces.
-  No other architecture converts before insertion, and the rotating-frame physics they fly
-  credits only the share of that speed along the heading. Coasted their way, gt_apogee's SECO
+  No other architecture converts before insertion, and the rotating-frame physics they flew then
+  credited only the share of that speed along the heading (before `EARTH_ROTATION_MODEL`,
+  2026-10-05). Coasted their way, gt_apogee's SECO
   state peaked at 184.6 km, not 499 km, and the old row was over-credited by ~0.7 t.
 - **The "rotating" coast** (`ra._finish_single_burn_rotating`): the conversion-based event
   (`interrupt_single_burn_traj`) now only brackets SECO from below. The burn continues with dense
@@ -463,19 +495,20 @@ the PMP optimum** (2026-09-17: a local refinement beat both production points by
 `dev-notes/pmp_swarm_polish.py` — Levenberg-Marquardt on the orbit + duration-stationarity
 conditions, then γ_p continuation — writes the best extremal as a standard archive under
 `Output/pmp_polish/<case>/`, and `cache_from_archive(..., allow_other_search=True)` can seed the
-reference from such an archive whatever seed it came from. **What its first run (2026-09-17) showed,
-and the user's decision.** With the pseudo-forces in every Stage 2 the shared target (500 km, the
-unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 58–74 km once
-the credit is projected, 123–128 m/s short of circular — so it can be reached by coasting up to it
-with no circularisation burn, and the polish did exactly that: +1 701 kg (baseline) and +1 496 kg
-(vacuum), coasting 1 282–1 381 s with a 0.0–0.2 s last burn. The laws are exposed too and unevenly
-(`show_exp_shooting`'s last burn is 5 s after a 506 s coast, `gt_baseline`'s 22 s after 409 s); the
-2000 s coast bound widens it. **The user re-affirmed on 2026-09-17 that the unprojected credit stays**
-(as first decided 2026-08-31) — do not project it in the targets, the frame conversion or the budget,
-and do not "honestly convert" an archived orbit. The polished numbers are therefore the optimum of the
-problem as defined, and Chapter 6 must disclose that the insertion state is ~125 m/s below circular,
-that the archive's eccentricity column cannot show this (target and check share the formula), and that
-part of the PMP's margin over the laws is the coast-to-target the convention allows.
+reference from such an archive whatever seed it came from.
+
+**What its first run (2026-09-17) showed, and how it was resolved (2026-10-05).** With the
+pseudo-forces resolved on the azimuth, the shared target (500 km, √(μ/r) − ω·r·cos φ, γ = 0) was
+the APOAPSIS of a real ellipse, 123–128 m/s short of circular. The polish reached it by coasting
+with no circularisation burn: +1 701 kg (baseline) and +1 496 kg (vacuum), coasting 1 282–1 381 s
+with a 0.0–0.2 s last burn. The laws were exposed too, and unevenly.
+
+The user kept the unprojected credit on 2026-08-31 and 2026-09-17. On 2026-10-05 they chose instead
+to apply it everywhere, the pseudo-forces included (`EARTH_ROTATION_MODEL`, above). The target is
+now circular in the model, and that exploit is closed. The archived rows and the polished
+extremals predate this and must be re-flown. The replayed `pmp_baseline` extremal misses the
+target under the new model (J′ 121.8 against 0.76).
+
 Every results-matrix archive carries the optimiser's full-precision `decision_vector` since then;
 the solver's console printout is rounded and does not re-fly to the archived insertion.
 

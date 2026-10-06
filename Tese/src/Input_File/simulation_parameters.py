@@ -57,14 +57,28 @@ ENABLE_EARTH_ROTATION = True                    # if True, include Earth rotatio
 LAUNCH_LATITUDE = 28.5                           # launch site latitude; [deg]
 LAUNCH_LONGITUDE = -80.5                          # launch site longitude; [deg] (reserved for future launch window modeling)
 
+# -------------- Earth rotation model (a label, not a switch) --------------
+# The ascent is planar. The latitude is held at LAUNCH_LATITUDE for the whole
+# flight, and the rotation is credited as the launch-site speed omega*r*cos(lat),
+# along-track in full and never resolved on the launch azimuth -- in the target
+# sqrt(mu/r) - omega*r*cos(lat), the inertial conversion, the delta-v budget gain
+# and the pseudo-force terms alike (earth_rotation.planar_pseudoforce_rates), so the
+# target is exactly level flight. Adopted 2026-10-05; until then the latitude
+# followed a great circle and the pseudo-forces and the budget gain were resolved
+# on the azimuth while the target was not. Recorded in every manifest and in the
+# PMP reference cache key, so runs flown before are refused, not reused. Any value
+# other than "launch_site" raises.
+EARTH_ROTATION_MODEL = "launch_site"
+
 # -------------- Rotating-frame pseudo-forces (require Earth rotation) --------------
 INCLUDE_PSEUDO_FORCES = True                     # if True, include Coriolis and centrifugal accelerations in rotating-frame EOM
-# Cross-heading actuator counter-force. The heading is held fixed at the launch
-# azimuth — we assume the launcher's actuator cancels the lateral (cross-heading)
+# Cross-heading actuator counter-force. The model has no cross-range degree of
+# freedom — we assume the launcher's actuator cancels the lateral (cross-heading)
 # pseudo-force rather than letting it turn the vehicle — so this has no effect on the
 # in-plane trajectory. When True, the per-step counter-force the actuator must supply,
-# m*|a_cross| [N], is computed, stored and plotted (as kN vs time). Requires
-# ENABLE_EARTH_ROTATION and INCLUDE_PSEUDO_FORCES.
+# m*|a_cross| [N], is computed, stored and plotted (as kN vs time), for the same
+# due-east flight the in-plane terms describe. Requires ENABLE_EARTH_ROTATION and
+# INCLUDE_PSEUDO_FORCES.
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = True
 
 
@@ -86,6 +100,9 @@ INCLUDE_LIFT = True                              # if True, include aerodynamic 
 #   sin(beta) = cos(i_target) / cos(phi_launch)
 # (i_target = TARGET_ORBIT_INCLINATION [§1], phi_launch = LAUNCH_LATITUDE [§2].)
 # They differ in how they analyse the gap between that formula and the real achieved inclination.
+# Since 2026-10-05 the azimuth enters no equation of motion (EARTH_ROTATION_MODEL, §2):
+# it moves only the achieved-inclination diagnostic of the apogee_check path, so
+# "iterative" sweeps a diagnostic, not a trajectory.
 #
 #   "formula_compare":      Fly with the formula azimuth.
 #                           Report the achieved inclination and its deviation from the target.
@@ -538,14 +555,15 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 # apogee_check: the physics of the coast from SECO to apogee.
 # - "inertial" (byte-identical to the path as it was): at SECO the state
 #   is converted with the full w*r*cos(lat) and the coast is flown without the
-#   pseudo-forces. No other architecture ever converts before insertion. The
-#   conversion credits the whole unprojected rotation speed at SECO, while the
-#   rotating-frame physics every other case flies credits less off a due-east
-#   heading (measured 2026-09-30 on gt_apogee: a 137.6 m/s shortfall at SECO).
+#   pseudo-forces. No other architecture ever converts before insertion. Until
+#   2026-10-05 the pseudo-forces credited less than that conversion off a
+#   due-east heading (measured 2026-09-30 on gt_apogee: a 137.6 m/s shortfall at
+#   SECO); under EARTH_ROTATION_MODEL = "launch_site" they credit the same speed,
+#   and the two coasts differ only by ecef_to_eci_velocity keeping gamma.
 # - "rotating": the coast is flown in the rotating frame with the pseudo-forces,
 #   on pso_coast_solver's own coast ODE. SECO is root-found so that coast's
 #   apoapsis is the target altitude. The impulsive burn there goes to the target
-#   every coast case inserts at: v_circular_rotating (the unprojected credit), gamma 0.
+#   every coast case inserts at: v_circular_rotating (the launch-site credit), gamma 0.
 #   It may be a retro-burn; its cost is |dv|. The default since 2026-10-03, and what
 #   the results matrix and the thesis fly.
 APOGEE_CHECK_COAST_FRAME = "rotating"            # "inertial" | "rotating"
@@ -601,17 +619,19 @@ GAMMA_REF_DEG       = 1.0       # FPA non-dimensionalisation reference [deg]
 #                same Coriolis/centrifugal terms every other architecture carries,
 #                against the laws' own target sqrt(mu/r) - v_rot. The costate
 #                equations stay as published and omit the partials of those terms:
-#                0.01-0.4 % of the retained partials along the arc, lambda_s ~1.7e-6
-#                over a 2000 s coast (tests/test_pmp_stage1_pseudo_forces.py). One
-#                force model and one credit convention for all five architectures.
+#                at most 0.3 % of the retained partials along the arc, 2.4e-5 in norm,
+#                and lambda_s identically zero since the latitude is held
+#                (tests/test_pmp_stage1_pseudo_forces.py, 2026-10-05). One force
+#                model and one credit convention for all five architectures.
 #   "inertial" : 2026-09-13 to 2026-09-16. At stage separation the ground-relative
 #                (v, gamma) is converted to inertial -- exact planar transform,
 #                rotation credit omega*r*cos(LAUNCH_LATITUDE) added along-track --
 #                and the terminal speed target is sqrt(mu/r). The published
-#                formulation to the letter, but the credit is the full, unprojected
-#                one: 121 m/s (~944 kg) more than the pseudo-force terms credit at
-#                the baseline site, 125 km / 296 m/s apart after an 1883 s coast.
-#                Kept to reproduce archived rows.
+#                formulation to the letter. Until 2026-10-05 its credit was 121 m/s
+#                (~944 kg) more than the azimuth-resolved pseudo-force terms gave at
+#                the baseline site; under EARTH_ROTATION_MODEL = "launch_site" the
+#                terms credit the same launch-site speed, and the two forms are exact
+#                counterparts (tests/test_pmp_frame.py).
 #   "rotating" : the formulation flown until 2026-09-13: the ground-relative state
 #                propagated with the rotation-free equations against
 #                sqrt(mu/r) - v_rot. In them that target is the APOAPSIS of an ellipse

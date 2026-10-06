@@ -513,6 +513,7 @@ def main():
     args = parser.parse_args()
 
     cases = _data.load_many(_data.REPORTED_CASES, root=args.root)
+    _data.check_one_rotation_model(cases)
     print("=" * 70)
     print("CHAPTER 6 TABLES -- %d of %d cases available"
           % (len(cases), len(_data.REPORTED_CASES)))

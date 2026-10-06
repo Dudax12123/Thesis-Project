@@ -269,12 +269,11 @@ def _from_stage2_frame(state, t, t_stage2_start):
 
 def _stage2_pseudo_rates(s, r_val, v, gamma):
     """(delta_dvdt, delta_dgammadt) of the rotating-frame pseudo-forces at a
-    ground-relative state: the same call, with the same latitude-from-downrange
-    and the heading held at the launch azimuth, as
-    pso_coast_solver._stage2_ode_guidance makes for every other architecture."""
-    lat = ra.get_latitude_from_downrange(s)
-    delta_dvdt, delta_dgammadt, *_ = earth_rot.rotating_frame_pseudoforce_rates(
-        v, gamma, ra.LAUNCH_AZIMUTH, lat, r_val)
+    ground-relative state: the same call, at the launch latitude, as
+    pso_coast_solver._stage2_ode_guidance makes for every other architecture.
+    ``s`` is unused since the latitude stopped following the downrange."""
+    delta_dvdt, delta_dgammadt, *_ = earth_rot.planar_pseudoforce_rates(
+        v, gamma, ra.LAUNCH_LATITUDE_RAD, r_val)
     return float(delta_dvdt), float(delta_dgammadt)
 
 

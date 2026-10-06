@@ -343,9 +343,7 @@ def _assemble(t_st1, y_st1, segments, gs, y_insertion, t_insertion, t_coast_star
     alpha_full = np.concatenate(
         [interpolate_to_time(ra.alpha_time_history, ra.alpha_history, t_st1), alpha2])
 
-    if sim_params.ENABLE_EARTH_ROTATION:
-        lat_row = np.array([ra.get_latitude_from_downrange(s) for s in data_full[0]])
-        data_full = np.vstack([data_full, lat_row])
+    data_full = ra.append_latitude_row(data_full)
 
     ra.theta_history = list(alpha_full + data_full[3])
     ra.theta_time_history = list(time_full)

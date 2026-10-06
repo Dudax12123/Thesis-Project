@@ -412,12 +412,13 @@ atmospheric arc.
 | Variable | Allowed values | Default | Controls | Tangles with |
 |---|---|---|---|---|
 | `ENABLE_EARTH_ROTATION` (L29) | `True`/`False` | `True` | Include Earth-rotation effects in azimuth/ECI. | Master gate for the entire pseudo-force/azimuth family below; changes reported frame and state-vector length. |
-| `LAUNCH_LATITUDE` (L30) | float deg | `28.5` | Launch site latitude. | Feeds azimuth formula `sin(β)=cos(i)/cos(φ)`. |
+| `LAUNCH_LATITUDE` (L30) | float deg | `28.5` | Launch site latitude, held for the whole ascent (`EARTH_ROTATION_MODEL`). | Sets the rotation credit ω·r·cos φ₀ everywhere (target, conversion, budget gain, pseudo-forces) and feeds the azimuth formula `sin(β)=cos(i)/cos(φ)`. |
 | `LAUNCH_LONGITUDE` (L31) | float deg | `-80.5` | Launch site longitude (reserved; not yet used). | none currently. |
+| `EARTH_ROTATION_MODEL` | `"launch_site"` only | `"launch_site"` | **A label, not a switch** (2026-10-05). The latitude is held at launch and the rotation credited as the launch-site speed ω·r·cos φ₀, never resolved on the azimuth, in the target, the conversion, the budget gain and the pseudo-forces (`earth_rotation.planar_pseudoforce_rates`). | Any other value **raises** (`ra._check_earth_rotation_model`). Recorded in every manifest; part of the PMP reference cache key and of `segment_reference._ARCHIVE_MUST_MATCH`, so pre-change caches and archives are refused; `results_figures` refuses to draw rotation-on rows of two models together (`_data.check_one_rotation_model`). |
 | `TARGET_ORBIT_INCLINATION` (L32) | float deg | `51.6` | Desired orbit inclination. | azimuth derivation + `AZIMUTH_INCLINATION_MODE`. |
 | `INCLUDE_PSEUDO_FORCES` (L61) | `True`/`False` | `True` | Coriolis/centrifugal in rotating-frame EOM. | **requires** `ENABLE_EARTH_ROTATION`; required by the counter-force flag below. Under `indirect_pmp` it governs both stages by default (`INDIRECT_PMP_STAGE1_PSEUDO_FORCES` for Stage 1, `INDIRECT_PMP_STAGE2_FRAME="rotating_pseudo_forces"` for Stage 2, since 2026-09-16); the `"inertial"` form has no such term in Stage 2 — see the all-or-nothing rule below. |
-| `COMPUTE_CROSS_HEADING_COUNTER_FORCE` (L68) | `True`/`False` | `False` | Cross-heading actuator counter-force: heading held at the launch azimuth (assumed actuator-counteracted), so **no trajectory effect**; computes/stores/plots the per-step force `m·|a_cross|` [N]. | **requires** `ENABLE_EARTH_ROTATION` **and** `INCLUDE_PSEUDO_FORCES`. Single flag for the whole feature (former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` merged in; `TRACK_HEADING_STATE` removed). Recomputed on the output grid by `ra.pseudo_force_channels_on_grid`. Under `indirect_pmp` the channels are evaluated along the whole ground-relative trajectory: under the default Stage-2 form they were applied in both stages like every other architecture; under the `"inertial"` form they are *evaluated but not applied* in Stage 2 and the three plot titles say so; all zeros with `INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False`. |
-| `AZIMUTH_INCLINATION_MODE` (L55) | `formula_compare`, `formula_back_compare`, `iterative` | `formula_compare` | How launch azimuth is derived/analyzed. | `iterative` **force-overwritten** to `formula_compare` under `pso_coast` (`main.py:424`); only exercised in the legacy path otherwise. |
+| `COMPUTE_CROSS_HEADING_COUNTER_FORCE` (L68) | `True`/`False` | `False` | Cross-heading actuator counter-force: the lateral pseudo-force the planar model has no degree of freedom for (assumed actuator-counteracted), evaluated for the same due-east flight as the in-plane terms since 2026-10-05, so **no trajectory effect**; computes/stores/plots the per-step force `m·|a_cross|` [N]. | **requires** `ENABLE_EARTH_ROTATION` **and** `INCLUDE_PSEUDO_FORCES`. Single flag for the whole feature (former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` merged in; `TRACK_HEADING_STATE` removed). Recomputed on the output grid by `ra.pseudo_force_channels_on_grid`. Under `indirect_pmp` the channels are evaluated along the whole ground-relative trajectory: under the default Stage-2 form they were applied in both stages like every other architecture; under the `"inertial"` form they are *evaluated but not applied* in Stage 2 and the three plot titles say so; all zeros with `INDIRECT_PMP_STAGE1_PSEUDO_FORCES=False`. |
+| `AZIMUTH_INCLINATION_MODE` (L55) | `formula_compare`, `formula_back_compare`, `iterative` | `formula_compare` | How launch azimuth is derived/analyzed. Since 2026-10-05 the azimuth enters no equation of motion, so every mode moves only the achieved-inclination diagnostic of the legacy path. | `iterative` **force-overwritten** to `formula_compare` under `pso_coast` (`main.py:424`); only exercised in the legacy path otherwise. |
 | `AZIMUTH_ITER_STEP_DEG` (L56) | float deg | `0.1` | Azimuth sweep step. | `iterative` only. |
 | `AZIMUTH_ITER_RANGE_DEG` (L57) | float deg | `10.0` | Azimuth sweep half-width. | `iterative` only. |
 | `AZIMUTH_ITER_TOL_DEG` (L58) | float deg | `0.05` | Inclination tolerance for the sweep. | `iterative` only. |
@@ -448,7 +449,7 @@ atmospheric arc.
 | `PENALTY_W_FPA` (L289) | float | `10.0` | FPA-error penalty. |
 | `PENALTY_W_TRANSVERS` (L290) | float | `10.0` | Transversality penalty weight; which condition is penalised is `INDIRECT_PMP_TRANSVERSALITY` (needs ‖λ₀‖=1). |
 | `GAMMA_REF_DEG` (L291) | float deg | `1.0` | FPA non-dimensionalization reference. |
-| `INDIRECT_PMP_STAGE2_FRAME` | `"rotating_pseudo_forces"`, `"inertial"`, `"rotating"` | `"rotating_pseudo_forces"` | Frame and force model the Stage-2 PMP arc is propagated and scored in. `"rotating_pseudo_forces"` (default since 2026-09-16, decision 7d): the ground-relative state is propagated in the rotating frame **with the same Coriolis/centrifugal terms every other architecture carries** (`indirect_pso_solver._stage2_pseudo_rates` makes the very call `pso_coast_solver._stage2_ode_guidance` makes; a 600 s ballistic arc agrees to 2e-9 m) against the laws' own target √(μ/r)−v_rot; the costate equations stay as published and omit the partials of those terms — 0.01–0.4 % of the retained partials component-wise, 3e-5 of the costate-rate vector in norm, ∂H/∂s < 3e-9 /m (λ_s < 5e-6 over a 2000 s coast for unit costates), all pinned in `tests/test_pmp_stage1_pseudo_forces.py`; the control law is exact (α is not in the terms) and every H the transversality penalty reads is evaluated with the flown rates. With the terms present the target is level flight: exactly at the equator due east, and at the baseline site it turns down at −0.13°/min, the unprojected-credit convention every rotation-on case shares (`tests/test_pmp_frame.py`). `"inertial"` (2026-09-13 → 2026-09-16): the hand-off converted at separation (exact planar transform, credit ω·r·cos(`LAUNCH_LATITUDE`) along-track, `earth_rotation.rotating_to_inertial_planar`), target √(μ/r), converted back for every consumer — `pallone2016` to the letter, but **not the physics the other architectures fly** except for a due-east launch at the equator: the transform credits the full ω·r·cos φ (413.8 m/s at hand-off) where the terms credit the azimuth-projected part along the drifting latitude (292.5 m/s); 0.6 km / 0.7 m/s / 0.23° apart after a 100 s coast, 25.8 km / 57 m/s / 1.0° after 600 s, 125 km / 296 m/s after 1883 s; the 121 m/s ≈ 944 kg of Stage-2 propellant. Kept to reproduce archived rows. `"rotating"` (until 2026-09-13): rotation-free equations against √(μ/r)−v_rot, in which that target is the apoapsis of an ellipse with periapsis ≈ −890 km (turns down at −0.45°/min; a refinement deleted the circularisation burn to reach it); kept only to reproduce archived rows. In every form `state_final` and the dense output of `run_indirect_full` are **ground-relative**, so the archive, figures and segmented waypoints read them unchanged; the flown state is `state_final_propagated` and the result's `stage2_frame` names the form. **Inert** when `ENABLE_EARTH_ROTATION=False`; **raises** on any other value. Part of the PMP reference cache key (the value itself, so the default change re-keyed the cache without a schema bump). |
+| `INDIRECT_PMP_STAGE2_FRAME` | `"rotating_pseudo_forces"`, `"inertial"`, `"rotating"` | `"rotating_pseudo_forces"` | Frame and force model the Stage-2 PMP arc is propagated and scored in. `"rotating_pseudo_forces"` (default since 2026-09-16, decision 7d): the ground-relative state is propagated in the rotating frame **with the same Coriolis/centrifugal terms every other architecture carries** (`indirect_pso_solver._stage2_pseudo_rates` makes the very call `pso_coast_solver._stage2_ode_guidance` makes; a 600 s ballistic arc agrees to 2e-9 m) against the laws' own target √(μ/r)−v_rot; the costate equations stay as published and omit the partials of those terms — at most 0.3 % of the retained partials component-wise, 2.4e-5 of the costate-rate vector in norm, ∂H/∂s identically zero with the latitude held (2026-10-05), all pinned in `tests/test_pmp_stage1_pseudo_forces.py`; the control law is exact (α is not in the terms) and every H the transversality penalty reads is evaluated with the flown rates. With the terms present the target is level flight at any site and azimuth since `EARTH_ROTATION_MODEL = "launch_site"` (2026-10-05; before, at the baseline site it turned down at −0.13°/min) (`tests/test_pmp_frame.py`). `"inertial"` (2026-09-13 → 2026-09-16): the hand-off converted at separation (exact planar transform, credit ω·r·cos(`LAUNCH_LATITUDE`) along-track, `earth_rotation.rotating_to_inertial_planar`), target √(μ/r), converted back for every consumer — `pallone2016` to the letter. Since 2026-10-05 the exact counterpart of the default at any site (both credit ω·r·cos φ₀ along-track); until then it was not, the terms crediting the azimuth-projected part along a drifting latitude (125 km / 296 m/s apart after 1883 s, ≈ 944 kg). `"rotating"` (until 2026-09-13): rotation-free equations against √(μ/r)−v_rot, in which that target is the apoapsis of an ellipse with periapsis ≈ −890 km (turns down at −0.45°/min; a refinement deleted the circularisation burn to reach it); kept only to reproduce archived rows. In every form `state_final` and the dense output of `run_indirect_full` are **ground-relative**, so the archive, figures and segmented waypoints read them unchanged; the flown state is `state_final_propagated` and the result's `stage2_frame` names the form. **Inert** when `ENABLE_EARTH_ROTATION=False`; **raises** on any other value. Part of the PMP reference cache key (the value itself, so the default change re-keyed the cache without a schema bump). |
 | `INDIRECT_PMP_STAGE1_PSEUDO_FORCES` | `True`/`False` | `True` | Whether the PMP's Stage 1 (`run_stage1`'s gravity turn, flown before any costate exists) carries the rotating-frame pseudo-forces like every other architecture. `False` = the whole-ascent exemption flown until 2026-09-16, which handed Stage 2 a state 9.1 km lower, 44 m/s faster and 4.5° shallower than the identical Stage 1 of every other case; kept to reproduce archived rows. **Raises** with `INDIRECT_PMP_STAGE2_FRAME="rotating"` when `True` and with `"rotating_pseudo_forces"` when `False` (two force models in one ascent either way). **Inert** with `ENABLE_EARTH_ROTATION` or `INCLUDE_PSEUDO_FORCES` off. Part of the PMP reference cache key (schema v4). |
 | `INDIRECT_PMP_TRANSVERSALITY` | `"duration_stationarity"`, `"pontani_eq38"` | `"duration_stationarity"` | Transversality condition the swarm penalises (`indirect_pso_solver.transversality_residual`). `"duration_stationarity"`: stationarity of the burn time in the solver's own decision variables (burn D1, coast Dc, burn D3), written with the reduced Hamiltonian — `H_coast_end = 0` (one-sided when the coast is at a bound), `H_burn1_end = H_last_burn_start` (engine on), hinge on `H_burn_end < 0`; no mass costate needed, finite-difference verified and satisfiable (`dev-notes/pmp_duration_conditions.py`). `"pontani_eq38"`: the form flown until 2026-09-13, `\|H_burn_end + H_coast_end − H_burn_start\|`, with H at Stage-2 ignition — cannot be satisfied with the orbit constraints; kept to reproduce archived rows bit-identically. **Raises** on any other value. Part of the PMP reference cache key. |
 
@@ -766,19 +767,33 @@ Each is legal to set but does something other than what you'd expect. With `file
   `pso_coast`** (re-running the full PSO per azimuth is too costly) — the config object is mutated at
   runtime (`main.py:424`). Under other PSO paths it is simply never exercised.
 
-- **The unprojected rotation credit makes the insertion target reachable ballistically (2026-09-17;
-  the convention is KEPT, user decision).** With the pseudo-forces in every Stage 2 the shared target (500 km, the unprojected √(μ/r) − ω·r·cos φ, γ = 0) is the APOAPSIS of a real ellipse — periapsis ≈ 58–74 km once the credit is projected (55–69 km at the insertion latitude on the great-circle heading; −177 to +17 km on the fixed 45° heading the model flies), 123–128 m/s short of circular — so an optimiser can reach it by coasting up to it with no circularisation burn. Every architecture inserts at that same state (the archive's orbit columns
-  add the same unprojected credit back and report a circle — self-cancelling, as audited 2026-08-31),
-  but the optimisers do not reach it equally: the polished indirect PMP coasts 1 282–1 381 s and fires
-  its last burn for 0.0–0.2 s (+1.5–1.7 t over its own swarm point), `show_exp_shooting` fires 5 s
-  after a 506 s coast, `gt_baseline` 22 s after 409 s. Skipping the ~123 m/s circularisation is worth
-  about 1 t at insertion mass, so the comparison partly measures who exploits the convention. Raising
-  the coast bound to 2000 s (decision 1a) widens the exposure. **Not to be "fixed": the user re-affirmed
-  the simplification on 2026-09-17** (first decided 2026-08-31), so the targets, the frame conversion and
-  the budget keep the unprojected credit, the polished PMP numbers stand as the optimum of the problem as
-  defined, and the asymmetry is a Chapter 6 disclosure rather than a code change. Checking an archive: the pso_coast
-  trajectory repeats the SECO sample already converted to inertial speed, so read the insertion state
-  from the row or the sample BEFORE it, never `searchsorted(t_seco, "right") - 1`.
+- **One rotation credit everywhere: `EARTH_ROTATION_MODEL = "launch_site"` (2026-10-05, user
+  decision).** The ascent is planar.
+  - The latitude is held at `LAUNCH_LATITUDE` for the whole flight. `get_latitude_from_downrange`
+    is gone, and the archived latitude row is constant.
+  - The rotation is credited as the launch-site speed ω·r·cos φ₀, along-track in full and never
+    resolved on the launch azimuth, in four places: the target `v_circular_rotating`, the
+    conversion `ecef_to_eci_velocity`, the budget gain `losses.launch_site_gain`, and the
+    pseudo-forces `earth_rotation.planar_pseudoforce_rates`.
+  - `planar_pseudoforce_rates` evaluates the ENU terms at heading π/2: a plane rotating at
+    Ω = ω cos φ₀, with Δv̇ = Ω²r sin γ and Δγ̇ = 2Ω + Ω²r cos γ / v.
+  - The target is therefore exact level flight, and the archive's eccentricity is truthful.
+  - The azimuth enters no equation of motion. Only the apogee_check inclination diagnostic reads it.
+  - The label is in the PMP reference cache key and `_ARCHIVE_MUST_MATCH`. Any other value raises.
+
+  **What it replaced** (kept 2026-08-31, re-affirmed 2026-09-17):
+  - The target, the conversion and the budget used ω·r·cos φ, but the pseudo-forces were resolved on
+    the held 44.98° heading at a great-circle latitude, and the budget gain on the azimuth.
+  - So the shared target was the APOAPSIS of an ellipse with a 58–74 km periapsis, 123–128 m/s short
+    of circular, reachable by coasting with no circularisation burn.
+  - The polished PMP coasted 1 282–1 381 s with a 0.0–0.2 s last burn; `gt_baseline` fired 22 s
+    after 409 s.
+  - The budget residual sat at −112 to −138 m/s in every rotation-on case.
+  - Every rotation-on archive and the tracked reference predate the change and are refused.
+
+  **Checking an archive:** the pso_coast trajectory repeats the SECO sample already converted to
+  inertial speed. Read the insertion state from the row or the sample BEFORE it, never
+  `searchsorted(t_seco, "right") - 1`.
 
 - **Pseudo-forces are all-or-nothing per architecture.** Coriolis and centrifugal are carried for the
   *whole* ascent or not at all, so no trajectory is integrated under one force model before staging
@@ -789,10 +804,10 @@ Each is legal to set but does something other than what you'd expect. With `file
     costate ODEs are `-(∂H/∂x)ᵀ` of the *drag-free, rotation-free* EOM, and `λ_s = 0` holds only
     because nothing in that EOM depends on `s`. With the pseudo-forces in the **state** equations the
     published costate equations omit the partials of those terms: measured along the Stage-2 arc at
-    the baseline site they are 0.01–0.4 % of the retained gravity/kinematic partials component-wise
-    (one entry 1.4 % where the retained term crosses zero), 3e-5 of the costate-rate vector in norm,
-    and the `∂H/∂s` that would make `λ_s` a fourth costate is < 3e-9 /m, i.e. `λ_s` < 5e-6 over a
-    2000 s coast for unit costates. `tests/test_pmp_stage1_pseudo_forces.py` pins all three, so the
+    the baseline site (2026-10-05, launch-site model) they are at most 0.3 % of the retained
+    gravity/kinematic partials component-wise and 2.4e-5 of the costate-rate vector in norm, and the
+    `∂H/∂s` that would make `λ_s` a fourth costate is identically zero, the latitude being held
+    (before: < 3e-9 /m). `tests/test_pmp_stage1_pseudo_forces.py` pins both, so the
     approximation stays measured rather than assumed. The control law, Eq. 34, is exact — α does not
     appear in the pseudo-forces — and every Hamiltonian the transversality penalty reads
     (`_hamiltonian_at`) is `λ·f` of the rates actually flown. Carrying `λ_s` properly (a fourth
@@ -803,18 +818,18 @@ Each is legal to set but does something other than what you'd expect. With `file
     equations the apoapsis of an Earth-intersecting ellipse, turning down at −0.45°/min — and a local
     refinement (`dev-notes/pmp_local_refine.py`) deleted the circularisation burn to reach it. That
     defect was the *missing terms*, not the frame: with the terms present the same target is level
-    flight, exactly so at the equator due east, and at the baseline site it turns down only at
-    −0.13°/min — the unprojected-credit convention every rotation-on case shares
-    (`tests/test_pmp_frame.py`). From 2026-09-13 to 2026-09-16 the arc was flown inertial instead
-    (`"inertial"`: hand-off converted at separation, target √(μ/r), `pallone2016` to the letter),
-    which is **not** the same physics as the rotating frame with the terms except for a due-east
-    launch at the equator: the transform credits the full ω·r·cos φ along-track (413.8 m/s at
-    hand-off, the unprojected convention of the targets and the budget) where the pseudo-force terms
-    credit the azimuth-projected part along the drifting latitude (292.5 m/s) — 25.8 km / 57 m/s /
-    1.0° apart after a 600 s coast, 125 km / 296 m/s after 1883 s, the 121 m/s of credit worth
-    ≈ 944 kg of Stage-2 propellant at insertion. A projected credit in the transform alone closes the
-    burn gap (254 s: 8 m / 2.3 m/s) but not the long coast (43 km / 104 m/s after 1883 s). Decision
-    7d closed this: one force model and one credit convention for all five architectures.
+    flight, at any site and azimuth since 2026-10-05 (until then, with the terms resolved on the
+    azimuth, it turned down at −0.13°/min at the baseline site; `tests/test_pmp_frame.py`).
+    - **`"inertial"` (2026-09-13 to 2026-09-16).** The hand-off is converted at separation, the
+      target is √(μ/r), and the formulation is `pallone2016` to the letter.
+    - **Until 2026-10-05 it was not the same physics as the rotating frame with the terms.** The
+      transform credited the full ω·r·cos φ along-track (413.8 m/s at hand-off), where the terms
+      credited the azimuth-projected part along the drifting latitude (292.5 m/s). The two were
+      125 km / 296 m/s apart after 1883 s, a credit worth ≈ 944 kg.
+    - **Under the launch-site model both credit ω·r·cos φ₀ along-track,** and the two forms are
+      exact counterparts at the baseline site over a 2000 s coast
+      (`tests/test_pmp_stage1_pseudo_forces.py`).
+    - **Decision 7d** made the rotating form with the terms the default for all five architectures.
   - **Its Stage 1 carries them since 2026-09-16** (`INDIRECT_PMP_STAGE1_PSEUDO_FORCES`). Stage 1 is
     `run_stage1`'s fixed gravity turn, flown before any costate exists, so nothing in the formulation
     is touched; the exemption had handed Stage 2 a state 9.1 km lower, 44 m/s faster and 4.5° shallower
@@ -825,10 +840,11 @@ Each is legal to set but does something other than what you'd expect. With `file
     solver, so a config-derived gate would mislabel it. For the same reason the segmented solver sets
     the flag **per trajectory** (`run_segmented_trajectory`), not once at `run_segmented()` entry —
     its reference build runs first and legitimately leaves the flag `False`.
-  - **Latitude is no longer a state anywhere.** The pseudo-force evaluation was its only consumer and
-    `get_latitude_from_downrange(s)` is the exact closed form, so every path now propagates the plain
-    5-element `[s, r, v, γ, m]`. The 6th row the latitude plot reads is synthesised at output-assembly
-    time via `ra.append_latitude_row()` (legacy) or the equivalent inline `vstack` (PSO solvers).
+  - **Latitude is no longer a state anywhere.** Every path propagates the plain 5-element
+    `[s, r, v, γ, m]`. Since 2026-10-05 the latitude is held at its launch value (it used to
+    follow a great circle along downrange, `get_latitude_from_downrange`, now removed). The 6th
+    row the plots and the archive read is synthesised at output-assembly time by
+    `ra.append_latitude_row()` on every path, constant at `LAUNCH_LATITUDE`.
     - **Residual inconsistency, resolved 2026-09-16.** A segmented schedule containing `indirect_pmp`
     as a segment replays a stored α history; until 2026-09-16 that history was extremal for
     pseudo-force-free dynamics while the segment flew with the terms active. The reference is now
@@ -839,9 +855,10 @@ Each is legal to set but does something other than what you'd expect. With `file
     regenerated, including the sweeps recorded in §1b/§3. The PMP reference cache key gained a
     `SCHEMA` token (`v2-pseudo-force-gating`) so stale caches invalidate automatically.
 
-- **Cross-heading counter-force is a pure diagnostic.** With the heading held at the launch azimuth
-  (the actuator is assumed to cancel the lateral cross-heading pseudo-force), it has **no effect on the
-  trajectory**. `COMPUTE_CROSS_HEADING_COUNTER_FORCE` is the single flag governing it: when True the
+- **Cross-heading counter-force is a pure diagnostic.** The planar model has no cross-range degree
+  of freedom (the actuator is assumed to cancel the lateral pseudo-force), so it has **no effect on the
+  trajectory**; since 2026-10-05 it is the lateral load of the same due-east flight the in-plane terms
+  describe (`planar_pseudoforce_rates`). `COMPUTE_CROSS_HEADING_COUNTER_FORCE` is the single flag governing it: when True the
   per-step counter-force `m·|a_cross|` [N] is computed, stored and plotted; when False nothing is
   computed. (The former `INCLUDE_CROSS_HEADING_PSEUDO_FORCE` and `TRACK_HEADING_STATE` flags were
   removed — heading is no longer propagated as an ODE state.)
@@ -875,7 +892,7 @@ Each is legal to set but does something other than what you'd expect. With `file
        rocket equation, kept by decision 2026-09-24), i.e. the time to add the 8.16 m/s still
        missing at ~42 m/s²: 81.4 s × (1 − e^(−8.16/3414)) = 0.194 s, one frozen cycle. Burning
        longer would overshoot the speed target. The reference itself needs only ~1 m/s (0.025 s).
-       The target convention (unprojected credit; 2026-09-17) makes the 500 km target state
+       The target convention then in force (before 2026-10-05) made the 500 km target state
        reachable by coasting, so the plan puts nearly all the propulsion into arc 1.
     4. **The t_go estimate counts velocity, not position.** Nothing asks for the time a 2 km
        radius correction would need. The polynomial is asked to fix altitude and vertical rate in
@@ -1067,8 +1084,9 @@ Each is legal to set but does something other than what you'd expect. With `file
     (`dev-notes/repair_thrust_record.py`): thrust channel and budget fields only, a `repairs`
     entry in each manifest, originals in `Output/results_matrix_prerepair_20260926/`. Archives
     elsewhere under `Output/` still carry the old record.
-  - With the record right, the budget `residual` is ~0 in both rotation-off cases and −112 to
-    −138 m/s in every rotation-on case: the unprojected rotation credit (see above).
+  - With the record right, the budget `residual` is ~0 in both rotation-off cases and was −112 to
+    −138 m/s in every rotation-on case: the two mixed rotation credits, gone with
+    `EARTH_ROTATION_MODEL = "launch_site"` (2026-10-05, see above).
 
 - **The alpha channel had the same disease at the segmented law hand-off (found and FIXED
   2026-09-30).** Stage-2 alpha is interpolated from `GuidanceState.alpha_log`, which the RHS
@@ -1101,7 +1119,7 @@ Each is legal to set but does something other than what you'd expect. With `file
   - Result: gt_apogee re-searched (1000-point grid, 57 s): 22 168.7 → **21 534.2 kg**. SECO
     252.6 km, 1132 s coast, circularisation 1.1 m/s (was 89.8). The search now finds what the
     swarms find: the shared target is the apoapsis of a sub-circular ellipse, reachable by
-    coasting (see the unprojected-credit disclosure above). It still leads gt_baseline, by
+    coasting (before 2026-10-05; see `EARTH_ROTATION_MODEL` above). It still leads gt_baseline, by
     0.85 t instead of 1.48 t.
   - Drag. The full-simulation branch of `run()` set `rocket_specs.C_D = 0` after SECO and
     never restored it. The flight never saw it: `atmosphere.drag_force` had bound C_D = 0.3 as
