@@ -116,6 +116,57 @@ class TestArcs:
         assert first == pytest.approx(32.0, abs=0.1) and coast is None and final is None
 
 
+class TestArcSplit:
+    """The steering split of the waypoint tables and the event altitudes of the
+    reference table (walkthrough S4-F1, S1-T1, 2026-10-06)."""
+
+    ALPHA = 0.1
+
+    def _flight(self, coast_s):
+        """Burns as in TestArcs, steered at a constant angle of attack."""
+        time = np.round(np.arange(0.0, 120.0 + coast_s, 0.05), 6)
+        on = ((time <= 20.0) | ((time >= 28.0) & (time <= 60.0))
+              | ((time >= 60.0 + coast_s) & (time <= 70.0 + coast_s)))
+        n = len(time)
+        data = np.vstack([time, 6.4e6 + 1e3 * time, 1e3 + time, np.full(n, 0.5),
+                          1e5 - time])
+        return _data.Case.from_arrays(
+            "case", time, data, np.where(on, 1e6, 0.0), np.where(on, self.ALPHA, 0.0),
+            row={"architecture": "pso_coast"}, t_meco=20.0, t_seco=70.0 + coast_s)
+
+    def test_the_final_burn_gets_the_steering_after_the_coast(self):
+        case = self._flight(300.0)
+        first, final = tables.steering_split(case)
+        # The final burn: 10 s at T/m = 1e6 / (1e5 - t) and 1 - cos(alpha).
+        t = np.linspace(360.0, 370.0, 201)
+        expected = np.trapezoid(1e6 / (1e5 - t) * (1.0 - np.cos(self.ALPHA)), t)
+        assert final == pytest.approx(expected, rel=0.02)
+        assert first + final == pytest.approx(case.loss_histories()["steering"][-1])
+
+    def test_without_a_coast_everything_is_the_first_burn(self):
+        first, final = tables.steering_split(self._flight(0.5))
+        assert final is None and first > 0.0
+
+    def test_altitudes_are_read_where_each_arc_begins(self):
+        case = self._flight(300.0)
+        assert tables.coast_start(case) == pytest.approx(60.0, abs=0.06)
+        # alt = r - R_E, r = 6.4e6 + 1e3 t.
+        from Auxiliary import constants as c
+        expected_km = (6.4e6 + 1e3 * 20.0 - c.R_EARTH) / 1e3
+        assert tables.altitude_at(case, case.t_meco) == pytest.approx(expected_km, abs=0.1)
+        assert tables.altitude_at(case, None) is None
+
+
+def test_the_run_card_stops_each_curve_at_insertion():
+    from Plots.results_figures import run_card
+    case = _case("pso_coast", t_seco=60.0)
+    clipped = run_card._Clipped(case, True)
+    assert clipped.time[-1] == pytest.approx(60.0, abs=2.0)
+    assert len(clipped.alt_km) == len(clipped.time) == case.insertion_index()
+    assert clipped.row is case.row
+    assert len(run_card._Clipped(case, False).time) == len(case.time)
+
+
 def test_each_case_is_short_of_the_reference_of_its_own_environment():
     def flown(architecture, prop, drag=True, rotation=True, nozzle="pressure"):
         case = _case(architecture)

@@ -12,9 +12,10 @@ of its own, results_peg_vs_reference.png (N6-04).
 
 Outputs
 -------
-results_reference_card.png        fig:reference_card
-results_peg_atmosphere.png        fig:peg_atmosphere
+results_reference_profiles.png    fig:reference_card (the figure that replaces the card)
 results_peg_waypoint.png          fig:peg_waypoint
+
+On request only: results_reference_card.png, results_peg_atmosphere.png.
 """
 
 import matplotlib.pyplot as plt
@@ -407,4 +408,176 @@ def reference_timeline_overlay(cases, filename="reference_timeline_overlay.png")
     return st.save(fig, filename)
 
 
-FIGURES = [reference_card, peg_atmosphere, peg_waypoint]
+# The quantities of the reference profiles, in legend order, with their colours
+# and fixed limits: the three references share every axis, so a difference
+# between panels is a difference between flights, not between scales.
+PROFILE_AXES = [
+    ("alt", "Altitude [km]", st.INK, (0.0, 540.0)),
+    ("gamma", r"Flight-path angle $\gamma$ [deg]", OVERLAY_COLOURS["gamma"], (-3.0, 93.0)),
+    ("accel", r"Thrust accel. $T/(m g_0)$ [g]", OVERLAY_COLOURS["accel"], (0.0, 7.5)),
+    ("q", "Dynamic pressure [kPa]", OVERLAY_COLOURS["q"], (0.0, 60.0)),
+    ("mach", "Mach [-]", OVERLAY_COLOURS["mach"], (0.0, 13.0)),
+]
+
+# Spine positions of the parallel y-axes, in axes fractions of the host.
+_PROFILE_SPINES = {"gamma": ("left", -0.16), "accel": ("right", 1.0),
+                   "q": ("right", 1.13), "mach": ("right", 1.26)}
+
+# What the compressed time axis keeps at full scale on either side of a coast,
+# and how wide [s of axis] the coast itself is drawn.
+_COAST_MARGIN_S = (40.0, 25.0)
+_COAST_WIDTH_S = 70.0
+
+
+def _compressed_time(t0, t1, width):
+    """Forward and inverse maps of a time axis that keeps its scale outside
+    [t0, t1] and draws that span *width* seconds wide."""
+    k = width / (t1 - t0)
+    shift = (t1 - t0) - width
+
+    def forward(t):
+        t = np.asarray(t, dtype=float)
+        return np.where(t <= t0, t, np.where(t <= t1, t0 + (t - t0) * k, t - shift))
+
+    def inverse(x):
+        x = np.asarray(x, dtype=float)
+        return np.where(x <= t0, x, np.where(x <= t0 + width, t0 + (x - t0) / k,
+                                             x + shift))
+    return forward, inverse
+
+
+def _profile_panel(ax, case, title, waypoint=None):
+    """One reference against time on five parallel y-axes. Returns the axes by
+    quantity, for the shared legend."""
+    from Auxiliary import constants as const
+
+    end = case.insertion_index()
+    t = case.time[:end]
+    series = {
+        "alt": case.alt_km[:end],
+        "gamma": case.gamma_deg[:end],
+        "accel": case.thrust[:end] / case.mass[:end] / const.G_0,
+    }
+    # Dynamic pressure and Mach up to the atmosphere exit, above which neither
+    # describes a flow; a drag-free reference flew neither, so it gets neither.
+    if case.row.get("include_drag") is not False:
+        alt_exit = float((case.manifest.get("config") or {})
+                         .get("ALT_NO_ATMOSPHERE", 65e3)) / 1e3
+        crossed = np.where(case.alt_km[:end] >= alt_exit)[0]
+        in_atm = t <= (t[crossed[0]] if crossed.size else t[-1])
+        series["q"] = np.where(in_atm, case.q[:end] / 1e3, np.nan)
+        series["mach"] = np.where(in_atm, case.mach[:end], np.nan)
+
+    axes = {"alt": ax}
+    for key, label, colour, ylim in PROFILE_AXES:
+        if key not in series:
+            continue
+        if key != "alt":
+            side, offset = _PROFILE_SPINES[key]
+            twin = ax.twinx()
+            twin.spines["right" if side == "left" else "left"].set_visible(False)
+            twin.spines["top"].set_visible(False)
+            twin.spines[side].set_visible(True)
+            twin.spines[side].set_position(("axes", offset))
+            twin.yaxis.set_ticks_position(side)
+            twin.yaxis.set_label_position(side)
+            axes[key] = twin
+        target = axes[key]
+        target.spines["left" if key in ("alt", "gamma") else "right"].set_color(colour)
+        target.tick_params(axis="y", colors=colour, labelcolor=st.INK, labelsize=6.8)
+        target.set_ylabel(label, color=colour, fontsize=7.4)
+        target.set_ylim(*ylim)
+        tt, yy = st.thin(t, series[key])
+        target.plot(tt, yy, color=colour, linewidth=1.15, label=label)
+
+    # Arc structure: the coast shaded, dotted lines at MECO and at the two
+    # second-stage cut-offs.
+    burns = pn.burn_intervals(case, stage2_only=True)
+    coasts = case.coast_intervals()
+    for c0, c1 in coasts:
+        ax.axvspan(c0, c1, color=st.FAINT, alpha=0.45, linewidth=0, label="Coast")
+    events = [(case.t_meco, "MECO")] + [(b[1], "SECO %d" % (i + 1))
+                                        for i, b in enumerate(burns)]
+    for t_evt, text in events:
+        if t_evt is None:
+            continue
+        ax.axvline(t_evt, color=st.INK, linestyle=":", linewidth=0.8)
+        ax.annotate(text, xy=(t_evt, 1.0), xycoords=("data", "axes fraction"),
+                    xytext=(-2, -3), textcoords="offset points", fontsize=6.3,
+                    color=st.INK, rotation=90, ha="right", va="top")
+    if waypoint is not None:
+        pn.mark_waypoint(ax, waypoint)
+
+    # The coast is most of the flight and nothing happens in it, so it is drawn
+    # compressed between two breaks, its length printed in it.
+    t_end = float(t[-1])
+    ax.set_xlim(0.0, t_end + 10.0)
+    if coasts:
+        c0, c1 = max(coasts, key=lambda s: s[1] - s[0])
+        cut0, cut1 = c0 + _COAST_MARGIN_S[0], c1 - _COAST_MARGIN_S[1]
+        if cut1 - cut0 > _COAST_WIDTH_S:
+            ax.set_xscale("function", functions=_compressed_time(cut0, cut1,
+                                                                 _COAST_WIDTH_S))
+            # One tick after the coast: the final segment is ~40 s of axis, too
+            # narrow for two labels.
+            ticks = list(np.arange(0.0, cut0, 100.0))
+            ticks.append(max(np.round(t_end / 10.0) * 10.0, np.ceil(cut1 / 10.0) * 10.0))
+            ax.set_xticks(ticks)
+            ax.set_xticklabels(["%.0f" % v for v in ticks])
+            for cut in (cut0, cut1):
+                ax.annotate("//", xy=(cut, 0.0), xycoords=("data", "axes fraction"),
+                            ha="center", va="center", fontsize=8, color=st.INK,
+                            bbox={"boxstyle": "square,pad=0.05", "fc": "white",
+                                  "ec": "none"})
+            # The middle of the coast maps to the middle of its compressed band.
+            ax.annotate("coast\n%.0f s" % (c1 - c0), xy=(0.5 * (cut0 + cut1), 0.2),
+                        xycoords=("data", "axes fraction"), fontsize=6.5,
+                        color=st.GREY, ha="center", va="center")
+    ax.set_xlabel("Time [s]")
+    ax.set_title(title, loc="left", fontsize=8.5, color=st.INK, fontweight="bold")
+    ax.grid(True, color=st.FAINT, linewidth=0.5, alpha=0.8)
+    ax.set_axisbelow(True)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    return axes
+
+
+def reference_profiles(cases):
+    """The three references against time, one panel each, every quantity on its
+    own y-axis (walkthrough S1-F1, 2026-10-06).
+
+    Altitude, flight-path angle, thrust acceleration, dynamic pressure and Mach
+    share the time axis; MECO and the second-stage cut-offs are dotted, the coast
+    is shaded and drawn compressed. The atmospheric reference carries the
+    coast-start waypoint. The linear-tangent fit of the reference's steering,
+    which the card drew, is quoted in the text instead.
+    """
+    names = ("pmp_baseline", "pmp_vacuum", "pmp_norot")
+    missing = _data.missing_from(cases, *names)
+    if missing:
+        return _skip("reference profiles", missing)
+    titles = ("(a) Reference", "(b) Reference, no atmosphere",
+              "(c) Reference, non-rotating Earth")
+
+    fig, panels = plt.subplots(3, 1, figsize=(6.3, 8.2))
+    fig.subplots_adjust(left=0.17, right=0.70, top=0.97, bottom=0.12, hspace=0.42)
+    first = None
+    for ax, name, title in zip(panels, names, titles):
+        wp = pn.waypoint(cases[name]) if name == "pmp_baseline" else None
+        axes = _profile_panel(ax, cases[name], title, waypoint=wp)
+        first = first or axes
+
+    # One legend for the figure, from the first panel, which carries every entry.
+    entries = {}
+    for ax in first.values():
+        for h, l in zip(*ax.get_legend_handles_labels()):
+            entries.setdefault(l, h)
+    fig.legend(list(entries.values()), list(entries.keys()), loc="lower center",
+               ncol=3, fontsize=6.8, frameon=False, bbox_to_anchor=(0.5, 0.0))
+    return st.save(fig, "results_reference_profiles.png")
+
+
+# Since 2026-10-06 (walkthrough) the chapter draws the references as profiles
+# rather than as a card (S1-F1), and no longer draws PEG with and without the
+# atmosphere (S3-F3); reference_card and peg_atmosphere are drawn on request.
+FIGURES = [reference_profiles, peg_waypoint]

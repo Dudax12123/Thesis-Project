@@ -20,7 +20,7 @@ from . import _style as st
 
 
 def draw(case, filename, title=None, background=None, background_label=None,
-         waypoint=None, pitch_fits=None):
+         waypoint=None, pitch_fits=None, to_insertion=True):
     """Draw the run card for one :class:`~._data.Case` and save it.
 
     Panels absent from the data are handled rather than assumed: a run without
@@ -37,15 +37,19 @@ def draw(case, filename, title=None, background=None, background_label=None,
     curves drawn dotted over the pitch of panel (c). Both exist for the
     reference card, which carries the waypoint the later cases aim at and the
     linear-tangent fit of its steering.
+
+    With *to_insertion* (the default since 2026-10-06, walkthrough S2-F1) each
+    curve stops where its own flight inserts: every archive carries ~1000 s of
+    orbit after insertion as a check, and drawn on, it reads as flight.
     """
+    case = _Clipped(case, to_insertion)
+    background = None if background is None else _Clipped(background, to_insertion)
     fig, axes = plt.subplots(2, 2, figsize=st.WIDE_4)
     (ax_a, ax_b), (ax_c, ax_d) = axes
     faint = {"color": st.FAINT, "linewidth": 1.0, "zorder": 1}
 
     # (a) the trajectory in space. The dashed line is the target orbit, not the
-    # state reached: the curve continues past insertion along the terminal
-    # ballistic arc, so marking the insertion state as a horizontal line would
-    # suggest the trajectory stops there.
+    # state reached.
     if background is not None:
         s_km, alt_km = st.thin(background.downrange_km, background.alt_km)
         ax_a.plot(s_km, alt_km, label=background_label, **faint)
@@ -147,3 +151,21 @@ def draw(case, filename, title=None, background=None, background_label=None,
         fig.suptitle(title, fontsize=9.5, y=1.005)
     fig.tight_layout()
     return st.save(fig, filename)
+
+
+class _Clipped:
+    """A Case seen up to its insertion: the per-sample channels the card draws
+    are cut there, and everything else is the case's own."""
+
+    _CHANNELS = ("time", "downrange_km", "alt_km", "v", "theta_deg", "gamma_deg",
+                 "alpha_deg", "q", "mach")
+
+    def __init__(self, case, clip):
+        self._case = case
+        self._end = case.insertion_index() if clip else len(case.time)
+
+    def __getattr__(self, name):
+        value = getattr(self._case, name)
+        if name in self._CHANNELS:
+            return value[:self._end]
+        return value

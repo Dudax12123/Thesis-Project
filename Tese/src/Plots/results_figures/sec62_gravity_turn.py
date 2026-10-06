@@ -1,12 +1,14 @@
 """Section 6.2 figures -- the gravity turn along its three secondary axes.
 
-Two figures. The first is the baseline flight as a run card; the second has
-one row per secondary axis, each the baseline overlaid with the single case
-that differs from it. The rows were three figures of their own until the
-outline review of 2026-10-04 (N6-03) merged them; each is drawn as it was. The
-atmosphere is not among them: since 2026-09-29 it is varied on powered explicit
-guidance (sec63_peg.peg_atmosphere), and gt_vacuum and gt_direct are archived
-but not reported.
+Two figures. The first is the baseline flight as a run card; the second draws
+each secondary axis as the baseline overlaid with the single case that differs
+from it. The axes were three figures of their own until the outline review of
+2026-10-04 (N6-03) merged them into three rows of two panels; the walkthrough
+of 2026-10-06 (S2-F3) kept the four panels the text reads and dropped the two
+that repeated another (the architecture in downrange, the rotating and
+non-rotating trajectories, which overlap). The atmosphere is not among the axes:
+it is varied on powered explicit guidance, and gt_vacuum and gt_direct are
+archived but not reported.
 
 Outputs
 -------
@@ -42,20 +44,6 @@ def baseline_card(cases):
     return run_card.draw(cases["gt_baseline"], "results_gt_baseline_card.png",
                          background=cases.get("pmp_baseline"),
                          background_label="Reference (indirect PMP)")
-
-
-def _overlay_trajectory(ax, entries, to_insertion=False):
-    """Altitude against downrange for several cases, in the shared house style.
-
-    *to_insertion* drops the orbit each archive carries after insertion, for a
-    figure whose cases insert at very different times.
-    """
-    for case, colour, label, style in entries:
-        end = case.insertion_index() if to_insertion else len(case.time)
-        s_km, alt_km = st.thin(case.downrange_km[:end], case.alt_km[:end])
-        ax.plot(s_km, alt_km, color=colour, label=label, linestyle=style)
-    ax.set_xlabel("Downrange [km]")
-    ax.set_ylabel("Altitude [km]")
 
 
 def _derivative(time, values):
@@ -109,80 +97,57 @@ def _mass_flow(time, mass, step_factor=10.0):
     return np.concatenate(t_out), np.concatenate(mdot_out), t_steps
 
 
-def _architecture_row(cases, ax_a, ax_b, tags):
-    """The same law under the coast-parameter and the apogee-check architectures.
+def _architecture_panel(cases, ax, tag):
+    """The same law under the coast-parameter and the apogee-check architectures,
+    in time, with each one's arc structure shaded: a guided final burn after the
+    swarm's coast against a coast to apogee closed by an impulsive
+    circularisation.
 
     The direct-insertion architecture is compared on powered explicit guidance
     instead (sec63_peg.peg_waypoint); gt_direct is archived, not reported.
     """
-    names = ("gt_baseline", "gt_apogee")
-    colours = (st.BASELINE, st.VARIANT2)
-
-    _overlay_trajectory(ax_a, [
-        (cases[name], colour, st.arch_label(cases[name].architecture), "-")
-        for name, colour in zip(names, colours)], to_insertion=True)
-    st.panel_tag(ax_a, tags[0])
-    st.tidy(ax_a)
-
-    # (b) the same two in time, with each one's arc structure shaded: a guided
-    # final burn after the swarm's coast against a coast to apogee closed by an
-    # impulsive circularisation.
-    for name, colour in zip(names, colours):
+    for name, colour in (("gt_baseline", st.BASELINE), ("gt_apogee", st.VARIANT2)):
         case = cases[name]
         end = case.insertion_index()
         t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
-        ax_b.plot(t, alt_km, color=colour, label=st.arch_label(case.architecture))
+        ax.plot(t, alt_km, color=colour, label=st.arch_label(case.architecture))
         for t0, t1 in case.coast_intervals():
-            ax_b.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel("Altitude [km]")
-    st.panel_tag(ax_b, tags[1])
-    st.tidy(ax_b, legend=False)
+            ax.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel("Altitude [km]")
+    st.panel_tag(ax, tag)
+    st.tidy(ax, legend_loc="lower right")
 
 
-def _rotation_row(cases, ax_a, ax_b, tags):
-    """Baseline against the non-rotating Earth.
+def _rotation_panel(cases, ax, tag):
+    """The pseudo-force accelerations the baseline flies, up to its insertion.
 
-    The second panel is deliberately a null result for one of the two cases: the
-    pseudo-force channels are recomputed under the same gate the equations of
-    motion use, so the non-rotating run is identically zero rather than small.
-    That is the evidence the switch did what it claims.
+    The non-rotating run is not drawn: its channels are recomputed under the
+    same gate the equations of motion use, so they are identically zero, and the
+    caption says so rather than spending two legend entries on flat lines.
     """
-    base, norot = cases["gt_baseline"], cases["gt_norot"]
-
-    _overlay_trajectory(ax_a, [
-        (base, st.BASELINE, "Rotating Earth", "-"),
-        (norot, st.VARIANT, "Non-rotating", "-"),
-    ])
-    st.panel_tag(ax_a, tags[0])
-    # No latitude inset since 2026-10-05: the latitude is held at its launch
-    # value for the whole ascent (EARTH_ROTATION_MODEL), so it would be a flat line.
-    st.tidy(ax_a, legend_loc="center")
-
-    for case, colour, tag in ((base, st.BASELINE, "rot."),
-                              (norot, st.VARIANT, "non-rot.")):
-        cor, cen = case.coriolis, case.centrifugal
-        if cor is None or cen is None:
-            continue
-        t, cor, cen = st.thin(case.time, cor, cen)
-        ax_b.plot(t, cor, color=colour, label="Coriolis (%s)" % tag)
-        ax_b.plot(t, cen, color=colour, linestyle="--",
-                  label="Centrifugal (%s)" % tag)
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel(r"Pseudo-force accel. [m/s$^2$]")
-    st.panel_tag(ax_b, tags[1])
-    st.tidy(ax_b)
+    base = cases["gt_baseline"]
+    cor, cen = base.coriolis, base.centrifugal
+    if cor is not None and cen is not None:
+        end = base.insertion_index()
+        t, cor, cen = st.thin(base.time[:end], cor[:end], cen[:end])
+        ax.plot(t, cor, color=st.BASELINE, label="Coriolis")
+        ax.plot(t, cen, color=st.BASELINE, linestyle="--", label="Centrifugal")
+    ax.set_xlabel("Time [s]")
+    ax.set_ylabel(r"Pseudo-force accel. [m/s$^2$]")
+    st.panel_tag(ax, tag)
+    st.tidy(ax)
 
 
-def _engine_row(cases, ax_a, ax_b, tags):
+def _engine_panels(cases, ax_a, ax_b, tags):
     """The pressure-dependent nozzle against a constant sea-level one.
 
     This is the one figure in which thrust and mass flow earn separate curves.
     Everywhere else mass flow is the thrust trace rescaled by a constant, since
     Isp is fixed per stage; under the pressure model Isp varies with altitude,
     so the two curves genuinely differ, and that difference is the case.
-    Returns the end-of-trace labels of the inset, for st.dodge_labels once the
-    whole figure is laid out.
+    Returns the end-of-trace labels of the mass panel, for st.dodge_labels once
+    the whole figure is laid out.
     """
     base, sl = cases["gt_baseline"], cases["gt_sea_level_engine"]
 
@@ -230,71 +195,56 @@ def _engine_row(cases, ax_a, ax_b, tags):
     st.panel_tag(ax_a, tags[0])
     st.tidy(ax_a, legend_loc="center left")
 
+    # The two cut-offs are under 2 s apart, so their labels are stacked beside
+    # the thrust cut-off rather than rotated onto each other, to the tenth of a
+    # second the shift is measured in.
+    for row, (case, colour) in enumerate(((base, st.BASELINE), (sl, st.VARIANT))):
+        if case.t_meco is not None:
+            ax_a.annotate("MECO %.1f s" % case.t_meco,
+                          xy=(case.t_meco, 0.40 - 0.08 * row),
+                          xycoords=("data", "axes fraction"), xytext=(-3, 0),
+                          textcoords="offset points", fontsize=6.5, color=colour,
+                          ha="right", va="top")
+
     # The two nozzle models are compared on what reaches orbit, and that
     # difference is a couple of tonnes against a 517 t launch mass -- invisible
-    # on an axis scaled to the launch mass. The inset zooms the post-MECO tail,
-    # where the whole of the difference is.
-    # The inset starts at half width so the MECO labels beside the cut-off
-    # lines stay clear of its tick labels.
-    ax_zoom = ax_b.inset_axes([0.50, 0.38, 0.47, 0.56])
+    # on an axis scaled to the launch mass. This panel therefore draws the mass
+    # from MECO to each flight's insertion, where the whole of the difference is.
     end_labels = []
-    meco_row = 0
     for case, colour in ((base, st.BASELINE), (sl, st.VARIANT)):
-        t, m = st.thin(case.time, case.mass)
-        ax_b.plot(t, m / 1e3, color=colour,
-                  label=st.nozzle_label(case.row.get("thrust_1_mode", "?")))
-        if case.t_meco is not None:
-            ax_b.axvline(case.t_meco, color=colour, linestyle=":", linewidth=0.9)
-            # The two cut-offs are under 2 s apart on a ~1800 s axis, so their
-            # lines coincide and rotated labels would print on top of each
-            # other. They are stacked beside the lines instead, to the tenth of
-            # a second the shift is measured in.
-            ax_b.annotate("MECO %.1f s" % case.t_meco,
-                          xy=(case.t_meco, 0.97 - 0.08 * meco_row),
-                          xycoords=("data", "axes fraction"), xytext=(4, 0),
-                          textcoords="offset points", fontsize=6.5, color=colour,
-                          ha="left", va="top")
-            meco_row += 1
-
-        tail = case.time >= (case.t_meco or 0.0)
+        start = int(np.searchsorted(case.time, case.t_meco or 0.0))
+        tail = slice(start, case.insertion_index())
         t_tail, m_tail = st.thin(case.time[tail], case.mass[tail])
-        ax_zoom.plot(t_tail, m_tail / 1e3, color=colour, linewidth=1.0)
-        end_labels.append(ax_zoom.annotate(
+        ax_b.plot(t_tail, m_tail / 1e3, color=colour)
+        end_labels.append(ax_b.annotate(
             "%.1f t" % (m_tail[-1] / 1e3),
             xy=(t_tail[-1], m_tail[-1] / 1e3), xytext=(3, 0),
             textcoords="offset points", fontsize=6.5, color=colour))
-
-    ax_zoom.set_title("After MECO", fontsize=6.5, pad=2)
-    ax_zoom.tick_params(labelsize=6)
-    ax_zoom.margins(x=0.22)
-    for side in ("top", "right"):
-        ax_zoom.spines[side].set_visible(False)
-
+    ax_b.margins(x=0.14)
     ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel("Total mass [t]")
+    ax_b.set_ylabel("Mass after MECO [t]")
     st.panel_tag(ax_b, tags[1])
-    # No legend here: it would repeat panel (a)'s in the same two colours, and
-    # the only corner with room for it is the one the inset occupies.
+    # No legend: it would repeat panel (c)'s in the same two colours.
     st.tidy(ax_b, legend=False)
     return end_labels
 
 
 def secondary_axes(cases):
-    """The gravity turn along its three secondary axes, one row each.
+    """The gravity turn along its three secondary axes, in four panels.
 
-    Rows: the architecture (a, b), the rotation of the Earth (c, d) and the
-    Stage-1 engine model (e, f), each the baseline against the one case that
-    differs from it.
+    (a) the architecture, (b) the pseudo-forces of the rotating Earth, (c) and
+    (d) the Stage-1 engine model; each the baseline against the one case that
+    differs from it, every curve stopping at its own insertion.
     """
-    names = ("gt_baseline", "gt_apogee", "gt_norot", "gt_sea_level_engine")
+    names = ("gt_baseline", "gt_apogee", "gt_sea_level_engine")
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("gt secondary axes", missing)
 
-    fig, axes = plt.subplots(3, 2, figsize=st.TALL_6)
-    _architecture_row(cases, *axes[0], tags="ab")
-    _rotation_row(cases, *axes[1], tags="cd")
-    end_labels = _engine_row(cases, *axes[2], tags="ef")
+    fig, axes = plt.subplots(2, 2, figsize=st.WIDE_4)
+    _architecture_panel(cases, axes[0][0], "a")
+    _rotation_panel(cases, axes[0][1], "b")
+    end_labels = _engine_panels(cases, *axes[1], tags="cd")
 
     fig.tight_layout()
     st.dodge_labels(fig, end_labels)

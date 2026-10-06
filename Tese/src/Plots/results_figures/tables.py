@@ -185,6 +185,37 @@ def arcs(case):
     return first, coast, burns[-1][1] - burns[-1][0]
 
 
+def coast_start(case):
+    """When the second stage's first burn ends [s], or None for a single burn."""
+    burns = _panels.burn_intervals(case, stage2_only=True)
+    return burns[0][1] if len(burns) >= 2 else None
+
+
+def altitude_at(case, t):
+    """Altitude [km] on the archived trajectory at time *t*, None for no time."""
+    if t is None:
+        return None
+    return float(np.interp(t, case.time, case.alt_km))
+
+
+def steering_split(case):
+    """Steering loss [m/s] before and after the second stage's longest coast.
+
+    The loss integral covers the powered arc only, so the split is its value
+    where that coast starts and the remainder. With no coast long enough to
+    separate two burns (Case.coast_intervals' 5 s floor) the remainder is None.
+    """
+    hist = case.loss_histories()["steering"]
+    t = case.time[:case.cutoff_index()]
+    total = float(hist[-1])
+    spans = case.coast_intervals()
+    if not spans:
+        return total, None
+    t0, _t1 = max(spans, key=lambda s: s[1] - s[0])
+    before = float(np.interp(t0, t, hist))
+    return before, total - before
+
+
 def hand_off_km(case):
     """Where the segmented schedule hands over to its second law [km]."""
     schedule = case.segment_schedule
@@ -248,6 +279,10 @@ def _missing(cases, names, table):
 
 # --- the tables --------------------------------------------------------------
 def reference_results(cases):
+    """The three references, arc by arc: where each arc begins and how long it
+    lasts. Every reference inserts on the circular target orbit, so the altitudes
+    worth a column are those at main-engine cut-off and at the coast start
+    (walkthrough S1-T1 and S1-F2, 2026-10-06), not h_a and h_p."""
     names = ["pmp_baseline", "pmp_vacuum", "pmp_norot"]
     if _missing(cases, names, "reference_results"):
         return None
@@ -255,14 +290,14 @@ def reference_results(cases):
     for n in names:
         k = cases[n]
         first, coast, final = arcs(k)
-        rows.append([case_cell(n), tonnes(prop(k)), seconds(first), seconds(coast),
-                     seconds(final), num(k.row["apoapsis_km"]),
-                     num(k.row["periapsis_km"]), tonnes(SWARM_POINT_KG.get(n))])
+        rows.append([case_cell(n), tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
+                     seconds(first), num(altitude_at(k, coast_start(k))),
+                     seconds(coast), seconds(final), tonnes(SWARM_POINT_KG.get(n))])
     return tabular(
         "l r r r r r r r",
-        bold("Case", "Prop. left", "First burn", "Coast", "Final burn", "$h_a$",
-             "$h_p$", "Swarm point"),
-        ["", "[t]", "[s]", "[s]", "[s]", "[km]", "[km]", "[t]"], rows)
+        bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", "First burn",
+             r"$h_{\mathrm{coast}}$", "Coast", "Final burn", "Swarm point"),
+        ["", "[t]", "[km]", "[s]", "[km]", "[s]", "[s]", "[t]"], rows)
 
 
 def gt_results(cases):
@@ -305,26 +340,32 @@ def peg_results(cases):
 
 
 def _waypoint_table(cases, orbit, waypoint, table):
+    """The steering loss is split at the coast (walkthrough S4-F1, 2026-10-06):
+    whether a waypoint case loses its propellant in the first burn or after the
+    coast is the question its section answers."""
     names = [orbit, waypoint, "pmp_baseline"]
     if _missing(cases, names, table):
         return None
     rows = []
     for n in names:
         k = cases[n]
-        prop_, short, coast, steer, ha, hp = _law_row(n, cases)[1:]
+        prop_, short, coast, _steer, ha, hp = _law_row(n, cases)[1:]
         miss = k.waypoint_miss()
         dh, dv, dg = (DASH,) * 3 if miss is None else (
             num(miss[0], 0, signed=True), num(miss[1], 2, signed=True),
             num(miss[2], 3, signed=True))
-        rows.append([case_cell(n), prop_, short, coast, dh, dv, dg, steer, ha, hp])
+        first, final = steering_split(k)
+        rows.append([case_cell(n), prop_, short, coast, dh, dv, dg, num(first),
+                     num(final), ha, hp])
     return tabular(
-        "l r r r r r r r r r",
+        "l r r r r r r r r r r",
         bold("Case", "Prop. left", "Shortfall", "Coast")
-        + [r"\multicolumn{3}{c}{\textbf{Waypoint miss}}"]
-        + bold("Steering loss", "$h_a$", "$h_p$"),
+        + [r"\multicolumn{3}{c}{\textbf{Waypoint miss}}",
+           r"\multicolumn{2}{c}{\textbf{Steering loss}}"]
+        + bold("$h_a$", "$h_p$"),
         ["", "[t]", "[kg]", "[s]", r"$\Delta h$ [m]", r"$\Delta v$ [m/s]",
-         r"$\Delta\gamma$ [deg]", "[m/s]", "[km]", "[km]"],
-        rows, rule_under_heads=r"\cmidrule(lr){5-7}")
+         r"$\Delta\gamma$ [deg]", "first [m/s]", "final [m/s]", "[km]", "[km]"],
+        rows, rule_under_heads=r"\cmidrule(lr){5-7} \cmidrule(lr){8-9}")
 
 
 def peg_waypoint(cases):

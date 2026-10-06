@@ -181,6 +181,30 @@ def mark_instant(ax, t, text, colour=st.INK):
                 color=colour, rotation=90, ha="right", va="bottom")
 
 
+def mark_arc_events(ax, entries, label_top=False):
+    """Dotted lines at main-engine cut-off and at every second-stage cut-off.
+
+    MECO is the same instant for every case, so it is drawn once and named --
+    along the panel's foot, or its top where the curves pass through the foot;
+    each case's cut-offs are drawn in its own colour and named once, by a legend
+    entry, since four sets of rotated labels would land on one another. Lines
+    past the panel's x-range are clipped by the axes.
+    """
+    t_meco = next((case.t_meco for case, *_ in entries if case.t_meco), None)
+    if t_meco is not None and label_top:
+        ax.axvline(t_meco, color=st.INK, linestyle=":", linewidth=0.8)
+        ax.annotate("MECO", xy=(t_meco, 0.97), xycoords=("data", "axes fraction"),
+                    xytext=(-2, 0), textcoords="offset points", fontsize=6.3,
+                    color=st.INK, rotation=90, ha="right", va="top")
+    elif t_meco is not None:
+        mark_instant(ax, t_meco, "MECO")
+    for case, colour, _style, _label in entries:
+        for _t0, t1 in burn_intervals(case, stage2_only=True):
+            ax.axvline(t1, color=colour, linestyle=":", linewidth=0.8, alpha=0.9)
+    ax.plot([], [], color=st.GREY, linestyle=":", linewidth=0.8,
+            label="SECO (case colour)")
+
+
 def waypoint_figure(cases, orbit_name, waypoint_name, law, filename, extra=()):
     """One law with its first burn aimed at the orbit and at the waypoint.
 
@@ -190,6 +214,10 @@ def waypoint_figure(cases, orbit_name, waypoint_name, law, filename, extra=()):
     the waypoint is marked in both panels. *extra* holds further
     ``(case_name, colour, linestyle, label)`` entries, drawn after the
     orbit-aimed flight.
+
+    Both panels carry the arc structure: each case's coasts shaded in its
+    colour, and dotted lines at MECO and at every cut-off (walkthrough S3-F1,
+    2026-10-06).
     """
     names = ("pmp_baseline", orbit_name, waypoint_name) + tuple(e[0] for e in extra)
     missing = _data.missing_from(cases, *names)
@@ -212,10 +240,14 @@ def waypoint_figure(cases, orbit_name, waypoint_name, law, filename, extra=()):
     altitude_panel(ax_a, entries)
     if wp is not None:
         mark_waypoint(ax_a, wp)
+    mark_arc_events(ax_a, entries, label_top=True)
     st.panel_tag(ax_a, "a")
     st.tidy(ax_a, legend_loc="lower right", legend_kw={"fontsize": 6.3})
 
     alpha_panel(ax_b, entries)
+    for t0, t1 in [s for case, *_ in entries for s in case.coast_intervals()]:
+        ax_b.axvspan(t0, t1, color=st.FAINT, alpha=0.35, linewidth=0)
+    mark_arc_events(ax_b, entries)
     if wp is not None:
         mark_instant(ax_b, wp["t"], "waypoint")
     st.panel_tag(ax_b, "b")
