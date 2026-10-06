@@ -33,7 +33,7 @@ import _refly
 CASES = {case["name"]: case for case in rm.build_matrix()}
 
 # The reference's own coast and kick, as in test_segmented_law_terminated.py
-REFERENCE_X = [1446.8331219788931, 1.5371391567133106]
+REFERENCE_X = [1741.2241903000172, 1.5366391567133137]
 
 
 def _configure(monkeypatch, case_name):
@@ -71,7 +71,10 @@ def test_discard_logs_after_trims_both_logs_in_step():
     assert gs.alpha_log is alpha_log             # trimmed in place
 
 
-@_refly.needs_new_reference
+# Same premise as test_segmented_law_terminated's peg_new flight, which fails on the
+# 2026-10-06 reference's own kick (hand-off at 579 s): it waits for show_seg_fixed_alt's
+# re-flown decision vector.
+@_refly.needs_refly("show_seg_fixed_alt")
 def test_the_recorded_alpha_has_no_old_law_samples_after_the_hand_off(monkeypatch):
     _configure(monkeypatch, "show_seg_fixed_alt")
     segs = sgs._Segments(*segref.get_pmp_reference(verbose=False))

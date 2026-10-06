@@ -32,7 +32,7 @@ import _refly
 CASES = {c["name"]: c for c in rm.build_matrix()}
 
 # The reference's own coast and kick (pmp_reference.npz, the 750x1500 seed-3 extremal)
-REFERENCE_X = [1446.8331219788931, 1.5371391567133106]
+REFERENCE_X = [1741.2241903000172, 1.5366391567133137]
 
 
 def _configure(monkeypatch, case_name, **extra):
@@ -83,8 +83,8 @@ def test_arc_1_aims_at_the_reference_coast_start(monkeypatch):
     with contextlib.redirect_stdout(io.StringIO()):
         plan = rts.load_plan(verbose=False)
     assert [plan["delta_tc"], plan["gamma_p"]] == REFERENCE_X
-    assert (cs.r, cs.v, cs.gamma) == (6542696.959761191, 7590.513949994785,
-                                      0.04908455916045073)
+    assert (cs.r, cs.v, cs.gamma) == (6516109.797355099, 7473.651154903046,
+                                      0.03384737893759682)
     assert cs.freeze_threshold == sim_params.APOLLO_FREEZE_THRESHOLD == 10.0
     assert segs.target[-1] is cs                 # the final law's first burn
     assert segs.target_alt[-1] == cs.alt
@@ -101,7 +101,11 @@ def test_the_swarm_searches_the_kick_the_coast_and_the_hand_off(monkeypatch):
     assert prob.get_bounds() == ([0.0, 1.50, 0.0], [2000.0, 1.57, 1.0])
 
 
-@_refly.needs_new_reference
+# Since the 2026-10-06 reference this flight's premise fails: on the reference's own kick
+# the gravity turn reaches the 120 km hand-off only after the second stage has burnt out
+# (the coast start moved down to 138 km). It waits for show_seg_fixed_alt's re-flown
+# decision vector, which it should then fly instead of REFERENCE_X.
+@_refly.needs_refly("show_seg_fixed_alt")
 def test_peg_new_ends_arc_1_at_the_coast_start(monkeypatch):
     """Flown on the reference's own kick and coast: the gravity turn to 120 km, then
     peg_new to the coast start, cut by its own t_go -- a miss the size of
@@ -123,7 +127,11 @@ def test_peg_new_ends_arc_1_at_the_coast_start(monkeypatch):
     assert float(result["state_final"][4]) == 25490.33297846938
 
 
-@_refly.needs_new_reference
+# On REFERENCE_X the 2026-10-06 reference's flight burns out before the hand-off, and on
+# that degenerate flight the two J' differ in the 15th digit. On a flight that reaches
+# orbit (a 20x20 check, x = [1591.02, 1.53997]) they are bit-identical. Re-pin to the
+# re-flown show_seg_fixed_alt decision vector.
+@_refly.needs_refly("show_seg_fixed_alt")
 def test_the_dense_rerun_flies_the_flight_the_swarm_scored(monkeypatch):
     _configure(monkeypatch, "show_seg_fixed_alt")
     segs = _segments()

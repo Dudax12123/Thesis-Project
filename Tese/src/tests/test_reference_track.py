@@ -26,11 +26,11 @@ import Simulation.pso_coast_solver as pcs
 import Simulation.reference_track_solver as rts
 import Simulation.segment_reference as segref
 
-# The tracked pmp_reference.npz: the 750x1500 seed-3 half-step extremal (bceab71),
-# re-seeded with its decision vector on 2026-09-23.
-REFERENCE_X = [-8.164825684552658e-06, -0.00595717532331387, -0.9999822558403237,
-               1446.8331219788931, 75.9779861533329, 99.99030152462818,
-               1.5371391567133106]
+# The tracked pmp_reference.npz: the 750x1500 seed-3 half-step extremal
+# (Output/pmp_polish_launchsite_20261006, stored 2026-10-06).
+REFERENCE_X = [-8.872899717256695e-06, -0.0065468515280599675, -0.9999785690985289,
+               1741.2241903000172, 75.59014899864698, 98.39026111577596,
+               1.5366391567133137]
 # J' of show_ref_track / show_ref_track_apollo flown from it (pso_coast's objective).
 SHOW_REF_TRACK_J = 1.8680088287750078
 SHOW_REF_TRACK_APOLLO_J = 1.83283540384996

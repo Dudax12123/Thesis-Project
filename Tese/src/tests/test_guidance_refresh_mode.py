@@ -34,12 +34,12 @@ SHOW_APOLLO_X = [0.0, 91.60758745728216, 94.00948186783256, 1.5668927372031136]
 # pseudo-forces crediting the launch-site speed) at the same x; the 2026-09-24 values
 # were (196.68278412119147, 193.06019613639359), (5.948042294131451, 4.753001936532169)
 # and (0.9651918327810947, 1.2778648569777045). show_seg_fixed_alt flies the PMP
-# reference, so it waits for the reference to be re-flown under the current model.
+# reference, re-pinned against the reference stored on 2026-10-06.
 MEASURED = [
     ("peg_baseline", PEG_BASELINE_X, 192.26428324390105, 188.82657990400705),
     ("peg_direct", PEG_DIRECT_X, 3.5147273308570246, 6.682037401352892),
     ("show_apollo", SHOW_APOLLO_X, 3.2709022913922157, 3.371003397971262),
-    pytest.param("show_seg_fixed_alt", PEG_BASELINE_X, 194.1997792989455, 190.70919485959266,
+    pytest.param("show_seg_fixed_alt", PEG_BASELINE_X, 189.40414583769518, 185.95515629206483,
                  marks=_refly.needs_new_reference),
 ]
 

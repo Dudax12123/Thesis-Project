@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "run_id": "pmp_vacuum",
-  "created_utc": "2026-10-05T14:40:33+00:00",
-  "created_local": "2026-10-05T15:40:33",
+  "created_utc": "2026-10-06T12:53:13+00:00",
+  "created_local": "2026-10-06T13:53:13",
   "wall_clock_s": 0.5,
   "source": "matrix:pmp_vacuum",
   "label": "6.4 / reference",
@@ -10,9 +10,9 @@
   "guidance_mode": "indirect_pmp",
   "n_evaluations": 1,
   "git": {
-    "commit": "9a52002152721c7eeb9687f37ce72cf7458274bb",
+    "commit": "fbca83eb9ccd9a88f6c034dad9e697fe087f3ad4",
     "branch": "HEAD",
-    "describe": "9a52002",
+    "describe": "fbca83e",
     "dirty": false
   },
   "env": {
@@ -64,6 +64,7 @@
     "DURATION_AFTER_SIMULATION": 1000.0,
     "DURATION_INITIAL_KICK": 45.0,
     "DYNAMIC_PRESSURE_THRESHOLD": 1000.0,
+    "EARTH_ROTATION_MODEL": "launch_site",
     "ENABLE_EARTH_ROTATION": true,
     "EVENTS_PRINT": true,
     "FAIRING_JETTISON_MODE": "altitude",
@@ -224,7 +225,7 @@
       1.0,
       1.0,
       1.0,
-      2000.0,
+      2500.0,
       100.0,
       100.0,
       1.57

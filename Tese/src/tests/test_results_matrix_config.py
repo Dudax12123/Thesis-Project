@@ -106,15 +106,15 @@ def test_pmp_baseline_is_the_extremal_the_reference_cache_holds(monkeypatch):
 
 @_refly.needs_refly("pmp_baseline")
 def test_pmp_baseline_replays_the_polished_archive(monkeypatch):
-    """Re-flown, not searched: J and the delivered mass of the 2026-09-21 polish
-    archive (22 261.2 kg propellant remaining), to the last digit."""
+    """Re-flown, not searched: J and the delivered mass of the stored seed-3 extremal
+    (22 620.6 kg propellant remaining, 2026-10-06), to the last digit."""
     _configure(monkeypatch, "pmp_baseline")
     with contextlib.redirect_stdout(io.StringIO()):
         out = rm._dispatch(sim_params, CASES["pmp_baseline"])
     _t, _d, _thr, _a, result, J, history, extra = out
     assert history is None
-    assert J == 0.7598833804841622
-    assert float(result["state_final"][4]) == 26161.200231706312
+    assert J == 0.7561285839064963
+    assert float(result["state_final"][4]) == 26520.608922953772
     assert extra["decision_vector"] == rm.PMP_BASELINE_EXTREMAL
     assert extra["extremal_seed"] == 3
 
