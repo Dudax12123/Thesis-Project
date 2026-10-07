@@ -121,7 +121,7 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
     `dev-notes/pmp-references-750x1500-plan-2026-10-04.md`.
   - The refinement runs with the PMP coast bound `PSO_UB[3]` = 3500 s (2026-10-06).
     `pmp_vacuum` overrides it to 2500 s in its own case: without drag the family runs on to a
-    coast that grazes the surface, 4.3 km at 3500 s. The law swarms keep 2000 s
+    coast that grazes the surface, 4.4 km at 3500 s. The law swarms keep 2000 s
     (`PSO_COAST_UB`, `PSO_MG_UB`), which none of them approaches (0–820 s).
   - The stored extremals (2026-10-06, `Output/pmp_polish_launchsite_20261006/`):
 

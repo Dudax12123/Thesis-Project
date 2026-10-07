@@ -63,12 +63,12 @@ def main():
     args = parser.parse_args()
 
     st.use_thesis_style()
-    cases = _data.load_many(ALL_CASES, root=args.root)
+    cases = _data.load_many(ALL_CASES + _data.SUPPLEMENTARY_CASES, root=args.root)
     _data.check_one_rotation_model(cases)
 
     print("=" * 70)
     print("CHAPTER 6 FIGURES -- %d of %d cases available"
-          % (len(cases), len(ALL_CASES)))
+          % (sum(n in cases for n in ALL_CASES), len(ALL_CASES)))
     print("output: %s" % st.OUT_DIR)
     print("=" * 70)
     absent = [n for n in ALL_CASES if n not in cases]

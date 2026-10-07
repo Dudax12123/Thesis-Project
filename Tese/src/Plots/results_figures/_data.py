@@ -50,6 +50,13 @@ REPORTED_CASES = [
     "show_seg_fixed_alt", "show_seg_opt_alt",
 ]
 
+# Drawn beside a reported case but never ranked or tabulated, so no figure that
+# iterates REPORTED_CASES and no table sees them. pmp_vacuum_c3500 is the
+# drag-free reference refined from the same swarm point with the coast bound at
+# 3500 s instead of 2000 s: without drag it coasts from a lowest point 4.4 km
+# above the surface (Section 6.1, user decision 2026-10-07).
+SUPPLEMENTARY_CASES = ["pmp_vacuum_c3500"]
+
 
 def _scalar(z, key):
     """A 0-d array back to a float, with the harness NaN convention as None."""

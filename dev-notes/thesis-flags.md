@@ -55,7 +55,13 @@ Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, fig
     - S7-F7: `fig:solve_cost` is out (its PNG is kept).
     - S7-V1: extend the window now.
   - Re-rendered: every remaining stale float. All Ch. 6 floats now come from the results set.
-- **T27, C16, T37: closed by S7-V1 (code uncommitted).**
+- **§6.1 gains the drag-free coast-bound result (user, 2026-10-07; uncommitted).**
+  - A paragraph in `ssec:reference_discussion` plus `fig:vacuum_coast_bound` (`results_vacuum_coast_bound.png`, from `sec63.vacuum_coast_bound`).
+  - The supplementary case `pmp_vacuum_c3500` was copied into the results set; `_data.SUPPLEMENTARY_CASES` carries it.
+  - Cited to Walter 3rd ed. §6.4.2, pp. 154–155 (`Ulrich`).
+  - Lowest point 4.4 km in the model's own altitude (R_E = 6 378.0 km); the earlier "4.3 km" used 6 378.137 km.
+  - Page budget (T24): about +0.5 pp.
+- **T27, C16, T37: closed by S7-V1 (code `11a0446`).**
   - `run_record.apogee_impulse_index` runs `gt_apogee`'s budget window through the coast to the apoapsis and adds the impulse (ideal Δv; steering 2|Δv| if retro).
   - `rocket_ascent._finish_single_burn_rotating` closes the thrust log to zero at SECO. The archived record held 934 kN through the whole coast. Output-only: trajectories were never affected. Found while doing this.
   - Two regression tests in `test_apogee_check_coast.py` fail on the old code. Full suite: 296 passed, 5 skipped.

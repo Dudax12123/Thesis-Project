@@ -14,6 +14,7 @@ Outputs
 -------
 results_reference_profiles.png    fig:reference_card (the figure that replaces the card)
 results_peg_waypoint.png          fig:peg_waypoint
+results_vacuum_coast_bound.png    fig:vacuum_coast_bound
 
 On request only: results_reference_card.png, results_peg_atmosphere.png.
 """
@@ -580,7 +581,49 @@ def reference_profiles(cases):
     return st.save(fig, "results_reference_profiles.png")
 
 
+def vacuum_coast_bound(cases):
+    """The drag-free reference with its coast bounded at 2000 s and at 3500 s,
+    altitude against downrange (Section 6.1, user decision 2026-10-07).
+
+    Without drag nothing opposes an early turn to the horizontal, so with the
+    wider bound the optimum burns low and coasts from a lowest point a few
+    kilometres above the surface; that point is marked. Each curve stops at its
+    own insertion.
+    """
+    names = ("pmp_vacuum", "pmp_vacuum_c3500")
+    missing = _data.missing_from(cases, *names)
+    if missing:
+        return _skip("vacuum coast bound", missing)
+
+    fig, ax = plt.subplots(figsize=(6.3, 2.7))
+    styles = (("pmp_vacuum", "Coast bound 2000 s (reported)", st.REFERENCE),
+              ("pmp_vacuum_c3500", "Coast bound 3500 s", st.ACCENT))
+    for name, label, colour in styles:
+        case = cases[name]
+        _t, s_km, h_km = pn.to_insertion(case, case.downrange_km, case.alt_km)
+        ax.plot(s_km, h_km, color=colour, label=label)
+
+    case = cases["pmp_vacuum_c3500"]
+    t, s_km, h_km = pn.to_insertion(case, case.downrange_km, case.alt_km)
+    after = t > case.t_meco
+    i = int(np.argmin(np.where(after, h_km, np.inf)))
+    ax.plot(s_km[i], h_km[i], "o", color=st.ACCENT, markersize=4.5, zorder=4)
+    ax.annotate("lowest point %.1f km" % h_km[i], xy=(s_km[i], h_km[i]),
+                xytext=(8, 10), textcoords="offset points", fontsize=7,
+                color=st.ACCENT)
+
+    target = case.row.get("target_alt_km")
+    if target is not None:
+        ax.axhline(target, color=st.GREY, linestyle="--", linewidth=0.8,
+                   label="Target orbit, %.0f km" % target)
+    ax.axhline(0.0, color=st.INK, linewidth=0.8)
+    ax.set_xlabel("Downrange [km]")
+    ax.set_ylabel("Altitude [km]")
+    st.tidy(ax, legend=True, legend_loc="center right")
+    return st.save(fig, "results_vacuum_coast_bound.png")
+
+
 # Since 2026-10-06 (walkthrough) the chapter draws the references as profiles
 # rather than as a card (S1-F1), and no longer draws PEG with and without the
 # atmosphere (S3-F3); reference_card and peg_atmosphere are drawn on request.
-FIGURES = [reference_profiles, peg_waypoint]
+FIGURES = [reference_profiles, peg_waypoint, vacuum_coast_bound]
