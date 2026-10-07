@@ -33,6 +33,14 @@ Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, fig
 - **T26, T29, T30: moot.** The final references coast 1 823–1 987 s inside the shared 2 000 s bound. None stops at it, and Ch. 3's [0, 2 000] s is right again.
 - **T37. `gt_apogee`'s budget is still cut at SECO** (T27, C16). The page recommends a caption note on its `tab:loss_budget` row for now. The drafts keep its gravity loss (1 180 m/s) out of the group ranges.
 - **K13. Check in Overleaf:** `tab:showcase_laws` with six rows; `tab:peg_waypoint` with four rows and 11 columns (K11).
+- **§6.2–6.4 written in, 2026-10-07, thesis uncommitted.** S2-D1/D2, S3-D1/D2 and S4-D1/D2 replace their `\discuss` notes. Two new captions (approved in the chat): `fig:gt_baseline_card` and `fig:gt_axes` (2 × 2). `fig:peg_atmosphere` is out of the text; its PNG is kept. Re-rendered from the results set: `results_gt_baseline_card.png`, `results_gt_axes.png`, `gt_results`, `peg_results`, `loss_budget` and `caption_values` (the last two because §6.2–6.3 quote `tab:loss_budget`). T32 is done: `jaggers1974peg` is in the bibliography. The plot library change, uncommitted: `run_card` (b) drops the rotated "Coast" label, which sat on the speed curve. The shading still marks the coast.
+  - Still stale in the thesis, for §6.5–6.6 and App. A: `showcase_laws`, `full_results`, `architecture_cost`, and the six §6.6/App. figures.
+  - Left out: S2-D1's optional out-of-plane sentence (S2-T6). The approved S2-D2 already says the same thing.
+- **T38. §6.2.4 credits part of the apogee check's margin to its impulsive insertion. That is the user's wording, chosen 2026-10-07 against the data.**
+  - At apogee γ = 0 by construction, so the 93 m/s impulse corrects speed only. A finite burn of the same Δv would last 2.7 s (C20).
+  - The swarm gravity turn's own 18.2 s final burn loses 0.1 m/s of gravity and none of steering (α = 0), so there is little for the impulse to save. The 1.31 t comes from the lower staging and cut-off (gravity loss to SECO 1 180 against 1 768 m/s; T37).
+  - To make the sentence consistent, §6.2.1 now gives only the facts of the apogee check. S2-D1's "an idealization, but a small one … the margin comes from the trajectory instead" is out.
+  - An examiner could ask for the number. Offer the bounded wording again at the final read.
 
 ## Launch-site batch, 2026-10-06 (session 8d81b701; launched from worktree `f350460`)
 

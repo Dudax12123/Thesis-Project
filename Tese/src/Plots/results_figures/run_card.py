@@ -82,7 +82,9 @@ def draw(case, filename, title=None, background=None, background_label=None,
     ax_bv.plot(t, v / 1e3, color=st.ACCENT, linewidth=1.1)
     ax_bv.set_ylabel("Speed [km/s]", color=st.ACCENT)
     ax_bv.spines["top"].set_visible(False)
-    st.add_events(ax_b, case)
+    # The shading already marks the coast; a rotated "Coast" label at the top
+    # of the panel lands on the speed curve, which peaks there.
+    st.add_events(ax_b, case, coast=False)
     if waypoint is not None:
         pn.mark_waypoint(ax_b, waypoint)
     st.panel_tag(ax_b, "b")
