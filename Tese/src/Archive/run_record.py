@@ -68,11 +68,52 @@ def powered_arc_ends_in_rotating_frame(arch, sim_params=None):
     that inserts off-target, which is exactly when the budget matters most.
 
     ``apogee_check`` under APOGEE_CHECK_COAST_FRAME = "rotating" is the same:
-    its coast is never converted, so the window ends on the rotating SECO sample.
+    its coast is never converted, so the window ends on a rotating sample -- the
+    insertion state after the impulse at apoapsis (``apogee_impulse_index``).
     """
     if arch == "apogee_check" and sim_params is not None:
         return getattr(sim_params, "APOGEE_CHECK_COAST_FRAME", "inertial") == "rotating"
     return arch == "indirect_pmp"
+
+
+def apogee_impulse_index(arch, time_a):
+    """Index of the apogee check's apoapsis sample before its impulse, or None.
+
+    The "rotating" coast archives the impulse as one instant held twice: the
+    coast's apoapsis state, then the insertion state after the burn
+    (``ra._finish_single_burn_rotating``). Its budget window runs to that pair
+    so that the coast to apogee, a coast like every other architecture's, falls
+    inside it; ending at SECO left out the coast's gravity loss (1 180 against
+    about 1 580 m/s) and evaluated the gain at a radius the window never reached
+    (T27, C16). None for any other architecture, and for the "inertial" coast,
+    whose budget still ends at SECO.
+    """
+    from Simulation import rocket_ascent as ra
+
+    if arch != "apogee_check" or ra.TIME_CIRCULARISATION is None or ra.FINAL_STATE_INERTIAL:
+        return None
+    i = int(np.searchsorted(time_a, ra.TIME_CIRCULARISATION))
+    if i + 1 >= len(time_a) or time_a[i + 1] != time_a[i]:
+        return None
+    return i
+
+
+def _add_apogee_impulse(budget, data, i):
+    """Add the impulse between samples ``i`` and ``i + 1`` to a budget, in place.
+
+    An impulse has no gravity, drag or pressure loss. Its ideal delta-v is its
+    magnitude; a retro-burn points the thrust against the velocity, alpha = 180
+    deg, so it also pays twice its magnitude as steering loss, as the steering
+    integral T/m (1 - cos alpha) would.
+    """
+    dv = float(data[2, i + 1] - data[2, i])
+    retro = abs(dv) - dv
+    budget['dv_ideal'] += abs(dv)
+    budget['dv_steering'] += retro
+    budget['dv_losses'] += retro
+    budget['dv_achieved'] += dv
+    budget['residual'] = (budget['dv_ideal'] - budget['dv_losses'] + budget['dv_gain']
+                          - budget['dv_achieved'])
 
 
 def _correct_dv_achieved_frame(row, sim_params, data, idx):
@@ -548,9 +589,14 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         0.0, m_final - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
 
     # --- delta-v budget, over the powered ascent only ---------------------
+    # The apogee check's coast to apoapsis is part of its ascent, as every
+    # other architecture's coast is: its window runs to the impulse.
     t_seco = ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL
     idx = len(time_a) if t_seco is None else int(np.searchsorted(time_a, t_seco, 'right'))
     idx = max(idx, 2)
+    i_apo = apogee_impulse_index(row['architecture'], time_a)
+    if i_apo is not None:
+        idx = i_apo + 1
     alt = data[1, :idx] - c.R_EARTH
     budget = loss_mod.delta_v_budget(
         time_a[:idx], alt, data[2, :idx], data[3, :idx], data[4, :idx],
@@ -559,6 +605,9 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
         include_drag=sim_params.INCLUDE_DRAG,
         thrust_mode=sim_params.THRUST_1_MODE,
     )
+    if i_apo is not None:
+        _add_apogee_impulse(budget, data, i_apo)
+        idx = i_apo + 2                         # the frame check reads the insertion state
     row.update({k: (v if isinstance(v, bool) else round(float(v), 3))
                 for k, v in budget.items()})
     _correct_dv_achieved_frame(row, sim_params, data, idx)

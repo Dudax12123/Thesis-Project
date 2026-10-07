@@ -2358,6 +2358,15 @@ def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
     FINAL_STATE_INERTIAL = False
     second_stage_cutoff = True
     _close_logged_burn(t_seco)
+    # The coast is flown by _coast_to_apoapsis, which logs nothing, so no later
+    # sample opens the step _close_logged_burn leaves: the record held the
+    # burn's last 934 kN through the whole coast. Log the coast's start here.
+    # The pseudo-force magnitudes keep their last value, as before.
+    thrust_history.append(0.0)
+    coriolis_mag_history.append(coriolis_mag_history[-1] if coriolis_mag_history else 0.0)
+    centrifugal_mag_history.append(centrifugal_mag_history[-1] if centrifugal_mag_history
+                                   else 0.0)
+    time_history.append(float(t_seco))
 
     print("\t* Optimal altitude to stop burning: \t\t", alt_stop / 1000, "km")
     print("\t* Optimal time to stop burning: \t\t", t_seco, "s")

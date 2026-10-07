@@ -478,6 +478,12 @@ Since then the rotation-on residual is the in-plane centrifugal work alone.
   so every apogee_check budget recorded `dv_drag = 0` (gt_apogee: 34.9 m/s). The line is gone.
 - `tests/test_apogee_check_coast.py` pins both; the drag test fails with the line back.
   Originals are in `Output/results_matrix_pre_apogee_fix_20260930/`.
+- **Budget window and thrust record (2026-10-07).** Under "rotating" the archived budget runs
+  through the coast to the apoapsis and adds the impulse (`run_record.apogee_impulse_index`),
+  like every other architecture's coast. Before, it stopped at SECO: gravity loss 1 180 against
+  1 576 m/s, residual +17.4 m/s. The thrust log is now closed to zero at SECO; the coast logs
+  nothing, so the record held 934 kN through it. `gt_apogee` in the Chapter 6 set is re-flown
+  with both (see its README).
 
 **Fairing jettison is a planned altitude crossing, and all five architectures share it.**
 `FAIRING_JETTISON_MODE` defaults to `"altitude"` — `ALT_NO_ATMOSPHERE`, 65 km — rather than to

@@ -117,3 +117,42 @@ class TestEvaluationCount:
         assert run_record.n_evaluations(sim_params) == (
             sim_params.PSO_N_PARTICLES * sim_params.PSO_MAX_GENERATIONS)
         assert run_record.n_evaluations(sim_params, {'n_evaluations': 1}) == 1
+
+
+class TestBudgetWindow:
+    """The rotating coast's record and budget run through the coast (2026-10-07).
+
+    The thrust log was closed at SECO with nothing after it, so the archived
+    record held 934 kN through the whole coast; and the budget window ended at
+    SECO, leaving the coast's gravity loss out and the residual at +17.4 m/s.
+    """
+
+    def _row(self, monkeypatch):
+        from Plots.plot_state_utils import interpolate_to_time
+        monkeypatch.setattr(sim_params, "APOGEE_CHECK_COAST_FRAME", "rotating")
+        (t, data, _alt, delta_v, _m, thrust, t_thrust,
+         alpha, t_alpha, _cor, _cen) = ra.run(KICK)
+        t = np.asarray(t)
+        thrust = ra.thrust_on_grid(t, t_thrust, thrust)
+        result = {'crashed': False, 'state_final': np.asarray(ra.STATE_INSERTION),
+                  'circularisation_dv': float(delta_v), 'state_final_inertial': False}
+        row = run_record.collect_row("gt_apogee", sim_params, t, np.asarray(data), thrust,
+                                     interpolate_to_time(t_alpha, alpha, t), result, None,
+                                     None, 0.0, None)
+        return t, thrust, row, float(delta_v)
+
+    def test_the_thrust_record_is_off_through_the_coast(self, apogee_case, monkeypatch):
+        t, thrust, _row, _dv = self._row(monkeypatch)
+        coast = (t > ra.TIME_TO_STOP_BURNING_SINGLE_BURN_FINAL + 0.05) & (
+            t < ra.TIME_CIRCULARISATION)
+        assert coast.sum() > 1000
+        assert np.max(thrust[coast]) == 0.0
+
+    def test_the_budget_closes_through_the_coast(self, apogee_case, monkeypatch):
+        _t, _thrust, row, dv = self._row(monkeypatch)
+        # The residual is the in-plane centrifugal work, a few m/s, as on every
+        # other rotating-Earth case; ending at SECO it read +17.4 m/s.
+        assert abs(row['residual']) < 10.0
+        # The coast's gravity loss is inside the window (SECO alone: ~1 180 m/s).
+        assert row['dv_gravity'] > 1400.0
+        assert row['circularisation_dv'] == pytest.approx(dv)

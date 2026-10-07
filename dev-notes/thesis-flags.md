@@ -41,6 +41,29 @@ Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, fig
   - The swarm gravity turn's own 18.2 s final burn loses 0.1 m/s of gravity and none of steering (α = 0), so there is little for the impulse to save. The 1.31 t comes from the lower staging and cut-off (gravity loss to SECO 1 180 against 1 768 m/s; T37).
   - To make the sentence consistent, §6.2.1 now gives only the facts of the apogee check. S2-D1's "an idealization, but a small one … the margin comes from the trajectory instead" is out.
   - An examiner could ask for the number. Offer the bounded wording again at the final read.
+  - **Update 2026-10-07, after the S7-V1 extension:** `tab:loss_budget` now shows the apogee check's gravity loss to apogee, 1 576 m/s, against 1 768 for the swarm flight. That 192 m/s is worth 1.2–1.5 t at 6–8 kg per m/s, i.e. the whole margin. §6.6.1 ("these two losses account for almost every shortfall") and S7-D2 ("keeps 1.31 t more … by coasting for 2 721 s") now sit beside the §6.2.4 sentence.
+- **§6.5–6.6 and App. A written in, 2026-10-07, thesis uncommitted.** S5-D1/D2 and S7-D1/D2/D3 replace their `\discuss` notes. No `\discuss` is left in Ch. 6.
+  - Captions: the S5-F2 caption on `tab:showcase_laws`, and a new `tab:loss_budget` caption (approved in the chat).
+  - S7-D1 changes, approved in the chat:
+    - The bands sentence is corrected: the apogee check is inside the gravity band and below the drag band.
+    - The gravity-loss ranges include the apogee check.
+    - `(Figure~\ref{fig:loss_budget}b)` becomes `fig:loss_budget`; that figure has one panel.
+    - A pointer to `fig:loss_accumulation` is added.
+    - The accuracy sentence points to the kept App. figure.
+  - User decisions, 2026-10-07:
+    - S7-F5: `fig:accuracy_vs_propellant` is kept, against X4/X6.
+    - S7-F7: `fig:solve_cost` is out (its PNG is kept).
+    - S7-V1: extend the window now.
+  - Re-rendered: every remaining stale float. All Ch. 6 floats now come from the results set.
+- **T27, C16, T37: closed by S7-V1 (code uncommitted).**
+  - `run_record.apogee_impulse_index` runs `gt_apogee`'s budget window through the coast to the apoapsis and adds the impulse (ideal Δv; steering 2|Δv| if retro).
+  - `rocket_ascent._finish_single_burn_rotating` closes the thrust log to zero at SECO. The archived record held 934 kN through the whole coast. Output-only: trajectories were never affected. Found while doing this.
+  - Two regression tests in `test_apogee_check_coast.py` fail on the old code. Full suite: 296 passed, 5 skipped.
+  - `gt_apogee` re-flown into the results set, trajectory bit-identical:
+    - gravity loss 1 179.6 → 1 575.8 m/s, ideal ΔV 8 754.1 → 8 847.0 m/s, residual +17.4 → −4.8 m/s;
+    - the batch wall clock (127.3 s) is kept, with a `repairs` entry; the README records it;
+    - the backup is `Output/results_matrix_chapter6_20261007_pre_budget_window/`;
+    - the manifest says `8f8bdd5-dirty`. Re-fly once the code is committed, for a clean hash (about a minute).
 
 ## Launch-site batch, 2026-10-06 (session 8d81b701; launched from worktree `f350460`)
 
