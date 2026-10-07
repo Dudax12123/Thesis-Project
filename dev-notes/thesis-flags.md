@@ -2,11 +2,103 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Launch-site batch, 2026-10-06 (session 8d81b701; launched from worktree `f350460`)
+
+User decisions (2026-10-06): the PMP references are re-swarmed at 250×1000 from seed 3 only, then refined. The four reference-dependent cases wait for the new pmp_baseline extremal. The 750×1500 runs stay stored.
+
+- **T34. The thesis gives the references as 750×1500 swarms from five seeds** (Overleaf `8198fa1`). The following change on adoption; this supersedes T23's premise. **ON HOLD: no thesis changes for now.**
+  - Ch. 3 `tab:pso_settings`: the Indirect column (750/1500) and the seed note at l.568–569.
+  - Ch. 3 l.712–713: "refined from the swarms of several seeds, and the best extremal kept".
+  - Ch. 5 l.590–593: "750 particles over 1500 generations from five random seeds … seed 3 is kept".
+  - The search cost: `PMP_*_SEARCH` in `run_results_matrix.py`, and any quoted swarm cost.
+
+User decision (2026-10-07): the references are the three 750×1500 seed-3 swarms refined with the coast up to 2 000 s, first pass only. The four dependent cases fly against `Output/pmp_reference_launchsite_750x1500_c2000_20261007.npz` with `--set PSO_UB=[…, 2000.0, …]`. Earlier flights are kept under `results_matrix_launchsite_20261006/_set_aside_*`.
+
+- **T35. The grid + Brent search is described only for the law-terminated burn** (found 2026-10-07; ON HOLD with the report).
+  - Ch. 3 l.645–649 says only that the 500-point grid "is refined by Brent's method". The one Brent's method the thesis describes, at l.321, is the root finder: bisection plus inverse quadratic interpolation. The search uses Brent's minimiser instead: golden section plus parabolic interpolation, `scipy.optimize.minimize_scalar`, bounded. Same citation, `brent1973algorithms`.
+  - If `gt_direct` moves to `"grid_brent"` (measured 2026-10-07: same point as the swarm, J′ 42.0733 against 42.0730, 26 067 flights instead of 250 000), the nested form also needs a sentence: a law with no cutoff of its own searches the burn time per γ_p by its own 21-point grid + Brent. Ch. 5 l.596–600 would then cover two cases.
+
+- **K12. The reference-tracking flights do not hold the reference's coast.**
+  - On the 2 000 s pmp_baseline reference (22 649.0 kg; coast 1 823 s, from 135.4 km):
+    - `show_ref_track` (peg_new) reaches 508 × 493 km with 17 035.5 kg, 5.6 t below the reference.
+    - `show_ref_track_apollo` ends at 498 × 33 km, so it does not reach orbit. Its 22 802.3 kg is not comparable.
+  - On the 250×1000 2 000 s reference (coast 1 934 s) the same flights gave 16 517.0 kg and a periapsis of 85.9 km.
+  - Cause (measured 2026-10-07): the tracking flights coast for the reference's fixed Δt_c, and arc 1 misses γ by +0.06–0.07°.
+    - From a low coast start (135 km, e ≈ 0.035), that miss moves the apoapsis by roughly 6 km.
+    - peg_new reaches its final ignition at 505.8 km, still climbing (γ +0.13°). It must descend to 500 km while circularising: 24.3 s of burn against the reference's 4.0 s.
+    - On the 3 500 s reference the same miss left it 2 km low (497.8 km), which costs little: 7.9 s, 21 661.5 kg.
+    - apollo ends its final burn on its own t_go estimate (C-flag above, l.385): 3.4 s, 133 m/s short.
+  - The 2026-09-26 flights (21 859 / 22 215 kg) had final burns of 1.4 s and 0.2 s. Their target was the apoapsis of an ellipse, so arriving near apoapsis was enough.
+  - Candidate fixes: end the coast at the flown apoapsis rather than after Δt_c; end apollo's final burn on the orbit conditions.
+  - Tried 2026-10-07 on peg_new, against the 750×1500 2 000 s reference. Uncommitted: `REFERENCE_TRACK_COAST_MODE`, default `"duration"`, tests pass.
+    - `"apoapsis"` (coast to γ = 0): the apoapsis is 506.2 km, so arc 3 still burns 24.6 s. Result 16 956.1 kg, no gain.
+    - Coast ending when the flight first climbs through 500 km (scratchpad `ref_track_target_alt.py`, swaps the event): arc 3 burns 4.6 s. Result 22 425.7 kg, 504.1 × 495.7 km, 223 kg below the reference.
+  - **Adopted for `show_ref_track` (user, 2026-10-07; uncommitted).** `REFERENCE_TRACK_COAST_MODE = "target_altitude"`, set as a case override; the `"apoapsis"` trial mode was removed. Re-flown into the launch-site batch: 22 425.7 kg. Full suite: 294 passed, 5 skipped.
+    - Thesis impact, ON HOLD with the report: Ch. 5's reference-tracking description says the case flies the reference's coast length. §6.7 must state the coast rule.
+    - `show_ref_track_apollo` flies it too (user, 2026-10-07): 22 803.2 kg, 497.8 × 33.2 km, still not in orbit.
+      - Its apoapsis (497.8 km) is below the target, so its coast ends there.
+      - Its final burn gets t_go = 3.37 s from the rocket equation. That is below the 10 s freeze, so the coefficients are frozen at ignition.
+      - Steering the vertical channel first, it needs ~1 200 m/s² to climb 2.3 km and level off in 3.4 s, against ~34 m/s² of thrust. It flies α ≈ +90° then −90°, leaving no horizontal thrust, and ends 133 m/s short.
+      - With `TGO_ESTIMATOR = "peg_new"` (diagnostic, `Output/ref_track_apollo_tgo_peg_new_trial_20261007/`): t_go 8.6 s, still frozen; 498.5 × 175.3 km, 21 377.1 kg. A longer t_go alone does not fix it.
+      - Open: apollo's final burn cannot both climb 2.2 km and add 135 m/s along-track in a short burn (see also C8).
+  - Decide whether §6.7 reports these flights as they are, or whether the tracking flights get one of these fixes.
+
+## `gt_baseline` refinement trial, 2026-10-06 (session 8d81b701; nothing committed)
+
+Scripts in that session's scratchpad: `refine_law_case.py`, `scan_gt_kick.py`, `scan_gt_coast.py`, `archive_gt_c3500.py`. Archives in `Tese/src/Output/law_refine_trial_20261006/`; figures in `Tese/src/Output_Plots/comparisons/gt_baseline_refine_trial/`.
+
+- **C18. The law swarms stop far from their own optimum.** **ON HOLD (user, 2026-10-06): no further law refinement for now.**
+  - The archived `gt_baseline` point (250×1000 swarm, 20 687.5 kg), refined within the swarm's own box (coast ≤ 2 000 s), reaches 22 069.8 kg: +1 382 kg in 53 s.
+    - The coast lengthens from 423 s to the 2 000 s bound and starts at 204 km instead of 328 km. The kick goes from 1.523° to 1.722°, and the last burn is 2.9 s.
+    - The orbit closes exactly (J′ 0.761846), and the dense re-run scores the same J′.
+  - The refinement closes the orbit for each kick (least squares on the three insertion conditions) and searches the kick alone. On the J′ penalty, Nelder–Mead stalls after +173 kg. That was the method behind the 2026-10-06 law predictions, so they predict what a re-swarm finds, not the laws' optima.
+  - On the archived row's commit (`c9a7ea3`) the same refinement gains +844 kg (coast 1 134 s). The shortfall is the swarm's convergence.
+  - Consequence for Ch. 6: the references are refined and the laws are not. The predicted gap between `pmp_baseline` and `gt_baseline` is ≈ 1.8 t; refined within 2 000 s, `gt_baseline` is 551 kg below the reference.
+  - Decide: refine every swarm case from its archived point (the recipe the references follow) instead of re-swarming, or report the law rows as swarm-limited. Untested beyond the gravity turn: the closed-loop laws and the laws with extra variables need the same orbit-closing step with more free variables.
+  - **The references' own recipe works unchanged** (user preference 2026-10-06: one refinement algorithm in the thesis). Script: `law_polish_ref_recipe.py` (scratchpad).
+    - Same settings as `pmp_swarm_polish.py`: Levenberg–Marquardt at fixed kick, continuation in γ_p (0.0005 rad, then a half step).
+    - What changes: no costates. The three durations are solved from the three orbit conditions, where the PMP has five unknowns and five conditions.
+    - At a coast bound the PMP drops H_coast_end; a law has no condition to drop, so the kick is solved in the coast's place and the sweep ends there.
+    - `gt_baseline`: 22 069.8 kg at 2 000 s (20 s, 603 flights), 22 663.3 kg at 3 500 s. Identical to the trial; the half step changes nothing.
+    - It covers the 4-variable cases: the gravity-turn rows, `peg_*` and `show_apollo`. Untested on a closed-loop law.
+    - `show_cpr`, `show_exp_shooting` and the two tangent laws also have law constants, which no condition fixes. Proposed: hold them at the swarm's values.
+  - **`peg_baseline`: the recipe fails at the first solve, at both coast limits** (`diag_peg.py`, `diag_peg_kick.py`).
+    - At the archived point it misses by 48.5 m, −5.7 m/s and −0.122° (J′ 2.13).
+    - peg_new steers to the orbit itself, so its altitude miss stays at 41–66 m whatever the durations or the kick. There is no root near the point.
+    - Every 3×3 system drawn from D1, Dc, D3 and the kick is near-singular: condition ratio 277–1 161, with the altitude row weakest.
+    - The miss also jumps with D1: γ swings 0.3° within 0.4 s, from the 2 s guidance cycle and the freeze.
+    - So the recipe covers laws whose terminal state is set by the durations (the gravity turn; to check: tangent, cpr, exponential). The closed-loop laws (`peg_*`, `show_apollo`) need a swarm or a derivative-free method.
+  - **`peg_baseline` by Nelder–Mead on J′** (`nm_refine_case.py`; 6 061 flights, 10 min; archive `law_refine_trial_20261006/peg_baseline_refined_nm`).
+    - Result: J′ 0.836590 and 16 028.8 kg (−67.5 kg against the row). It misses by 36 m and −0.16 m/s, with γ = 0. Coast 0.04 s (a direct insertion), kick 1.057° (was 1.148°).
+    - Not cleanly converged: each restart still found more (J′ 0.8523 → 0.8429 → 0.8404 → 0.8403 → 0.8388 → 0.8366), so it is the best point found, not a verified optimum.
+    - J′ pays 1 m/s of miss like ≈ 1.3 t of propellant. The 600-flight estimate kept 16 115 kg with a 1.4 m/s miss; the longer run spent 86 kg more to close it.
+    - So the closed-loop law sits close to what its swarm found. Unlike the gravity turn, it has no long-coast family to reach.
+- **T32. If the laws are refined (C18), the thesis needs no new algorithm, only a wider scope** (Overleaf `8198fa1`; wording proposed in session 8d81b701, not applied). **ON HOLD (user, 2026-10-06): no thesis changes for now.**
+  - Ch. 3 `ssec:pmp_polish` ("Local Refinement of the Indirect Extremal"):
+    - the title;
+    - the rationale "This matters for the indirect trajectory alone", which becomes untrue;
+    - one sentence on a law's 3×3 system;
+    - the coast-bound rule for a law;
+    - "extremal" → "solution" in the continuation paragraph;
+    - optionally, the held constants of cpr, exponential and the tangent laws.
+  - Ch. 5 l.590: the "optimal reference" paragraph gets a sentence saying every swarm case is refined the same way.
+  - Ch. 6:
+    - l.44–45 ("reported first and apart from the flyable laws");
+    - `Tables/architecture_cost.tex`, whose refinement cost is on the indirect row only (`tables.py`);
+    - every PMP-vs-law gap quoted.
+- **C19. Stage 2 is aerodynamically vacuum, so the coast bound stands in for the atmosphere.**
+  - `pso_coast_solver._stage2_ode_guidance` sets F_L = F_D = 0, and so do the other PSO architectures and the PMP's Stage-2 kernel.
+  - Along the `gt_baseline` family that closes the orbit, propellant rises as the coast lengthens, while the coast's lowest point falls: 109 km at 3 250 s, 65 km at 3 400 s, 23 km at 3 500 s. Past ≈ 3 550 s no orbit closes.
+  - With the references' 3 500 s bound, the gravity turn therefore keeps 22 663.3 kg, above `pmp_baseline` (22 620.6 kg), on a flight whose post-flight budget puts its drag at 107 km/s.
+  - Within 2 000 s nothing is affected (lowest coast point 204 km). `pmp_baseline`'s coast starts at 138 km, climbing.
+  - Related: C17 (the bounds differ by architecture), T30 (the drag-free reference skims), the open flag on the PSO paths dropping drag at separation.
+  - Decide with C18: one coast bound for every architecture, checked against a minimum coast altitude (≈ 100–120 km), or that minimum as an explicit condition.
+
 ## Launch-site rotation model, 2026-10-05 (code uncommitted; nothing re-flown)
 
 User decision: the latitude is held at launch, and the rotation is credited as the launch-site speed ω·r·cos φ₀ everywhere. That covers the target, the conversion and the budget gain, and also the pseudo-forces (`earth_rotation.planar_pseudoforce_rates`, the ENU terms at heading π/2). The azimuth enters no equation of motion. Label: `EARTH_ROTATION_MODEL = "launch_site"`.
 
-- **T28. Thesis passages to revise** (each discussed first):
+- **T28. Thesis passages to revise** (each discussed first). User rule (2026-10-06): write the convention as the model, with no "earlier/new model" contrast anywhere. The reference table keeps its swarm-point values.
   - **Ch. 2**
     - l.226–249: Eq. `sim_ecef_eci` is now the model, everywhere, not a shortcut taken in the conversion only. The "optimistic, bounded by ω r (1 − sin ψ) cos φ" sentence becomes the statement of the convention.
     - l.289–306: ψ appears in the in-plane terms only as π/2. The cross-heading load is that of a due-east flight.
@@ -38,6 +130,42 @@ User decision: the latitude is held at launch, and the rotation is credited as t
 ## Ch. 6 walkthrough, 2026-10-05 (open; decisions on the "Chapter 6 Walkthrough" artifact)
 
 - Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e (db collections `reviews`, `sections`). 87 items, X1–X7 and S1–S7. Source: that session's scratchpad `ch6walk/` (`content.py`, `build.py`).
+- **Version 3, 2026-10-06** (89 items; source in session 67a7e9e8's scratchpad `ch6walk/`, where `content_v3.py` patches `content.py`):
+  - The user's §6.1 answers are applied: S1-T1 (a table), S1-T3, S1-T4, S1-T5 (no refinement detail) and the S1-F1 figure comment.
+  - S1-T2 answered an outdated recommendation, so its stored answer was cleared; the rewritten item quotes it.
+  - X2 and X7 are rewritten; X8 (writing before the re-run) and S2-V2 (C17) are new.
+  - Every claim at risk carries a `% [re-run]` line and an amber note, with predictions from session 8d81b701 (`predict/`, `predict_pmp*` logs).
+- **Version 4, 2026-10-06 evening** (90 items; `content_v4.py` patches v3).
+  - The user's answers on 6.1–6.4 are implemented in `Plots/results_figures/`, uncommitted (page item X9):
+    - `sec63.reference_profiles`, the new `fig:reference_card` file;
+    - `tables.reference_results`: h_MECO and h_coast replace h_a and h_p;
+    - `run_card.draw` clips at insertion;
+    - `sec62.secondary_axes` is 2×2;
+    - `_panels.waypoint_figure` gets MECO/SECO lines;
+    - `peg_atmosphere` is out of `FIGURES`;
+    - `tables._waypoint_table` splits the steering loss.
+  - Tests: 289 pass, 5 skip.
+  - The 6.1–6.3 drafts are rewritten from the comments, with the refined references' numbers.
+  - Previews: `render_v4/` and `preview_root/` in that session's scratchpad. The law figures are drawn on the pre-re-run archives with their own reference, so no figure mixes models.
+- **T29. Ch. 3 `tab:pso_settings` gives the indirect coast bound as [0, 2000] s.**
+  - It is 3 500 s for the references since 2026-10-06 (2 500 s for `pmp_vacuum`); the laws keep 2 000 s.
+  - Ch. 3 l.666 measures the omitted costate terms "over a 2000 s coast". The refined references coast 1 741–2 500 s, so re-check that bound.
+- **T30. CLOSED 2026-10-06 (`fbca83e`).** `pmp_vacuum` carries its own 2 500 s coast bound, which keeps its lowest point at 57 km. Whether §6.1 says so is an optional sentence in S1-D1 (the user's S1-T5 answer: no refinement detail).
+- **T31. CLOSED 2026-10-06 by the user (S1-T3).** The model change is to be treated as if it were the model all along, so the swarm-point comparison stays. The drafts quote the gain again: +1.92 to +2.84 t (S1-D2, X3).
+- **T32. Add `jaggers1974peg` to the bibliography at the final edits** (S3-T2). It is cited in the S3-D1 draft.
+  - Jaggers, R. F., *Asymmetrical booster ascent guidance and control system design study, Volume 5: Space Shuttle powered explicit guidance*. Boeing Aerospace Co., Houston. Report 5-2581-HOU-154, NASA CR-140191, contract NAS9-13568, 28 June 1974. Metadata checked on NTRS 19740024190; the PDF is `References/19740024190 - PEG.pdf`.
+  - The supporting line is the footnote to its problem statement: "restricted to a single burn maneuver, i.e., no long coast arcs between stages".
+- **T33. Captions to rewrite at the final edits.**
+  - `fig:reference_card` now draws three time-history panels, and its tangent-fit panel is gone (0.33° RMS goes in the text).
+  - `fig:gt_axes` is 2×2. The caption must say the non-rotating run's pseudo-forces are identically zero and not drawn.
+  - `fig:peg_waypoint` and `fig:apollo_waypoint` carry MECO/SECO lines.
+  - `tab:reference_results` loses h_a/h_p, so the caption states the 500 km circular insertion.
+- **K11. Check in Overleaf:** `tab:peg_waypoint` and `tab:apollo_waypoint` are now 11 columns (steering split), and `fig:reference_card` is ≈ 0.9 pp at 6.3 × 8.2 in.
+- **C20. The apogee check's impulsive circularization saves almost nothing** (S2-T2 check).
+  - At apogee γ = 0 by construction, and 93 m/s as a finite burn at 934 kN lasts 2.7 s (0.003 rad of arc).
+  - Its margin over the swarm's gravity turn is the trajectory (low SECO, long coast) and the swarm's convergence (C18), not the idealization. The S2-D1 draft says so; the user had suggested the impulse explains it.
+- **C17, follow-up: the coast bounds differ by architecture.** References 3 500 s, swarm laws 2 000 s, apogee check unbounded (2 721 s predicted). No swarm law is predicted above 818 s. Page item S2-V2 proposes reporting this as is.
+- **T27 and C16 together.** The predicted `gt_apogee` has SECO at 174 km, a 2 721 s coast and a 93 m/s circularization. In its SECO-cut window it reads a gravity loss of 1 180 m/s and a residual of +17.4 m/s. S7-V1's window extension fixes both; `gt_apogee` re-flies in about a minute.
 - **T27. `gt_apogee`'s ΔV budget is cut at SECO,** so its 1 132 s coast to apogee lies outside the window and its gravity loss (1 378 m/s) is not comparable with the others'. In every other case the coast is inside the window; the reference spends 402 m/s of gravity loss in its coast. Proposed in S7-V1: extend the window to the apogee and add the 1.1 m/s impulse.
 - **C14. `run_card.draw` and `sec62.secondary_axes` draw past insertion.** This affects `fig:gt_baseline_card` (a)/(b) and `fig:gt_axes` (c), (d) and (f). Proposed in S2-F1/S2-F3: clip with `_panels.to_insertion`.
 - **C15. The pseudo-forces hold the heading at the launch azimuth while the latitude follows the great circle.** This is the dynamics counterpart of C11, found 2026-10-05 while working out the rotation-credit projection (T18).

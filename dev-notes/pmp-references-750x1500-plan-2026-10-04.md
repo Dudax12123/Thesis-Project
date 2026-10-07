@@ -1,6 +1,19 @@
 # Plan: 750×1500 refined PMP references for every environment (2026-10-04)
 
-**Status: Phase 1 DONE 2026-10-04, uncommitted; the swarms are not launched.** Tests: 276 pass.
+**Superseded 2026-10-07 (user decision):** the references are the same seed-3 swarms refined with the coast bound `PSO_UB[3]` = 2000 s, first pass only:
+- pmp_baseline 22 649.0 kg, pmp_vacuum 24 536.4 kg, pmp_norot 19 345.3 kg.
+- Archives: `Tese/src/Output/pmp_polish_launchsite_20261006/<case>/seed_3_c2000/`.
+- Re-flown as matrix rows into `Tese/src/Output/results_matrix_chapter6_20261007/`.
+- Not yet adopted into `build_matrix` or the tracked `pmp_reference.npz`.
+
+**Status: COMPLETE 2026-10-05.** All three references come from 750×1500 seed-3 swarms, refined at half step:
+- `pmp_baseline`: 22 261.2 kg.
+- `pmp_vacuum`: 23 928.9 kg. Code 9a52002, row c9a7ea3.
+- `pmp_norot`: 19 384.5 kg. Committed by another session: b99acce, 724707a.
+- Thesis: 8198fa1.
+- Seed 3 was the user's rule (2026-10-05) "so it is the same as the baseline". The best-of-five plan below was not applied.
+
+History below. Phase 1 was done on 2026-10-04 (0ff7c8a); 276 tests passed then.
 
 **Smoke** (`Output/results_matrix_smoke_pmp_20261004`, untracked):
 - Both cases dispatch.
