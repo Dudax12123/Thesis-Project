@@ -25,7 +25,8 @@ Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, fig
     - tab:case_matrix rows; l.594; the waypoint paragraph reduced to its definition.
     - In the segmented paragraph, the "Unlike the waypoint cases above" clause and the last sentence.
     - Sweep clean. The user chose to keep the unused files.
-  - **Still naming the removed cases, outside X11's list (left as they are):**
+  - **Fixed afterwards (user, same day; thesis uncommitted):** the three passages below now leave the removed cases out. The code layout reads "two further solvers". One mention is left: the §6.6.2 `\discuss` note ("against the waypoint cases, which search nothing"), which goes when S7-D1 is written in.
+  - **Were still naming the removed cases, outside X11's list:**
     - Ch. 5 l.172–179: "three further solvers … reference\_track\_solver.py flies the waypoint cases".
     - Ch. 3 l.365: "The waypoint cases … search nothing".
     - App. A l.25, the tab:full_results caption: "the waypoint cases search nothing".
