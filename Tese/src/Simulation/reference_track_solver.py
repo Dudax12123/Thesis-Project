@@ -9,6 +9,9 @@ pmp_reference.npz) supplies three things and nothing else,
     arc-1 target   the reference's state where its first Stage-2 burn ends
                    (h, v, gamma -- a SegmentTarget, as the segmented mode uses)
     coast length   the reference's delta_tc, coasted from wherever arc 1 ended
+                   (REFERENCE_TRACK_COAST_MODE = "duration"; "target_altitude"
+                   ends the coast where the flight climbs through the target
+                   altitude instead, and uses delta_tc only as a horizon)
 
 and everything else is an output: the burn durations, SECO, the mass delivered.
 Arc 3 aims at the objective orbit exactly as a single-law run does.
@@ -374,8 +377,53 @@ def _assemble(t_st1, y_st1, segments, gs, y_insertion, t_insertion, t_coast_star
 # The flight
 # ---------------------------------------------------------------------------
 
+def _event_apoapsis(t, y, *args):
+    return y[3]
+
+
+_event_apoapsis.terminal = True
+_event_apoapsis.direction = -1
+
+
+def _event_target_altitude(t, y, *args):
+    return y[1] - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE)
+
+
+_event_target_altitude.terminal = True
+_event_target_altitude.direction = 1
+
+
+def coast_to_target_altitude(t0, y0, horizon):
+    """Coast from (t0, y0) until the flight first climbs through the target
+    altitude, or reaches its apoapsis below it, whichever comes first.
+
+    The reference's coast length is not used: an arc-1 miss of a few hundredths of
+    a degree moves a low coast's apoapsis by kilometres, and a coast of fixed length
+    then hands arc 3 an ignition off the target altitude that its short burn cannot
+    absorb (measured 2026-10-07: 6 km above it, 24.3 s of burn against 4.0 s).
+
+    Returns ``(sol, t_end, y_end, crashed)``; ``sol`` carries the output grid of
+    _teval, like the other coasts. Raises if neither event occurs within
+    ``horizon`` seconds.
+    """
+    sol = solve_ivp(
+        lambda t, y: pcs._stage2_ode_guidance(t, y, 0.0, r.ISP_2, None),
+        t_span=(t0, t0 + horizon), y0=y0, rtol=pcs._RTOL, atol=pcs._ATOL,
+        max_step=pcs._MAX_STEP, dense_output=True,
+        events=(pcs._event_crash, _event_target_altitude, _event_apoapsis))
+    hits = [(float(sol.t_events[k][0]), k) for k in range(3) if len(sol.t_events[k]) > 0]
+    if not hits:
+        raise ValueError("the coast neither reached the target altitude nor its apoapsis "
+                         "within %.0f s" % horizon)
+    t_end, k = min(hits)
+    y_end = sol.y_events[k][0][:5].copy()
+    grid = _teval(t0, t_end)
+    sol.t, sol.y = grid, sol.sol(grid)
+    return sol, t_end, y_end, k == 0
+
+
 def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None,
-                        coast_mode="duration", check_stage1_state=True):
+                        coast_mode=None, check_stage1_state=True):
     """Fly the reference's plan with peg_new or apollo (GUIDANCE_MODE).
 
     ``plan``         from plan_from_reference / load_plan; None loads the cache in force.
@@ -386,7 +434,10 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
                      reference's arc-1 cutoff instant (see the module docstring).
     ``coast_mode``   "duration": coast the reference's delta_tc from wherever arc 1
                      ends (the ballistic arc the reference traced); "seco": coast
-                     until the reference's own arc-3 ignition instant.
+                     until the reference's own arc-3 ignition instant;
+                     "target_altitude": coast until the flight climbs through the
+                     target altitude, or to its apoapsis if that is lower
+                     (coast_to_target_altitude). None reads REFERENCE_TRACK_COAST_MODE.
     ``check_stage1_state``  raise if Stage 1 does not reproduce the reference's.
 
     Returns the tuple of run_pso_coast_full: ``(time, data, thrust, alpha,
@@ -400,8 +451,11 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
             "COAST_METHOD='reference_track' flies peg_new or apollo only "
             "(GUIDANCE_MODE=%r): they are the two laws that take a full terminal state "
             "(altitude, speed, flight-path angle) as their target." % law)
-    if coast_mode not in ("duration", "seco"):
-        raise ValueError("coast_mode must be 'duration' or 'seco', got %r" % coast_mode)
+    if coast_mode is None:
+        coast_mode = getattr(sim_params, "REFERENCE_TRACK_COAST_MODE", "duration")
+    if coast_mode not in ("duration", "seco", "target_altitude"):
+        raise ValueError("coast_mode must be 'duration', 'seco' or 'target_altitude', got %r"
+                         % coast_mode)
     if plan is None:
         plan = load_plan(verbose=verbose)
     # After load_plan: a reference build runs the indirect solver, which sets
@@ -446,10 +500,16 @@ def run_reference_track(plan=None, verbose=True, waypoint=True, arc1_freeze=None
     if crashed_in is None:
         if coast_mode == "duration":
             t_c_end = t_a1 + plan["delta_tc"]
-        else:
+        elif coast_mode == "seco":
             t_c_end = max(t_ref_arc1_end + plan["delta_tc"], t_a1)
         y_a3 = y_a1
-        if t_c_end - t_a1 > 1e-9:
+        if coast_mode == "target_altitude":
+            sol_c, t_c_end, y_a3, crashed = coast_to_target_altitude(t_a1, y_a1,
+                                                                      2.0 * plan["delta_tc"])
+            segments.append((sol_c, 0.0))
+            if crashed:
+                crashed_in = "coast"
+        elif t_c_end - t_a1 > 1e-9:
             sol_c = _ivp(t_a1, t_c_end, y_a1, 0.0, None, _teval(t_a1, t_c_end))
             segments.append((sol_c, 0.0))
             if len(sol_c.t_events[0]) > 0:
@@ -567,7 +627,8 @@ def _print_flight(info):
     print("    reference  " + hvgm(wp))
     print("    miss       dh %+.3f km   dv %+.3f m/s   dgamma %+.4f deg   dm %+.2f kg"
           % ((y1[1] - wp[1]) / 1e3, y1[2] - wp[2], np.rad2deg(y1[3] - wp[3]), y1[4] - wp[4]))
-    print("  Coast  %9.3f -> %9.3f s" % (info["t_arc1_end"], info["t_arc3_start"]))
+    print("  Coast  %9.3f -> %9.3f s   (%s)"
+          % (info["t_arc1_end"], info["t_arc3_start"], info["coast_mode"]))
     print("  Arc 3  %9.3f -> %9.3f s" % (info["t_arc3_start"], info["t_arc3_end"]))
     print("    insertion  " + hvgm(info["y_insertion"]))
     if info["crashed_in"]:

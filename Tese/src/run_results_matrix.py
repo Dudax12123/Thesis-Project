@@ -525,20 +525,25 @@ def build_matrix():
     # tracking loss -- and NOT against peg_baseline, from which it differs in
     # the arc-1 target, who picks the kick and coast, and the cutoff rule at
     # once. Deterministic and seconds long, so --budget and --smoke do not
-    # touch it (under --smoke it flies a copy of the tracked reference).
+    # touch it (under --smoke it flies a copy of the tracked reference). Its coast
+    # ends where the flight climbs through the target altitude, not after the
+    # reference's coast length (user, 2026-10-07; see REFERENCE_TRACK_COAST_MODE).
     cases.append(dict(name="show_ref_track", section="6.7",
                       factor="reference_tracking",
                       overrides={"GUIDANCE_MODE": "peg_new",
-                                 "COAST_METHOD": "reference_track"}))
+                                 "COAST_METHOD": "reference_track",
+                                 "REFERENCE_TRACK_COAST_MODE": "target_altitude"}))
     # The same plan flown by apollo, the other law that takes a full terminal
     # state. A fixed-time law, so its arc 1 ends at the reference's own cutoff
     # instant rather than on its own t_go; its coefficients are refreshed
     # outside the ODE (see reference_track_solver). Read against pmp_baseline and
-    # show_ref_track, not against show_apollo.
+    # show_ref_track, not against show_apollo. Same coast rule as show_ref_track
+    # (user, 2026-10-07).
     cases.append(dict(name="show_ref_track_apollo", section="6.7",
                       factor="reference_tracking",
                       overrides={"GUIDANCE_MODE": "apollo",
-                                 "COAST_METHOD": "reference_track"}))
+                                 "COAST_METHOD": "reference_track",
+                                 "REFERENCE_TRACK_COAST_MODE": "target_altitude"}))
     # Two runs on ONE law combination, differing only in who picks the hand-off
     # altitude. The fixed run flies the schedule as written; the optimised run
     # appends the non-first activation altitudes to the PSO decision vector and

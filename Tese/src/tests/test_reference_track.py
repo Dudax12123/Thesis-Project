@@ -162,7 +162,8 @@ def test_a_swarm_built_cache_without_the_plan_is_rebuilt_once(cache_in_tmp, monk
 def test_the_cases_are_their_own_architecture_in_section_6_7(name, law):
     case = next(c for c in rm.build_matrix() if c["name"] == name)
     assert case["section"] == "6.7"
-    assert case["overrides"] == {"GUIDANCE_MODE": law, "COAST_METHOD": "reference_track"}
+    assert case["overrides"] == {"GUIDANCE_MODE": law, "COAST_METHOD": "reference_track",
+                                 "REFERENCE_TRACK_COAST_MODE": "target_altitude"}
 
 
 def test_the_case_name_leaves_the_6_2_and_6_3_filter_exact():
@@ -197,8 +198,11 @@ def test_the_flight_tracks_the_reference_and_reproduces_its_measurement(monkeypa
     miss = np.asarray(info["y_arc1_end"]) - np.asarray(info["waypoint"])
     assert abs(miss[1]) < 100.0 and abs(miss[2]) < 0.5 and abs(np.rad2deg(miss[3])) < 0.1
     assert abs(info["t_arc1_end"] - info["t_reference_arc1_end"]) < 0.1
-    # the coast is the reference's length, and arc 3 inserts near the target
-    assert info["t_arc3_start"] - info["t_arc1_end"] == pytest.approx(REFERENCE_X[3], abs=1e-9)
+    # the coast ends where the flight climbs through the target altitude, and arc 3
+    # inserts near the target
+    assert info["coast_mode"] == "target_altitude"
+    k = int(np.searchsorted(time_a, info["t_arc3_start"]))
+    assert abs(data[1][k] - (c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE)) < 1.0
     h_ins = (result["state_final"][1] - c.R_EARTH) / 1e3
     assert abs(h_ins - sim_params.TARGET_ORBITAL_ALTITUDE / 1e3) < 10.0
     assert pcs.compute_coast_objective(result) == SHOW_REF_TRACK_J
@@ -230,3 +234,59 @@ def test_apollo_arrives_on_the_reference_clock_and_reproduces_its_measurement(mo
     assert abs(h_ins - sim_params.TARGET_ORBITAL_ALTITUDE / 1e3) < 10.0
     assert pcs.compute_coast_objective(result) == SHOW_REF_TRACK_APOLLO_J
     assert rts.archive_extra()["arc1_cutoff_rule"] == "reference instant"
+
+
+# --- the coast (REFERENCE_TRACK_COAST_MODE) --------------------------------------
+
+# show_ref_track's arc-1 end state against the 750x1500 2000 s reference (2026-10-07):
+# its coast's apoapsis is 506.2 km, above the 500 km target.
+ARC1_END_T = 406.146
+ARC1_END_Y = [0.0, c.R_EARTH + 135.478e3, 7482.873, np.deg2rad(1.8118), 27585.49]
+
+
+def _coast(monkeypatch, y0, horizon=3600.0):
+    import Simulation.rocket_ascent as ra
+    _configure(monkeypatch, "show_ref_track")
+    # what Stage 1 sets before any coast of a real flight
+    monkeypatch.setattr(ra, "_PSEUDO_FORCES_THIS_RUN", True)
+    monkeypatch.setattr(ra, "PROPAGATING_IN_INERTIAL_FRAME", False)
+    monkeypatch.setattr(ra, "LAUNCH_LATITUDE_RAD", np.deg2rad(sim_params.LAUNCH_LATITUDE))
+    return rts.coast_to_target_altitude(ARC1_END_T, np.asarray(y0, dtype=float), horizon)
+
+
+def test_the_matrix_cases_fly_the_target_altitude_coast():
+    for name in ("show_ref_track", "show_ref_track_apollo"):
+        case = next(k for k in rm.build_matrix() if k["name"] == name)
+        assert case["overrides"]["REFERENCE_TRACK_COAST_MODE"] == "target_altitude"
+    assert sim_params.REFERENCE_TRACK_COAST_MODE == "duration"   # the config default
+
+
+def test_the_coast_ends_where_the_flight_climbs_through_the_target_altitude(monkeypatch):
+    sol, t_end, y_end, crashed = _coast(monkeypatch, ARC1_END_Y)
+    assert not crashed
+    r_t = c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+    assert y_end[1] == pytest.approx(r_t, abs=1.0)
+    assert y_end[3] > 0.0                       # still climbing: the apoapsis is higher
+    assert t_end - ARC1_END_T == pytest.approx(1673.4, abs=1.0)   # measured 2026-10-07
+    assert sol.t[0] == ARC1_END_T and sol.t[-1] == t_end
+    np.testing.assert_allclose(sol.y[:, -1], y_end, rtol=1e-9)
+
+
+def test_a_coast_whose_apoapsis_is_below_the_target_ends_at_the_apoapsis(monkeypatch):
+    y0 = list(ARC1_END_Y)
+    y0[2] -= 30.0                               # ~100 km lower apoapsis
+    _sol, _t_end, y_end, crashed = _coast(monkeypatch, y0)
+    assert not crashed
+    assert abs(y_end[3]) < 1e-9
+    assert y_end[1] < c.R_EARTH + sim_params.TARGET_ORBITAL_ALTITUDE
+
+
+def test_a_coast_reaching_neither_within_its_horizon_raises(monkeypatch):
+    with pytest.raises(ValueError, match="neither reached"):
+        _coast(monkeypatch, ARC1_END_Y, horizon=100.0)
+
+
+def test_an_unknown_coast_mode_is_refused(monkeypatch):
+    _configure(monkeypatch, "show_ref_track", REFERENCE_TRACK_COAST_MODE="apoapsis")
+    with pytest.raises(ValueError, match="coast_mode must be"):
+        rts.run_reference_track(plan={}, verbose=False)

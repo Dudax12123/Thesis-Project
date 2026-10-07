@@ -524,6 +524,17 @@ PEG_CONVERGENCE_MAX_ITER = 30       # Max iterations for both modes
 #                    holds a valid reference.
 COAST_METHOD = "pso_coast"   # Options: "apogee_check", "pso_coast", "direct", "reference_track"
 
+# How COAST_METHOD = "reference_track" ends its coast (2026-10-07).
+#   "duration":        the reference's delta_tc, from wherever arc 1 ended (default;
+#                      byte-identical to before the option existed).
+#   "target_altitude": where the flight first climbs through TARGET_ORBITAL_ALTITUDE,
+#                      or at its apoapsis if that is lower. On a long, low coast an
+#                      arc-1 miss of ~0.06 deg moves the apoapsis by ~6 km, and a
+#                      fixed-length coast then ignites arc 3 above the target: peg_new
+#                      burned 24.3 s instead of 4.0 s (show_ref_track, 2026-10-07).
+#                      Both matrix reference-track cases fly this mode.
+REFERENCE_TRACK_COAST_MODE = "duration"   # Options: "duration", "target_altitude"
+
 # -------------- Direct-insertion REPORTING tolerances --------------
 # Diagnostic only (COAST_METHOD == "direct"): these do NOT affect the PSO solve, the
 # optimization objective, or the engine cutoff. MECO fires at circular velocity

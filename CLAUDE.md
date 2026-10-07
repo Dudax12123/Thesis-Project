@@ -132,6 +132,14 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
     | `pmp_norot` | 19 560.5 kg | 2 380 s | 2.9 s | 60 km |
 
   - All three are circular at 500 km. The half-step pass changed none of them (0 kg).
+  - **Chosen 2026-10-07, not yet adopted here:** the same seed-3 swarms refined with
+    `PSO_UB[3]` = 2000 s, first pass only. pmp_baseline 22 649.0 kg (coast 1 823 s), pmp_vacuum
+    24 536.4 kg (1 987 s), pmp_norot 19 345.3 kg (1 879 s).
+    - The Chapter 6 results set flown with them is
+      `Tese/src/Output/results_matrix_chapter6_20261007/`: untracked, 20 cases at `f350460`,
+      with a README.
+    - `build_matrix`'s stored extremals, the tracked `pmp_reference.npz` and this table still
+      hold the 3500 s ones above.
   - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` was re-searched); the harness
     refuses it on any other case.
   - `dev-notes/pmp_swarm_polish.py --case` takes any `indirect_pmp` case, and refuses a start
@@ -201,6 +209,13 @@ Dispatch order (from `main.py`) — each level overrides the ones below it:
    cutoff instant. Its coefficients are refreshed outside the ODE (`GuidanceState.apollo_external`),
    because the `pso_coast` in-RHS refresh fires on `solve_ivp`'s speculative trial points. On this
    flight that ended apollo's arc 1 966 m/s short.
+   - `REFERENCE_TRACK_COAST_MODE` (2026-10-07) chooses how the coast ends. The config default is
+     `"duration"`, the reference's Δt_c. The matrix's two cases fly `"target_altitude"`: the coast
+     ends where the flight climbs through the target altitude, or at its apoapsis if that is lower.
+   - Why: after a long, low coast, arc 1's ~0.06° miss moves the apoapsis by ~6 km. A short final
+     burn can correct velocity, not position, so a fixed-length coast cost peg_new 5.6 t.
+   - apollo still misses: its apoapsis is 2.2 km low, and its 3.4 s final burn, frozen at
+     ignition, spends all its thrust vertically (thesis flag K12).
    - `GUIDANCE_REFRESH_MODE = "cycle"` (2026-09-24) applies the same fix to every guided arc of
      `pso_coast`, `direct` and the segmented Stage 2, through `pso_coast_solver.solve_guided_arc`.
    - The config default is `"in_rhs"`, which is byte-identical to before. The results matrix
