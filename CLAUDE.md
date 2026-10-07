@@ -137,7 +137,9 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
     24 536.4 kg (1 987 s), pmp_norot 19 345.3 kg (1 879 s).
     - The Chapter 6 results set flown with them is
       `Tese/src/Output/results_matrix_chapter6_20261007/`: untracked, 20 cases at `f350460`,
-      with a README.
+      with a README. Its three coast-parameter gravity-turn rows are their refined points
+      (2026-10-07): the same recipe without costates, which a closed-loop law such as peg_new
+      cannot use.
     - `build_matrix`'s stored extremals, the tracked `pmp_reference.npz` and this table still
       hold the 3500 s ones above.
   - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` was re-searched); the harness

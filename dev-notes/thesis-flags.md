@@ -87,6 +87,8 @@ User decision (2026-10-07): the references are the three 750×1500 seed-3 swarms
   - Ch. 3 l.645–649 says only that the 500-point grid "is refined by Brent's method". The one Brent's method the thesis describes, at l.321, is the root finder: bisection plus inverse quadratic interpolation. The search uses Brent's minimiser instead: golden section plus parabolic interpolation, `scipy.optimize.minimize_scalar`, bounded. Same citation, `brent1973algorithms`.
   - If `gt_direct` moves to `"grid_brent"` (measured 2026-10-07: same point as the swarm, J′ 42.0733 against 42.0730, 26 067 flights instead of 250 000), the nested form also needs a sentence: a law with no cutoff of its own searches the burn time per γ_p by its own 21-point grid + Brent. Ch. 5 l.596–600 would then cover two cases.
 
+- **T39. Two references resolve to no label** (found by the 2026-10-07 sweep; predates these edits): `ssec:rootfinding` (Ch. 3 l.360) and `ssec:numerical_settings` (Ch. 3 l.839). Both labels exist only in `Legacy Chapters/`.
+
 - **K12. The reference-tracking flights do not hold the reference's coast.**
   - On the 2 000 s pmp_baseline reference (22 649.0 kg; coast 1 823 s, from 135.4 km):
     - `show_ref_track` (peg_new) reaches 508 × 493 km with 17 035.5 kg, 5.6 t below the reference.
@@ -116,7 +118,7 @@ User decision (2026-10-07): the references are the three 750×1500 seed-3 swarms
 
 Scripts in that session's scratchpad: `refine_law_case.py`, `scan_gt_kick.py`, `scan_gt_coast.py`, `archive_gt_c3500.py`. Archives in `Tese/src/Output/law_refine_trial_20261006/`; figures in `Tese/src/Output_Plots/comparisons/gt_baseline_refine_trial/`.
 
-- **C18. The law swarms stop far from their own optimum.** **ON HOLD (user, 2026-10-06): no further law refinement for now.**
+- **C18. The law swarms stop far from their own optimum.** **PARTLY APPLIED (user, 2026-10-07): the three coast-parameter gravity-turn rows of the Chapter 6 set are their refined points** (gt_baseline 22 069.8, gt_norot 18 711.4, gt_sea_level_engine 19 084.6 kg; each coast at the 2 000 s bound). Adopted by `Output/launch_20261006/adopt_refined_gt.py`; swarm rows backed up in `Output/results_matrix_chapter6_20261007_pre_gt_refine/`. peg_new is not refined, and the thesis gives the reason (Ch. 3). The other laws stay at their swarm points.
   - The archived `gt_baseline` point (250×1000 swarm, 20 687.5 kg), refined within the swarm's own box (coast ≤ 2 000 s), reaches 22 069.8 kg: +1 382 kg in 53 s.
     - The coast lengthens from 423 s to the 2 000 s bound and starts at 204 km instead of 328 km. The kick goes from 1.523° to 1.722°, and the last burn is 2.9 s.
     - The orbit closes exactly (J′ 0.761846), and the dense re-run scores the same J′.
@@ -142,7 +144,13 @@ Scripts in that session's scratchpad: `refine_law_case.py`, `scan_gt_kick.py`, `
     - Not cleanly converged: each restart still found more (J′ 0.8523 → 0.8429 → 0.8404 → 0.8403 → 0.8388 → 0.8366), so it is the best point found, not a verified optimum.
     - J′ pays 1 m/s of miss like ≈ 1.3 t of propellant. The 600-flight estimate kept 16 115 kg with a 1.4 m/s miss; the longer run spent 86 kg more to close it.
     - So the closed-loop law sits close to what its swarm found. Unlike the gravity turn, it has no long-coast family to reach.
-- **T32. If the laws are refined (C18), the thesis needs no new algorithm, only a wider scope** (Overleaf `8198fa1`; wording proposed in session 8d81b701, not applied). **ON HOLD (user, 2026-10-06): no thesis changes for now.**
+  - **Re-run 2026-10-07 on the Chapter 6 set's rows** (user request; frozen worktree `f350460`; coast ≤ 2 000 s, the swarms' own box). Scripts: `Output/launch_20261006/refine_law_{recipe,nm}.py`. Archives: `Output/law_refine_launchsite_20261007/`.
+    - `gt_baseline`, references' recipe: 21 010.4 → 22 069.8 kg (+1 059.4 kg), J′ 0.773277 → 0.761846. 693 flights, 33 s.
+      - The coast is pinned at the 2 000 s bound, the kick is 1.722° and the last burn 2.88 s. This is the point the 2026-10-06 trial reached from the earlier swarm point: two swarm points, one refined point.
+      - That is 579 kg below pmp_baseline (22 649.0 kg, coast 1 823 s, free).
+    - `peg_baseline`, Nelder–Mead on J′: no change. J′ stays at 0.839002155 and 15 861.7 kg through three restarts (973 flights, 117 s).
+      - The swarm point is a local minimum of J′ in its box. It is a direct insertion (coast 0.01 s), since peg_new aims arc 1 at the final orbit; see the segmented rows for the waypoint.
+- **T32. If the laws are refined (C18), the thesis needs no new algorithm, only a wider scope** (Overleaf `8198fa1`). **APPLIED 2026-10-07 for the gravity turn (uncommitted in the thesis repo):** Ch. 3 "matters most for" plus a closing paragraph (scope and why not peg_new); Ch. 5 paragraph "The refined gravity turn"; Ch. 6 numbers in nine places and the `tab:architecture_cost` caption (`efineFlights`, `efineWall`). Still open: the section title, and the central-result paragraph of §6.6 (wording proposed, awaiting approval). The list below was the original scope.
   - Ch. 3 `ssec:pmp_polish` ("Local Refinement of the Indirect Extremal"):
     - the title;
     - the rationale "This matters for the indirect trajectory alone", which becomes untrue;

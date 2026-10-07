@@ -242,6 +242,29 @@ def search(case):
     return wall, evals
 
 
+def refined_law(case):
+    """True for a guidance-law case reported at its refined point: the swarm's best
+    flight refined as the references are (search_refine_*), the coast-parameter
+    gravity turn since 2026-10-07. The references refine too, but are no law."""
+    return (case.architecture != "indirect_pmp"
+            and case.row.get("search_refine_wall_clock_s") is not None)
+
+
+def refinement(case):
+    """(wall clock [s], flights) of a refined law case's refinement alone."""
+    return float(case.row["search_refine_wall_clock_s"]), int(case.row.get("n_evaluations") or 0)
+
+
+def swarm_search(case):
+    """(wall clock [s], evaluations) of the swarm behind the case, without the
+    refinement a refined law case adds (caption_values gives that)."""
+    wall, evals = search(case)
+    if refined_law(case):
+        r_wall, r_flights = refinement(case)
+        wall, evals = wall - r_wall, evals - r_flights
+    return wall, evals
+
+
 def tail_pct(case):
     """The share of the swarm's improvement made in its last quarter [%]."""
     row = case.row
@@ -481,14 +504,15 @@ def _pct_range(values):
 def architecture_cost(cases):
     """One row per architecture, over every reported case it flew. Where its
     cases share one budget the wall clock is a range; where each ran its own
-    (the extremals) the values are listed per case."""
+    (the extremals) the values are listed per case. A refined law case counts
+    its swarm only; caption_values gives the refinement's cost."""
     rows = []
     for arch, label in COST_ROWS:
         members = [cases[n] for n in _data.REPORTED_CASES
                    if n in cases and cases[n].architecture == arch]
         if not members:
             continue
-        costs = [search(k) for k in members]
+        costs = [swarm_search(k) for k in members]
         walls = [w for w, _e in costs if w is not None]
         evals = [e for _w, e in costs if e]
         if len(set(evals)) > 1:
@@ -527,15 +551,28 @@ def caption_values(cases):
     re-flown case exactly as a table body does:
     \\circDvApogee is the apogee check's impulsive circularisation [m/s], and
     \\dragAfterSeparation the largest drag the budget books after separation
-    on an architecture that flies without it there [m/s]."""
+    on an architecture that flies without it there [m/s]; \\refineFlights and
+    \\refineWall the refinement of the refined law cases, flights and seconds,
+    as a range over them (architecture_cost counts their swarms only)."""
     if _missing(cases, ["gt_apogee"], "caption_values"):
         return None
     circ = cases["gt_apogee"].row["circularisation_dv"]
     post = [drag_after_separation(k) for k in cases.values()
             if k.architecture != "apogee_check" and k.row.get("include_drag", True)]
-    return ("\\newcommand{\\circDvApogee}{%s}\n"
+    text = ("\\newcommand{\\circDvApogee}{%s}\n"
             "\\newcommand{\\dragAfterSeparation}{%s}\n"
             % (_grouped("%.1f" % circ), _grouped("%.1f" % max(post))))
+    refined = [refinement(k) for k in cases.values() if refined_law(k)]
+    if refined:
+        def span(lo, hi):
+            return lo if lo == hi else "%s--%s" % (lo, hi)
+        flights = [n for _w, n in refined]
+        walls = [w for w, _n in refined]
+        text += ("\\newcommand{\\refineFlights}{%s}\n"
+                 "\\newcommand{\\refineWall}{%s}\n"
+                 % (span("%d" % min(flights), "%d" % max(flights)),
+                    span("%.0f" % min(walls), "%.0f" % max(walls))))
+    return text
 
 
 # apollo_waypoint and segmented_results need the reference-tracking cases, out
