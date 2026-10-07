@@ -42,7 +42,7 @@ Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, fig
   - To make the sentence consistent, §6.2.1 now gives only the facts of the apogee check. S2-D1's "an idealization, but a small one … the margin comes from the trajectory instead" is out.
   - An examiner could ask for the number. Offer the bounded wording again at the final read.
   - **Update 2026-10-07, after the S7-V1 extension:** `tab:loss_budget` now shows the apogee check's gravity loss to apogee, 1 576 m/s, against 1 768 for the swarm flight. That 192 m/s is worth 1.2–1.5 t at 6–8 kg per m/s, i.e. the whole margin. §6.6.1 ("these two losses account for almost every shortfall") and S7-D2 ("keeps 1.31 t more … by coasting for 2 721 s") now sit beside the §6.2.4 sentence.
-- **§6.5–6.6 and App. A written in, 2026-10-07, thesis uncommitted.** S5-D1/D2 and S7-D1/D2/D3 replace their `\discuss` notes. No `\discuss` is left in Ch. 6.
+- **§6.5–6.6 and App. A written in, 2026-10-07 (thesis 5c95d5f).** S5-D1/D2 and S7-D1/D2/D3 replace their `\discuss` notes. No `\discuss` is left in Ch. 6.
   - Captions: the S5-F2 caption on `tab:showcase_laws`, and a new `tab:loss_budget` caption (approved in the chat).
   - S7-D1 changes, approved in the chat:
     - The bands sentence is corrected: the apogee check is inside the gravity band and below the drag band.
@@ -63,7 +63,7 @@ Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, fig
     - gravity loss 1 179.6 → 1 575.8 m/s, ideal ΔV 8 754.1 → 8 847.0 m/s, residual +17.4 → −4.8 m/s;
     - the batch wall clock (127.3 s) is kept, with a `repairs` entry; the README records it;
     - the backup is `Output/results_matrix_chapter6_20261007_pre_budget_window/`;
-    - the manifest says `8f8bdd5-dirty`. Re-fly once the code is committed, for a clean hash (about a minute).
+    - re-flown again at `11a0446` (clean) after the commit; identical numbers.
 
 ## Launch-site batch, 2026-10-06 (session 8d81b701; launched from worktree `f350460`)
 
