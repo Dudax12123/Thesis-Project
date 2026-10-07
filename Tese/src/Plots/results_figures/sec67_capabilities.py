@@ -113,10 +113,17 @@ def showcase_laws(cases):
     # about -140 deg for a few seconds, and letting that set the range flattens
     # the others into a band a few pixels high. The clip is printed on the
     # panels it affects rather than hidden.
+    # The percentiles are taken over the steered samples only: the coasts and the
+    # first stage command exactly zero, and they hold most of the samples, so a
+    # law that steers positive through its whole first burn (the linear tangent,
+    # +13 deg) would otherwise fall above the range.
     alphas = {n: pn.to_insertion(cases[n], cases[n].alpha_deg) for n in present}
     stacked = np.concatenate([al for _t, al in alphas.values()])
-    alpha_lo = float(np.nanpercentile(stacked, 0.5))
-    alpha_hi = float(np.nanpercentile(stacked, 99.5))
+    steered = stacked[np.abs(stacked) > 1e-6]
+    if steered.size:
+        stacked = steered
+    alpha_lo = min(float(np.nanpercentile(stacked, 0.5)), 0.0)
+    alpha_hi = max(float(np.nanpercentile(stacked, 99.5)), 0.0)
     pad = 0.10 * max(alpha_hi - alpha_lo, 1.0)
     alpha_lo, alpha_hi = alpha_lo - pad, alpha_hi + pad
     t_hi = max(float(t[-1]) for t, _al in alphas.values())
@@ -402,4 +409,6 @@ def solve_cost(cases):
     return st.save(fig, "results_solve_cost.png")
 
 
-FIGURES = [showcase_laws, apollo_waypoint, segmented_handoff, solve_cost]
+# apollo_waypoint needs show_ref_track_apollo, out of the matrix since
+# 2026-10-07; it is drawn on request only.
+FIGURES = [showcase_laws, segmented_handoff, solve_cost]

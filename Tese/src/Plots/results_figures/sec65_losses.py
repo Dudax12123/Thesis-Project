@@ -146,7 +146,9 @@ def loss_accumulation(cases):
 
     ax.set_xlabel("Time [s]")
     ax.set_ylabel(r"Cumulative $\Delta V$ loss [m/s]")
-    st.tidy(ax, legend_loc="upper left")
+    # Centre right, below the gravity curves and clear of the MECO label, which
+    # an upper-left legend ran through (flag C13).
+    st.tidy(ax, legend_loc="center right")
     fig.tight_layout()
     return st.save(fig, "results_loss_accumulation.png")
 

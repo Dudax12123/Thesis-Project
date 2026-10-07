@@ -71,9 +71,12 @@ def peg_waypoint(cases):
     The orbit-aimed flight is drawn under both architectures that fly it: the
     coast-parameter search, whose coast interrupts a burn steered for direct
     insertion, and direct insertion itself, which has no coast to interrupt.
+    The waypoint-aimed flight is the segmented schedule with its hand-off
+    optimised: it hands over at second-stage ignition, so PEG flies the whole
+    second stage, as in peg_baseline.
     """
     return pn.waypoint_figure(
-        cases, "peg_baseline", "show_ref_track", "PEG",
+        cases, "peg_baseline", "show_seg_opt_alt", "PEG",
         "results_peg_waypoint.png",
         extra=[("peg_direct", st.VARIANT2, "-.", st.case_label("peg_direct"))])
 

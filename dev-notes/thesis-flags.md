@@ -2,6 +2,37 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Ch. 6 walkthrough v5, 2026-10-07 (final results; session 67a7e9e8)
+
+Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, figures and tables come from `Output/results_matrix_chapter6_20261007/`, read by the session's scratchpad `facts_v5.py` and rendered into its `render_v5/`. Source in `ch6walk/content_v5.py`. The user's 31 stored answers are reviewed: 30 kept, and S4-T4 cleared, because it applied to the reference-tracking case.
+
+- **Plot library, uncommitted** (`Tese/src/Plots/results_figures/`; full suite 294 passed, 5 skipped):
+  - `REPORTED_CASES` drops show_ref_track(_apollo), leaving 17 cases.
+  - `peg_waypoint` (figure and table) uses the segmented cases as the waypoint rows.
+  - `showcase_laws` gains the gravity-turn and Apollo rows.
+  - The showcase α range is taken from the steered samples only. Before, the linear tangent's +13° first burn was clipped off the panel.
+  - The `loss_accumulation` legend is moved. This closes the round-2 C13 (the MECO label under the legend). Note that two flags carry the id C13: the other is the `tab:architecture_cost` tail-improvement one, under Code repository.
+  - `apollo_waypoint` and `segmented_results` are built on request only.
+- **T36. Removing the reference-tracking cases reaches Ch. 5** (page item X11; proposed, not approved).
+  - "nineteen" appears at l.410, 479, 535 and 542.
+  - `tab:case_matrix` carries the "Coast-start waypoint" group and the `show_ref_track_apollo` row.
+  - The "coast-start waypoint" paragraph (l.602–613) should shrink to the waypoint's definition.
+  - l.594 and l.626–628 refer to the waypoint cases.
+  - Ch. 6: delete §6.4 and the Apollo-waypoint subsection with their floats, and move the segmented section into §6.4's place.
+  - **Done in Ch. 6, uncommitted (2026-10-07):** the intro, the X1 paragraph and §6.1 are written in. X11 is applied: §6.4 deleted, the segmented section in its place, the Apollo-waypoint floats out. fig:reference_card (now `results_reference_profiles`), tab:reference_results, fig:peg_waypoint, tab:peg_waypoint and fig:segmented_handoff are re-rendered and recaptioned (part of T33).
+  - **Ch. 5: done, exactly X11's list (user, 2026-10-07).**
+    - The four counts; at l.479 the same sentence now reads "one group of which changes".
+    - tab:case_matrix rows; l.594; the waypoint paragraph reduced to its definition.
+    - In the segmented paragraph, the "Unlike the waypoint cases above" clause and the last sentence.
+    - Sweep clean. The user chose to keep the unused files.
+  - **Still naming the removed cases, outside X11's list (left as they are):**
+    - Ch. 5 l.172–179: "three further solvers … reference\_track\_solver.py flies the waypoint cases".
+    - Ch. 3 l.365: "The waypoint cases … search nothing".
+    - App. A l.25, the tab:full_results caption: "the waypoint cases search nothing".
+- **T26, T29, T30: moot.** The final references coast 1 823–1 987 s inside the shared 2 000 s bound. None stops at it, and Ch. 3's [0, 2 000] s is right again.
+- **T37. `gt_apogee`'s budget is still cut at SECO** (T27, C16). The page recommends a caption note on its `tab:loss_budget` row for now. The drafts keep its gravity loss (1 180 m/s) out of the group ranges.
+- **K13. Check in Overleaf:** `tab:showcase_laws` with six rows; `tab:peg_waypoint` with four rows and 11 columns (K11).
+
 ## Launch-site batch, 2026-10-06 (session 8d81b701; launched from worktree `f350460`)
 
 User decisions (2026-10-06): the PMP references are re-swarmed at 250×1000 from seed 3 only, then refined. The four reference-dependent cases wait for the new pmp_baseline extremal. The 750×1500 runs stay stored.

@@ -209,8 +209,8 @@ def waypoint_figure(cases, orbit_name, waypoint_name, law, filename, extra=()):
     """One law with its first burn aimed at the orbit and at the waypoint.
 
     The pso_coast flight aims its first burn at the final orbit across a coast
-    it is never told about; the reference-tracking flight aims the same law at
-    the reference's coast-start state. The reference is drawn with both, and
+    it is never told about; the waypoint flight (segmented or reference-tracking)
+    aims the same law at the reference's coast-start state. The reference is drawn with both, and
     the waypoint is marked in both panels. *extra* holds further
     ``(case_name, colour, linestyle, label)`` entries, drawn after the
     orbit-aimed flight.
