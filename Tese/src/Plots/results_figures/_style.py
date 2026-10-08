@@ -44,6 +44,34 @@ FAILED = GREY
 # eight-entry legend.
 VARIANT_CYCLE = [VARIANT, VARIANT2, VARIANT3, GREEN, INK, THRUST]
 
+# One colour per environment, for every figure that sets cases flown in
+# different environments side by side (red-note review X4, 2026-10-08): the
+# ranking, the accuracy trade and the single-factor environment comparisons.
+# Validated as a set with the dataviz palette script, all pairs, light mode:
+# normal-vision dE >= 16.3; the worst colour-blind pair (sea-level red against
+# reference green, protan dE 7.2) is in the band legal with secondary encoding,
+# which every one of these figures carries (block headings, direct labels).
+# The amber is below 3:1 on white, so its values are printed beside its marks.
+ENV_COLORS = {
+    "baseline": "#2a78d6",
+    "no_atmosphere": "#4a3aa7",
+    "no_rotation": "#eda100",
+    "sea_level": "#e34948",
+    "reference": "#008300",
+}
+
+# Two architectures flown in the same environment: the first takes its
+# environment's colour, the second is ink, dashed, so that no environment hue is
+# spent on a difference of architecture.
+SECOND_ARCH = INK
+
+ENV_LABELS = {
+    "baseline": "Baseline",
+    "no_atmosphere": "No atmosphere",
+    "no_rotation": "Non-rotating Earth",
+    "sea_level": "Sea-level nozzle",
+}
+
 # Loss components, in the order they are stacked in the budget bars.
 LOSS_COLORS = {
     "gravity": THRUST,
@@ -119,9 +147,24 @@ CASE_LABELS = {
     "show_exp_shooting": "Exponential pitch",
     "show_apollo": "Apollo",
     "show_ref_track_apollo": "Apollo, coast-start waypoint",
-    "show_seg_fixed_alt": "Segmented, hand-off fixed",
-    "show_seg_opt_alt": "Segmented, hand-off optimised",
+    "show_seg_fixed_alt": "Segmented, fixed hand-off",
+    "show_seg_opt_alt": "Segmented, optimized hand-off",
 }
+
+
+def environment(row):
+    """The environment key of ENV_COLORS a case was flown in, from its row.
+
+    The single-factor design varies one setting at a time, so the first setting
+    that differs from the baseline names the environment.
+    """
+    if row.get("include_drag") is False:
+        return "no_atmosphere"
+    if row.get("earth_rotation") is False:
+        return "no_rotation"
+    if row.get("thrust_1_mode") not in (None, "pressure"):
+        return "sea_level"
+    return "baseline"
 
 # Linestyles for the faint background traces a figure draws for orientation.
 # The colour carries "this is context, not the subject"; the linestyle is what

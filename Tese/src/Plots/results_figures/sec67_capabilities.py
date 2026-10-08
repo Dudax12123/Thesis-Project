@@ -5,7 +5,7 @@ Outputs
 -------
 results_showcase_laws.png      fig:showcase_laws
 results_apollo_waypoint.png    fig:apollo_waypoint
-results_segmented_handoff.png  fig:segmented_handoff
+results_segmented.png          fig:segmented
 results_solve_cost.png         fig:solve_cost
 """
 
@@ -21,6 +21,11 @@ from . import _style as st
 # reference's plan; peg_new's pair is sec63_peg.peg_waypoint.
 SHOWCASE = ["show_cpr", "show_linear_tangent", "show_bilinear_tangent",
             "show_exp_shooting"]
+
+# The small multiples of the angle of attack add the Apollo law, so that
+# Section 6.5.2 has a figure of its own law to point to (red-note review S5.2);
+# the altitude panel keeps the open-loop laws only.
+SHOWCASE_ALPHA = SHOWCASE + ["show_apollo"]
 
 # One representative case per architecture: the convergence curve in panel (a)
 # of the cost figure, and the row order and colour of panel (b), which draws
@@ -68,12 +73,13 @@ def showcase_laws(cases):
     # Green is left out: across the chapter it is the reference's colour, and
     # the reference is in this figure too (faint).
     palette = [c for c in st.VARIANT_CYCLE if c != st.REFERENCE]
-    colours = {n: palette[i % len(palette)] for i, n in enumerate(present)}
+    present_alpha = [n for n in SHOWCASE_ALPHA if n in cases]
+    colours = {n: palette[i % len(palette)] for i, n in enumerate(present_alpha)}
 
     # Wider than the standard text-width figure: the trajectory legend sits
     # outside the axes, and the grid keeps its own width regardless.
-    n_cols = 2 if len(SHOWCASE) <= 4 else 3
-    n_rows = -(-len(SHOWCASE) // n_cols)
+    n_cols = 2 if len(SHOWCASE_ALPHA) <= 4 else 3
+    n_rows = -(-len(SHOWCASE_ALPHA) // n_cols)
     fig_h = 5.6 + 1.62 * (n_rows - 2)
     fig = plt.figure(figsize=(7.4, fig_h))
     grid = fig.add_gridspec(1 + n_rows, n_cols, height_ratios=[1.45] + [1.0] * n_rows,
@@ -117,7 +123,7 @@ def showcase_laws(cases):
     # first stage command exactly zero, and they hold most of the samples, so a
     # law that steers positive through its whole first burn (the linear tangent,
     # +13 deg) would otherwise fall above the range.
-    alphas = {n: pn.to_insertion(cases[n], cases[n].alpha_deg) for n in present}
+    alphas = {n: pn.to_insertion(cases[n], cases[n].alpha_deg) for n in present_alpha}
     stacked = np.concatenate([al for _t, al in alphas.values()])
     steered = stacked[np.abs(stacked) > 1e-6]
     if steered.size:
@@ -130,7 +136,7 @@ def showcase_laws(cases):
     ref_alpha = pn.to_insertion(ref, ref.alpha_deg) if ref is not None else None
 
     first_small = None
-    for i, name in enumerate(SHOWCASE):
+    for i, name in enumerate(SHOWCASE_ALPHA):
         ax = fig.add_subplot(grid[1 + i // n_cols, i % n_cols])
         if first_small is None:
             first_small = ax
@@ -161,11 +167,11 @@ def showcase_laws(cases):
             ax.set_ylabel(r"$\alpha$ [deg]", fontsize=7.5)
         # Label time on every panel with nothing beneath it, including the
         # panel above an empty last slot.
-        if i + n_cols >= len(SHOWCASE):
+        if i + n_cols >= len(SHOWCASE_ALPHA):
             ax.set_xlabel("Time [s]", fontsize=7.5)
         st.tidy(ax, legend=False)
     # The unused slots of the last row stay empty.
-    for j in range(len(SHOWCASE), n_cols * n_rows):
+    for j in range(len(SHOWCASE_ALPHA), n_cols * n_rows):
         fig.add_subplot(grid[1 + j // n_cols, j % n_cols]).axis("off")
 
     # 0.43 in above the first small panel: where the tag sat in the fixed
@@ -199,72 +205,64 @@ def _handoff(case):
     return float(case.time[above[0]]), alt_km
 
 
-def segmented_handoff(cases):
-    """Who chooses the hand-off altitude, and what it is worth.
+def segmented(cases):
+    """PEG with its first burn aimed at the coast-start waypoint, in the two
+    segmented cases, against the reference and against the same law aimed at the
+    orbit (red-note review S4.1, 2026-10-08: the waypoint panels of the former
+    PEG figure and the hand-off figure merged into one).
 
-    One law combination, twice: flown at the altitude Chapter 4's atmospheric
-    and exoatmospheric division suggests, and with that altitude appended to
-    the decision vector. The reference and PEG aimed alone at the same waypoint
-    are drawn with them: the segmented schedule differs from the latter only in
-    who steers before the hand-off.
+    (a) Altitude against time, the reference's long coast drawn compressed, with
+    the waypoint and each case's hand-off marked; PEG aimed at the orbit is faint.
+    (b) The commanded angle of attack of the reference and the two segmented
+    cases, with the hand-offs and the waypoint instant marked.
     """
-    names = ("show_seg_fixed_alt", "show_seg_opt_alt")
+    names = ("pmp_baseline", "show_seg_fixed_alt", "show_seg_opt_alt")
     missing = _data.missing_from(cases, *names)
     if missing:
-        return _skip("segmented hand-off", missing)
+        return _skip("segmented", missing)
 
+    ref = cases["pmp_baseline"]
     fixed, opt = cases["show_seg_fixed_alt"], cases["show_seg_opt_alt"]
-    ref = cases.get("pmp_baseline")
-    entries = []
-    if ref is not None:
-        entries.append((ref, st.REFERENCE, "-", "Reference (indirect PMP)"))
-    if "show_ref_track" in cases:
-        entries.append((cases["show_ref_track"], st.VARIANT2, "-.",
-                        "PEG alone, first burn to the waypoint"))
-    segmented = [(fixed, st.BASELINE, "-", "Segmented, hand-off fixed"),
-                 (opt, st.VARIANT, "--", "Segmented, hand-off optimised")]
-    entries += segmented
+    segmented_entries = [(opt, st.ENV_COLORS["baseline"], "-", st.case_label("show_seg_opt_alt")),
+                         (fixed, st.SECOND_ARCH, "--", st.case_label("show_seg_fixed_alt"))]
+    entries = [(ref, st.ENV_COLORS["reference"], "-", "Reference (indirect PMP)")]
+    entries += segmented_entries
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
+    if "peg_baseline" in cases:
+        peg = cases["peg_baseline"]
+        t, alt_km = st.thin(*pn.to_insertion(peg, peg.alt_km))
+        ax_a.plot(t, alt_km, color=st.FAINT, linewidth=1.2, zorder=1,
+                  label="PEG, first burn to the orbit")
     pn.altitude_panel(ax_a, entries, shade_coasts=False)
-    # The hand-off as a point on each segmented curve, not a line across the
-    # panel: a horizontal line at 66 or 120 km runs through the legend.
-    for i, (case, colour, _style, _label) in enumerate(segmented):
+    for i, (case, colour, _style, _label) in enumerate(segmented_entries):
         point = _handoff(case)
         if point is None:
             continue
-        ax_a.plot(*point, linestyle="none", marker="D", markersize=4.2,
-                  color=colour, zorder=5,
-                  label="Hand-off" if i == 0 else None)
-        ax_a.annotate("%.0f km" % point[1], xy=point, xytext=(-5, 3),
-                      textcoords="offset points", fontsize=6.5, color=colour,
-                      ha="right", va="bottom")
+        ax_a.plot(*point, linestyle="none", marker="D", markersize=4.2, color=colour,
+                  zorder=5, label="Hand-off" if i == 0 else None)
+        ax_a.annotate("%.0f km" % point[1], xy=point, xytext=(5, -2),
+                      textcoords="offset points", fontsize=6.5, color=st.INK,
+                      ha="left", va="top")
     wp = pn.waypoint(ref)
     if wp is not None:
         pn.mark_waypoint(ax_a, wp)
+    pn.compress_long_coast(ax_a, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
+                           label_y=0.15)
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="lower right", legend_kw={"fontsize": 6.3})
+    st.tidy(ax_a, legend=False)
 
-    n_notes = pn.alpha_panel(ax_b, entries)
-    for case, colour, _style, _label in segmented:
+    pn.alpha_panel(ax_b, entries)
+    for case, colour, _style, _label in segmented_entries:
         point = _handoff(case)
         if point is not None:
             pn.mark_instant(ax_b, point[0], "hand-off", colour)
     if wp is not None:
         pn.mark_instant(ax_b, wp["t"], "waypoint")
-    schedule = opt.segment_schedule or []
-    if schedule:
-        # Top left, under any clipped-peak notes: every flight is still on the
-        # gravity turn there, commanding alpha = 0.
-        ax_b.annotate("Schedule: " + r" $\rightarrow$ ".join(
-                          st.law_label(law) for law, _a in schedule),
-                      xy=(0.02, 0.95 - 0.07 * n_notes), xycoords="axes fraction",
-                      fontsize=6.3, color=st.INK, va="top")
     st.panel_tag(ax_b, "b")
     st.tidy(ax_b, legend=False)
-
-    fig.tight_layout()
-    return st.save(fig, "results_segmented_handoff.png")
+    pn.figure_legend(fig, ax_a, ncol=3)
+    return st.save(fig, "results_segmented.png")
 
 
 def _search_cost(case):
@@ -411,4 +409,4 @@ def solve_cost(cases):
 
 # apollo_waypoint needs show_ref_track_apollo, out of the matrix since
 # 2026-10-07; it is drawn on request only.
-FIGURES = [showcase_laws, segmented_handoff, solve_cost]
+FIGURES = [showcase_laws, segmented, solve_cost]

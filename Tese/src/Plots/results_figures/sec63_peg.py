@@ -13,10 +13,12 @@ of its own, results_peg_vs_reference.png (N6-04).
 Outputs
 -------
 results_reference_profiles.png    fig:reference_card (the figure that replaces the card)
-results_peg_waypoint.png          fig:peg_waypoint
+results_reference_tangent_fit.png fig:reference_tangent_fit
 results_vacuum_coast_bound.png    fig:vacuum_coast_bound
+results_peg_architectures.png     fig:peg_architectures
+results_peg_atmosphere.png        fig:peg_atmosphere
 
-On request only: results_reference_card.png, results_peg_atmosphere.png.
+On request only: results_reference_card.png.
 """
 
 import matplotlib.pyplot as plt
@@ -65,25 +67,43 @@ def reference_card(cases):
                          waypoint=pn.waypoint(ref), pitch_fits=fits)
 
 
-def peg_waypoint(cases):
-    """One law, two targets for its first burn: PEG aimed at the orbit and at
-    the reference's coast-start waypoint, with the reference.
+def peg_architectures(cases):
+    """PEG aimed at the orbit under the coast-parameter and the direct-insertion
+    architectures, with the reference: (a) altitude against time, each case's
+    coasts shaded, (b) the commanded angle of attack.
 
-    The orbit-aimed flight is drawn under both architectures that fly it: the
-    coast-parameter search, whose coast interrupts a burn steered for direct
-    insertion, and direct insertion itself, which has no coast to interrupt.
-    The waypoint-aimed flight is the segmented schedule with its hand-off
-    optimised: it hands over at second-stage ignition, so PEG flies the whole
-    second stage, as in peg_baseline.
+    The waypoint-aimed flight of this law is Section 6.4's own figure
+    (sec67_capabilities.segmented), not drawn here (red-note review S3.1).
     """
-    return pn.waypoint_figure(
-        cases, "peg_baseline", "show_seg_opt_alt", "PEG",
-        "results_peg_waypoint.png",
-        extra=[("peg_direct", st.VARIANT2, "-.", st.case_label("peg_direct"))])
+    names = ("pmp_baseline", "peg_baseline", "peg_direct")
+    missing = _data.missing_from(cases, *names)
+    if missing:
+        return _skip("peg architectures", missing)
+    entries = [
+        (cases["pmp_baseline"], st.ENV_COLORS["reference"], "-", "Reference (indirect PMP)"),
+        (cases["peg_baseline"], st.ENV_COLORS["baseline"], "-", "PEG, coast-parameter search"),
+        (cases["peg_direct"], st.SECOND_ARCH, "-.", "PEG, direct insertion"),
+    ]
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
+    pn.altitude_panel(ax_a, entries)
+    pn.mark_arc_events(ax_a, entries, label_top=True)
+    ref = cases["pmp_baseline"]
+    pn.compress_long_coast(ax_a, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
+                           label_y=0.15)
+    st.panel_tag(ax_a, "a")
+    st.tidy(ax_a, legend=False)
+
+    pn.alpha_panel(ax_b, entries)
+    pn.mark_arc_events(ax_b, entries)
+    st.panel_tag(ax_b, "b")
+    st.tidy(ax_b, legend=False)
+    pn.figure_legend(fig, ax_a)
+    return st.save(fig, "results_peg_architectures.png")
 
 
 def peg_atmosphere(cases):
-    """PEG at the baseline against the drag-free run.
+    """PEG at the baseline against the drag-free run: (a) altitude against
+    downrange, (b) the cumulative gravity and drag losses.
 
     The two runs differ on two counts and not one: ``INCLUDE_DRAG=False`` is the
     master no-atmosphere switch, so the vacuum case also drops the fairing and
@@ -95,25 +115,27 @@ def peg_atmosphere(cases):
     if missing:
         return _skip("peg atmosphere", missing)
     base, vac = cases["peg_baseline"], cases["peg_vacuum"]
+    flights = ((base, st.ENV_COLORS["baseline"], "PEG, with atmosphere"),
+               (vac, st.ENV_COLORS["no_atmosphere"], "PEG, no atmosphere"))
 
     fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    for case, colour, label in ((base, st.BASELINE, "With atmosphere"),
-                                (vac, st.VARIANT, "No atmosphere")):
+    for case, colour, label in flights:
         _t, s_km, alt_km = pn.to_insertion(case, case.downrange_km, case.alt_km)
-        s_km, alt_km = st.thin(s_km, alt_km)
-        ax_a.plot(s_km, alt_km, color=colour, label=label)
+        ax_a.plot(*st.thin(s_km, alt_km), color=colour, label=label)
     ax_a.set_xlabel("Downrange [km]")
     ax_a.set_ylabel("Altitude [km]")
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="lower right")
+    st.tidy(ax_a, legend_loc="lower right", legend_kw={"fontsize": 6.3})
 
-    for case, colour, tag in ((base, st.BASELINE, "atm."), (vac, st.VARIANT, "vac.")):
+    for case, colour, _label in flights:
         hist = case.loss_histories()
         t = case.time[:case.cutoff_index()]
         t, grav, drag = st.thin(t, hist["gravity"], hist["drag"])
-        ax_b.plot(t, grav, color=colour, label="Gravity (%s)" % tag)
-        ax_b.plot(t, drag, color=colour, linestyle="--",
-                  label="Drag (%s)" % tag)
+        ax_b.plot(t, grav, color=colour)
+        if np.any(drag > 1e-9):
+            ax_b.plot(t, drag, color=colour, linestyle="--")
+    ax_b.plot([], [], color=st.GREY, label="Gravity")
+    ax_b.plot([], [], color=st.GREY, linestyle="--", label="Drag")
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel(r"Cumulative loss [m/s]")
     st.panel_tag(ax_b, "b")
@@ -121,6 +143,50 @@ def peg_atmosphere(cases):
 
     fig.tight_layout()
     return st.save(fig, "results_peg_atmosphere.png")
+
+
+def reference_tangent_fit(cases):
+    """How close the reference's first second-stage burn is to the linear-tangent
+    law (red-note review S1.4): (a) the pitch flown and the law fitted to it,
+    tan(theta) = a + b t by least squares (_tangent_fit), (b) their difference,
+    with its RMS.
+    """
+    missing = _data.missing_from(cases, "pmp_baseline")
+    if missing:
+        return _skip("reference tangent fit", missing)
+    ref = cases["pmp_baseline"]
+    burns = [b for b in pn.burn_intervals(ref, stage2_only=True) if b[1] - b[0] >= MIN_FIT_S]
+    if not burns:
+        return _skip("reference tangent fit", ["a second-stage burn"])
+    t0, t1 = burns[0]
+    t, fitted, rms = _tangent_fit(ref, t0, t1)
+    sel = (ref.time >= t0) & (ref.time <= t1)
+    keep = np.ones(int(sel.sum()), dtype=bool)
+    keep[1:] = np.diff(ref.time[sel]) > 0.0
+    flown = ref.theta_deg[sel][keep]
+
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 2.2))
+    ax_a.plot(t, flown, color=st.ENV_COLORS["reference"], label="Reference, flown")
+    ax_a.plot(t, fitted, color=st.INK, linestyle="--", linewidth=1.0,
+              label=r"Linear tangent, $\tan\theta = a + b\,t$")
+    ax_a.set_xlabel("Time [s]")
+    ax_a.set_ylabel(r"Pitch $\theta$ [deg]")
+    st.panel_tag(ax_a, "a")
+    st.tidy(ax_a, legend_loc="upper right", legend_kw={"fontsize": 6.3})
+
+    ax_b.plot(t, flown - fitted, color=st.ENV_COLORS["reference"])
+    ax_b.axhline(0.0, color=st.FAINT, linewidth=0.8)
+    for sign in (1.0, -1.0):
+        ax_b.axhline(sign * rms, color=st.GREY, linestyle=":", linewidth=0.8)
+    ax_b.annotate(r"RMS $%.2f^\circ$ (dotted)" % rms, xy=(0.97, 0.06),
+                  xycoords="axes fraction", ha="right", va="bottom", fontsize=6.5,
+                  color=st.INK)
+    ax_b.set_xlabel("Time [s]")
+    ax_b.set_ylabel(r"Flown $-$ fitted [deg]")
+    st.panel_tag(ax_b, "b")
+    st.tidy(ax_b, legend=False)
+    fig.tight_layout()
+    return st.save(fig, "results_reference_tangent_fit.png")
 
 
 def _tangent_fit(case, t0, t1):
@@ -433,21 +499,7 @@ _COAST_MARGIN_S = (40.0, 25.0)
 _COAST_WIDTH_S = 70.0
 
 
-def _compressed_time(t0, t1, width):
-    """Forward and inverse maps of a time axis that keeps its scale outside
-    [t0, t1] and draws that span *width* seconds wide."""
-    k = width / (t1 - t0)
-    shift = (t1 - t0) - width
-
-    def forward(t):
-        t = np.asarray(t, dtype=float)
-        return np.where(t <= t0, t, np.where(t <= t1, t0 + (t - t0) * k, t - shift))
-
-    def inverse(x):
-        x = np.asarray(x, dtype=float)
-        return np.where(x <= t0, x, np.where(x <= t0 + width, t0 + (x - t0) / k,
-                                             x + shift))
-    return forward, inverse
+_compressed_time = pn.compressed_time
 
 
 def _profile_panel(ax, case, title, waypoint=None):
@@ -624,6 +676,8 @@ def vacuum_coast_bound(cases):
 
 
 # Since 2026-10-06 (walkthrough) the chapter draws the references as profiles
-# rather than as a card (S1-F1), and no longer draws PEG with and without the
-# atmosphere (S3-F3); reference_card and peg_atmosphere are drawn on request.
-FIGURES = [reference_profiles, peg_waypoint, vacuum_coast_bound]
+# rather than as a card (S1-F1); reference_card is drawn on request. Since
+# 2026-10-08 (red-note review S3.1) Section 6.3 draws its two architectures and
+# PEG with and without the atmosphere; the waypoint flight moved to Section 6.4.
+FIGURES = [reference_profiles, reference_tangent_fit, vacuum_coast_bound,
+           peg_architectures, peg_atmosphere]

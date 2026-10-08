@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from matplotlib.text import Text
 
 from . import _data
 from . import _panels as pn
@@ -37,9 +38,6 @@ BUDGET_CASES = [
 # reference flown in the same one.
 _ENVIRONMENT_KEYS = ("include_drag", "earth_rotation", "thrust_1_mode")
 
-# A Stage-2 burn shorter than this is drawn as a tick in the arc-structure
-# chart: on a 3000 s axis a 0.2 s bar is not a pixel wide.
-SHORT_BURN_S = 5.0
 
 
 def _skip(name, missing):
@@ -115,41 +113,60 @@ def loss_budget(cases):
 
 
 def loss_accumulation(cases):
-    """F6.11 -- where in the flight each loss is actually incurred.
+    """F6.11 -- where in the reference's flight each term of the budget accrues
+    (red-note review S6.7, 2026-10-08: the reference only, every component).
 
-    The scalar budget says how much; this says when, which is what distinguishes
-    two laws that spend the same total differently. Drag is confined to the
-    first minute or so of flight while the gravity loss accrues throughout, and
-    that asymmetry is the reason the two are traded against each other rather
-    than minimised separately.
+    The four losses, the residual (the in-plane centrifugal work, dotted) and the
+    launch-site gain below zero, as the credit it is: omega r cos(phi0) at the
+    current radius, which at insertion is the budget's dv_gain. The residual is
+    the budget identity along the flight, ideal - losses - (v - v0), which at
+    insertion is the row's residual. The coast is drawn compressed; MECO, the
+    start of the coast and insertion are dotted.
     """
-    names = [n for n in ("gt_baseline", "peg_baseline") if n in cases]
-    if not names:
-        return _skip("F6.11 loss accumulation", ["gt_baseline", "peg_baseline"])
+    missing = _data.missing_from(cases, "pmp_baseline")
+    if missing:
+        return _skip("F6.11 loss accumulation", missing)
+    from Auxiliary import constants as const
 
+    ref = cases["pmp_baseline"]
+    hist = ref.loss_histories()
+    end = ref.cutoff_index()
+    t_full = ref.time[:end]
     fig, ax = plt.subplots(figsize=st.WIDE_1)
-    styles = {"gt_baseline": "-", "peg_baseline": "--"}
+    for comp in ("gravity", "drag", "steering", "pressure"):
+        series = hist.get(comp)
+        if series is None or not np.any(np.abs(series) > 1e-9):
+            continue
+        ax.plot(*st.thin(t_full, series), color=st.LOSS_COLORS[comp],
+                label=comp.capitalize())
+    v = ref.v[:end]
+    residual = hist["ideal"] - hist["total"] - (v - v[0])
+    ax.plot(*st.thin(t_full, residual), color=st.INK, linestyle=":",
+            label="Residual (in-plane centrifugal work)")
+    if ref.budget().get("dv_gain"):
+        lat = np.deg2rad((ref.manifest.get("config") or {}).get("LAUNCH_LATITUDE", 28.5))
+        gain = const.OMEGA_EARTH * ref.data[1, :end] * np.cos(lat)
+        ax.plot(*st.thin(t_full, -gain), color=st.ENV_COLORS["reference"], linestyle="--",
+                label=r"Launch-site gain $\omega r \cos\phi_0$ (credit)")
+    ax.axhline(0.0, color=st.INK, linewidth=0.7)
 
-    for name in names:
-        case = cases[name]
-        hist = case.loss_histories()
-        t_full = case.time[:case.cutoff_index()]
-        for comp in ("gravity", "drag", "steering", "pressure"):
-            series = hist.get(comp)
-            if series is None or not np.any(np.abs(series) > 1e-9):
-                continue
-            t, series = st.thin(t_full, series)
-            ax.plot(t, series, color=st.LOSS_COLORS[comp],
-                    linestyle=styles[name],
-                    label="%s (%s)" % (comp.capitalize(), st.law_label(case.law)))
-        st.add_events(ax, case, coast=False, seco=False)
-
+    burns = pn.burn_intervals(ref, stage2_only=True)
+    events = [(ref.t_meco, "MECO")]
+    if burns:
+        events.append((burns[0][1], "coast start"))
+    events.append((ref.t_insertion, "insertion"))
+    for t_evt, text in events:
+        if t_evt is None:
+            continue
+        ax.axvline(t_evt, color=st.GREY, linestyle=":", linewidth=0.8)
+        ax.annotate(text, xy=(t_evt, 0.97), xycoords=("data", "axes fraction"),
+                    xytext=(-2, 0), textcoords="offset points", fontsize=6.3,
+                    color=st.INK, rotation=90, ha="right", va="top")
+    pn.compress_long_coast(ax, ref, float(t_full[-1]) + 10.0, label_y=0.55)
     ax.set_xlabel("Time [s]")
-    ax.set_ylabel(r"Cumulative $\Delta V$ loss [m/s]")
-    # Centre right, below the gravity curves and clear of the MECO label, which
-    # an upper-left legend ran through (flag C13).
-    st.tidy(ax, legend_loc="center right")
-    fig.tight_layout()
+    ax.set_ylabel(r"Cumulative $\Delta V$ [m/s]")
+    st.tidy(ax, legend=False)
+    pn.figure_legend(fig, ax, ncol=3)
     return st.save(fig, "results_loss_accumulation.png")
 
 
@@ -204,85 +221,88 @@ def _with_propellant(cases):
             if n in cases and cases[n].row.get("prop_remaining_kg") is not None]
 
 
-def law_ranking(cases):
-    """Propellant remaining at insertion for every reported case, each against
-    the reference of its own environment.
+# The environment blocks of the multi-case figures, in reading order, each with
+# the reference flown in it (red-note review S6.3/S6.4, 2026-10-08). No reference
+# was flown for the sea-level nozzle.
+ENV_BLOCKS = [("baseline", "pmp_baseline"), ("no_atmosphere", "pmp_vacuum"),
+              ("no_rotation", "pmp_norot"), ("sea_level", None)]
 
-    Each bar prints the propellant, its difference from that reference where
-    one was flown, and the apoapsis-periapsis spread the propellant was bought
-    with: the swarm's
-    objective trades the two, and a propellant bar alone does not show it.
-    Cases that miss the target orbit are drawn hatched and grey below the rest
-    and are not ranked: propellant unspent by a vehicle that failed to arrive
-    is not a saving.
-    """
+
+def environment_blocks(cases):
+    """[(environment, [case names])]: the reported cases grouped by environment,
+    each block its reference first and the rest by propellant, most first."""
     present = _with_propellant(cases)
-    if not present:
+    blocks = []
+    for env, ref in ENV_BLOCKS:
+        members = sorted((n for n in present if st.environment(cases[n].row) == env
+                          and not _is_reference(cases[n])),
+                         key=lambda n: -cases[n].row["prop_remaining_kg"])
+        rows = ([ref] if ref in present else []) + members
+        if rows:
+            blocks.append((env, rows))
+    return blocks
+
+
+def _block_rows(blocks, gap=0.55, heading=0.9):
+    """y position of every case and of every block heading, top to bottom."""
+    y, rows, headings = 0.0, [], []
+    for env, names in blocks:
+        headings.append((env, y))
+        y += heading
+        for name in names:
+            rows.append((name, y))
+            y += 1.0
+        y += gap
+    return rows, headings, y - gap
+
+
+def _block_axes(ax, cases, rows, headings, bold_refs=True):
+    """Case labels on the y axis (references bold), block headings above each."""
+    ax.set_yticks([y for _n, y in rows])
+    ax.set_yticklabels([st.case_label(n) for n, _y in rows], fontsize=7)
+    for tick, (name, _y) in zip(ax.get_yticklabels(), rows):
+        if bold_refs and _is_reference(cases[name]):
+            tick.set_fontweight("bold")
+    for env, y in headings:
+        ax.annotate(st.ENV_LABELS[env], xy=(0.0, y + 0.15),
+                    xycoords=("axes fraction", "data"), xytext=(2, 0),
+                    textcoords="offset points", fontsize=7.2, fontweight="bold",
+                    color=st.INK, va="center", ha="left")
+
+
+def law_ranking(cases):
+    """Propellant remaining at insertion for every reported case, grouped by the
+    environment it was flown in (red-note review S6.3, 2026-10-08).
+
+    Each block opens with the reference flown in its environment, in green with a
+    bold label, and the cases follow in their environment's colour, by
+    propellant. The grouping puts each case beside its own reference, so the
+    shortfall is read off the bars rather than printed; only the propellant is.
+    """
+    blocks = environment_blocks(cases)
+    if not blocks:
         return _skip("law ranking", _data.REPORTED_CASES)
+    rows, headings, y_end = _block_rows(blocks)
 
-    records = []
-    for name in present:
+    fig, ax = plt.subplots(figsize=(6.3, 0.9 + 0.235 * (y_end + 1.0)))
+    for name, y in rows:
         case = cases[name]
-        ref, same = _reference_for(case, cases)
-        records.append((name, case, case.row["prop_remaining_kg"] / 1e3,
-                        case.reached_orbit, _orbit_spread_km(case), ref, same))
-    valid = sorted([r for r in records if r[3]], key=lambda r: r[2])
-    invalid = sorted([r for r in records if not r[3]], key=lambda r: r[2])
-    records = invalid + valid
-
-    fig, ax = plt.subplots(figsize=st.bar_size(len(records), row_height=0.30))
-    unmatched = False
-    for i, (name, case, prop_t, ok, spread, ref, same) in enumerate(records):
-        colour = (st.REFERENCE if _is_reference(case)
-                  else st.BASELINE if ok else st.FAILED)
-        ax.barh(i, prop_t, height=0.66, color=colour,
-                hatch=None if ok else "//", edgecolor="white", linewidth=0.5)
-        # No difference is printed where no reference was flown in the case's
-        # own environment: against another environment's reference it would be
-        # mostly the environment (rotation, nozzle), not the guidance.
-        text = "%.2f t" % prop_t
-        if ref is not None and not _is_reference(case) and same:
-            text += r"    $\Delta$ %+.2f t" % (prop_t - ref.row["prop_remaining_kg"] / 1e3)
-        if spread is not None and not _is_reference(case):
-            text += "    %.1f km" % spread
-        if not _is_reference(case) and not same:
-            text += r"  $^\dagger$"
-            unmatched = True
-        # Inside the bar's end: outside, the longer label runs across the
-        # reference lines that sit just past the longest bars.
-        ax.annotate(text, xy=(prop_t, i), xytext=(-4, 0),
-                    textcoords="offset points", fontsize=6.5, va="center",
-                    ha="right", color="white" if ok else st.INK)
-
-    for name, style, text in (("pmp_baseline", "--", "Reference"),
-                              ("pmp_vacuum", ":", "Reference, no atmosphere"),
-                              ("pmp_norot", "-.", "Reference, non-rotating")):
-        ref = cases.get(name)
-        if ref is not None and ref.row.get("prop_remaining_kg") is not None:
-            ref_t = ref.row["prop_remaining_kg"] / 1e3
-            ax.axvline(ref_t, color=st.REFERENCE, linestyle=style, linewidth=1.1,
-                       zorder=0.8, label="%s (%.2f t)" % (text, ref_t))
-
-    ax.set_yticks(np.arange(len(records)))
-    ax.set_yticklabels([st.case_label(r[0]) for r in records], fontsize=7)
+        prop_t = case.row["prop_remaining_kg"] / 1e3
+        colour = st.ENV_COLORS["reference" if _is_reference(case)
+                               else st.environment(case.row)]
+        ax.barh(y, prop_t, height=0.7, color=colour, edgecolor="white", linewidth=0.5,
+                hatch=None if case.reached_orbit else "//")
+        light = colour == st.ENV_COLORS["no_rotation"]
+        ax.annotate("%.2f t" % prop_t, xy=(prop_t, y), xytext=(-4, 0),
+                    textcoords="offset points", fontsize=6.5, va="center", ha="right",
+                    color=st.INK if light else "white",
+                    fontweight="bold" if _is_reference(case) else "normal")
+    _block_axes(ax, cases, rows, headings)
+    ax.set_ylim(y_end + 0.6, -0.6)
+    ax.set_xlim(0.0, 1.03 * max(cases[n].row["prop_remaining_kg"] for n, _y in rows) / 1e3)
     ax.set_xlabel("Propellant remaining at insertion [t]")
-    ax.set_xlim(0.0, 1.04 * max(r[2] for r in records))
-    st.tidy(ax, legend_loc="upper center",
-            legend_kw={"bbox_to_anchor": (0.5, -0.07), "ncol": 3,
-                       "fontsize": 6.8})
-
-    # Under the legend, not inside the axes: the bars start at zero on every
-    # row, so any note placed inside sits on top of one of them.
-    footnotes = [r"$\Delta$: against the reference flown in the same environment;"
-                 " km: apoapsis-periapsis spread at insertion"]
-    if unmatched:
-        footnotes.append(r"$^\dagger$ no reference was flown for this environment "
-                         r"(sea-level nozzle), so no $\Delta$")
-    if invalid:
-        footnotes.append("hatched: target orbit not reached, not ranked")
-    for i, text in enumerate(footnotes):
-        ax.annotate(text, xy=(0.0, -0.115 - 0.028 * i), xycoords="axes fraction",
-                    fontsize=6.3, color=st.GREY, va="top")
+    st.tidy(ax, legend=False)
+    ax.grid(False, axis="y")
     fig.tight_layout()
     return st.save(fig, "results_law_ranking.png")
 
@@ -293,8 +313,8 @@ def accuracy_vs_propellant(cases):
     Insertion accuracy on one axis and propellant on the other separates the
     cases that buy accuracy with propellant from those that give up both, which
     a ranking on either quantity alone cannot show. Every reported case is
-    drawn; those flown in another environment than the baseline reference's
-    are hollow, because their propellant is not comparable with the rest.
+    drawn, coloured by the environment it was flown in, the references as green
+    stars (red-note review X4/S6.1, 2026-10-08).
     """
     present = [n for n in _with_propellant(cases)
                if _orbit_spread_km(cases[n]) is not None]
@@ -302,34 +322,29 @@ def accuracy_vs_propellant(cases):
         return _skip("accuracy vs propellant", _data.REPORTED_CASES)
 
     fig, ax = plt.subplots(figsize=st.TALL_1)
-    labels, any_failed, any_other_env = [], False, False
+    labels, points = [], []
     for name in present:
         case = cases[name]
         prop_t = case.row["prop_remaining_kg"] / 1e3
         spread = _orbit_spread_km(case)
-        colour = st.REFERENCE if _is_reference(case) else st.BASELINE
-        same_env = _baseline_environment(case, cases)
-        any_other_env = any_other_env or not same_env
-        marker = "*" if _is_reference(case) else ("o" if case.reached_orbit else "X")
-        ax.scatter(spread, prop_t, s=70 if marker == "*" else 30, marker=marker,
-                   facecolor=colour if same_env else "white", edgecolor=colour,
-                   linewidth=1.0, zorder=5 if marker == "*" else 3)
-        # Left of the point for the largest misses, which sit at the right
-        # edge; a white backing keeps the reference line from striking through.
+        ref = _is_reference(case)
+        colour = st.ENV_COLORS["reference" if ref else st.environment(case.row)]
+        marker = "*" if ref else ("o" if case.reached_orbit else "X")
+        ax.scatter(spread, prop_t, s=90 if ref else 32, marker=marker, facecolor=colour,
+                   edgecolor="white", linewidth=0.6, zorder=5 if ref else 3)
+        points.append((spread, prop_t))
         right_edge = spread > 5.0
         labels.append(ax.annotate(st.case_label(name), xy=(spread, prop_t),
-                                  xytext=(-6 if right_edge else 6, -2),
+                                  xytext=(-7 if right_edge else 7, -2),
                                   textcoords="offset points",
                                   ha="right" if right_edge else "left",
                                   fontsize=6.3, color=st.INK, zorder=4,
+                                  fontweight="bold" if ref else "normal",
                                   bbox={"facecolor": "white", "edgecolor": "none",
-                                        "pad": 0.4, "alpha": 0.85}))
-        any_failed = any_failed or not case.reached_orbit
-
-    base = cases.get("pmp_baseline")
-    if base is not None:
-        ax.axhline(base.row["prop_remaining_kg"] / 1e3, color=st.REFERENCE,
-                   linestyle="--", linewidth=0.9, zorder=1)
+                                        "pad": 0.4, "alpha": 0.85},
+                                  arrowprops={"arrowstyle": "-", "color": st.GREY,
+                                              "linewidth": 0.5, "shrinkA": 0,
+                                              "shrinkB": 3}))
 
     # Symlog, linear below 0.1 km: half the cases insert within a few hundred
     # metres of circular and the others miss by up to 20 km, and a linear axis
@@ -341,85 +356,137 @@ def accuracy_vs_propellant(cases):
     ax.set_xlabel("Apoapsis-periapsis spread at insertion [km]   (lower is better)")
     ax.set_ylabel("Propellant remaining [t]")
 
-    footnotes = ["star: reference; dashed: the baseline reference's propellant"]
-    if any_other_env:
-        footnotes.append("hollow: flown in another environment (no atmosphere, "
-                         "non-rotating Earth or sea-level nozzle)")
-    if any_failed:
-        footnotes.append("X: target orbit not reached")
-    ax.annotate("\n".join(footnotes), xy=(0.0, -0.16), xycoords="axes fraction",
-                fontsize=6.3, color=st.GREY, va="top")
+    envs = []
+    for name in present:
+        env = st.environment(cases[name].row)
+        if env not in envs and not _is_reference(cases[name]):
+            envs.append(env)
+    handles = [Line2D([], [], marker="*", markersize=9, linestyle="none",
+                      markerfacecolor=st.ENV_COLORS["reference"], markeredgecolor="white",
+                      label="Reference")]
+    handles += [Line2D([], [], marker="o", markersize=5.5, linestyle="none",
+                       markerfacecolor=st.ENV_COLORS[e], markeredgecolor="white",
+                       label=st.ENV_LABELS[e]) for e in envs]
     st.tidy(ax, legend=False)
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=5,
+              fontsize=6.8, handletextpad=0.3, columnspacing=1.2)
     fig.tight_layout()
-    # Placed last: the de-collider measures rendered extents, so it has to run
+    # Placed last: the placement measures rendered extents, so it has to run
     # after every artist that moves them.
-    # Downward: the cluster near zero spread sits under the reference line,
-    # and pushed up its labels land on the points above them.
-    st.dodge_labels(fig, labels, downward=True)
+    _place_labels(fig, ax, labels, points)
     return st.save(fig, "results_accuracy_vs_propellant.png")
 
 
-def arc_structure(cases):
-    """The arc structure of every case on one time axis, ordered by propellant.
+# Offsets [pt] tried, in order, for a point label: right of the point, then
+# above and below it on the right, then left of it, then further right.
+_LABEL_OFFSETS = [(7, -2, "left"), (-7, -2, "right"), (7, 6, "left"), (7, -10, "left"),
+                  (24, -2, "left"), (24, 8, "left"), (24, -12, "left"), (7, 13, "left"),
+                  (7, -17, "left"), (40, -2, "left"), (40, 10, "left"), (40, -14, "left")]
 
-    The first stage, each second-stage burn and each coast as a bar, read from
-    the thrust trace (_panels.burn_intervals, Case.coast_intervals) so every
-    architecture is drawn by the same rule. The gap after the first stage is
-    the planned separation delay. A second-stage burn too short to show as a
-    bar is a tick, and the apogee check's impulsive circularisation, which the
-    thrust trace does not hold, is a diamond at the instant Case.t_insertion
-    finds. Ordered by the propellant remaining at insertion, most at the top.
+
+def _place_labels(fig, ax, labels, points, pad=2.0):
+    """Give every point label the first offset that keeps it inside the axes and
+    clear of every marker and of every label already placed.
+
+    A point's label can collide with its neighbours' labels and with their
+    markers, and from the axis at the left edge; only the rendered extents show
+    which, and per-case offsets fixed by hand would rot the next time a case is
+    re-flown. Labels are placed from the top down; a label that finds no free
+    offset keeps the first.
     """
-    present = _with_propellant(cases)
-    if not present:
-        return _skip("arc structure", _data.REPORTED_CASES)
-    order = sorted(present, key=lambda n: cases[n].row["prop_remaining_kg"],
-                   reverse=True)
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    frame = ax.get_window_extent(renderer=renderer)
+    pixels = [ax.transData.transform(p) for p in points]
+    order = sorted(range(len(labels)), key=lambda k: -points[k][1])
+    placed = []
 
-    fig, ax = plt.subplots(figsize=st.bar_size(len(order), row_height=0.27))
-    half = 0.28
-    t_max = 0.0
-    for row, name in enumerate(order):
+    def clear(box, k):
+        if box.x0 < frame.x0 or box.x1 > frame.x1 or box.y0 < frame.y0 or box.y1 > frame.y1:
+            return False
+        for j, (x, y) in enumerate(pixels):
+            if j != k and box.x0 - pad < x < box.x1 + pad and box.y0 - pad < y < box.y1 + pad:
+                return False
+        return not any(box.x0 < o.x1 + pad and box.x1 > o.x0 - pad
+                       and box.y0 < o.y1 + pad and box.y1 > o.y0 - pad for o in placed)
+
+    def text_box(ann):
+        # The text alone: an annotation's own extent includes its leader line.
+        ann.update_positions(renderer)
+        return Text.get_window_extent(ann, renderer)
+
+    for k in order:
+        ann = labels[k]
+        chosen = None
+        for dx, dy, ha in _LABEL_OFFSETS:
+            ann.set_position((dx, dy))
+            ann.set_ha(ha)
+            box = text_box(ann)
+            if clear(box, k):
+                chosen = box
+                break
+        if chosen is None:
+            dx, dy, ha = _LABEL_OFFSETS[0]
+            ann.set_position((dx, dy))
+            ann.set_ha(ha)
+            chosen = text_box(ann)
+        placed.append(chosen)
+
+
+# The phases of the arc-structure chart. The environment is given by the block
+# headings there, not by colour (red-note review S6.4: the bars carry the phase).
+PHASE_COLORS = {"stage1": "#eb6834", "stage2": "#2f4b7c", "coast": st.FAINT}
+
+
+def arc_structure(cases):
+    """The arc structure of every case on one time axis, grouped by environment
+    as in the ranking, each block its reference first (red-note review S6.4).
+
+    The first stage, the second-stage burns -- before and after the coast alike
+    -- and the coasts, read from the thrust trace (_panels.burn_intervals,
+    Case.coast_intervals) so every architecture is drawn by the same rule. A burn
+    too short to show at this scale is drawn at a minimum width, in the same
+    colour. The gap after the first stage is the planned separation delay. The
+    apogee check's impulsive circularization, which the thrust trace does not
+    hold, is a diamond at the instant Case.t_insertion finds.
+    """
+    blocks = environment_blocks(cases)
+    if not blocks:
+        return _skip("arc structure", _data.REPORTED_CASES)
+    rows, headings, y_end = _block_rows(blocks)
+    t_max = max((cases[n].t_insertion or float(cases[n].time[-1])) for n, _y in rows)
+    min_w = 0.006 * t_max
+
+    fig, ax = plt.subplots(figsize=(6.3, 0.9 + 0.235 * (y_end + 1.0)))
+    half = 0.30
+    for name, y in rows:
         case = cases[name]
         for t0, t1 in pn.burn_intervals(case):
             stage1 = case.t_meco is not None and t0 < case.t_meco - 0.5
-            if not stage1 and t1 - t0 < SHORT_BURN_S:
-                ax.plot(t1, row, marker="|", markersize=8, markeredgewidth=1.6,
-                        color=st.THRUST, zorder=3)
-            else:
-                ax.broken_barh([(t0, t1 - t0)], (row - half, 2 * half),
-                               facecolors=st.THRUST, alpha=0.45 if stage1 else 1.0,
-                               linewidth=0, zorder=2)
+            ax.broken_barh([(t0, max(t1 - t0, min_w))], (y - half, 2 * half),
+                           facecolors=PHASE_COLORS["stage1" if stage1 else "stage2"],
+                           linewidth=0, zorder=2)
         for t0, t1 in case.coast_intervals():
-            ax.broken_barh([(t0, t1 - t0)], (row - half, 2 * half),
-                           facecolors=st.FAINT, linewidth=0, zorder=1)
+            ax.broken_barh([(t0, t1 - t0)], (y - half, 2 * half),
+                           facecolors=PHASE_COLORS["coast"], linewidth=0, zorder=1)
         t_end = case.t_insertion if case.t_insertion is not None else case.time[-1]
         if case.architecture == "apogee_check":
-            ax.plot(t_end, row, marker="D", markersize=4.2, color=st.AMBER, zorder=4)
-        ax.annotate("%.2f t" % (case.row["prop_remaining_kg"] / 1e3),
-                    xy=(t_end, row), xytext=(7, 0), textcoords="offset points",
-                    fontsize=6.3, va="center", color=st.INK)
-        t_max = max(t_max, t_end)
-
-    ax.set_yticks(np.arange(len(order)))
-    ax.set_yticklabels([st.case_label(n) for n in order], fontsize=7)
-    ax.set_ylim(len(order) - 0.5, -0.5)
-    ax.set_xlim(0.0, 1.12 * t_max)
-    ax.set_xlabel("Time [s]   (propellant remaining at insertion printed after each)")
+            ax.plot(t_end, y, marker="D", markersize=4.2, color=st.INK, zorder=4)
+    _block_axes(ax, cases, rows, headings)
+    ax.set_ylim(y_end + 0.6, -0.6)
+    ax.set_xlim(0.0, 1.02 * t_max)
+    ax.set_xlabel("Time [s]")
     handles = [
-        Patch(facecolor=st.THRUST, alpha=0.45, label="First-stage burn"),
-        Patch(facecolor=st.THRUST, label="Second-stage burn"),
-        Patch(facecolor=st.FAINT, label="Coast"),
-        Line2D([], [], color=st.THRUST, marker="|", markersize=8,
-               markeredgewidth=1.6, linestyle="none",
-               label="Burn under %.0f s" % SHORT_BURN_S),
-        Line2D([], [], color=st.AMBER, marker="D", markersize=4.2,
-               linestyle="none", label="Impulsive circularisation"),
+        Patch(facecolor=PHASE_COLORS["stage1"], label="First-stage burn"),
+        Patch(facecolor=PHASE_COLORS["stage2"], label="Second-stage burn"),
+        Patch(facecolor=PHASE_COLORS["coast"], label="Coast"),
+        Line2D([], [], color=st.INK, marker="D", markersize=4.2,
+               linestyle="none", label="Impulsive circularization"),
     ]
     st.tidy(ax, legend=False)
     ax.grid(False, axis="y")
-    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.07),
-              ncol=3, fontsize=6.8)
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.09),
+              ncol=4, fontsize=6.8)
     fig.tight_layout()
     return st.save(fig, "results_arc_structure.png")
 

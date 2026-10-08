@@ -255,3 +255,72 @@ def waypoint_figure(cases, orbit_name, waypoint_name, law, filename, extra=()):
 
     fig.tight_layout()
     return st.save(fig, filename)
+
+
+def compressed_time(t0, t1, width):
+    """Forward and inverse maps of a time axis that keeps its scale outside
+    [t0, t1] and draws that span *width* seconds wide."""
+    k = width / (t1 - t0)
+    shift = (t1 - t0) - width
+
+    def forward(t):
+        t = np.asarray(t, dtype=float)
+        return np.where(t <= t0, t, np.where(t <= t1, t0 + (t - t0) * k, t - shift))
+
+    def inverse(x):
+        x = np.asarray(x, dtype=float)
+        return np.where(x <= t0, x, np.where(x <= t0 + width, t0 + (x - t0) / k,
+                                             x + shift))
+    return forward, inverse
+
+
+# What a compressed time axis keeps at full scale on either side of a coast, and
+# how wide [s of axis] the coast itself is drawn.
+COAST_MARGIN_S = (40.0, 25.0)
+COAST_WIDTH_S = 70.0
+
+
+def compress_long_coast(ax, case, t_end, tick_step=100.0, label_y=0.2):
+    """Draw *case*'s longest coast compressed between two breaks, its length
+    printed in it, on a time axis that ends at *t_end*. Does nothing when the
+    coast is too short to gain from it. A long, low coast is most of the flight
+    and nothing happens in it, so on a linear axis it squeezes every burn into
+    the first fifth of the panel.
+    """
+    coasts = case.coast_intervals()
+    ax.set_xlim(0.0, t_end)
+    if not coasts:
+        return False
+    c0, c1 = max(coasts, key=lambda s: s[1] - s[0])
+    cut0, cut1 = c0 + COAST_MARGIN_S[0], c1 - COAST_MARGIN_S[1]
+    if cut1 - cut0 <= COAST_WIDTH_S:
+        return False
+    ax.set_xscale("function", functions=compressed_time(cut0, cut1, COAST_WIDTH_S))
+    ticks = list(np.arange(0.0, cut0, tick_step))
+    ticks.append(max(np.round(t_end / 10.0) * 10.0 - 10.0, np.ceil(cut1 / 10.0) * 10.0))
+    ax.set_xticks(ticks)
+    ax.set_xticklabels(["%.0f" % v for v in ticks])
+    for cut in (cut0, cut1):
+        ax.annotate("//", xy=(cut, 0.0), xycoords=("data", "axes fraction"),
+                    ha="center", va="center", fontsize=8, color=st.INK,
+                    bbox={"boxstyle": "square,pad=0.05", "fc": "white", "ec": "none"})
+    ax.annotate("coast\n%.0f s" % (c1 - c0), xy=(0.5 * (cut0 + cut1), label_y),
+                xycoords=("data", "axes fraction"), fontsize=6.5, color=st.GREY,
+                ha="center", va="center")
+    return True
+
+
+def figure_legend(fig, ax, ncol=4, fontsize=6.5):
+    """One legend for the figure, below its panels, from *ax*'s entries.
+
+    Used where every corner of every panel holds a curve; the layout is tightened
+    first and then shortened at the bottom to make room.
+    """
+    handles, labels = ax.get_legend_handles_labels()
+    fig.tight_layout()
+    rows = -(-len(labels) // ncol)
+    height = fig.get_size_inches()[1]
+    bottom = (0.10 + 0.16 * rows) / height
+    fig.subplots_adjust(bottom=fig.subplotpars.bottom + bottom)
+    fig.legend(handles, labels, loc="lower center", ncol=ncol, fontsize=fontsize,
+               frameon=False, bbox_to_anchor=(0.5, 0.0))

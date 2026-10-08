@@ -44,6 +44,7 @@ import numpy as np
 from Auxiliary import rocket_specs
 from Plots.results_figures import _data
 from Plots.results_figures import _panels
+from Plots.results_figures import _style
 from Plots.results_figures.sec65_losses import _reference_for
 from Plots.results_figures.sec67_capabilities import _search_cost
 
@@ -146,6 +147,20 @@ def count(n):
 
 def case_cell(name):
     return r"\texttt{%s}" % name.replace("_", r"\_")
+
+
+def label_cell(name):
+    """The case's readable name, as the figures print it (red-note review S3.3,
+    2026-10-08); the section tables use it, the appendix and budget tables the id."""
+    return _style.case_label(name)
+
+
+def orbit(case):
+    """Apoapsis x periapsis [km], one cell."""
+    ha, hp = case.row.get("apoapsis_km"), case.row.get("periapsis_km")
+    if ha is None or hp is None:
+        return DASH
+    return r"$%.1f \times %.1f$" % (ha, hp)
 
 
 # --- derived quantities ----------------------------------------------------
@@ -313,14 +328,65 @@ def reference_results(cases):
     for n in names:
         k = cases[n]
         first, coast, final = arcs(k)
-        rows.append([case_cell(n), tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
+        rows.append([REFERENCE_LABELS[n], tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
                      seconds(first), num(altitude_at(k, coast_start(k))),
                      seconds(coast), seconds(final), tonnes(SWARM_POINT_KG.get(n))])
     return tabular(
         "l r r r r r r r",
-        bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", "First burn",
+        bold("Environment", "Prop. left", r"$h_{\mathrm{MECO}}$", "First burn",
              r"$h_{\mathrm{coast}}$", "Coast", "Final burn", "Swarm point"),
         ["", "[t]", "[km]", "[s]", "[km]", "[s]", "[s]", "[t]"], rows)
+
+
+# The references by the environment each was flown in, the row label of the
+# tables that list the references alone.
+REFERENCE_LABELS = {"pmp_baseline": "Baseline", "pmp_vacuum": "No atmosphere",
+                    "pmp_norot": "Non-rotating Earth"}
+
+# The seeds every reference was swarmed from (750x1500), and where the swarm
+# point and its refinement at the 2000 s coast bound of each are kept inside the
+# results set: <root>/_pmp_seeds_750x1500/<case>/seed_<n>/{swarm,refined}/<case>.json
+# (red-note review S1.3, option B, 2026-10-08). Seed 3 is the one reported.
+REFERENCE_SEEDS = (1, 2, 3, 4, 42)
+REPORTED_SEED = 3
+SEEDS_DIR = "_pmp_seeds_750x1500"
+ROOT = None                      # the results root, set by main()
+
+
+def _seed_prop(case_name, seed, stage):
+    """Propellant left [kg] at a reference's swarm point or refined extremal for
+    one seed, or None when that archive is not in the results set."""
+    import json
+
+    root = Path(ROOT) if ROOT is not None else _data.DEFAULT_ROOT
+    path = root / SEEDS_DIR / case_name / ("seed_%d" % seed) / stage / (case_name + ".json")
+    if not path.exists():
+        return None
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh).get("prop_remaining_kg")
+
+
+def reference_seeds(cases):
+    """Each reference's swarm point and refined extremal for every seed it was
+    swarmed from, propellant left in tonnes; the reported seed is marked."""
+    names = ["pmp_baseline", "pmp_vacuum", "pmp_norot"]
+    rows = []
+    for n in names:
+        swarm = [tonnes(_seed_prop(n, sd, "swarm")) for sd in REFERENCE_SEEDS]
+        refined = [tonnes(_seed_prop(n, sd, "refined")) for sd in REFERENCE_SEEDS]
+        if all(c == DASH for c in swarm + refined):
+            print("  skip %-20s no seed archives under %s" % ("reference_seeds", SEEDS_DIR))
+            return None
+        rows.append([REFERENCE_LABELS[n], "swarm point"] + swarm)
+        rows.append(["", "refined"] + refined)
+        if n != names[-1]:
+            rows.append(None)
+    heads = ["Seed %d%s" % (sd, "$^{*}$" if sd == REPORTED_SEED else "")
+             for sd in REFERENCE_SEEDS]
+    return tabular(
+        "l l " + " ".join(["r"] * len(REFERENCE_SEEDS)),
+        bold("Environment", "", *heads),
+        ["", ""] + ["[t]"] * len(REFERENCE_SEEDS), rows)
 
 
 def gt_results(cases):
@@ -332,63 +398,63 @@ def gt_results(cases):
     for n in names:
         k = cases[n]
         vs = None if n == "gt_baseline" else prop(k) - base
-        rows.append([case_cell(n), tonnes(prop(k)), num(vs, 0, signed=True),
-                     num(shortfall(k, cases), 0), num(k.row["apoapsis_km"]),
-                     num(k.row["periapsis_km"]), seconds(arcs(k)[1])])
+        rows.append([label_cell(n), tonnes(prop(k)), num(vs, 0, signed=True),
+                     num(shortfall(k, cases), 0), orbit(k), seconds(arcs(k)[1])])
     return tabular(
-        "l r r r r r r",
-        bold("Case", "Prop. left", "vs baseline", "Shortfall", "$h_a$", "$h_p$", "Coast"),
-        ["", "[t]", "[kg]", "[kg]", "[km]", "[km]", "[s]"], rows)
+        "l r r r r r",
+        bold("Case", "Prop. left", "vs baseline", "Shortfall", "Orbit", "Coast"),
+        ["", "[t]", "[kg]", "[kg]", "[km]", "[s]"], rows)
 
 
-def _law_row(name, cases, label=None):
-    """Prop., shortfall, coast, steering loss, h_a, h_p."""
+def _law_row(name, cases, label=None, steering=True):
+    """Prop., shortfall, coast, [steering loss,] orbit."""
     k = cases[name]
-    return [label or case_cell(name), tonnes(prop(k)), num(shortfall(k, cases), 0),
-            seconds(arcs(k)[1]), num(k.row["dv_steering"]),
-            num(k.row["apoapsis_km"]), num(k.row["periapsis_km"])]
+    row = [label or label_cell(name), tonnes(prop(k)), num(shortfall(k, cases), 0),
+           seconds(arcs(k)[1])]
+    if steering:
+        row.append(num(k.row["dv_steering"]))
+    return row + [orbit(k)]
 
 
 def peg_results(cases):
     names = ["gt_baseline", "peg_baseline", "peg_direct", "peg_vacuum"]
     if _missing(cases, names, "peg_results"):
         return None
-    rows = [_law_row("gt_baseline", cases), None] + [_law_row(n, cases)
-                                                     for n in names[1:]]
+    # No steering column (red-note review S3.3): the steering losses are
+    # tab:loss_budget's.
+    rows = [_law_row("gt_baseline", cases, steering=False), None] + [
+        _law_row(n, cases, steering=False) for n in names[1:]]
     return tabular(
-        "l r r r r r r",
-        bold("Case", "Prop. left", "Shortfall", "Coast", "Steering loss", "$h_a$",
-             "$h_p$"),
-        ["", "[t]", "[kg]", "[s]", "[m/s]", "[km]", "[km]"], rows)
+        "l r r r r",
+        bold("Case", "Prop. left", "Shortfall", "Coast", "Orbit"),
+        ["", "[t]", "[kg]", "[s]", "[km]"], rows)
 
 
-def _waypoint_table(cases, orbit, waypoints, table):
-    """The steering loss is split at the coast (walkthrough S4-F1, 2026-10-06):
-    whether a waypoint case loses its propellant in the first burn or after the
-    coast is the question its section answers."""
-    names = [orbit, *waypoints, "pmp_baseline"]
+def _waypoint_table(cases, orbit_name, waypoints, table):
+    """The waypoint miss of each case aimed at the waypoint; the steering losses,
+    split at the coast until 2026-10-08, are tab:loss_budget's and the text's
+    (red-note review S3.3: the table ran off the page)."""
+    names = [orbit_name, *waypoints, "pmp_baseline"]
     if _missing(cases, names, table):
         return None
     rows = []
     for n in names:
         k = cases[n]
-        prop_, short, coast, _steer, ha, hp = _law_row(n, cases)[1:]
+        label = {"peg_baseline": "PEG, first burn to the orbit",
+                 "pmp_baseline": "Reference"}.get(n, label_cell(n))
+        prop_, short, coast, orbit_cell = _law_row(n, cases, steering=False)[1:]
         miss = k.waypoint_miss()
         dh, dv, dg = (DASH,) * 3 if miss is None else (
             num(miss[0], 0, signed=True), num(miss[1], 2, signed=True),
             num(miss[2], 3, signed=True))
-        first, final = steering_split(k)
-        rows.append([case_cell(n), prop_, short, coast, dh, dv, dg, num(first),
-                     num(final), ha, hp])
+        rows.append([label, prop_, short, coast, dh, dv, dg, orbit_cell])
     return tabular(
-        "l r r r r r r r r r r",
+        "l r r r r r r r",
         bold("Case", "Prop. left", "Shortfall", "Coast")
-        + [r"\multicolumn{3}{c}{\textbf{Waypoint miss}}",
-           r"\multicolumn{2}{c}{\textbf{Steering loss}}"]
-        + bold("$h_a$", "$h_p$"),
+        + [r"\multicolumn{3}{c}{\textbf{Waypoint miss}}"] + bold("Orbit"),
         ["", "[t]", "[kg]", "[s]", r"$\Delta h$ [m]", r"$\Delta v$ [m/s]",
-         r"$\Delta\gamma$ [deg]", "first [m/s]", "final [m/s]", "[km]", "[km]"],
-        rows, rule_under_heads=r"\cmidrule(lr){5-7} \cmidrule(lr){8-9}")
+         r"$\Delta\gamma$ [deg]", "[km]"],
+        rows, rule_under_heads=r"\cmidrule(lr){5-7}")
 
 
 def peg_waypoint(cases):
@@ -419,10 +485,10 @@ def showcase_laws(cases):
         rows += [None, _law_row("show_apollo", cases, "Apollo")
                  + [hours(search(cases["show_apollo"])[0])]]
     return tabular(
-        "l r r r r r r r",
+        "l r r r r r r",
         bold("Guidance law", "Prop. left", "Shortfall", "Coast", "Steering loss",
-             "$h_a$", "$h_p$", "Solve"),
-        ["", "[t]", "[kg]", "[s]", "[m/s]", "[km]", "[km]", "[h]"], rows)
+             "Orbit", "Solve"),
+        ["", "[t]", "[kg]", "[s]", "[m/s]", "[km]", "[h]"], rows)
 
 
 def segmented_results(cases):
@@ -470,6 +536,31 @@ def full_results(cases):
          "[s]", "[s]", "[s]", "[s]", "[-]", "[h]"], rows)
 
 
+def cross_plane_burns(case):
+    """The cross-plane pseudo-acceleration integrated over the burns [m/s], on the
+    launch azimuth (_data.Case.pseudo_forces_at_azimuth), or None without rotation.
+
+    A diagnostic outside the budget (red-note review S6.6, option B): the term
+    does no work in the plane, so it enters no loss, and over the coasts it only
+    describes the ground frame turning beneath a Keplerian arc, so the coasts are
+    left out. It is the speed the term would impart across the plane if nothing
+    cancelled it during the burns.
+    """
+    forces = case.pseudo_forces_at_azimuth()
+    if forces is None:
+        return None
+    cross = forces[2]
+    total = 0.0
+    for t0, t1 in _panels.burn_intervals(case):
+        sel = (case.time >= t0) & (case.time <= t1)
+        t, a = case.time[sel], cross[sel]
+        keep = np.ones(t.size, dtype=bool)
+        keep[1:] = np.diff(t) > 0.0
+        if keep.sum() > 1:
+            total += float(np.trapezoid(a[keep], t[keep]))
+    return total
+
+
 def loss_budget(cases):
     names = [n for n in _data.REPORTED_CASES if n in cases]
     rows = []
@@ -478,12 +569,14 @@ def loss_budget(cases):
         pressure = r["dv_pressure"] if r.get("pressure_applicable") else None
         rows.append([case_cell(n), num(r["dv_ideal"]), num(r["dv_gravity"]),
                      num(r["dv_drag"]), num(r["dv_steering"]), num(pressure),
-                     num(r["dv_gain"]), num(r["residual"])])
+                     num(r["dv_gain"]), num(r["residual"]),
+                     num(cross_plane_burns(cases[n]))])
+    # The cross-plane column is set apart from the closed budget it is not part of.
     return tabular(
-        "l r r r r r r r",
+        "l r r r r r r r @{\hspace{1.4em}} r",
         bold("Case", r"$\Delta V_{\mathrm{ideal}}$", "Gravity", "Drag", "Steering", "Pressure",
-             "Gain", "Residual"),
-        ["", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]"], rows)
+             "Gain", "Residual", "Cross-plane"),
+        ["", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]", "[m/s]"], rows)
 
 
 def _pct_range(values):
@@ -578,8 +671,8 @@ def caption_values(cases):
 # apollo_waypoint and segmented_results need the reference-tracking cases, out
 # of the matrix since 2026-10-07; they are built on request only.
 TABLES = [
-    reference_results, gt_results, peg_results, peg_waypoint, showcase_laws,
-    full_results, loss_budget, architecture_cost, caption_values,
+    reference_results, reference_seeds, gt_results, peg_results, peg_waypoint,
+    showcase_laws, full_results, loss_budget, architecture_cost, caption_values,
 ]
 
 _HEADER = ("% Generated by Tese/src/Plots/results_figures/tables.py from the results\n"
@@ -602,6 +695,8 @@ def main():
                                        "(default: Output/results_matrix)")
     parser.add_argument("--only", help="substring filter over table names")
     args = parser.parse_args()
+    global ROOT
+    ROOT = args.root
 
     cases = _data.load_many(_data.REPORTED_CASES, root=args.root)
     _data.check_one_rotation_model(cases)
