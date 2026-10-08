@@ -76,8 +76,10 @@ INCLUDE_PSEUDO_FORCES = True                     # if True, include Coriolis and
 # freedom — we assume the launcher's actuator cancels the lateral (cross-heading)
 # pseudo-force rather than letting it turn the vehicle — so this has no effect on the
 # in-plane trajectory. When True, the per-step counter-force the actuator must supply,
-# m*|a_cross| [N], is computed, stored and plotted (as kN vs time), for the same
-# due-east flight the in-plane terms describe. Requires ENABLE_EARTH_ROTATION and
+# m*|a_cross| [N], is computed, stored and plotted (as kN vs time). It and the
+# Coriolis/centrifugal magnitude diagnostics are evaluated on the launch azimuth,
+# the vehicle's actual heading, while the in-plane terms flown are those of a
+# due-east flight (decision 2026-10-08). Requires ENABLE_EARTH_ROTATION and
 # INCLUDE_PSEUDO_FORCES.
 COMPUTE_CROSS_HEADING_COUNTER_FORCE = True
 

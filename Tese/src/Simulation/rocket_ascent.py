@@ -736,6 +736,22 @@ def append_latitude_row(data):
     return np.vstack([data, np.full(data.shape[1], LAUNCH_LATITUDE_RAD)])
 
 
+def pseudo_force_diagnostics(v, gamma, r_val):
+    """Cross-plane acceleration and the Coriolis and centrifugal magnitudes [m/s^2],
+    at the launch azimuth.
+
+    The flown in-plane terms are those of a due-east flight
+    (earth_rot.planar_pseudoforce_rates), which is what the launch-site credit
+    agrees with. The diagnostics describe the vehicle on its actual heading, the
+    launch azimuth, as every reported heading does (decision 2026-10-08): the
+    cross-plane component there is what the planar model omits and an actuator
+    would have to cancel.
+    """
+    _, _, _, a_cross, coriolis, centrifugal = earth_rot.rotating_frame_pseudoforce_rates(
+        v, gamma, LAUNCH_AZIMUTH, LAUNCH_LATITUDE_RAD, r_val)
+    return a_cross, coriolis, centrifugal
+
+
 def cross_heading_channels_on_grid(time, data):
     """Recompute the cross-heading counter-force / acceleration on the output grid.
 
@@ -790,8 +806,7 @@ def pseudo_force_channels_on_grid(time, data):
     for i in range(n):
         s_i, r_i, v_i, g_i, m_i = (data[0, i], data[1, i], data[2, i],
                                    data[3, i], data[4, i])
-        _, _, _, a_cross_i, cor_i, cen_i = earth_rot.planar_pseudoforce_rates(
-            v_i, g_i, LAUNCH_LATITUDE_RAD, r_i)
+        a_cross_i, cor_i, cen_i = pseudo_force_diagnostics(v_i, g_i, r_i)
         accel_grid[i] = abs(a_cross_i)
         force_grid[i] = m_i * abs(a_cross_i)
         coriolis_grid[i] = cor_i
@@ -1737,8 +1752,13 @@ def rocket_dynamics(t, state):
         state_differentiated[3] += delta_dgammadt
 
     # Cross-heading actuator counter-force (no cross-range degree of freedom, so
-    # no trajectory effect — see COMPUTE_CROSS_HEADING_COUNTER_FORCE).
+    # no trajectory effect — see COMPUTE_CROSS_HEADING_COUNTER_FORCE). The logged
+    # diagnostics are those of the flight on the launch azimuth, not of the
+    # due-east terms flown above (pseudo_force_diagnostics).
     if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE:
+        if _pseudo_forces_active():
+            (a_cross_heading_pseudo, coriolis_mag_val,
+             centrifugal_mag_val) = pseudo_force_diagnostics(v, gamma, r_val)
         cross_heading_counter_force_history.append(m * abs(a_cross_heading_pseudo))
         cross_heading_accel_history.append(abs(a_cross_heading_pseudo))
 

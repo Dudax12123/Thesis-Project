@@ -176,6 +176,42 @@ class Case:
         return (np.asarray(self._z["centrifugal"])
                 if "centrifugal" in self._z.files else None)
 
+    def launch_azimuth(self):
+        """The launch azimuth [rad] of the configuration the case was flown under,
+        or None when the manifest does not record what it is derived from."""
+        from Auxiliary import earth_rotation as er
+
+        config = self.manifest.get("config") or {}
+        if "TARGET_ORBIT_INCLINATION" not in config or "LAUNCH_LATITUDE" not in config:
+            return None
+        return float(er.select_launch_azimuth(
+            config["TARGET_ORBIT_INCLINATION"], config["LAUNCH_LATITUDE"],
+            config.get("TARGET_ORBITAL_ALTITUDE", 500e3))[0])
+
+    def pseudo_forces_at_azimuth(self):
+        """(Coriolis, centrifugal, cross-plane) acceleration magnitudes [m/s^2] along
+        the flight, on the launch azimuth; None for a case flown without them.
+
+        The archived channels of the launch-site model were evaluated at a due-east
+        heading, the one whose in-plane terms the dynamics fly. Every reported heading
+        is the launch azimuth (red-note review F2, 2026-10-08), so the channels are
+        recomputed here from the state, with the function the simulator's
+        diagnostics now use (rocket_ascent.pseudo_force_diagnostics).
+        """
+        from Auxiliary import earth_rotation as er
+
+        azimuth = self.launch_azimuth()
+        if not self.row.get("pseudo_forces_flown") or azimuth is None:
+            return None
+        lat = np.deg2rad((self.manifest.get("config") or {})["LAUNCH_LATITUDE"])
+        n = self.data.shape[1]
+        out = np.zeros((3, n))
+        for i in range(n):
+            _, _, _, cross, cor, cen = er.rotating_frame_pseudoforce_rates(
+                self.data[2, i], self.data[3, i], azimuth, lat, self.data[1, i])
+            out[:, i] = (cor, cen, abs(cross))
+        return out[0], out[1], out[2]
+
     @property
     def pso_history(self):
         """(generations, best objective), or None for a solve with no swarm."""
