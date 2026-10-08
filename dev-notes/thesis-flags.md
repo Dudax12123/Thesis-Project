@@ -2,6 +2,17 @@
 
 Started 2026-10-01. Items found while fixing the thesis, parked here so they do not interrupt the user's own edit list. Review them together once that list is done. New flags are appended. Thesis line numbers are as of Overleaf `46062bb`.
 
+## Red-note review, 2026-10-07 (Overleaf `a280e4a`; session c918a453)
+
+The user's 41 `\textcolor{red}` notes (Ch 3: 3, Ch 5: 1, Ch 6: 37) and 40 recommendations are on the "Red-Note Review" page, https://claude.ai/artifact/QvMjYpjyggGwgvwPYivmtz (db collection `reviews`, one doc per item id). Source: session scratchpad `review/` (`content.py`, `build.py`, `template.html`; notes extracted by `notes/extract.py`). Nothing edited yet.
+
+- **T40. Ch 2 l.306 promises the cross-heading lateral load "is reported over the ascent in Chapter 6"; it is not.** Page item F1, answered by S2.2 (rotation figure with the `cross_heading_accel` channel: peak 0.54–0.55 m/s² in every rotating case).
+- **T41. Ch 2 l.289 says the pseudo-forces take the heading equal to the launch azimuth.** The dynamics use a due-east heading (`earth_rotation.planar_pseudoforce_rates`, π/2); only the inclination diagnostic uses the azimuth. Probably part of T28. Page item F2.
+- **T42. Ch 3 (refinement section) says "refined from the swarms of several seeds, and the best extremal kept"; the references are seed 3.** Same as T25/T34; page items F3 and S1.3. At the 3 500 s bound all five seeds were refined (`Output/pmp_polish_launchsite_20261006/logs/`): baseline 22 555.6–22 825.8 kg (seed 4 best), vacuum 24 965.6–25 220.7, norot 17 780.2 (seed 2) and 19 560.5–19 766.6. At 2 000 s only seed 3 exists.
+- **T43. The Ch 7 skeleton says "nine guidance laws" and "five optimization strategies"; Chapter 6 flies eight laws.** Check both counts when Chapter 7 is written.
+- **T44. Ch 4 §4.x (tangent laws) cites Edberg for the assumptions of the linear-tangent law; Edberg does not state them.** Edberg p. 371 says only that the law "is optimal for orbital insertion". Walter (`Ulrich`) §6.4.6, pp. 160–161, states them: no aerodynamic forces, a constant gravity vector, downrange left free. The Ch 4 sentence "Neglecting aerodynamic forces ... constant gravitational acceleration ... linear in time~\cite{Edberg}" should cite `Ulrich` (with Edberg for optimality). The Ch 6 draft (batch 2) already cites them that way. 2026-10-08.
+- **T45. Once the batch-2 text is in, delete the figures it no longer references.** `Figures/results_gt_axes.png`, `results_peg_waypoint.png` and `results_segmented_handoff.png` are replaced by the per-axis, PEG-architecture and merged segmented figures (red-note review S2.2, S3.1, S4.1). 2026-10-08. **Done 2026-10-08** with the batch-2 text (git rm in the thesis working tree, uncommitted).
+
 ## Ch. 6 walkthrough v5, 2026-10-07 (final results; session 67a7e9e8)
 
 Page: https://claude.ai/artifact/2xqwupr6w8A68RqJ2oJq7e, version 5. Numbers, figures and tables come from `Output/results_matrix_chapter6_20261007/`, read by the session's scratchpad `facts_v5.py` and rendered into its `render_v5/`. Source in `ch6walk/content_v5.py`. The user's 31 stored answers are reviewed: 30 kept, and S4-T4 cleared, because it applied to the reference-tracking case.
@@ -150,7 +161,9 @@ Scripts in that session's scratchpad: `refine_law_case.py`, `scan_gt_kick.py`, `
       - That is 579 kg below pmp_baseline (22 649.0 kg, coast 1 823 s, free).
     - `peg_baseline`, Nelder–Mead on J′: no change. J′ stays at 0.839002155 and 15 861.7 kg through three restarts (973 flights, 117 s).
       - The swarm point is a local minimum of J′ in its box. It is a direct insertion (coast 0.01 s), since peg_new aims arc 1 at the final orbit; see the segmented rows for the waypoint.
-- **T32. If the laws are refined (C18), the thesis needs no new algorithm, only a wider scope** (Overleaf `8198fa1`). **APPLIED 2026-10-07 for the gravity turn (uncommitted in the thesis repo):** Ch. 3 "matters most for" plus a closing paragraph (scope and why not peg_new); Ch. 5 paragraph "The refined gravity turn"; Ch. 6 numbers in nine places and the `tab:architecture_cost` caption (`efineFlights`, `efineWall`). Still open: the section title, and the central-result paragraph of §6.6 (wording proposed, awaiting approval). The list below was the original scope.
+- **T32. If the laws are refined (C18), the thesis needs no new algorithm, only a wider scope** (Overleaf `8198fa1`). **APPLIED 2026-10-07 for the gravity turn (uncommitted in the thesis repo):** Ch. 3 "matters most for" plus a closing paragraph (scope and why not peg_new); Ch. 5 paragraph "The refined gravity turn"; Ch. 6 numbers in nine places and the `tab:architecture_cost` caption (`
+efineFlights`, `
+efineWall`). Still open: the section title, and the central-result paragraph of §6.6 (wording proposed, awaiting approval). The list below was the original scope.
   - Ch. 3 `ssec:pmp_polish` ("Local Refinement of the Indirect Extremal"):
     - the title;
     - the rationale "This matters for the indirect trajectory alone", which becomes untrue;
