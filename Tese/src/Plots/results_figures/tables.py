@@ -684,9 +684,9 @@ def _validation_inputs(cases):
 
 def validation_timeline(cases):
     """Event times: the SpaceX user's guide sample LEO mission, the three
-    flights and the three cases. Max-Q from the dynamic pressure recomputed with
-    the simulator's atmosphere; the flights' other times as the dataset records
-    them; a dash where the webcast does not show the event."""
+    flights and the reference. The flights' times as the dataset records them, a
+    dash where the webcast does not show the event; the cases' max-Q is the peak
+    of their dynamic pressure."""
     inputs = _validation_inputs(cases)
     if inputs is None:
         return None

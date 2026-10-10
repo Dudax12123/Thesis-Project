@@ -1,9 +1,9 @@
 """Validation figure -- the simulator's ascent against Falcon 9 flight data.
 
 Three expendable Falcon 9 flights (Reference_Data/falcon9_webcast, telemetry read
-off the SpaceX webcasts) against the reference and two laws of the results
-matrix, from liftoff to the end of the first Stage-2 burn. No flight shares the
-simulator's configuration -- these carried 5-7 t to a transfer orbit, throttled
+off the SpaceX webcasts) against the optimal reference, from liftoff to the end
+of the first Stage-2 burn. No flight shares the simulator's configuration --
+these carried 5.5-6.8 t to a transfer orbit, throttled
 through max-Q, and their Stage-1 propellant load is not published -- so the
 comparison is of ranges and shape, not a reproduction.
 
@@ -48,9 +48,9 @@ FLIGHTS = [("intelsat_35e", "Intelsat 35e", "-"),
            ("inmarsat_5_f4", "Inmarsat-5 F4", "--"),
            ("echostar_23", "EchoStar 23", ":")]
 
-SIM_CASES = [("pmp_baseline", st.REFERENCE),
-             ("gt_baseline", st.BASELINE),
-             ("peg_baseline", st.VARIANT)]
+# Only the reference: the section validates the simulator, not the ranking of the
+# laws (user decision 2026-10-10).
+SIM_CASES = [("pmp_baseline", st.REFERENCE)]
 
 # Falcon User's Guide (SpaceX, May 2025), Table 10-4, "Falcon 9 sample flight
 # timeline -- LEO mission" [s]. The guide states no orbit, payload or recovery
@@ -131,7 +131,10 @@ def summary_rows(cases, flights):
         i_q = int(np.nanargmax(q))
         t_meco = flight.event("meco")
         rows.append({
-            "name": flight.label, "t_maxq": t_q[i_q], "maxq": q[i_q],
+            # The time as the dataset records it, which matches the launch
+            # reports; the peak value recomputed with the simulator's atmosphere,
+            # which puts the peak a few seconds later.
+            "name": flight.label, "t_maxq": flight.event("maxq"), "maxq": q[i_q],
             "maxq_dataset": np.nanmax(flight.q_dataset[flight.time <= Q_WINDOW]) / 1e3,
             "t_meco": t_meco,
             "h_meco": _at(flight.time, flight.alt_km, t_meco),
