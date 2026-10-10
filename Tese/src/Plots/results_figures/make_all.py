@@ -40,6 +40,7 @@ from Plots.results_figures import sec62_gravity_turn as sec62
 from Plots.results_figures import sec63_peg as sec63
 from Plots.results_figures import sec65_losses as sec65
 from Plots.results_figures import sec67_capabilities as sec67
+from Plots.results_figures import validation_falcon9 as val
 
 # The cases Chapter 6 reports; the list lives in _data so the figures that draw
 # every case (the ranking, the accuracy trade, the arc structure) share it.
@@ -50,6 +51,7 @@ SECTIONS = [
     ("6.2  Gravity turn", sec62.FIGURES),
     ("6.5  Remaining laws / 6.6  Segmented / 6.7  Cost", sec67.FIGURES),
     ("6.7  Comparison", sec65.FIGURES),
+    ("6.8  Results validation", val.FIGURES),
 ]
 
 
