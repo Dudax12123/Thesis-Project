@@ -683,7 +683,8 @@ def _validation_inputs(cases):
 
 
 def validation_timeline(cases):
-    """Event times: the SpaceX user's guide sample LEO mission, the three
+    """Event times: the SpaceX user's guide sample LEO mission, the Nov 2019
+    Starlink flight (press-kit timeline), the three
     flights and the reference. The flights' times as the dataset records them, a
     dash where the webcast does not show the event; the cases' max-Q is the peak
     of their dynamic pressure."""
@@ -691,11 +692,15 @@ def validation_timeline(cases):
     if inputs is None:
         return None
     val, names, flights, flight_rows, case_rows = inputs
-    g = val.GUIDE_LEO
-    rows = [[r"Sample LEO mission~\cite{SpaceX_FalconUsersGuide_2025}",
-             num(g["maxq"], 0), num(g["meco"], 0), num(g["ses1"], 0),
-             num(g["fairing"], 0), num(g["seco1"], 0), num(g["ses2"] - g["seco1"], 0),
-             num(g["seco2"] - g["ses2"], 0)], None]
+    rows = []
+    for label, g in [(r"Sample LEO mission~\cite{SpaceX_FalconUsersGuide_2025}",
+                      val.GUIDE_LEO),
+                     (r"Starlink, Nov.~2019~\cite{SpaceX_StarlinkPressKit_2019}",
+                      val.STARLINK_2019)]:
+        rows.append([label, num(g["maxq"], 0), num(g["meco"], 0), num(g["ses1"], 0),
+                     num(g["fairing"], 0), num(g["seco1"], 0),
+                     num(g["ses2"] - g["seco1"], 0), num(g["seco2"] - g["ses2"], 0)])
+    rows.append(None)
     for flight, r in zip(flights, flight_rows):
         rows.append([flight.label, num(r["t_maxq"], 0), num(r["t_meco"], 0),
                      num(r["t_ses1"], 0), DASH, num(r["t_burn_end"], 0), DASH, DASH])

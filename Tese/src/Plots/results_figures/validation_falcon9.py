@@ -58,6 +58,14 @@ SIM_CASES = [("pmp_baseline", st.REFERENCE)]
 GUIDE_LEO = {"maxq": 67.0, "meco": 145.0, "ses1": 156.0, "fairing": 195.0,
              "seco1": 514.0, "ses2": 3086.0, "seco2": 3090.0}
 
+# Starlink, 11 Nov 2019: SpaceX press kit timeline ("all times approximate") [s].
+# 60 satellites of 260 kg (15.6 t, NASASpaceFlight) deployed at 280 km (press
+# kit), 53 deg (Spaceflight Now); booster landed on a drone ship. Planned times,
+# confirmed by the launch report only to the minute. Cited values only: no
+# trajectory is reconstructed for this flight (user decision 2026-10-10).
+STARLINK_2019 = {"maxq": 74.0, "meco": 153.0, "ses1": 164.0, "fairing": 204.0,
+                 "seco1": 529.0, "ses2": 2690.0, "seco2": 2692.0}
+
 T_END = 560.0      # s; the webcasts stop showing Stage 2 near SECO-1, ~515 s
 Q_WINDOW = 200.0   # s; dynamic pressure is negligible after MECO
 
