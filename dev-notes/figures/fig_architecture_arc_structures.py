@@ -1,162 +1,125 @@
 """Figure: arc structure of the optimisation architectures, side by side.
 
-Spec: Thesis_Optimization_Background.tex, the "% FIG-4 (TO DRAW)" block above
-\\includegraphics{Figures/architecture_arc_structures.png} in Section 3.4.
+Spec: Thesis_Optimization_Background.tex, Section 3.4 (fig:arc_structures).
+
+Redrawn 2026-10-12 from the figure review: the figure shows the arc structure
+only. The design vectors, their dimensions, the cut-off rules and the costate
+note are all stated in the text of Sections 3.4.1-3.4.6, so they were dropped
+here, and the coast-parameter and indirect PMP architectures, whose arcs are
+identical, share one row. Second pass, same day: no words inside the bars (the
+legend carries them), the brute force's circularisation is drawn as the
+impulsive burn it is, and the segmented mode's first law box reaches back into
+stage 1, where that law takes over.
+
+The axes are in inches (figure units), so every size below is a printed size:
+the thesis places the figure at \\linewidth (16 cm = 6.30 in), and no label may
+print below the 10 pt body text.
 """
-import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from figstyle import (use_thesis_style, blank_axes, save, INK, GREY, FAINT,
-                      THRUST, ACCENT, GREEN, AMBER, VIOLET, COAST)
+from figstyle import (use_thesis_style, save, INK, GREY, THRUST, ACCENT,
+                      GREEN, AMBER, COAST)
 
 use_thesis_style()
 
-fig, ax = plt.subplots(figsize=(7.3, 6.5))
-blank_axes(ax)
-ax.set_aspect("auto")
+FS = 10.5                  # every label
+W, H = 6.30, 3.30
+YB = 0.20                  # bottom of the drawing (one legend row)
+fig = plt.figure(figsize=(W, H - YB))
+ax = fig.add_axes([0, 0, 1, 1])
+ax.set_xlim(0, W)
+ax.set_ylim(YB, H)
+ax.axis("off")
 
-IGN = 3.15
-END = 8.45
-SH = 0.34
-DIMX = 11.30
-
-
-def span(x0, x1, yy, label, color=INK, fs=7.0):
-    ax.annotate("", xy=(x0, yy), xytext=(x1, yy),
-                arrowprops=dict(arrowstyle="|-|,widthA=0.22,widthB=0.22",
-                                color=color, lw=0.8, shrinkA=0, shrinkB=0))
-    ax.text(0.5 * (x0 + x1), yy - 0.05, label, fontsize=fs, color=color,
-            ha="center", va="top")
+X0 = 0.05                  # lift-off
+IGN = 2.05                 # second-stage ignition
+NAME_X = 1.95              # right edge of the row names
+SH = 0.27                  # bar height
 
 
-def arcs(y, spec):
-    for kind, x0, x1 in spec:
-        ax.add_patch(Rectangle((x0, y), x1 - x0, SH,
-                               fc=THRUST if kind == "T" else COAST,
-                               ec=INK, lw=0.8, zorder=4))
-        ax.text(0.5 * (x0 + x1), y + SH / 2,
-                "thrust" if kind == "T" else "coast", ha="center",
-                va="center", fontsize=6.9,
-                color="white" if kind == "T" else INK, zorder=5)
+def bar(x0, x1, y, kind):
+    ax.add_patch(Rectangle((x0, y), x1 - x0, SH,
+                           fc=THRUST if kind == "T" else COAST,
+                           ec=INK, lw=0.8, zorder=4))
 
 
-def cutoff(x, y, label, event=True):
-    ax.plot([x, x], [y - 0.11, y + SH + 0.11], color=INK if event else GREY,
-            lw=1.4 if event else 1.1, ls="-" if event else (0, (3, 2.2)),
-            zorder=7)
-    ax.text(x + 0.16, y + SH / 2, label, fontsize=7.0,
-            color=INK if event else GREY, ha="left", va="center",
-            linespacing=1.3)
+def impulse(x, y):
+    ax.plot([x, x], [y - 0.07, y + SH + 0.07], color=INK, lw=1.8, zorder=7)
 
 
-# --- the shared prefix, drawn once --------------------------------------
-PY = 6.35
-ax.add_patch(Rectangle((0.55, PY), IGN - 0.55, SH + 0.06, fc="#ececec",
+def name(y, text):
+    ax.text(NAME_X, y + SH / 2, text, fontsize=FS, color=INK, ha="right",
+            va="center", linespacing=1.15)
+
+
+# --- the shared first stage, drawn once -----------------------------------
+Y0 = 2.92
+ax.add_patch(Rectangle((X0, Y0), IGN - X0, SH + 0.04, fc="#ececec",
                        ec=INK, lw=0.8, zorder=4))
-ax.text(0.5 * (0.55 + IGN), PY + (SH + 0.06) / 2, "stage 1 · kick · staging",
-        ha="center", va="center", fontsize=7.4, color=INK, zorder=5)
-ax.text(IGN + 0.20, PY + (SH + 0.06) / 2,
-        "identical for every architecture; only the\nsegmented mode steers before ignition",
-        fontsize=8.2, color=GREY, ha="left", va="center", style="italic",
-        linespacing=1.35)
-span(0.55, IGN, PY - 0.10, r"carries the kick variable ($\alpha$ or $\gamma_p$)",
-     color=GREY)
+ax.text(0.5 * (X0 + IGN), Y0 + (SH + 0.04) / 2, "stage 1 (common to all)",
+        ha="center", va="center", fontsize=FS, color=INK, zorder=5)
+ax.text(IGN + 0.08, Y0 + (SH + 0.04) / 2, "second-stage ignition",
+        ha="left", va="center", fontsize=FS, color=GREY)
 
-ax.plot([IGN, IGN], [0.20, PY + SH + 0.10], color=GREY, lw=1.0,
-        ls=(0, (3, 2.2)), zorder=2)
-ax.text(IGN, PY + SH + 0.24, "second-stage ignition", fontsize=7.4,
-        color=GREY, ha="center", va="bottom")
-ax.text(DIMX, PY + SH + 0.24, "design-vector\ndimension", fontsize=7.6,
-        color=INK, ha="center", va="bottom", linespacing=1.3)
+# --- one row per arc structure -------------------------------------------
+y = 2.40                                   # brute-force kick search
+name(y, "Brute-force kick search")
+bar(IGN, 3.45, y, "T")
+bar(3.45, 5.60, y, "C")
+impulse(5.60, y)
 
-NAMES = [(5.20, "Brute-force\nkick search", "1"),
-         (4.15, "Coast-parameter\nPSO", "4"),
-         (3.10, "Direct-insertion\nPSO", "2\n(1)"),
-         (1.95, "Indirect PMP\nPSO", "7"),
-         (0.60, "Segmented\nmulti-law", "$4+(n\\!-\\!1)$\n(2–3)")]
-for y, name, dim in NAMES:
-    ax.text(IGN - 0.20, y + SH / 2, name, fontsize=8.0, color=INK, ha="right",
-            va="center", linespacing=1.3)
-    ax.text(DIMX, y + SH / 2, dim, fontsize=9.5, color=INK, ha="center",
-            va="center")
+y = 1.88                                   # coast-parameter and indirect PMP
+name(y, "Coast-parameter PSO\nIndirect PMP PSO")
+bar(IGN, 3.35, y, "T")
+bar(3.35, 5.60, y, "C")
+bar(5.60, 5.92, y, "T")
 
-# (1) brute force -- the kick angle is the only variable, and it sits on the
-#     shared prefix, which is the whole point
-y = 5.20
-arcs(y, [("T", IGN, 5.15), ("C", 5.15, 8.15), ("T", 8.15, 8.55)])
-ax.plot([8.15, 8.15], [y - 0.11, y + SH + 0.11], color=INK, lw=1.4, zorder=7)
-ax.text(8.70, y + SH / 2,
-        "event: apogee $=r_{\\rm target}$;\nimpulsive circularisation",
-        fontsize=7.0, color=INK, ha="left", va="center", linespacing=1.3)
-span(0.55, IGN, y - 0.10, r"only variable: $\gamma_p$ ($\alpha$ under the triangular kick)",
-     color=ACCENT, fs=6.6)
+y = 1.38                                   # direct insertion
+name(y, "Direct-insertion PSO")
+bar(IGN, 5.20, y, "T")
 
-# (2) coast-parameter PSO
-y = 4.15
-arcs(y, [("T", IGN, 4.95), ("C", 4.95, 6.65), ("T", 6.65, END)])
-cutoff(END, y, "planned cut-off", event=False)
-span(IGN, 4.95, y - 0.10, "coast-start %")
-span(4.95, 6.65, y - 0.10, r"$\Delta t_c$", fs=7.6)
-span(IGN, END, y - 0.36, r"$\Delta t_r$ %", fs=7.6)
-
-# (3) direct-insertion PSO
-y = 3.10
-arcs(y, [("T", IGN, 7.35)])
-cutoff(7.35, y, "planned cut-off, or the\nlaw's own $t_{go}$", event=False)
-span(IGN, 7.35, y - 0.10, r"$t_{\rm burn}$ %", fs=7.6)
-
-# (4) indirect PMP PSO
-y = 1.95
-arcs(y, [("T", IGN, 4.95), ("C", 4.95, 6.65), ("T", 6.65, END)])
-cutoff(END, y, "planned cut-off", event=False)
-ax.add_patch(Rectangle((IGN, y + SH + 0.06), END - IGN, 0.22, fc="#f1eaf7",
-                       ec=VIOLET, lw=0.9, zorder=4))
-ax.text(0.5 * (IGN + END), y + SH + 0.17,
-        "costates propagated continuously — Weierstrass–Erdmann",
-        ha="center", va="center", fontsize=6.2, color=VIOLET, zorder=5)
-span(IGN, END, y - 0.10,
-     r"the same four timing variables, plus $\lambda_{0r},\ \lambda_{0v},\ "
-     r"\lambda_{0\gamma}$ seeded at ignition")
-
-# (5) segmented multi-law
-y = 0.60
-arcs(y, [("T", IGN, 5.60), ("C", 5.60, 7.00), ("T", 7.00, END)])
-cutoff(END, y, "planned cut-off", event=False)
-ax.annotate("", xy=(IGN - 0.55, y + SH + 0.17), xytext=(IGN, y + SH + 0.17),
-            arrowprops=dict(arrowstyle="-|>", color=GREEN, lw=1.0,
-                            mutation_scale=8), zorder=6)
-ax.text(IGN - 0.62, y + SH + 0.17, "law 1 starts at\nthe kick, in stage 1",
-        fontsize=6.4, color=GREEN, ha="right", va="center", linespacing=1.2)
-for x0, x1, lab, c in ((IGN, 4.30, "law 1", GREEN), (4.30, 5.15, "law 2", AMBER),
-                       (5.15, END, "law 3 (final)", ACCENT)):
-    ax.add_patch(Rectangle((x0, y + SH + 0.06), x1 - x0, 0.22, fc="white",
-                           ec=c, lw=1.0, zorder=4))
-    ax.text(0.5 * (x0 + x1), y + SH + 0.17, lab, ha="center", va="center",
-            fontsize=6.8, color=c, zorder=5)
-for xb in (4.30, 5.15):
-    ax.plot([xb, xb], [y, y + SH], color=INK, lw=0.9, ls=(0, (2, 1.6)),
+y = 0.62                                   # segmented multi-law
+name(y, "Segmented\nmulti-law")
+bar(IGN, 3.75, y, "T")
+bar(3.75, 5.60, y, "C")
+bar(5.60, 5.92, y, "T")
+for xb in (2.68, 3.22):
+    ax.plot([xb, xb], [y, y + SH], color="white", lw=1.0, ls=(0, (2, 1.6)),
             zorder=6)
-ax.text(END + 0.16, y + SH + 0.17, "hand-off altitudes\n(fixed or optimised)",
-        fontsize=6.9, color=GREY, ha="left", va="center", linespacing=1.25)
-span(5.60, 7.00, y - 0.10, "a coast falls inside the final segment",
-     color=ACCENT)
+# law 1 takes over at the kick, so its box starts in stage 1
+LY = y + SH + 0.10
+for x0, x1, lab, c in ((X0, 2.68, "law 1", GREEN), (2.68, 3.22, "law 2", AMBER),
+                       (3.22, 5.92, "law 3 (final)", ACCENT)):
+    ax.add_patch(Rectangle((x0, LY), x1 - x0, 0.24, fc="white", ec=c, lw=1.0,
+                           zorder=4))
+    ax.text(0.5 * (x0 + x1), LY + 0.12, lab, ha="center", va="center",
+            fontsize=FS, color=c, zorder=5)
 
-# --- legend --------------------------------------------------------------
-LY = -0.28
-ax.add_patch(Rectangle((0.55, LY), 0.42, 0.20, fc=THRUST, ec=INK, lw=0.8))
-ax.text(1.05, LY + 0.10, "thrust arc", fontsize=7.4, color=INK, va="center")
-ax.add_patch(Rectangle((2.05, LY), 0.42, 0.20, fc=COAST, ec=INK, lw=0.8))
-ax.text(2.55, LY + 0.10, "coast arc", fontsize=7.4, color=INK, va="center")
-ax.plot([3.75, 3.75], [LY, LY + 0.20], color=INK, lw=1.4)
-ax.text(3.87, LY + 0.10, "cut-off located by an event", fontsize=7.4,
-        color=INK, va="center")
-ax.plot([7.15, 7.15], [LY, LY + 0.20], color=GREY, lw=1.1, ls=(0, (3, 2.2)))
-ax.text(7.27, LY + 0.10, "cut-off planned in advance", fontsize=7.4,
-        color=GREY, va="center")
-ax.text(DIMX, LY + 0.10, "(law-terminated)", fontsize=7.0, color=GREY,
-        ha="center", va="center")
+# ignition line through every row, drawn over the law 1 box as well
+ax.plot([IGN, IGN], [0.50, Y0], color=GREY, lw=1.0, ls=(0, (3, 2.2)),
+        zorder=6)
 
-ax.set_xlim(-1.75, 12.45)
-ax.set_ylim(-0.45, 7.15)
+# --- legend, centred on the figure ------------------------------------------
+L1 = 0.27
+items = [
+    ax.add_patch(Rectangle((0.00, L1), 0.30, 0.16, fc=THRUST, ec=INK, lw=0.8)),
+    ax.text(0.37, L1 + 0.08, "thrust arc", fontsize=FS, color=INK, va="center"),
+    ax.add_patch(Rectangle((1.25, L1), 0.30, 0.16, fc=COAST, ec=INK, lw=0.8)),
+    ax.text(1.62, L1 + 0.08, "coast arc", fontsize=FS, color=INK, va="center"),
+    ax.plot([2.55, 2.55], [L1 - 0.03, L1 + 0.19], color=INK, lw=1.8)[0],
+    ax.text(2.65, L1 + 0.08, "impulsive circularization burn", fontsize=FS,
+            color=INK, va="center"),
+]
+r = fig.canvas.get_renderer()
+right = items[-1].get_window_extent(r).x1 / fig.dpi      # inches = data units
+dx = 0.5 * (W - right)
+for it in items:
+    if isinstance(it, Rectangle):
+        it.set_x(it.get_x() + dx)
+    elif hasattr(it, "set_xdata"):
+        it.set_xdata([x + dx for x in it.get_xdata()])
+    else:
+        it.set_x(it.get_position()[0] + dx)
+
 save(fig, "architecture_arc_structures.png")
