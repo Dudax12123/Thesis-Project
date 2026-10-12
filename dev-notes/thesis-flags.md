@@ -554,3 +554,17 @@ Sources: SpaceX *Falcon User's Guide* (May 2025) Table 10-4, sample LEO timeline
 - **T51. The guide's sample LEO mission coasts 2 572 s and ends with a 4 s burn; the PMP baseline coasts 1 823 s and ends with a 4.0 s burn, gt_baseline 2 000 s (at its bound) and 2.9 s.** Supports the burn–coast–short-burn structure the optimum finds. The 2 000 s coast bound (user decision 2026-10-07) is shorter than this real coast; worth one sentence if Ch 6 or Ch 7 cites the comparison.
 - **2026-10-10: T49–T51 are now stated in thesis §6.8 "Results Validation"** (`sec:validation`, items Fairing, Throttle, Objective and constraints; uncommitted), with throttle-down added to §7.2 Future Work. Planned runs: `dev-notes/validation-runs-plan-2026-10-10.md`. The section says the flights carried "a satellite of several tonnes" and that they flew the pre-Block 5 Full Thrust version; neither is cited. Add a source, or keep the wording general.
 - **2026-10-10 (later): §6.8 reduced to the PMP reference** (user decision; gt and PEG removed from the figure and tables). Every claim now has a source: the three flight reports are cited (NSF_EchoStar23_2017, NSF_Inmarsat5F4_2017, NSF_Intelsat35e_2017: expendable flights, 5.5–6.8 t payloads, v1.2 Full Thrust, 11–12 s from MECO to SES-1, fairing 39–48 s into the burn), and the model claims point to their sections. The two open citations above are closed. Uncommitted.
+
+## Held-flags review, 2026-10-12 (Overleaf 8767593; session c97aa809)
+
+Page "Held Thesis Flags", https://claude.ai/artifact/PCw9GgKErMJzy1U3dJMi7Y (db collection `reviews`, doc id = card ID with `-` separators). 18 held flags checked against the thesis; the user's decisions:
+
+- **Implemented (thesis, uncommitted):**
+  - **T35:** Ch 3 l.581 now names Brent's minimization method (golden section + parabolic interpolation); Ch 5 l.579 "Brent's minimization method".
+  - **T18/T28:** Ch 2 l.249 states the launch-site credit as the convention of the whole model (target, budget gain, in-plane pseudo-forces; φ held at the launch site), optimistic by at most ω r (1 − sin ψ) cos φ for other headings.
+  - **C18/T32:** Ch 3 section retitled "Local Refinement of Swarm Solutions" (label `ssec:pmp_polish` kept). §6.6 already covers the refined gravity turn; nothing else open.
+  - Sweep: unchanged from before the edits (only T39's two dangling refs).
+- **Rejected:** C8 (t_go constant stays as documented), C17/C19 (no change; §6.1 already explains the drag-free grazing coast and the 2 000 s bound), T38 (§6.2.4 sentence stays), T20/C11/T40/T41 (Ch 6 already reports the lateral load, §6.2 and the loss section; inclination left to Future Work; Ch 2's promise holds).
+- **Hold:** T13, T47, T16 (R4, R8, R10, Bennett, Mahajan), T19.
+- **Closed as resolved/moot, no decision needed:** T34, K12, C3.
+- **T52 and T39: implemented 2026-10-12 (thesis, uncommitted).** Ch 3 l.357 now reads "applied to a swarm's solution once it has converged", and its single-shooting pointer goes to Appendix `sec:app_exp_shooting`; Ch 3 l.789 points to `tab:numerics`. Sweep: no missing refs, labels or cites.
