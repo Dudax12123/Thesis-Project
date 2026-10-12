@@ -32,6 +32,7 @@ stage; a dash marks a quantity that does not exist for the case, never a zero.
 import argparse
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -96,20 +97,9 @@ COST_ROWS = [
 
 
 # --- number formatting -----------------------------------------------------
-def _grouped(text):
-    """Thin-space thousands groups in the integer part, as the chapter writes
-    $250\\,000$."""
-    sign = text[0] if text[0] in "+-" else ""
-    whole, dot, frac = text[len(sign):].partition(".")
-    groups = []
-    while len(whole) > 3:
-        groups.insert(0, whole[-3:])
-        whole = whole[:-3]
-    return sign + r"\,".join([whole] + groups) + dot + frac
-
-
 def num(value, digits=1, signed=False):
-    """A number in math mode, so that a minus sign is a minus sign."""
+    """A number through siunitx's \\num, which sets the minus sign and the
+    thousands groups; the preamble's retain-explicit-plus keeps a '+'."""
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return DASH
     text = "%.*f" % (digits, value)
@@ -117,7 +107,7 @@ def num(value, digits=1, signed=False):
         text = text.lstrip("-")
     elif signed and value > 0:
         text = "+" + text
-    return "$%s$" % _grouped(text)
+    return r"\num{%s}" % text
 
 
 def tonnes(kg):
@@ -137,7 +127,7 @@ def hours(wall_s):
         return DASH
     h = wall_s / 3600.0
     if h < 0.001:
-        return "$<0.001$"
+        return r"\num{<0.001}"
     return num(h, 3 if h < 1.0 else 1)
 
 
@@ -160,7 +150,7 @@ def orbit(case):
     ha, hp = case.row.get("apoapsis_km"), case.row.get("periapsis_km")
     if ha is None or hp is None:
         return DASH
-    return r"$%.1f \times %.1f$" % (ha, hp)
+    return r"\numproduct{%.1f x %.1f}" % (ha, hp)
 
 
 # --- derived quantities ----------------------------------------------------
@@ -290,13 +280,30 @@ def tail_pct(case):
 
 
 # --- layout ----------------------------------------------------------------
+# The header units, as siunitx unit macros; "[-]" (dimensionless) stays as is.
+SI_UNITS = {
+    "t": r"\tonne", "kg": r"\kg", "km": r"\km", "m": r"\m", "s": r"\s",
+    "h": r"\hour", "m/s": r"\m\per\s", "km/s": r"\km\per\s", "deg": r"\degree",
+    "kPa": r"\kilo\pascal", r"\%": r"\percent",
+}
+
+
+def si_unit_head(head):
+    """'[m/s]' -> '[\\unit{\\m\\per\\s}]', wherever the bracket sits in the head."""
+    def sub(match):
+        unit = SI_UNITS.get(match.group(1))
+        return match.group(0) if unit is None else r"[\unit{%s}]" % unit
+    return re.sub(r"\[([^\]]+)\]", sub, head)
+
+
 def tabular(spec, heads, units, rows, rule_under_heads=None):
     """One booktabs tabular. A row of None is an \\addlinespace."""
     lines = [r"\begin{tabular}{%s}" % spec, r"  \toprule",
              "  " + " & ".join(heads) + r" \\"]
     if rule_under_heads:
         lines.append("  " + rule_under_heads)
-    lines += ["  " + " & ".join(units) + r" \\", r"  \midrule"]
+    lines += ["  " + " & ".join(si_unit_head(u) for u in units) + r" \\",
+              r"  \midrule"]
     for row in rows:
         lines.append(r"  \addlinespace" if row is None
                      else "  " + " & ".join(row) + r" \\")
@@ -587,7 +594,7 @@ def _pct_range(values):
         return DASH
     hi = max(values)
     if hi < 1e-5:
-        return "$<10^{-5}$"
+        return r"\num{<e-5}"
     digits = max(2, 1 - int(math.floor(math.log10(hi))))
     lo = num(min(values), digits)
     return lo if len(values) == 1 or lo == num(hi, digits) else "%s--%s" % (
@@ -654,7 +661,7 @@ def caption_values(cases):
             if k.architecture != "apogee_check" and k.row.get("include_drag", True)]
     text = ("\\newcommand{\\circDvApogee}{%s}\n"
             "\\newcommand{\\dragAfterSeparation}{%s}\n"
-            % (_grouped("%.1f" % circ), _grouped("%.1f" % max(post))))
+            % ("%.1f" % circ, "%.1f" % max(post)))
     refined = [refinement(k) for k in cases.values() if refined_law(k)]
     if refined:
         def span(lo, hi):
@@ -711,7 +718,7 @@ def _mission_row(label, k):
     _first, coast, _final = arcs(k)
     payload = vehicle["M_PAYLOAD"] / 1e3
     return [label,
-            r"$%s$~km circular" % num(config["TARGET_ORBITAL_ALTITUDE"] / 1e3, 0).strip("$"),
+            r"\qty{%.0f}{\km} circular" % (config["TARGET_ORBITAL_ALTITUDE"] / 1e3),
             num(config["TARGET_ORBIT_INCLINATION"], 1),
             num(payload, 0 if payload == int(payload) else 1),
             num(1 if coast is None else 2, 0), "Expended"]
@@ -769,9 +776,9 @@ VALIDATION_MISSIONS = [
     (r"Sample LEO mission~\cite{SpaceX_FalconUsersGuide_2025}",
      None, None, None, 2, None),
     (r"Starlink, Nov.~2019~\cite{SpaceX_StarlinkPressKit_2019}",
-     r"$280$~km (deployment)", r"$53$", 15.6, 2, "Landed"),
+     r"\qty{280}{\km} (deployment)", r"\num{53}", 15.6, 2, "Landed"),
     (r"Paz, Feb.~2018~\cite{NSF_Paz_2018}",
-     r"$514$~km circular", r"$97.44$", 2.1, 1, "Expended"),
+     r"\qty{514}{\km} circular", r"\num{97.44}", 2.1, 1, "Expended"),
 ]
 
 

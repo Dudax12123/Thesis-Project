@@ -32,32 +32,40 @@ def _case(architecture, time=None, thrust=None, **channels):
 
 class TestNumberFormat:
 
-    def test_thousands_are_grouped_with_a_thin_space(self):
-        assert tables.num(1125000.0, 0) == r"$1\,125\,000$"
-        assert tables.num(1446.83) == r"$1\,446.8$"
-        assert tables.num(518.0, 0) == "$518$"
+    def test_numbers_go_through_siunitx_ungrouped(self):
+        # siunitx sets the thousands groups and the minus sign.
+        assert tables.num(1125000.0, 0) == r"\num{1125000}"
+        assert tables.num(1446.83) == r"\num{1446.8}"
+        assert tables.num(518.0, 0) == r"\num{518}"
 
-    def test_a_sign_stays_outside_the_groups(self):
-        assert tables.num(846.7, 0, signed=True) == "$+847$"
-        assert tables.num(-3090.6, 0, signed=True) == r"$-3\,091$"
-        assert tables.num(-0.11, 2, signed=True) == "$-0.11$"
+    def test_an_explicit_plus_is_kept(self):
+        assert tables.num(846.7, 0, signed=True) == r"\num{+847}"
+        assert tables.num(-3090.6, 0, signed=True) == r"\num{-3091}"
+        assert tables.num(-0.11, 2, signed=True) == r"\num{-0.11}"
 
     def test_a_value_that_rounds_to_zero_has_no_sign(self):
-        assert tables.num(-0.028) == "$0.0$"
-        assert tables.num(-1e-12, 3, signed=True) == "$0.000$"
+        assert tables.num(-0.028) == r"\num{0.0}"
+        assert tables.num(-1e-12, 3, signed=True) == r"\num{0.000}"
 
     def test_a_missing_value_is_a_dash_not_a_zero(self):
         assert tables.num(None) == tables.DASH
         assert tables.num(float("nan")) == tables.DASH
 
     def test_durations_under_a_second_keep_the_milliseconds(self):
-        assert tables.seconds(0.025) == "$0.025$"
-        assert tables.seconds(257.327) == "$257.3$"
+        assert tables.seconds(0.025) == r"\num{0.025}"
+        assert tables.seconds(257.327) == r"\num{257.3}"
 
     def test_hours(self):
-        assert tables.hours(1.8) == "$<0.001$"
-        assert tables.hours(60.9) == "$0.017$"
-        assert tables.hours(45406.9) == "$12.6$"
+        assert tables.hours(1.8) == r"\num{<0.001}"
+        assert tables.hours(60.9) == r"\num{0.017}"
+        assert tables.hours(45406.9) == r"\num{12.6}"
+
+    def test_header_units_go_through_siunitx(self):
+        assert tables.si_unit_head("[m/s]") == r"[\unit{\m\per\s}]"
+        assert (tables.si_unit_head(r"$\Delta\gamma$ [deg]")
+                == r"$\Delta\gamma$ [\unit{\degree}]")
+        assert tables.si_unit_head(r"[\%]") == r"[\unit{\percent}]"
+        assert tables.si_unit_head("[-]") == "[-]"
 
 
 class TestGammaP:
