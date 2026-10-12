@@ -682,35 +682,31 @@ def _validation_inputs(cases):
     return val, names, flights, rows[:len(flights)], rows[len(flights):]
 
 
-# The one webcast flight the validation table shows.
-VALIDATION_FLIGHT = "EchoStar 23"
-
-
 def validation_timeline(cases):
-    """Event times: the SpaceX user's guide sample LEO mission, the Nov 2019
-    Starlink flight (press-kit timeline), EchoStar 23 and the reference. Of the
-    three webcast flights only EchoStar 23 is shown, the closest to the reference
-    in every column (user decision 2026-10-12). Its times as the dataset records
-    them, a dash where the webcast does not show the event; the cases' max-Q is
-    the peak of their dynamic pressure."""
+    """Event times: the SpaceX user's guide sample LEO mission and the Nov 2019
+    Starlink flight (planned), the Feb 2018 Paz flight (launch report, a direct
+    insertion: dashes for coast and final burn) and the reference (user decision
+    2026-10-12: cited values only). The cases' max-Q is the peak of their
+    dynamic pressure."""
     inputs = _validation_inputs(cases)
     if inputs is None:
         return None
-    val, names, flights, flight_rows, case_rows = inputs
+    val, names, _flights, _flight_rows, case_rows = inputs
     rows = []
     for label, g in [(r"Sample LEO mission~\cite{SpaceX_FalconUsersGuide_2025}",
                       val.GUIDE_LEO),
                      (r"Starlink, Nov.~2019~\cite{SpaceX_StarlinkPressKit_2019}",
-                      val.STARLINK_2019)]:
+                      val.STARLINK_2019),
+                     (None, None),
+                     (r"Paz, Feb.~2018~\cite{NSF_Paz_2018}", val.PAZ_2018)]:
+        if label is None:
+            rows.append(None)
+            continue
+        two_burns = "ses2" in g
         rows.append([label, num(g["maxq"], 0), num(g["meco"], 0), num(g["ses1"], 0),
                      num(g["fairing"], 0), num(g["seco1"], 0),
-                     num(g["ses2"] - g["seco1"], 0), num(g["seco2"] - g["ses2"], 0)])
-    rows.append(None)
-    for flight, r in zip(flights, flight_rows):
-        if flight.label != VALIDATION_FLIGHT:
-            continue
-        rows.append([flight.label, num(r["t_maxq"], 0), num(r["t_meco"], 0),
-                     num(r["t_ses1"], 0), DASH, num(r["t_burn_end"], 0), DASH, DASH])
+                     num(g["ses2"] - g["seco1"], 0) if two_burns else DASH,
+                     num(g["seco2"] - g["ses2"], 0) if two_burns else DASH])
     rows.append(None)
     for n, r in zip(names, case_rows):
         k = cases[n]
@@ -734,21 +730,21 @@ def validation_timeline(cases):
 #     recovery; its timeline has two second-stage burns.
 #   Starlink, 11 Nov 2019: deployment at 280 km (press kit), 53 deg (Spaceflight
 #     Now), 60 x 260 kg = 15.6 t and the drone-ship landing (NASASpaceFlight).
-#   EchoStar 23, 16 Mar 2017: GTO, about 5.5 t, two burns, booster expended
-#     (NASASpaceFlight).
+#   Paz, 22 Feb 2018: ~514 km circular at 97.44 deg, 1,341 kg + 2 x 400 kg,
+#     one burn (direct insertion), booster not recovered (NASASpaceFlight).
 VALIDATION_MISSIONS = [
     (r"Sample LEO mission~\cite{SpaceX_FalconUsersGuide_2025}",
      None, None, None, 2, None),
     (r"Starlink, Nov.~2019~\cite{SpaceX_StarlinkPressKit_2019}",
-     r"$280$~km (deployment)", 53.0, 15.6, 2, "Landed"),
-    (r"EchoStar 23~\cite{NSF_EchoStar23_2017}",
-     "Geostationary transfer", None, 5.5, 2, "Expended"),
+     r"$280$~km (deployment)", r"$53$", 15.6, 2, "Landed"),
+    (r"Paz, Feb.~2018~\cite{NSF_Paz_2018}",
+     r"$514$~km circular", r"$97.44$", 2.1, 1, "Expended"),
 ]
 
 
 def validation_missions(cases):
     """Mission parameters: the guide's sample LEO mission, the Nov 2019 Starlink
-    flight and EchoStar 23 (VALIDATION_MISSIONS), against the reference's target
+    flight and Paz (VALIDATION_MISSIONS), against the reference's target
     orbit, payload and arcs as its manifest records them."""
     inputs = _validation_inputs(cases)
     if inputs is None:

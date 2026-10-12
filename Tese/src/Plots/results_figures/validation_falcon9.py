@@ -66,6 +66,16 @@ GUIDE_LEO = {"maxq": 67.0, "meco": 145.0, "ses1": 156.0, "fairing": 195.0,
 STARLINK_2019 = {"maxq": 74.0, "meco": 153.0, "ses1": 164.0, "fairing": 204.0,
                  "seco1": 529.0, "ses2": 2690.0, "seco2": 2692.0}
 
+# Paz, 22 Feb 2018: NASASpaceFlight launch report (Graham) [s]. Max-Q at 77 s,
+# MECO at 2:29, separation 4 s later, second-stage ignition 7 s after that, the
+# fairing 16 s after ignition, and a single burn of 6 min 18 s (direct insertion,
+# no coast) to a ~514 km circular orbit at 97.44 deg; 1,341 kg + 2 x 400 kg;
+# booster B1038.2 (Block 3) not recovered. Reported, not planned, times; the
+# webcast dataset puts MECO at 152 s, the report is kept (user decision
+# 2026-10-12).
+PAZ_2018 = {"maxq": 77.0, "meco": 149.0, "ses1": 160.0, "fairing": 176.0,
+            "seco1": 538.0}
+
 T_END = 560.0      # s; the webcasts stop showing Stage 2 near SECO-1, ~515 s
 Q_WINDOW = 200.0   # s; dynamic pressure is negligible after MECO
 
