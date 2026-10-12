@@ -147,9 +147,10 @@ def peg_atmosphere(cases):
 
 def reference_tangent_fit(cases):
     """How close the reference's first second-stage burn is to the linear-tangent
-    law (red-note review S1.4): (a) the pitch flown and the law fitted to it,
-    tan(theta) = a + b t by least squares (_tangent_fit), (b) their difference,
-    with its RMS.
+    law (red-note review S1.4): the pitch flown and the law fitted to it,
+    tan(theta) = a + b t by least squares (_tangent_fit). The difference panel
+    and its RMS were dropped in the figure review of 2026-10-12; the text
+    quotes the RMS. Every label is drawn at PROFILE_FS at the placed width.
     """
     missing = _data.missing_from(cases, "pmp_baseline")
     if missing:
@@ -159,32 +160,20 @@ def reference_tangent_fit(cases):
     if not burns:
         return _skip("reference tangent fit", ["a second-stage burn"])
     t0, t1 = burns[0]
-    t, fitted, rms = _tangent_fit(ref, t0, t1)
+    t, fitted, _rms = _tangent_fit(ref, t0, t1)
     sel = (ref.time >= t0) & (ref.time <= t1)
     keep = np.ones(int(sel.sum()), dtype=bool)
     keep[1:] = np.diff(ref.time[sel]) > 0.0
     flown = ref.theta_deg[sel][keep]
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 2.2))
-    ax_a.plot(t, flown, color=st.ENV_COLORS["reference"], label="Reference, flown")
-    ax_a.plot(t, fitted, color=st.INK, linestyle="--", linewidth=1.0,
-              label=r"Linear tangent, $\tan\theta = a + b\,t$")
-    ax_a.set_xlabel("Time [s]")
-    ax_a.set_ylabel(r"Pitch $\theta$ [deg]")
-    st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="upper right", legend_kw={"fontsize": 6.3})
-
-    ax_b.plot(t, flown - fitted, color=st.ENV_COLORS["reference"])
-    ax_b.axhline(0.0, color=st.FAINT, linewidth=0.8)
-    for sign in (1.0, -1.0):
-        ax_b.axhline(sign * rms, color=st.GREY, linestyle=":", linewidth=0.8)
-    ax_b.annotate(r"RMS $%.2f^\circ$ (dotted)" % rms, xy=(0.97, 0.06),
-                  xycoords="axes fraction", ha="right", va="bottom", fontsize=6.5,
-                  color=st.INK)
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel(r"Flown $-$ fitted [deg]")
-    st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend=False)
+    fig, ax = plt.subplots(figsize=(6.3, 2.8))
+    ax.plot(t, flown, color=st.ENV_COLORS["reference"], label="Reference, flown")
+    ax.plot(t, fitted, color=st.INK, linestyle="--", linewidth=1.0,
+            label=r"Linear tangent, $\tan\theta = a + b\,t$")
+    ax.set_xlabel("Time [s]", fontsize=PROFILE_FS)
+    ax.set_ylabel(r"Pitch $\theta$ [deg]", fontsize=PROFILE_FS)
+    ax.tick_params(labelsize=PROFILE_FS)
+    st.tidy(ax, legend_loc="upper right", legend_kw={"fontsize": PROFILE_FS})
     fig.tight_layout()
     return st.save(fig, "results_reference_tangent_fit.png")
 
@@ -486,8 +475,12 @@ PROFILE_AXES = [
     ("gamma", r"Flight-path angle $\gamma$ [deg]", OVERLAY_COLOURS["gamma"], (-3.0, 93.0)),
     ("accel", r"Thrust accel. $T/(m g_0)$ [g]", OVERLAY_COLOURS["accel"], (0.0, 7.5)),
     ("q", "Dynamic pressure [kPa]", OVERLAY_COLOURS["q"], (0.0, 60.0)),
-    ("mach", "Mach [-]", OVERLAY_COLOURS["mach"], (0.0, 13.0)),
+    ("mach", "Mach", OVERLAY_COLOURS["mach"], (0.0, 13.0)),
 ]
+
+# Every label of the profiles figure. It is drawn at 6.3 in and placed at
+# \textwidth, so this is its printed size: none below the 10 pt body text.
+PROFILE_FS = 10.0
 
 # Spine positions of the parallel y-axes, in axes fractions of the host.
 _PROFILE_SPINES = {"gamma": ("left", -0.16), "accel": ("right", 1.0),
@@ -540,9 +533,12 @@ def _profile_panel(ax, case, title, waypoint=None):
             axes[key] = twin
         target = axes[key]
         target.spines["left" if key in ("alt", "gamma") else "right"].set_color(colour)
-        target.tick_params(axis="y", colors=colour, labelcolor=st.INK, labelsize=6.8)
-        target.set_ylabel(label, color=colour, fontsize=7.4)
+        target.tick_params(axis="y", colors=colour, labelcolor=st.INK,
+                           labelsize=PROFILE_FS)
+        target.set_ylabel(label, color=colour, fontsize=PROFILE_FS)
         target.set_ylim(*ylim)
+        if key == "mach":
+            target.set_yticks(np.arange(0.0, ylim[1], 2.0))
         tt, yy = st.thin(t, series[key])
         target.plot(tt, yy, color=colour, linewidth=1.15, label=label)
 
@@ -559,10 +555,11 @@ def _profile_panel(ax, case, title, waypoint=None):
             continue
         ax.axvline(t_evt, color=st.INK, linestyle=":", linewidth=0.8)
         ax.annotate(text, xy=(t_evt, 1.0), xycoords=("data", "axes fraction"),
-                    xytext=(-2, -3), textcoords="offset points", fontsize=6.3,
+                    xytext=(-2, -3), textcoords="offset points", fontsize=PROFILE_FS,
                     color=st.INK, rotation=90, ha="right", va="top")
     if waypoint is not None:
-        pn.mark_waypoint(ax, waypoint)
+        # Its state is quoted in the text (figure review, 2026-10-12).
+        pn.mark_waypoint(ax, waypoint, label="Coast-start waypoint")
 
     # The coast is most of the flight and nothing happens in it, so it is drawn
     # compressed between two breaks, its length printed in it.
@@ -582,15 +579,16 @@ def _profile_panel(ax, case, title, waypoint=None):
             ax.set_xticklabels(["%.0f" % v for v in ticks])
             for cut in (cut0, cut1):
                 ax.annotate("//", xy=(cut, 0.0), xycoords=("data", "axes fraction"),
-                            ha="center", va="center", fontsize=8, color=st.INK,
+                            ha="center", va="center", fontsize=PROFILE_FS, color=st.INK,
                             bbox={"boxstyle": "square,pad=0.05", "fc": "white",
                                   "ec": "none"})
             # The middle of the coast maps to the middle of its compressed band.
             ax.annotate("coast\n%.0f s" % (c1 - c0), xy=(0.5 * (cut0 + cut1), 0.2),
-                        xycoords=("data", "axes fraction"), fontsize=6.5,
+                        xycoords=("data", "axes fraction"), fontsize=PROFILE_FS,
                         color=st.GREY, ha="center", va="center")
-    ax.set_xlabel("Time [s]")
-    ax.set_title(title, loc="left", fontsize=8.5, color=st.INK, fontweight="bold")
+    ax.set_xlabel("Time [s]", fontsize=PROFILE_FS)
+    ax.tick_params(axis="x", labelsize=PROFILE_FS)
+    ax.set_title(title, loc="left", fontsize=PROFILE_FS, color=st.INK, fontweight="bold")
     ax.grid(True, color=st.FAINT, linewidth=0.5, alpha=0.8)
     ax.set_axisbelow(True)
     ax.spines["top"].set_visible(False)
@@ -615,8 +613,8 @@ def reference_profiles(cases):
     titles = ("(a) Reference", "(b) Reference, no atmosphere",
               "(c) Reference, non-rotating Earth")
 
-    fig, panels = plt.subplots(3, 1, figsize=(6.3, 8.2))
-    fig.subplots_adjust(left=0.17, right=0.70, top=0.97, bottom=0.12, hspace=0.42)
+    fig, panels = plt.subplots(3, 1, figsize=(6.3, 8.6))
+    fig.subplots_adjust(left=0.17, right=0.70, top=0.97, bottom=0.155, hspace=0.42)
     first = None
     for ax, name, title in zip(panels, names, titles):
         wp = pn.waypoint(cases[name]) if name == "pmp_baseline" else None
@@ -629,7 +627,7 @@ def reference_profiles(cases):
         for h, l in zip(*ax.get_legend_handles_labels()):
             entries.setdefault(l, h)
     fig.legend(list(entries.values()), list(entries.keys()), loc="lower center",
-               ncol=3, fontsize=6.8, frameon=False, bbox_to_anchor=(0.5, 0.0))
+               ncol=3, fontsize=PROFILE_FS, frameon=False, bbox_to_anchor=(0.5, 0.0))
     return st.save(fig, "results_reference_profiles.png")
 
 

@@ -86,19 +86,20 @@ def waypoint(ref):
             "v_kms": float(ref.v[i]) / 1e3, "gamma_deg": float(ref.gamma_deg[i])}
 
 
-def mark_waypoint(ax, wp):
+def mark_waypoint(ax, wp, label=None):
     """The waypoint as an open circle on an altitude-against-time panel.
 
     Its state goes in the legend entry rather than beside the marker: the
     marker sits where the trajectories bend into their coast, and a label there
-    lands on the curves or on the legend.
+    lands on the curves or on the legend. ``label`` replaces that entry, for a
+    figure whose text quotes the state instead.
     """
     ax.plot(wp["t"], wp["alt_km"], linestyle="none", marker="o", markersize=5.0,
             markerfacecolor="white", markeredgecolor=st.INK,
             markeredgewidth=1.1, zorder=5,
-            label="Coast-start waypoint\n(%.0f km, %.2f km/s, "
-                  % (wp["alt_km"], wp["v_kms"])
-                  + r"$\gamma$ %.1f$^\circ$)" % wp["gamma_deg"])
+            label=label or ("Coast-start waypoint\n(%.0f km, %.2f km/s, "
+                            % (wp["alt_km"], wp["v_kms"])
+                            + r"$\gamma$ %.1f$^\circ$)" % wp["gamma_deg"]))
 
 
 def altitude_panel(ax, entries, shade_coasts=True):
