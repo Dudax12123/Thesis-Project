@@ -682,6 +682,41 @@ def _validation_inputs(cases):
     return val, names, flights, rows[:len(flights)], rows[len(flights):]
 
 
+# The PMP reference flown to the Nov 2019 Starlink mission (280 km circular, 53 deg,
+# 15.6 t payload; branch validation-starlink, never merged), refined with the coast
+# bound at 2500 s, first pass only (user decision 2026-10-12). The coast grows with
+# the bound, so the row's coast is the bound's, not an interior optimum.
+STARLINK_RUN = _SRC / "Output" / "validation_starlink_20261012" / "polish" / "c2500"
+STARLINK_LABEL = "Reference, Starlink mission"
+
+
+def _starlink_case():
+    """The Starlink-mission reference archive, or None if it is absent."""
+    holders = sorted(p.parent for p in STARLINK_RUN.glob("*/pmp_baseline.npz"))
+    if len(holders) != 1:
+        print("  skip Starlink-mission row  %d archives under %s" % (len(holders), STARLINK_RUN))
+        return None
+    return _data.load("pmp_baseline", root=holders[0])
+
+
+def _timeline_row(label, k, r, val):
+    _first, coast, final = arcs(k)
+    return [label, num(r["t_maxq"], 0), num(r["t_meco"], 0), num(r["t_ses1"], 0),
+            num(val.fairing_time(k), 0), num(r["t_burn_end"], 0),
+            num(coast, 0 if coast is not None and coast >= 10.0 else 1), num(final, 1)]
+
+
+def _mission_row(label, k):
+    config, vehicle = k.manifest["config"], k.manifest["vehicle"]
+    _first, coast, _final = arcs(k)
+    payload = vehicle["M_PAYLOAD"] / 1e3
+    return [label,
+            r"$%s$~km circular" % num(config["TARGET_ORBITAL_ALTITUDE"] / 1e3, 0).strip("$"),
+            num(config["TARGET_ORBIT_INCLINATION"], 1),
+            num(payload, 0 if payload == int(payload) else 1),
+            num(1 if coast is None else 2, 0), "Expended"]
+
+
 def validation_timeline(cases):
     """Event times: the SpaceX user's guide sample LEO mission and the Nov 2019
     Starlink flight (planned), the Feb 2018 Paz flight (launch report, a direct
@@ -709,13 +744,11 @@ def validation_timeline(cases):
                      num(g["seco2"] - g["ses2"], 0) if two_burns else DASH])
     rows.append(None)
     for n, r in zip(names, case_rows):
-        k = cases[n]
-        _first, coast, final = arcs(k)
-        rows.append([label_cell(n), num(r["t_maxq"], 0), num(r["t_meco"], 0),
-                     num(r["t_ses1"], 0), num(val.fairing_time(k), 0),
-                     num(r["t_burn_end"], 0),
-                     num(coast, 0 if coast is not None and coast >= 10.0 else 1),
-                     num(final, 1)])
+        rows.append(_timeline_row(label_cell(n), cases[n], r, val))
+    starlink = _starlink_case()
+    if starlink is not None:
+        r = val.summary_rows({"pmp_baseline": starlink}, [])[0]
+        rows.append(_timeline_row(STARLINK_LABEL, starlink, r, val))
     return tabular(
         "l r r r r r r r",
         bold("Source", "Max-Q", "MECO", "SES-1", "Fairing", "SECO-1", "Coast",
@@ -759,15 +792,10 @@ def validation_missions(cases):
             for label, o, i, p, b, f in VALIDATION_MISSIONS]
     rows.append(None)
     for n in names:
-        k = cases[n]
-        config, vehicle = k.manifest["config"], k.manifest["vehicle"]
-        _first, coast, _final = arcs(k)
-        rows.append([label_cell(n),
-                     r"$%s$~km circular" % num(config["TARGET_ORBITAL_ALTITUDE"] / 1e3, 0)
-                     .strip("$"),
-                     num(config["TARGET_ORBIT_INCLINATION"], 1),
-                     num(vehicle["M_PAYLOAD"] / 1e3, 0),
-                     num(1 if coast is None else 2, 0), "Expended"])
+        rows.append(_mission_row(label_cell(n), cases[n]))
+    starlink = _starlink_case()
+    if starlink is not None:
+        rows.append(_mission_row(STARLINK_LABEL, starlink))
     return tabular(
         "l l r r r l",
         bold("Source", "Orbit", "Inclination", "Payload", "Stage-2 burns",
