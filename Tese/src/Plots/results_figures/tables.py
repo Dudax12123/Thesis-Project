@@ -740,7 +740,7 @@ VALIDATION_MISSIONS = [
     (r"Sample LEO mission~\cite{SpaceX_FalconUsersGuide_2025}",
      None, None, None, 2, None),
     (r"Starlink, Nov.~2019~\cite{SpaceX_StarlinkPressKit_2019}",
-     r"$280$~km (deployment)", 53.0, 15.6, 2, "Landed on a drone ship"),
+     r"$280$~km (deployment)", 53.0, 15.6, 2, "Landed"),
     (r"EchoStar 23~\cite{NSF_EchoStar23_2017}",
      "Geostationary transfer", None, 5.5, 2, "Expended"),
 ]
