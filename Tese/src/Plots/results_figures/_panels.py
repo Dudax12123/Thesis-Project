@@ -115,7 +115,7 @@ def altitude_panel(ax, entries, shade_coasts=True):
     ax.set_ylabel("Altitude [km]")
 
 
-def alpha_panel(ax, entries, t_hi=None):
+def alpha_panel(ax, entries, t_hi=None, fontsize=6.3, notes=True):
     """The commanded angle of attack over the steered part of the ascent.
 
     The x-range ends a little after the latest :func:`steering_end` of the
@@ -153,9 +153,16 @@ def alpha_panel(ax, entries, t_hi=None):
     # Headroom for the clipped-peak notes, which sit along the top of the
     # panel: without it they print over a flight that steers up to the limit.
     # Recounted after the extension, since the headroom can bring a peak in.
-    clipped = _clipped(hi)
+    # At body-text size a note no longer fits one line across the panel: it
+    # breaks after the label and takes twice the headroom.
+    wrap = fontsize > 7.0
+    step = 0.17 if wrap else 0.07
+    room = 0.2 if wrap else 0.09
+    # notes=False draws no notes and keeps no headroom for them: a figure whose
+    # text states the clipped peaks instead.
+    clipped = _clipped(hi) if notes else []
     if clipped:
-        hi += 0.09 * len(clipped) * (hi - lo) / (1.0 - 0.09 * len(clipped))
+        hi += room * len(clipped) * (hi - lo) / (1.0 - room * len(clipped))
         clipped = _clipped(hi)
 
     for case, colour, style, label in entries:
@@ -165,24 +172,25 @@ def alpha_panel(ax, entries, t_hi=None):
     ax.set_ylim(lo, hi)
     ax.set_xlim(0.0, t_hi)
     for i, (colour, label, peaks) in enumerate(clipped):
-        ax.annotate("%s: peaks %s" % (label, ", ".join("%+.0f" % v for v in peaks))
+        ax.annotate("%s:%speaks %s" % (label, "\n" if wrap else " ",
+                                        ", ".join("%+.0f" % v for v in peaks))
                     + r"$^\circ$, clipped",
-                    xy=(0.02, 0.95 - 0.07 * i), xycoords="axes fraction",
-                    fontsize=6.3, color=colour, va="top")
+                    xy=(0.02, 0.95 - step * i), xycoords="axes fraction",
+                    fontsize=fontsize, color=colour, va="top")
     ax.set_xlabel("Time [s]")
     ax.set_ylabel(r"Angle of attack $\alpha$ [deg]")
     return len(clipped)
 
 
-def mark_instant(ax, t, text, colour=st.INK):
+def mark_instant(ax, t, text, colour=st.INK, fontsize=6.3):
     """A dotted vertical line on a time panel, named along its foot."""
     ax.axvline(t, color=colour, linestyle=":", linewidth=0.8)
     ax.annotate(text, xy=(t, 0.03), xycoords=("data", "axes fraction"),
-                xytext=(-2, 0), textcoords="offset points", fontsize=6.3,
+                xytext=(-2, 0), textcoords="offset points", fontsize=fontsize,
                 color=colour, rotation=90, ha="right", va="bottom")
 
 
-def mark_arc_events(ax, entries, label_top=False):
+def mark_arc_events(ax, entries, label_top=False, fontsize=6.3):
     """Dotted lines at main-engine cut-off and at every second-stage cut-off.
 
     MECO is the same instant for every case, so it is drawn once and named --
@@ -195,10 +203,10 @@ def mark_arc_events(ax, entries, label_top=False):
     if t_meco is not None and label_top:
         ax.axvline(t_meco, color=st.INK, linestyle=":", linewidth=0.8)
         ax.annotate("MECO", xy=(t_meco, 0.97), xycoords=("data", "axes fraction"),
-                    xytext=(-2, 0), textcoords="offset points", fontsize=6.3,
+                    xytext=(-2, 0), textcoords="offset points", fontsize=fontsize,
                     color=st.INK, rotation=90, ha="right", va="top")
     elif t_meco is not None:
-        mark_instant(ax, t_meco, "MECO")
+        mark_instant(ax, t_meco, "MECO", fontsize=fontsize)
     for case, colour, _style, _label in entries:
         for _t0, t1 in burn_intervals(case, stage2_only=True):
             ax.axvline(t1, color=colour, linestyle=":", linewidth=0.8, alpha=0.9)
@@ -281,7 +289,8 @@ COAST_MARGIN_S = (40.0, 25.0)
 COAST_WIDTH_S = 70.0
 
 
-def compress_long_coast(ax, case, t_end, tick_step=100.0, label_y=0.2):
+def compress_long_coast(ax, case, t_end, tick_step=100.0, label_y=0.2,
+                        fontsize=None, label_box=False):
     """Draw *case*'s longest coast compressed between two breaks, its length
     printed in it, on a time axis that ends at *t_end*. Does nothing when the
     coast is too short to gain from it. A long, low coast is most of the flight
@@ -303,11 +312,15 @@ def compress_long_coast(ax, case, t_end, tick_step=100.0, label_y=0.2):
     ax.set_xticklabels(["%.0f" % v for v in ticks])
     for cut in (cut0, cut1):
         ax.annotate("//", xy=(cut, 0.0), xycoords=("data", "axes fraction"),
-                    ha="center", va="center", fontsize=8, color=st.INK,
+                    ha="center", va="center", fontsize=fontsize or 8, color=st.INK,
                     bbox={"boxstyle": "square,pad=0.05", "fc": "white", "ec": "none"})
+    # *label_box* backs the label in white: at body-text size it is wider than
+    # the compressed coast and runs over the cut-off lines either side of it.
     ax.annotate("coast\n%.0f s" % (c1 - c0), xy=(0.5 * (cut0 + cut1), label_y),
-                xycoords=("data", "axes fraction"), fontsize=6.5, color=st.GREY,
-                ha="center", va="center")
+                bbox={"boxstyle": "square,pad=0.1", "fc": "white", "ec": "none",
+                      "alpha": 0.9} if label_box else None,
+                xycoords=("data", "axes fraction"), fontsize=fontsize or 6.5,
+                color=st.GREY, ha="center", va="center")
     return True
 
 
@@ -321,7 +334,7 @@ def figure_legend(fig, ax, ncol=4, fontsize=6.5):
     fig.tight_layout()
     rows = -(-len(labels) // ncol)
     height = fig.get_size_inches()[1]
-    bottom = (0.10 + 0.16 * rows) / height
+    bottom = (0.10 + 0.16 * max(fontsize / 6.5, 1.0) * rows) / height
     fig.subplots_adjust(bottom=fig.subplotpars.bottom + bottom)
     fig.legend(handles, labels, loc="lower center", ncol=ncol, fontsize=fontsize,
                frameon=False, bbox_to_anchor=(0.5, 0.0))

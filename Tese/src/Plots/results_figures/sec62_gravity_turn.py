@@ -23,6 +23,20 @@ from . import _style as st
 from . import run_card
 
 
+# Every label of a figure redrawn for the 10 pt rule (figure review,
+# 2026-10-12): drawn at 6.3 in and placed at \textwidth, so this is close to
+# its printed size.
+FS = 10.0
+
+# Section 6.2.3 (figure review, 2026-10-12): the rotating flight orange, the
+# non-rotating one blue.
+ROTATING_COLOUR = st.ENV_COLORS["no_rotation"]
+NON_ROTATING_COLOUR = st.ENV_COLORS["baseline"]
+
+# The apogee check in Section 6.2.2, in red (figure review, 2026-10-12).
+APOGEE_COLOUR = st.ACCENT
+
+
 def _skip(name, missing):
     print("  [skip] %s -- missing %s" % (name, ", ".join(missing)))
 
@@ -97,51 +111,38 @@ def _mass_flow(time, mass, step_factor=10.0):
 
 
 def gt_architecture(cases):
-    """The same law under the coast-parameter and the apogee-check architectures.
+    """The same law under the coast-parameter and the apogee-check architectures:
+    altitude against time, each architecture's coast shaded -- a guided final
+    burn after the swarm's coast, against a coast to apogee closed by an
+    impulsive circularization. The direct-insertion architecture is compared on
+    powered explicit guidance instead.
 
-    (a) Altitude against time, each architecture's coast shaded: a guided final
-    burn after the swarm's coast, against a coast to apogee closed by an impulsive
-    circularization. (b) The propellant remaining, zoomed onto the last tonnes of
-    the second stage, which shows where the difference between the two arises:
-    at the end of the first burn and in the final one. The direct-insertion
-    architecture is compared on powered explicit guidance instead.
+    Since the figure review of 2026-10-12 the propellant panel is gone (Table
+    6.3 gives the propellant remaining), the apogee check is drawn solid in its
+    own colour rather than dashed ink, the coast shading is in the legend, and
+    every label is drawn at FS.
     """
     names = ("gt_baseline", "gt_apogee")
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("gt architecture", missing)
-    entries = [(cases["gt_baseline"], st.ENV_COLORS["baseline"], "-"),
-               (cases["gt_apogee"], st.SECOND_ARCH, "--")]
+    entries = [(cases["gt_baseline"], st.ENV_COLORS["baseline"]),
+               (cases["gt_apogee"], APOGEE_COLOUR)]
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    labels, lowest = [], np.inf
-    for case, colour, style in entries:
+    fig, ax = plt.subplots(figsize=(6.3, 2.8))
+    for case, colour in entries:
         end = case.insertion_index()
-        label = st.arch_label(case.architecture)
+        name = st.arch_label(case.architecture)
         t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
-        ax_a.plot(t, alt_km, color=colour, linestyle=style, label=label)
-        for t0, t1 in case.coast_intervals():
-            ax_a.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
-        t, prop_t = st.thin(case.time[:end], case.prop_kg[:end] / 1e3)
-        ax_b.plot(t, prop_t, color=colour, linestyle=style, label=label)
-        labels.append(ax_b.annotate("%.2f t" % prop_t[-1], xy=(t[-1], prop_t[-1]),
-                                    xytext=(3, 0), textcoords="offset points",
-                                    fontsize=6.5, color=st.INK, va="center"))
-        lowest = min(lowest, float(prop_t[-1]))
-    ax_a.set_xlabel("Time [s]")
-    ax_a.set_ylabel("Altitude [km]")
-    st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="lower right")
-
-    ax_b.set_ylim(lowest - 0.6, lowest + 3.4)
-    ax_b.set_xlim(0.0, 1.16 * max(case.time[case.insertion_index() - 1]
-                                  for case, _c, _s in entries))
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel("Propellant remaining [t]")
-    st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend=False)
+        ax.plot(t, alt_km, color=colour, label=name)
+        for i, (t0, t1) in enumerate(case.coast_intervals()):
+            ax.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0,
+                       label=None if i else "Coast (%s)" % name)
+    ax.set_xlabel("Time [s]", fontsize=FS)
+    ax.set_ylabel("Altitude [km]", fontsize=FS)
+    ax.tick_params(labelsize=FS)
+    st.tidy(ax, legend_loc="lower right", legend_kw={"fontsize": FS})
     fig.tight_layout()
-    st.dodge_labels(fig, labels)
     return st.save(fig, "results_gt_architecture.png")
 
 
@@ -156,6 +157,11 @@ def gt_rotation(cases):
     (b) stops where the first second-stage burn ends: no actuator acts in a
     coast, where the cross-plane term only describes the ground turning beneath
     a Keplerian arc. The non-rotating flight has no pseudo-forces to draw.
+
+    Figure review, 2026-10-12: the rotating flight is orange and the
+    non-rotating one blue; every force is a continuous line, in its own colour;
+    the in-plane terms say so; every label is drawn at FS, and the legend of
+    (b) runs under both panels.
     """
     names = ("gt_baseline", "gt_norot")
     missing = _data.missing_from(cases, *names)
@@ -163,18 +169,19 @@ def gt_rotation(cases):
         return _skip("gt rotation", missing)
     base, norot = cases["gt_baseline"], cases["gt_norot"]
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2,
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 3.4),
                                      gridspec_kw={"width_ratios": [1.0, 1.15]})
-    for case, colour, label in ((base, st.ENV_COLORS["baseline"], "Rotating Earth"),
-                                (norot, st.ENV_COLORS["no_rotation"],
+    for case, colour, label in ((base, ROTATING_COLOUR, "Rotating Earth"),
+                                (norot, NON_ROTATING_COLOUR,
                                  "Non-rotating Earth")):
         end = case.insertion_index()
         t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
         ax_a.plot(t, alt_km, color=colour, label=label)
-    ax_a.set_xlabel("Time [s]")
-    ax_a.set_ylabel("Altitude [km]")
-    st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="lower right")
+    ax_a.set_xlabel("Time [s]", fontsize=FS)
+    ax_a.set_ylabel("Altitude [km]", fontsize=FS)
+    ax_a.tick_params(labelsize=FS)
+    ax_a.set_title("(a)", loc="left", color=st.INK, fontweight="bold", fontsize=FS)
+    st.tidy(ax_a, legend_loc="lower right", legend_kw={"fontsize": FS})
 
     forces = base.pseudo_forces_at_azimuth()
     if forces is not None:
@@ -182,36 +189,41 @@ def gt_rotation(cases):
         sel = base.time <= t_end
         t, cor, cen, cross, mass = st.thin(base.time[sel], *(f[sel] for f in forces),
                                            base.mass[sel])
-        colour = st.ENV_COLORS["baseline"]
-        ax_b.plot(t, cor, color=colour, label="Coriolis")
-        ax_b.plot(t, cen, color=colour, linestyle="--", label="Centrifugal")
+        ax_b.plot(t, cor, color=NON_ROTATING_COLOUR, label="Coriolis (in plane)")
+        ax_b.plot(t, cen, color=ROTATING_COLOUR, label="Centrifugal (in plane)")
         ax_b.plot(t, cross, color=st.INK, label=r"Cross-plane $|a_{h,\perp}|$")
         ax_f = ax_b.twinx()
-        ax_f.plot(t, mass * cross / 1e3, color=st.INK, linestyle=":",
+        ax_f.plot(t, mass * cross / 1e3, color=st.VIOLET,
                   label=r"Lateral force $m|a_{h,\perp}|$ (right)")
-        ax_f.set_ylabel(r"Lateral force $m|a_{h,\perp}|$ [kN]")
+        ax_f.set_ylabel(r"Lateral force $m|a_{h,\perp}|$ [kN]", fontsize=FS)
+        ax_f.tick_params(labelsize=FS)
         ax_f.set_ylim(0.0, None)
         ax_f.spines["top"].set_visible(False)
         if base.t_meco is not None:
             ax_b.axvline(base.t_meco, color=st.GREY, linestyle=":", linewidth=0.8)
-            ax_b.annotate("MECO", xy=(base.t_meco, 0.55), xycoords=("data", "axes fraction"),
-                          xytext=(-2, 0), textcoords="offset points", fontsize=6.3,
-                          color=st.INK, rotation=90, ha="right", va="top")
+            # Right of the line, in the gap between the Coriolis curve and the
+            # lateral force: at 10 pt, left of it lands on the lateral force.
+            ax_b.annotate("MECO", xy=(base.t_meco, 0.64), xycoords=("data", "axes fraction"),
+                          xytext=(3, 0), textcoords="offset points", fontsize=FS,
+                          color=st.INK, rotation=90, ha="left", va="top")
         ax_b.set_xlim(0.0, t_end)
         handles, texts = [], []
         for ax in (ax_b, ax_f):
             h, l = ax.get_legend_handles_labels()
             handles += h
             texts += l
-        # Below the panel: every corner of it holds a curve.
-        ax_b.legend(handles, texts, loc="upper center", bbox_to_anchor=(0.5, -0.22),
-                    ncol=2, fontsize=6.3)
     ax_b.set_ylim(0.0, None)
-    ax_b.set_xlabel("Time [s]")
-    ax_b.set_ylabel(r"Acceleration [m/s$^2$]")
-    st.panel_tag(ax_b, "b")
+    ax_b.set_xlabel("Time [s]", fontsize=FS)
+    ax_b.set_ylabel(r"Acceleration [m/s$^2$]", fontsize=FS)
+    ax_b.tick_params(labelsize=FS)
+    ax_b.set_title("(b)", loc="left", color=st.INK, fontweight="bold", fontsize=FS)
     st.tidy(ax_b, legend=False)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.15, 1.0, 1.0))
+    if forces is not None:
+        # Under both panels: every corner of (b) holds a curve, and at 10 pt
+        # the four entries need the full width.
+        fig.legend(handles, texts, loc="lower center", bbox_to_anchor=(0.5, 0.0),
+                   ncol=2, fontsize=FS, frameon=False)
     return st.save(fig, "results_gt_rotation.png")
 
 
@@ -223,6 +235,9 @@ def gt_engine(cases):
     The mass flow is read from the mass trace, so it is the one actually flown,
     and the specific impulse is the thrust over it; the fairing jettison, a
     discrete drop, is excluded from both (_mass_flow).
+
+    Every label is drawn at FS (figure review, 2026-10-12); at that size the
+    legend runs under the three panels.
     """
     names = ("gt_baseline", "gt_sea_level_engine")
     missing = _data.missing_from(cases, *names)
@@ -230,7 +245,7 @@ def gt_engine(cases):
         return _skip("gt engine", missing)
     from Auxiliary import constants as const
 
-    fig, axes = plt.subplots(1, 3, figsize=(6.3, 2.5))
+    fig, axes = plt.subplots(1, 3, figsize=(6.3, 3.0))
     for case, colour in ((cases["gt_baseline"], st.ENV_COLORS["baseline"]),
                          (cases["gt_sea_level_engine"], st.ENV_COLORS["sea_level"])):
         label = {"pressure": "Pressure-dependent", "sea_level": "Sea level, constant"}.get(
@@ -249,14 +264,17 @@ def gt_engine(cases):
             ax.axvline(t_end, color=colour, linestyle=":", linewidth=0.8)
     for ax, ylabel, tag in zip(axes, ("Thrust [MN]", "Specific impulse [s]",
                                       "Mass flow [kg/s]"), "abc"):
-        ax.set_xlabel("Time [s]")
-        ax.set_ylabel(ylabel)
-        st.panel_tag(ax, tag)
+        ax.set_xlabel("Time [s]", fontsize=FS)
+        ax.set_ylabel(ylabel, fontsize=FS)
+        ax.tick_params(labelsize=FS)
+        ax.set_title("(%s)" % tag, loc="left", color=st.INK, fontweight="bold",
+                     fontsize=FS)
         st.tidy(ax, legend=False)
     axes[2].ticklabel_format(axis="y", style="plain", useOffset=False)
     axes[0].plot([], [], color=st.GREY, linestyle=":", linewidth=0.8, label="MECO")
-    axes[0].legend(loc="center right", fontsize=6.3)
-    fig.tight_layout()
+    fig.tight_layout(rect=(0.0, 0.1, 1.0, 1.0))
+    fig.legend(*axes[0].get_legend_handles_labels(), loc="lower center",
+               bbox_to_anchor=(0.5, 0.0), ncol=3, fontsize=FS, frameon=False)
     return st.save(fig, "results_gt_engine.png")
 
 

@@ -74,31 +74,69 @@ def peg_architectures(cases):
 
     The waypoint-aimed flight of this law is Section 6.4's own figure
     (sec67_capabilities.segmented), not drawn here (red-note review S3.1).
+
+    Figure review, 2026-10-12: the reference is dotted black with a grey coast,
+    PEG under the coast-parameter search red, PEG direct blue, in both panels;
+    the event lines are grey and named where they stand, so none is taken for
+    the reference; every label is drawn at PROFILE_FS.
     """
     names = ("pmp_baseline", "peg_baseline", "peg_direct")
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("peg architectures", missing)
-    entries = [
-        (cases["pmp_baseline"], st.ENV_COLORS["reference"], "-", "Reference (indirect PMP)"),
-        (cases["peg_baseline"], st.ENV_COLORS["baseline"], "-", "PEG, coast-parameter search"),
-        (cases["peg_direct"], st.SECOND_ARCH, "-.", "PEG, direct insertion"),
-    ]
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    pn.altitude_panel(ax_a, entries)
-    pn.mark_arc_events(ax_a, entries, label_top=True)
     ref = cases["pmp_baseline"]
-    pn.compress_long_coast(ax_a, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
-                           label_y=0.15)
-    st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend=False)
+    entries = [
+        (ref, st.INK, ":", "Reference (indirect PMP)"),
+        (cases["peg_baseline"], st.ACCENT, "-", "PEG, coast-parameter search"),
+        (cases["peg_direct"], st.ENV_COLORS["baseline"], "-", "PEG, direct insertion"),
+    ]
+    # The events, named in place: MECO, shared by all three, and SECO, which
+    # ends the powered ascent (Chapter 2). Both PEG flights reach SECO within a
+    # second of each other, so they share one line and one name. The
+    # reference's coast is its grey shading, named in the legend, with no lines
+    # of its own (figure review, 2026-10-13). As (time, text, side of the line,
+    # top of the label in axes fraction or None to stand it on the foot).
+    peg_seco = max(pn.burn_intervals(case, stage2_only=True)[-1][1]
+                   for case, *_ in entries[1:])
+    events_a = [(ref.t_meco, "MECO", "left", 0.97),
+                (peg_seco, "SECO (PEG)", "right", 0.97)]
+    events_b = [(ref.t_meco, "MECO", "left", None),
+                (peg_seco, "SECO (PEG)", "right", None)]  # clear of the zero line
 
-    pn.alpha_panel(ax_b, entries)
-    pn.mark_arc_events(ax_b, entries)
-    st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend=False)
-    pn.figure_legend(fig, ax_a)
-    return st.save(fig, "results_peg_architectures.png")
+    fs = PROFILE_FS
+    with plt.rc_context({"axes.labelsize": fs, "xtick.labelsize": fs,
+                         "ytick.labelsize": fs, "axes.titlesize": fs}):
+        fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 3.4))
+        pn.altitude_panel(ax_a, entries)
+        # the coast shading's legend entry, in altitude_panel's tint
+        ax_a.fill_between([], [], color=st.INK, alpha=0.12, linewidth=0,
+                          label="Coast (reference)")
+        pn.compress_long_coast(ax_a, ref,
+                               float(ref.time[ref.insertion_index() - 1]) + 10.0,
+                               label_y=0.15, fontsize=fs, label_box=True)
+        st.panel_tag(ax_a, "a")
+        st.tidy(ax_a, legend=False)
+
+        # no clipped-peak note (figure review, 2026-10-13)
+        pn.alpha_panel(ax_b, entries, fontsize=fs, notes=False)
+        for t0, t1 in ref.coast_intervals():
+            ax_b.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0)
+        st.panel_tag(ax_b, "b")
+        st.tidy(ax_b, legend=False)
+        for ax, events in ((ax_a, events_a), (ax_b, events_b)):
+            for t_evt, text, side, top in events:
+                if t_evt is None or t_evt > ax.get_xlim()[1]:
+                    continue
+                ax.axvline(t_evt, color=st.GREY, linestyle=":", linewidth=0.9)
+                ax.annotate(text, xy=(t_evt, 0.03 if top is None else top),
+                            xycoords=("data", "axes fraction"),
+                            xytext=(-2 if side == "left" else 2, 0),
+                            textcoords="offset points", fontsize=fs,
+                            color=st.GREY, rotation=90,
+                            ha="right" if side == "left" else "left",
+                            va="bottom" if top is None else "top")
+        pn.figure_legend(fig, ax_a, ncol=2, fontsize=fs)
+        return st.save(fig, "results_peg_architectures.png")
 
 
 def peg_atmosphere(cases):
@@ -110,36 +148,53 @@ def peg_atmosphere(cases):
     flies vacuum thrust and vacuum Isp. Panel (b) shows both consequences at
     once -- the drag integral vanishes, and the gravity loss changes because the
     trajectory it is flown along has changed.
+
+    Figure review, 2026-10-13: the drag-free run is red in both panels, and
+    every label is drawn at PROFILE_FS.
     """
     missing = _data.missing_from(cases, "peg_baseline", "peg_vacuum")
     if missing:
         return _skip("peg atmosphere", missing)
     base, vac = cases["peg_baseline"], cases["peg_vacuum"]
     flights = ((base, st.ENV_COLORS["baseline"], "PEG, with atmosphere"),
-               (vac, st.ENV_COLORS["no_atmosphere"], "PEG, no atmosphere"))
+               (vac, st.ACCENT, "PEG, no atmosphere"))
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
+    fs = PROFILE_FS
+    with plt.rc_context({"axes.labelsize": fs, "xtick.labelsize": fs,
+                         "ytick.labelsize": fs, "axes.titlesize": fs,
+                         "legend.fontsize": fs}):
+        return _draw_peg_atmosphere(flights)
+
+
+def _draw_peg_atmosphere(flights):
+    """peg_atmosphere's drawing, run inside its font sizes."""
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 3.0))
     for case, colour, label in flights:
         _t, s_km, alt_km = pn.to_insertion(case, case.downrange_km, case.alt_km)
         ax_a.plot(*st.thin(s_km, alt_km), color=colour, label=label)
     ax_a.set_xlabel("Downrange [km]")
     ax_a.set_ylabel("Altitude [km]")
     st.panel_tag(ax_a, "a")
-    st.tidy(ax_a, legend_loc="lower right", legend_kw={"fontsize": 6.3})
+    st.tidy(ax_a, legend_loc="lower right")
 
-    for case, colour, _label in flights:
+    # Each curve named in its own colour (figure review, 2026-10-13): grey
+    # proxies for the line styles matched no curve drawn.
+    for case, colour, label in flights:
         hist = case.loss_histories()
         t = case.time[:case.cutoff_index()]
         t, grav, drag = st.thin(t, hist["gravity"], hist["drag"])
-        ax_b.plot(t, grav, color=colour)
+        where = label.split(", ", 1)[-1]
+        ax_b.plot(t, grav, color=colour, label="Gravity, %s" % where)
         if np.any(drag > 1e-9):
-            ax_b.plot(t, drag, color=colour, linestyle="--")
-    ax_b.plot([], [], color=st.GREY, label="Gravity")
-    ax_b.plot([], [], color=st.GREY, linestyle="--", label="Drag")
+            ax_b.plot(t, drag, color=colour, linestyle="--",
+                      label="Drag, %s" % where)
     ax_b.set_xlabel("Time [s]")
     ax_b.set_ylabel(r"Cumulative loss [m/s]")
     st.panel_tag(ax_b, "b")
-    st.tidy(ax_b, legend_loc="upper left")
+    # Bottom right, between the gravity curves and the drag line.
+    st.tidy(ax_b, legend_loc="lower right",
+            legend_kw={"bbox_to_anchor": (1.0, 0.05), "handlelength": 1.4,
+                       "borderaxespad": 0.2})
 
     fig.tight_layout()
     return st.save(fig, "results_peg_atmosphere.png")
@@ -658,18 +713,26 @@ def vacuum_coast_bound(cases):
     after = t > case.t_meco
     i = int(np.argmin(np.where(after, h_km, np.inf)))
     ax.plot(s_km[i], h_km[i], "o", color=st.ACCENT, markersize=4.5, zorder=4)
+    # The label sits above the point, between the two curves, with a leader:
+    # beside it, at 10 pt, it would cross the climbing 3500 s curve.
     ax.annotate("lowest point %.1f km" % h_km[i], xy=(s_km[i], h_km[i]),
-                xytext=(8, 10), textcoords="offset points", fontsize=7,
-                color=st.ACCENT)
+                xytext=(-12, 0.24), textcoords=("offset points", "axes fraction"),
+                fontsize=PROFILE_FS, color=st.ACCENT, ha="left", va="bottom",
+                arrowprops={"arrowstyle": "-", "color": st.ACCENT,
+                            "linewidth": 0.7, "shrinkA": 1, "shrinkB": 3})
 
     target = case.row.get("target_alt_km")
     if target is not None:
         ax.axhline(target, color=st.GREY, linestyle="--", linewidth=0.8,
                    label="Target orbit, %.0f km" % target)
     ax.axhline(0.0, color=st.INK, linewidth=0.8)
-    ax.set_xlabel("Downrange [km]")
-    ax.set_ylabel("Altitude [km]")
-    st.tidy(ax, legend=True, legend_loc="center right")
+    ax.set_xlabel("Downrange [km]", fontsize=PROFILE_FS)
+    ax.set_ylabel("Altitude [km]", fontsize=PROFILE_FS)
+    ax.tick_params(labelsize=PROFILE_FS)
+    # Bottom right is the one corner both curves leave empty.
+    st.tidy(ax, legend=True, legend_loc="lower right",
+            legend_kw={"fontsize": PROFILE_FS, "bbox_to_anchor": (1.0, 0.035),
+                       "handlelength": 1.5, "borderaxespad": 0.2})
     return st.save(fig, "results_vacuum_coast_bound.png")
 
 

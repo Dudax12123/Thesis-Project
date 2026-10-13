@@ -283,8 +283,14 @@ def panel_tag(ax, letter):
     ax.set_title("(%s)" % letter, loc="left", color=INK, fontweight="bold")
 
 
-def add_events(ax, case, meco=True, coast=True, seco=True):
+def add_events(ax, case, meco=True, coast=True, seco=True, fontsize=6.5,
+               left=(), bottom=()):
     """Vertical markers for the arc boundaries on a time-axis panel.
+
+    Labels sit right of their line and hang from the top of the panel, except
+    those named in *left* (at the right edge of the panel, or with a curve just
+    right of the line) and in *bottom* (standing on the foot of the panel, with
+    a curve across its top).
 
     Events that never happened are stored as NaN by the harness rather than
     omitted, so an absent marker is skipped here rather than raising.
@@ -300,9 +306,13 @@ def add_events(ax, case, meco=True, coast=True, seco=True):
         if t_evt is None:
             continue
         ax.axvline(t_evt, color=colour, linestyle=":", linewidth=0.9, alpha=0.9)
-        ax.annotate(label, xy=(t_evt, 1.0), xycoords=("data", "axes fraction"),
-                    xytext=(2, -9), textcoords="offset points",
-                    fontsize=6.5, color=colour, rotation=90, va="top")
+        low = label in bottom
+        ax.annotate(label, xy=(t_evt, 0.0 if low else 1.0),
+                    xycoords=("data", "axes fraction"),
+                    xytext=(-2 if label in left else 2, 4 if low else -9),
+                    textcoords="offset points", fontsize=fontsize, color=colour,
+                    rotation=90, va="bottom" if low else "top",
+                    ha="right" if label in left else "left")
 
 
 def save(fig, name):

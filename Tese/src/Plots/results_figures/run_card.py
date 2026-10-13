@@ -18,8 +18,20 @@ import numpy as np
 from . import _panels as pn
 from . import _style as st
 
+# Every label on the card. It is drawn at 6.3 in and placed at 	extwidth, so
+# this is close to its printed size: none below the 10 pt body text.
+FS = 10.0
+_RC = {"font.size": FS, "axes.labelsize": FS, "axes.titlesize": FS,
+       "legend.fontsize": FS, "xtick.labelsize": FS, "ytick.labelsize": FS}
 
-def draw(case, filename, title=None, background=None, background_label=None,
+
+def draw(*args, **kwargs):
+    """Draw the run card; see :func:`_draw`. Every size inside is FS."""
+    with plt.rc_context(_RC):
+        return _draw(*args, **kwargs)
+
+
+def _draw(case, filename, title=None, background=None, background_label=None,
          waypoint=None, pitch_fits=None, to_insertion=True):
     """Draw the run card for one :class:`~._data.Case` and save it.
 
@@ -44,7 +56,7 @@ def draw(case, filename, title=None, background=None, background_label=None,
     """
     case = _Clipped(case, to_insertion)
     background = None if background is None else _Clipped(background, to_insertion)
-    fig, axes = plt.subplots(2, 2, figsize=st.WIDE_4)
+    fig, axes = plt.subplots(2, 2, figsize=(6.3, 6.0))
     (ax_a, ax_b), (ax_c, ax_d) = axes
     faint = {"color": st.FAINT, "linewidth": 1.0, "zorder": 1}
 
@@ -59,10 +71,8 @@ def draw(case, filename, title=None, background=None, background_label=None,
     if target is not None:
         ax_a.axhline(target, color=st.GREY, linestyle="--", linewidth=0.8,
                      label="Target orbit, %.0f km" % target)
-    idx_seco = case.cutoff_index() - 1
-    ax_a.plot(case.downrange_km[idx_seco], case.alt_km[idx_seco], "o",
-              color=st.ACCENT, markersize=4.5, zorder=4,
-              label="Insertion (%.0f km)" % case.alt_km[idx_seco])
+    # No insertion marker (figure review, 2026-10-12): the curve already ends
+    # on the target line.
     ax_a.set_xlabel("Downrange [km]")
     ax_a.set_ylabel("Altitude [km]")
     st.panel_tag(ax_a, "a")
@@ -84,26 +94,27 @@ def draw(case, filename, title=None, background=None, background_label=None,
     ax_bv.spines["top"].set_visible(False)
     # The shading already marks the coast; a rotated "Coast" label at the top
     # of the panel lands on the speed curve, which peaks there.
-    st.add_events(ax_b, case, coast=False)
+    st.add_events(ax_b, case, coast=False, fontsize=FS, left=("MECO", "SECO"),
+                  bottom=("SECO",))
     if waypoint is not None:
         pn.mark_waypoint(ax_b, waypoint)
     st.panel_tag(ax_b, "b")
     st.tidy(ax_b, legend=waypoint is not None, legend_loc="lower right",
-            legend_kw={"fontsize": 6.3})
+            legend_kw={"fontsize": FS})
 
     # (c) all three angles -- theta is alpha + gamma, so only two are free.
-    # Pitch is drawn wide and underneath: a law commanding alpha = 0 puts theta
-    # and gamma on top of each other by definition, and a same-weight trace
-    # would simply be hidden.
+    # All three at one weight (figure review, 2026-10-12). Pitch is dashed and
+    # on top: a law commanding alpha = 0 puts theta and gamma on top of each
+    # other by definition, and the dashes let the flight path show through.
     if background is not None:
         tb, th_b = st.thin(background.time, background.theta_deg)
         ax_c.plot(tb, th_b, **faint)
     t, gam, th, al = st.thin(case.time, case.gamma_deg, case.theta_deg,
                              case.alpha_deg)
-    ax_c.plot(t, th, color=st.BASELINE, linewidth=2.6, alpha=0.55,
+    ax_c.plot(t, th, color=st.BASELINE, linestyle=(0, (4, 3)), zorder=3,
               label=r"Pitch $\theta$")
-    ax_c.plot(t, gam, color=st.GREEN, label=r"Flight path $\gamma$")
-    ax_c.plot(t, al, color=st.ACCENT, label=r"Angle of attack $\alpha$")
+    ax_c.plot(t, gam, color=st.GREEN, zorder=2, label=r"Flight path $\gamma$")
+    ax_c.plot(t, al, color=st.ACCENT, zorder=2, label=r"Angle of attack $\alpha$")
     if pitch_fits:
         rms = ", ".join("%.2f" % fit[2] for fit in pitch_fits)
         for i, (t_fit, th_fit, _rms) in enumerate(pitch_fits):
@@ -113,7 +124,7 @@ def draw(case, filename, title=None, background=None, background_label=None,
     ax_c.axhline(0.0, color=st.FAINT, linewidth=0.8)
     ax_c.set_xlabel("Time [s]")
     ax_c.set_ylabel("Angle [deg]")
-    st.add_events(ax_c, case, coast=False)
+    st.add_events(ax_c, case, coast=False, fontsize=FS, left=("SECO",))
     st.panel_tag(ax_c, "c")
     st.tidy(ax_c)
 
@@ -126,7 +137,7 @@ def draw(case, filename, title=None, background=None, background_label=None,
 
     if case.row.get("include_drag") is False or q_max <= 0.0:
         ax_d.text(0.5, 0.5, "no atmosphere modelled", transform=ax_d.transAxes,
-                  ha="center", va="center", fontsize=8, color=st.GREY,
+                  ha="center", va="center", fontsize=FS, color=st.GREY,
                   style="italic")
         ax_d.set_xticks([])
         ax_d.set_yticks([])
@@ -143,14 +154,21 @@ def draw(case, filename, title=None, background=None, background_label=None,
         ax_dm.set_ylabel("Mach [-]", color=st.AMBER)
         ax_dm.spines["top"].set_visible(False)
         t_qmax = float(t[in_atm][int(np.nanargmax(q[in_atm]))])
+        # Top left, with a leader, in headroom above the reference's peak:
+        # beside the peak it lands on the reference.
+        lo, hi = ax_d.get_ylim()
+        ax_d.set_ylim(lo, 1.18 * hi)
         ax_d.annotate(r"max $q$ = %.1f kPa" % (q_max / 1e3),
-                      xy=(t_qmax, q_max / 1e3), xytext=(6, -2),
-                      textcoords="offset points", fontsize=7, color=st.INK)
+                      xy=(t_qmax, q_max / 1e3), xytext=(0.03, 0.97),
+                      textcoords="axes fraction", ha="left", va="top",
+                      fontsize=FS, color=st.INK,
+                      arrowprops={"arrowstyle": "-", "color": st.INK,
+                                  "linewidth": 0.7, "shrinkA": 2, "shrinkB": 2})
     st.panel_tag(ax_d, "d")
     st.tidy(ax_d, legend=False)
 
     if title:
-        fig.suptitle(title, fontsize=9.5, y=1.005)
+        fig.suptitle(title, fontsize=FS, y=1.005)
     fig.tight_layout()
     return st.save(fig, filename)
 
