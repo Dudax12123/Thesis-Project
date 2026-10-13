@@ -568,3 +568,9 @@ Page "Held Thesis Flags", https://claude.ai/artifact/PCw9GgKErMJzy1U3dJMi7Y (db 
 - **Hold:** T13, T47, T16 (R4, R8, R10, Bennett, Mahajan), T19.
 - **Closed as resolved/moot, no decision needed:** T34, K12, C3.
 - **T52 and T39: implemented 2026-10-12 (thesis, uncommitted).** Ch 3 l.357 now reads "applied to a swarm's solution once it has converged", and its single-shooting pointer goes to Appendix `sec:app_exp_shooting`; Ch 3 l.789 points to `tab:numerics`. Sweep: no missing refs, labels or cites.
+
+## Chapter 4 repetition review, 2026-10-13 (Overleaf `e200fba`; session 04a056ae)
+
+Page: "Chapter 4 Repetition Review", https://claude.ai/artifact/DDKFnbriHZK2eSdYGoUGRh (collection `reviews`, doc id = item id `C4-01` … `C4-20`). Item C4-15 is held on this flag.
+
+- **T49. The reverse-rocket-equation time-to-go uses the propellant burn time, not the mass burn time.** Ch 4 Eq. `tgo_rocket` writes t_go = T_BUP(1 − e^{−V_G/v_e}) with T_BUP "the burn time remaining at the current propellant load", and the code does the same (`pso_coast_solver` ~l.342 and `rocket_ascent` ~l.1185: `T_BUP = remaining_prop / mdot`; `rocket_ascent` ~l.1160 uses `M_PROP_2 / mdot_2`). Inverting the rocket equation gives t_go = (m/ṁ)(1 − e^{−V_G/v_e}) with m the current total mass, which is what the PEG estimate Eq. `tgo_peg` uses (τ = m v_e/F_T). With the propellant-only scale the estimate is short by m_prop/m: about 4 % at second-stage ignition, more as propellant runs out. It reaches the Apollo law and any law on the rocket-equation estimator (Table 5.3: the baseline estimator). Apollo's own TBUP is the time to burn the whole mass. Fixing it changes flown results (show_apollo at least), so it needs a decision and a re-fly; until then Ch 4 should not merge the two equations.
