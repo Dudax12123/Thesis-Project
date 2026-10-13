@@ -5,6 +5,10 @@ the options flown in Chapter 6; outlined chips are implemented but not flown. Th
 the selection order of Section A.1: the segmented schedule overrides the law and the
 architecture, the indirect law overrides the architecture, and the remaining laws pair with
 one of four architectures.
+
+Figure review, 2026-10-13: every label at FS, 10.2 pt, at \linewidth (6.30 in). The axis
+units keep their old ratio to the text, so the layout is unchanged except that the rows wrap
+on a narrower page: W is the width in those units, IN the inches per unit.
 """
 import matplotlib.pyplot as plt
 from matplotlib.patches import FancyBboxPatch
@@ -13,13 +17,17 @@ from figstyle import use_thesis_style, blank_axes, save, INK, GREY, FAINT, THRUS
 
 use_thesis_style()
 
-W, H = 10.0, 13.6
-fig, ax = plt.subplots(figsize=(7.4, 7.4 * H / W))
+FS = 10.2           # every label
+PAGE_W = 6.30       # \linewidth [in]
+# 6.1 pt drawn at 0.551 in per unit before; the same ratio at FS
+IN = 0.551 * FS / 6.1
+W, H = PAGE_W / IN, 13.6
+fig = plt.figure(figsize=(PAGE_W, H * IN))
+ax = fig.add_axes([0, 0, 1, 1])
 blank_axes(ax)
 ax.set_xlim(0, W)
 ax.set_ylim(0, H)
 
-FS = 6.1            # chip font size
 CH = 0.27           # chip height
 PANEL = "#f6f7f9"
 
@@ -70,7 +78,7 @@ def panel(x0, y0, x1, title, rows, lw=None):
     if lw is None:
         lw = 1.05 * max(text_w(lab) for lab, _ in rows) + 0.28
     y = y0 - 0.30
-    ax.text(x0 + 0.12, y0 - 0.16, title, ha="left", va="center", fontsize=7.0,
+    ax.text(x0 + 0.12, y0 - 0.16, title, ha="left", va="center", fontsize=FS,
             color=INK, weight="bold", zorder=6)
     y -= 0.10
     for label, options in rows:
@@ -86,7 +94,7 @@ def step(x, y, text):
     ax.add_patch(FancyBboxPatch((x - 0.62, y - 0.25), 1.24, 0.50,
                                 boxstyle="round,pad=0,rounding_size=0.12",
                                 fc="white", ec=INK, lw=0.9, zorder=5))
-    ax.text(x, y, text, ha="center", va="center", fontsize=6.4, color=INK, zorder=6,
+    ax.text(x, y, text, ha="center", va="center", fontsize=FS, color=INK, zorder=6,
             linespacing=1.2)
 
 
@@ -96,7 +104,7 @@ def arr(p0, p1, label=None, lab_off=(0.0, 0.10)):
                                 shrinkA=0, shrinkB=0, mutation_scale=8), zorder=4)
     if label:
         ax.text(0.5 * (p0[0] + p1[0]) + lab_off[0], 0.5 * (p0[1] + p1[1]) + lab_off[1],
-                label, ha="center", va="bottom", fontsize=5.8, color=GREY, zorder=6)
+                label, ha="center", va="bottom", fontsize=FS, color=GREY, zorder=6)
 
 
 T, F = True, False
@@ -183,4 +191,5 @@ ly = yb - 0.32
 w0 = chip(L + 0.10, ly, "used in this thesis", T)
 chip(L + 0.10 + w0 + 0.12, ly, "available, not used", F)
 ax.set_ylim(ly - 0.25, H)
+fig.set_size_inches(PAGE_W, (H - (ly - 0.25)) * IN)
 save(fig, "configuration_map.png")
