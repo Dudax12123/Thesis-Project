@@ -96,6 +96,10 @@ for x0, x1, lab, c in ((X0, 2.68, "law 1", GREEN), (2.68, 3.22, "law 2", AMBER),
     ax.text(0.5 * (x0 + x1), LY + 0.12, lab, ha="center", va="center",
             fontsize=FS, color=c, zorder=5)
 
+# a rule between the single-law architectures and the segmented mode
+# (figure review, 2026-10-13)
+ax.plot([X0, W - X0], [1.305, 1.305], color=INK, lw=0.9, zorder=3)
+
 # ignition line through every row, drawn over the law 1 box as well
 ax.plot([IGN, IGN], [0.50, Y0], color=GREY, lw=1.0, ls=(0, (3, 2.2)),
         zorder=6)
