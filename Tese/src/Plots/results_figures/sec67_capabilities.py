@@ -86,6 +86,11 @@ def _draw_showcase_laws(cases, present):
     palette = [c for c in st.VARIANT_CYCLE if c != st.REFERENCE]
     present_alpha = [n for n in SHOWCASE_ALPHA if n in cases]
     colours = {n: palette[i % len(palette)] for i, n in enumerate(present_alpha)}
+    # Figure review, 2026-10-13: Apollo in a lighter blue, the bilinear tangent
+    # in a stronger purple than the cycle's muted violet.
+    colours.update({n: c for n, c in (("show_apollo", "#4a90d9"),
+                                      ("show_bilinear_tangent", "#8e24c8"))
+                    if n in colours})
 
     fig, (ax_traj, ax_al) = plt.subplots(2, 1, figsize=(6.3, 6.0),
                                          gridspec_kw={"height_ratios": [1.2, 1.0]})
