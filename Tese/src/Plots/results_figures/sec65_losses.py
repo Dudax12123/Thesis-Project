@@ -130,60 +130,57 @@ def _draw_loss_budget(cases, present):
 
 
 def loss_accumulation(cases):
-    """F6.11 -- where in the reference's flight each term of the budget accrues
-    (red-note review S6.7, 2026-10-08: the reference only, every component).
+    """F6.11 -- where in the reference's flight each loss accrues
+    (red-note review S6.7, 2026-10-08: the reference only).
 
-    The four losses, the residual (the in-plane centrifugal work, dotted) and the
-    launch-site gain below zero, as the credit it is: omega r cos(phi0) at the
-    current radius, which at insertion is the budget's dv_gain. The residual is
-    the budget identity along the flight, ideal - losses - (v - v0), which at
-    insertion is the row's residual. The coast is drawn compressed; MECO, the
+    The four losses along the flight. The coast is drawn compressed; MECO, the
     start of the coast and insertion are dotted.
+
+    Figure review, 2026-10-13: the residual and the launch-site gain are no
+    longer drawn (the budget figure and table carry them), and every label is
+    drawn at FS.
     """
     missing = _data.missing_from(cases, "pmp_baseline")
     if missing:
         return _skip("F6.11 loss accumulation", missing)
-    from Auxiliary import constants as const
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS, "legend.fontsize": FS}):
+        return _draw_loss_accumulation(cases["pmp_baseline"])
 
-    ref = cases["pmp_baseline"]
+
+def _draw_loss_accumulation(ref):
+    """loss_accumulation's drawing, run inside its font sizes."""
     hist = ref.loss_histories()
     end = ref.cutoff_index()
     t_full = ref.time[:end]
-    fig, ax = plt.subplots(figsize=st.WIDE_1)
+    fig, ax = plt.subplots(figsize=(6.3, 3.6))
     for comp in ("gravity", "drag", "steering", "pressure"):
         series = hist.get(comp)
         if series is None or not np.any(np.abs(series) > 1e-9):
             continue
         ax.plot(*st.thin(t_full, series), color=st.LOSS_COLORS[comp],
                 label=comp.capitalize())
-    v = ref.v[:end]
-    residual = hist["ideal"] - hist["total"] - (v - v[0])
-    ax.plot(*st.thin(t_full, residual), color=st.INK, linestyle=":",
-            label="Residual (in-plane centrifugal work)")
-    if ref.budget().get("dv_gain"):
-        lat = np.deg2rad((ref.manifest.get("config") or {}).get("LAUNCH_LATITUDE", 28.5))
-        gain = const.OMEGA_EARTH * ref.data[1, :end] * np.cos(lat)
-        ax.plot(*st.thin(t_full, -gain), color=st.ENV_COLORS["reference"], linestyle="--",
-                label=r"Launch-site gain $\omega r \cos\phi_0$ (credit)")
     ax.axhline(0.0, color=st.INK, linewidth=0.7)
 
     burns = pn.burn_intervals(ref, stage2_only=True)
-    events = [(ref.t_meco, "MECO")]
+    # insertion hangs below the gravity loss, which is flat at its final value
+    events = [(ref.t_meco, "MECO", 0.97)]
     if burns:
-        events.append((burns[0][1], "coast start"))
-    events.append((ref.t_insertion, "insertion"))
-    for t_evt, text in events:
+        events.append((burns[0][1], "coast start", 0.97))
+    events.append((ref.t_insertion, "insertion", 0.86))
+    for t_evt, text, y_lab in events:
         if t_evt is None:
             continue
         ax.axvline(t_evt, color=st.GREY, linestyle=":", linewidth=0.8)
-        ax.annotate(text, xy=(t_evt, 0.97), xycoords=("data", "axes fraction"),
-                    xytext=(-2, 0), textcoords="offset points", fontsize=6.3,
+        ax.annotate(text, xy=(t_evt, y_lab), xycoords=("data", "axes fraction"),
+                    xytext=(-2, 0), textcoords="offset points", fontsize=FS,
                     color=st.INK, rotation=90, ha="right", va="top")
-    pn.compress_long_coast(ax, ref, float(t_full[-1]) + 10.0, label_y=0.55)
+    pn.compress_long_coast(ax, ref, float(t_full[-1]) + 10.0, label_y=0.55,
+                           fontsize=FS, label_box=True)
     ax.set_xlabel("Time [s]")
     ax.set_ylabel(r"Cumulative $\Delta V$ [m/s]")
     st.tidy(ax, legend=False)
-    pn.figure_legend(fig, ax, ncol=3)
+    pn.figure_legend(fig, ax, ncol=4, fontsize=FS)
     return st.save(fig, "results_loss_accumulation.png")
 
 
