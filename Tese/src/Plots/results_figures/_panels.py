@@ -182,12 +182,16 @@ def alpha_panel(ax, entries, t_hi=None, fontsize=6.3, notes=True):
     return len(clipped)
 
 
-def mark_instant(ax, t, text, colour=st.INK, fontsize=6.3):
-    """A dotted vertical line on a time panel, named along its foot."""
+def mark_instant(ax, t, text, colour=st.INK, fontsize=6.3, top=False,
+                 right=False):
+    """A dotted vertical line on a time panel, named along its foot, or
+    hanging from its top (*top*), left of the line or right of it (*right*)."""
     ax.axvline(t, color=colour, linestyle=":", linewidth=0.8)
-    ax.annotate(text, xy=(t, 0.03), xycoords=("data", "axes fraction"),
-                xytext=(-2, 0), textcoords="offset points", fontsize=fontsize,
-                color=colour, rotation=90, ha="right", va="bottom")
+    ax.annotate(text, xy=(t, 0.97 if top else 0.03),
+                xycoords=("data", "axes fraction"),
+                xytext=(2 if right else -2, 0), textcoords="offset points",
+                fontsize=fontsize, color=colour, rotation=90,
+                ha="left" if right else "right", va="top" if top else "bottom")
 
 
 def mark_arc_events(ax, entries, label_top=False, fontsize=6.3):

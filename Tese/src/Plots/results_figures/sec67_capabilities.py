@@ -50,6 +50,11 @@ _COST_NOTES = {
 _STRIP_Y0, _STRIP_H, _STRIP_STEP = 0.03, 0.026, 0.040
 
 
+# Every label of a figure redrawn for the 10 pt rule (figure review,
+# 2026-10-13): drawn at 6.3 in and placed at \textwidth.
+FS = 10.0
+
+
 def _skip(name, missing):
     print("  [skip] %s -- missing %s" % (name, ", ".join(missing)))
 
@@ -60,15 +65,21 @@ def showcase_laws(cases):
     Panel (a) is altitude against time up to insertion. Each law's coasts are a
     strip in its colour along the foot of the panel rather than a span shaded
     over the curves: overlapping translucent spans mix into colours no law has.
-    Panel (b) is small multiples rather than an overlay because alpha is what
-    distinguishes these laws from one another, and their alpha traces on shared
-    axes would be a solid block. Each small panel keeps the same limits, and
-    carries the reference's alpha faint behind the law's. Up to four laws sit
-    on a two-column grid, more on three.
+    Panel (b) is the commanded angle of attack of the four laws and Apollo on
+    one set of axes, the reference faint behind them (figure review,
+    2026-10-13: the five small multiples joined into one panel). One legend,
+    under both panels, names every curve; every label is drawn at FS.
     """
     present = [n for n in SHOWCASE if n in cases]
     if not present:
         return _skip("showcase laws", SHOWCASE)
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS, "axes.titlesize": FS}):
+        return _draw_showcase_laws(cases, present)
+
+
+def _draw_showcase_laws(cases, present):
+    """showcase_laws's drawing, run inside its font sizes."""
     ref = cases.get("pmp_baseline")
     # Green is left out: across the chapter it is the reference's colour, and
     # the reference is in this figure too (faint).
@@ -76,108 +87,66 @@ def showcase_laws(cases):
     present_alpha = [n for n in SHOWCASE_ALPHA if n in cases]
     colours = {n: palette[i % len(palette)] for i, n in enumerate(present_alpha)}
 
-    # Wider than the standard text-width figure: the trajectory legend sits
-    # outside the axes, and the grid keeps its own width regardless.
-    n_cols = 2 if len(SHOWCASE_ALPHA) <= 4 else 3
-    n_rows = -(-len(SHOWCASE_ALPHA) // n_cols)
-    fig_h = 5.6 + 1.62 * (n_rows - 2)
-    fig = plt.figure(figsize=(7.4, fig_h))
-    grid = fig.add_gridspec(1 + n_rows, n_cols, height_ratios=[1.45] + [1.0] * n_rows,
-                            hspace=0.62, wspace=0.35, right=0.80)
-    ax_traj = fig.add_subplot(grid[0, :])
+    fig, (ax_traj, ax_al) = plt.subplots(2, 1, figsize=(6.3, 6.0),
+                                         gridspec_kw={"height_ratios": [1.2, 1.0]})
 
-    strips = ([(ref, st.FAINT)] if ref is not None else []) + \
-             [(cases[n], colours[n]) for n in present]
+    strips = ([(ref, st.FAINT)] if ref is not None else []) +              [(cases[n], colours[n]) for n in present]
     if ref is not None:
         t, alt_km = st.thin(*pn.to_insertion(ref, ref.alt_km))
-        ax_traj.plot(t, alt_km, color=st.FAINT, linewidth=1.2,
-                     label="Reference (indirect PMP)", zorder=1)
+        ax_traj.plot(t, alt_km, color=st.FAINT, linewidth=1.2, zorder=1)
     for name in present:
         case = cases[name]
         t, alt_km = st.thin(*pn.to_insertion(case, case.alt_km))
-        ax_traj.plot(t, alt_km, color=colours[name], label=st.case_label(name),
-                     zorder=2)
+        ax_traj.plot(t, alt_km, color=colours[name], zorder=2)
     for k, (case, colour) in enumerate(strips):
         y0 = _STRIP_Y0 + _STRIP_STEP * k
         for t0, t1 in case.coast_intervals():
             ax_traj.axvspan(t0, t1, ymin=y0, ymax=y0 + _STRIP_H, color=colour,
                             linewidth=0)
     ax_traj.annotate("coasts", xy=(0.995, _STRIP_Y0 + _STRIP_STEP * len(strips) / 2),
-                     xycoords="axes fraction", fontsize=6.5, color=st.GREY,
+                     xycoords="axes fraction", fontsize=FS, color=st.GREY,
                      ha="right", va="center")
     ax_traj.set_xlabel("Time [s]")
     ax_traj.set_ylabel("Altitude [km]")
     st.panel_tag(ax_traj, "a")
     st.tidy(ax_traj, legend=False)
-    # Outside the axes: five entries over a trajectory panel cover the curves
-    # they are labelling whichever corner they are put in.
-    ax_traj.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0), ncol=1,
-                   fontsize=6.8)
 
-    # Shared limits, so the small panels compare rather than merely coexist.
-    # Taken from a percentile rather than the extremes: one law transients to
-    # about -140 deg for a few seconds, and letting that set the range flattens
-    # the others into a band a few pixels high. The clip is printed on the
-    # panels it affects rather than hidden.
-    # The percentiles are taken over the steered samples only: the coasts and the
-    # first stage command exactly zero, and they hold most of the samples, so a
-    # law that steers positive through its whole first burn (the linear tangent,
-    # +13 deg) would otherwise fall above the range.
+    # The full range of every law, so nothing is clipped and no note is needed
+    # (figure review, 2026-10-13: the clipped-peak note removed); Apollo's
+    # transient after ignition sets the top.
     alphas = {n: pn.to_insertion(cases[n], cases[n].alpha_deg) for n in present_alpha}
     stacked = np.concatenate([al for _t, al in alphas.values()])
-    steered = stacked[np.abs(stacked) > 1e-6]
-    if steered.size:
-        stacked = steered
-    alpha_lo = min(float(np.nanpercentile(stacked, 0.5)), 0.0)
-    alpha_hi = max(float(np.nanpercentile(stacked, 99.5)), 0.0)
-    pad = 0.10 * max(alpha_hi - alpha_lo, 1.0)
+    alpha_lo = min(float(np.nanmin(stacked)), 0.0)
+    alpha_hi = max(float(np.nanmax(stacked)), 0.0)
+    pad = 0.06 * max(alpha_hi - alpha_lo, 1.0)
     alpha_lo, alpha_hi = alpha_lo - pad, alpha_hi + pad
-    t_hi = max(float(t[-1]) for t, _al in alphas.values())
-    ref_alpha = pn.to_insertion(ref, ref.alpha_deg) if ref is not None else None
+    # The time axis ends just after the last steering ends: what follows is
+    # coast and zero command, and on one shared panel it would take half the
+    # width.
+    t_hi = 1.06 * max(pn.steering_end(cases[n]) for n in present_alpha)
 
-    first_small = None
-    for i, name in enumerate(SHOWCASE_ALPHA):
-        ax = fig.add_subplot(grid[1 + i // n_cols, i % n_cols])
-        if first_small is None:
-            first_small = ax
-        if name not in cases:
-            ax.axis("off")
-            continue
-        if ref_alpha is not None:
-            ax.plot(*st.thin(*ref_alpha), color=st.FAINT, linewidth=0.9)
+    if ref is not None:
+        ax_al.plot(*st.thin(*pn.to_insertion(ref, ref.alpha_deg)), color=st.FAINT,
+                   linewidth=1.2, label="Reference (indirect PMP)", zorder=1)
+    for name in present_alpha:
         t, al = alphas[name]
-        ax.plot(*st.thin(t, al), color=colours[name], linewidth=1.0)
-        ax.axhline(0.0, color=st.FAINT, linewidth=0.7)
-        ax.set_xlim(0, t_hi)
-        ax.set_ylim(alpha_lo, alpha_hi)
-        # Say so when the shared range does not hold this law's full excursion,
-        # rather than letting the curve run off the top or bottom silently.
-        clipped = []
-        if float(np.nanmin(al)) < alpha_lo:
-            clipped.append("%.0f" % float(np.nanmin(al)))
-        if float(np.nanmax(al)) > alpha_hi:
-            clipped.append("%.0f" % float(np.nanmax(al)))
-        if clipped:
-            ax.annotate("peaks " + ", ".join(clipped) + r"$^\circ$",
-                        xy=(0.97, 0.90), xycoords="axes fraction",
-                        fontsize=6, color=st.GREY, ha="right")
-        ax.set_title(st.case_label(name), fontsize=7.5, pad=3)
-        ax.tick_params(labelsize=6.5)
-        if i % n_cols == 0:
-            ax.set_ylabel(r"$\alpha$ [deg]", fontsize=7.5)
-        # Label time on every panel with nothing beneath it, including the
-        # panel above an empty last slot.
-        if i + n_cols >= len(SHOWCASE_ALPHA):
-            ax.set_xlabel("Time [s]", fontsize=7.5)
-        st.tidy(ax, legend=False)
-    # The unused slots of the last row stay empty.
-    for j in range(len(SHOWCASE_ALPHA), n_cols * n_rows):
-        fig.add_subplot(grid[1 + j // n_cols, j % n_cols]).axis("off")
-
-    # 0.43 in above the first small panel: where the tag sat in the fixed
-    # 5.6 in layout this replaced.
-    fig.text(0.055, first_small.get_position().y1 + 0.4288 / fig_h, "(b)",
-             fontsize=9, fontweight="bold", color=st.INK)
+        ax_al.plot(*st.thin(t, al), color=colours[name], linewidth=1.1,
+                   label=st.case_label(name), zorder=2)
+    ax_al.axhline(0.0, color=st.FAINT, linewidth=0.7)
+    ax_al.set_xlim(0, t_hi)
+    ax_al.set_ylim(alpha_lo, alpha_hi)
+    # MECO in both panels, dotted grey and named (figure review, 2026-10-13);
+    # the same instant for every law.
+    t_meco = next((cases[n].t_meco for n in present_alpha if cases[n].t_meco), None)
+    if t_meco is not None:
+        for ax in (ax_traj, ax_al):
+            pn.mark_instant(ax, t_meco, "MECO", st.GREY, fontsize=FS, top=True)
+    ax_al.set_xlabel("Time [s]")
+    ax_al.set_ylabel(r"Angle of attack $\alpha$ [deg]")
+    st.panel_tag(ax_al, "b")
+    st.tidy(ax_al, legend=False)
+    # One legend for both panels, from (b), which carries every curve.
+    pn.figure_legend(fig, ax_al, ncol=3, fontsize=FS)
     return st.save(fig, "results_showcase_laws.png")
 
 
@@ -207,61 +176,78 @@ def _handoff(case):
 
 def segmented(cases):
     """PEG with its first burn aimed at the coast-start waypoint, in the two
-    segmented cases, against the reference and against the same law aimed at the
-    orbit (red-note review S4.1, 2026-10-08: the waypoint panels of the former
-    PEG figure and the hand-off figure merged into one).
+    segmented cases, against the reference (red-note review S4.1, 2026-10-08:
+    the waypoint panels of the former PEG figure and the hand-off figure merged
+    into one).
 
     (a) Altitude against time, the reference's long coast drawn compressed, with
-    the waypoint and each case's hand-off marked; PEG aimed at the orbit is faint.
+    the waypoint and each case's hand-off marked.
     (b) The commanded angle of attack of the reference and the two segmented
     cases, with the hand-offs and the waypoint instant marked.
+
+    Figure review, 2026-10-13: PEG aimed at the orbit is no longer drawn; the
+    reference is dotted black, the optimised hand-off red and the fixed one
+    blue, both solid; every label is drawn at FS.
     """
     names = ("pmp_baseline", "show_seg_fixed_alt", "show_seg_opt_alt")
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("segmented", missing)
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS, "axes.titlesize": FS}):
+        return _draw_segmented(cases)
 
+
+def _draw_segmented(cases):
+    """segmented's drawing, run inside its font sizes."""
     ref = cases["pmp_baseline"]
     fixed, opt = cases["show_seg_fixed_alt"], cases["show_seg_opt_alt"]
-    segmented_entries = [(opt, st.ENV_COLORS["baseline"], "-", st.case_label("show_seg_opt_alt")),
-                         (fixed, st.SECOND_ARCH, "--", st.case_label("show_seg_fixed_alt"))]
-    entries = [(ref, st.ENV_COLORS["reference"], "-", "Reference (indirect PMP)")]
+    segmented_entries = [(opt, st.ACCENT, "-", st.case_label("show_seg_opt_alt")),
+                         (fixed, st.ENV_COLORS["baseline"], "-",
+                          st.case_label("show_seg_fixed_alt"))]
+    entries = [(ref, st.INK, ":", "Reference (indirect PMP)")]
     entries += segmented_entries
 
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=st.WIDE_2)
-    if "peg_baseline" in cases:
-        peg = cases["peg_baseline"]
-        t, alt_km = st.thin(*pn.to_insertion(peg, peg.alt_km))
-        ax_a.plot(t, alt_km, color=st.FAINT, linewidth=1.2, zorder=1,
-                  label="PEG, first burn to the orbit")
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 3.6))
     pn.altitude_panel(ax_a, entries, shade_coasts=False)
-    for i, (case, colour, _style, _label) in enumerate(segmented_entries):
+    # thinner than the house weight: the three curves run on top of each
+    # other for most of the flight (figure review, 2026-10-13)
+    for curve in ax_a.get_lines():
+        curve.set_linewidth(1.0)
+    for case, colour, _style, _label in segmented_entries:
         point = _handoff(case)
         if point is None:
             continue
         ax_a.plot(*point, linestyle="none", marker="D", markersize=4.2, color=colour,
-                  zorder=5, label="Hand-off" if i == 0 else None)
+                  zorder=5)
         ax_a.annotate("%.0f km" % point[1], xy=point, xytext=(5, -2),
-                      textcoords="offset points", fontsize=6.5, color=st.INK,
+                      textcoords="offset points", fontsize=FS, color=st.INK,
                       ha="left", va="top")
+    # one legend entry for both hand-offs: the symbol alone, unfilled
+    ax_a.plot([], [], linestyle="none", marker="D", markersize=4.2,
+              markerfacecolor="none", markeredgecolor=st.INK, label="Hand-off")
     wp = pn.waypoint(ref)
     if wp is not None:
-        pn.mark_waypoint(ax_a, wp)
+        # its state is in Section 6.1's table, not the legend (review, 2026-10-13)
+        pn.mark_waypoint(ax_a, wp, label="Coast-start waypoint")
     pn.compress_long_coast(ax_a, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
-                           label_y=0.15)
+                           label_y=0.15, fontsize=FS, label_box=True)
     st.panel_tag(ax_a, "a")
     st.tidy(ax_a, legend=False)
 
-    pn.alpha_panel(ax_b, entries)
+    pn.alpha_panel(ax_b, entries, fontsize=FS)
+    # Named from the top, right of each hand-off and left of the waypoint:
+    # along the foot the names land on the curves at 10 pt.
     for case, colour, _style, _label in segmented_entries:
         point = _handoff(case)
         if point is not None:
-            pn.mark_instant(ax_b, point[0], "hand-off", colour)
+            pn.mark_instant(ax_b, point[0], "hand-off", colour, fontsize=FS,
+                            top=True, right=True)
     if wp is not None:
-        pn.mark_instant(ax_b, wp["t"], "waypoint")
+        pn.mark_instant(ax_b, wp["t"], "waypoint", fontsize=FS, top=True)
     st.panel_tag(ax_b, "b")
     st.tidy(ax_b, legend=False)
-    pn.figure_legend(fig, ax_a, ncol=3)
+    pn.figure_legend(fig, ax_a, ncol=2, fontsize=FS)
     return st.save(fig, "results_segmented.png")
 
 

@@ -22,6 +22,10 @@ from . import _data
 from . import _panels as pn
 from . import _style as st
 
+# Every label of a figure redrawn for the 10 pt rule (figure review,
+# 2026-10-13): drawn at 6.3 in and placed at \textwidth.
+FS = 10.0
+
 # The cases the budget is drawn for: the gravity turn, PEG and the reference at
 # the baseline, and the drag-free counterparts of the last two (gt_vacuum is
 # archived but not reported). Not every case in the matrix -- the full budget
@@ -53,13 +57,22 @@ def loss_budget(cases):
     under a constant nozzle model, or with no atmosphere, has no pressure
     segment at all: the loss is undefined there, and an absent segment says so
     where a zero-height one would read as a measurement of nothing.
+
+    Figure review, 2026-10-13: the axis label is the quantity alone, and every
+    label is drawn at FS.
     """
     present = [(n, label) for n, label in BUDGET_CASES if n in cases]
     if not present:
         return _skip("F6.10 loss budget", [n for n, _ in BUDGET_CASES])
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS, "legend.fontsize": FS}):
+        return _draw_loss_budget(cases, present)
 
+
+def _draw_loss_budget(cases, present):
+    """loss_budget's drawing, run inside its font sizes."""
     components = ("gravity", "drag", "steering", "pressure")
-    fig, ax = plt.subplots(figsize=st.bar_size(len(present)))
+    fig, ax = plt.subplots(figsize=(6.3, 0.55 * len(present) + 1.5))
 
     # Legend entries are claimed by the first bar that actually carries the
     # component, not by the first bar outright: the gravity turn commands
@@ -93,20 +106,24 @@ def loss_budget(cases):
                     label=_claim("gain", "Launch-site gain"))
 
         ax.annotate("%.0f m/s" % left, xy=(left, row_i), xytext=(4, 0),
-                    textcoords="offset points", fontsize=7, va="center",
+                    textcoords="offset points", fontsize=FS, va="center",
                     color=st.INK)
 
     ax.set_yticks(y_pos)
     ax.set_yticklabels([label for _n, label in present])
     ax.invert_yaxis()
     ax.axvline(0.0, color=st.INK, linewidth=0.8)
-    ax.set_xlabel(r"$\Delta V$ [m/s]   (losses right of zero, gain left)")
+    ax.set_xlabel(r"$\Delta V$ [m/s]")
+    # room right of the longest bar for its total
+    lo, hi = ax.get_xlim()
+    ax.set_xlim(lo, hi + 0.12 * (hi - lo))
     # Below the axes in one row, not inside them: the bars span the full width
     # at every row, so there is no interior corner a legend can occupy without
     # covering a segment or one of the total labels.
     st.tidy(ax, legend_loc="upper center",
-            legend_kw={"bbox_to_anchor": (0.5, -0.18), "ncol": 5,
-                       "columnspacing": 1.4, "handlelength": 1.4})
+            legend_kw={"bbox_to_anchor": (0.5, -0.2), "ncol": 3,
+                       "columnspacing": 1.4, "handlelength": 1.4,
+                       "frameon": False})
 
     fig.tight_layout()
     return st.save(fig, "results_loss_budget.png")
@@ -256,18 +273,19 @@ def _block_rows(blocks, gap=0.55, heading=0.9):
     return rows, headings, y - gap
 
 
-def _block_axes(ax, cases, rows, headings, bold_refs=True):
-    """Case labels on the y axis (references bold), block headings above each."""
+def _block_axes(ax, cases, rows, headings, bold_refs=True, fontsize=None):
+    """Case labels on the y axis (references bold), block headings above each.
+    *fontsize* sets both; by default the labels are 7 pt and the headings 7.2."""
     ax.set_yticks([y for _n, y in rows])
-    ax.set_yticklabels([st.case_label(n) for n, _y in rows], fontsize=7)
+    ax.set_yticklabels([st.case_label(n) for n, _y in rows], fontsize=fontsize or 7)
     for tick, (name, _y) in zip(ax.get_yticklabels(), rows):
         if bold_refs and _is_reference(cases[name]):
             tick.set_fontweight("bold")
     for env, y in headings:
         ax.annotate(st.ENV_LABELS[env], xy=(0.0, y + 0.15),
                     xycoords=("axes fraction", "data"), xytext=(2, 0),
-                    textcoords="offset points", fontsize=7.2, fontweight="bold",
-                    color=st.INK, va="center", ha="left")
+                    textcoords="offset points", fontsize=fontsize or 7.2,
+                    fontweight="bold", color=st.INK, va="center", ha="left")
 
 
 def law_ranking(cases):
@@ -278,13 +296,23 @@ def law_ranking(cases):
     bold label, and the cases follow in their environment's colour, by
     propellant. The grouping puts each case beside its own reference, so the
     shortfall is read off the bars rather than printed; only the propellant is.
+
+    Every label is drawn at FS (figure review, 2026-10-13), the rows spaced to
+    hold it.
     """
     blocks = environment_blocks(cases)
     if not blocks:
         return _skip("law ranking", _data.REPORTED_CASES)
     rows, headings, y_end = _block_rows(blocks)
 
-    fig, ax = plt.subplots(figsize=(6.3, 0.9 + 0.235 * (y_end + 1.0)))
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS}):
+        return _draw_law_ranking(cases, rows, headings, y_end)
+
+
+def _draw_law_ranking(cases, rows, headings, y_end):
+    """law_ranking's drawing, run inside its font sizes."""
+    fig, ax = plt.subplots(figsize=(6.3, 0.9 + 0.27 * (y_end + 1.0)))
     for name, y in rows:
         case = cases[name]
         prop_t = case.row["prop_remaining_kg"] / 1e3
@@ -294,10 +322,10 @@ def law_ranking(cases):
                 hatch=None if case.reached_orbit else "//")
         light = colour == st.ENV_COLORS["no_rotation"]
         ax.annotate("%.2f t" % prop_t, xy=(prop_t, y), xytext=(-4, 0),
-                    textcoords="offset points", fontsize=6.5, va="center", ha="right",
+                    textcoords="offset points", fontsize=FS, va="center", ha="right",
                     color=st.INK if light else "white",
                     fontweight="bold" if _is_reference(case) else "normal")
-    _block_axes(ax, cases, rows, headings)
+    _block_axes(ax, cases, rows, headings, fontsize=FS)
     ax.set_ylim(y_end + 0.6, -0.6)
     ax.set_xlim(0.0, 1.03 * max(cases[n].row["prop_remaining_kg"] for n, _y in rows) / 1e3)
     ax.set_xlabel("Propellant remaining at insertion [t]")
@@ -313,15 +341,23 @@ def accuracy_vs_propellant(cases):
     Insertion accuracy on one axis and propellant on the other separates the
     cases that buy accuracy with propellant from those that give up both, which
     a ranking on either quantity alone cannot show. Every reported case is
-    drawn, coloured by the environment it was flown in, the references as green
-    stars (red-note review X4/S6.1, 2026-10-08).
+    drawn, coloured by the environment it was flown in, the references in
+    green (red-note review X4/S6.1, 2026-10-08). Since the figure review of
+    2026-10-13 the references are circles like every other case, and every
+    label is drawn at FS.
     """
     present = [n for n in _with_propellant(cases)
                if _orbit_spread_km(cases[n]) is not None]
     if not present:
         return _skip("accuracy vs propellant", _data.REPORTED_CASES)
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS}):
+        return _draw_accuracy_vs_propellant(cases, present)
 
-    fig, ax = plt.subplots(figsize=st.TALL_1)
+
+def _draw_accuracy_vs_propellant(cases, present):
+    """accuracy_vs_propellant's drawing, run inside its font sizes."""
+    fig, ax = plt.subplots(figsize=(6.3, 7.4))
     labels, points = [], []
     for name in present:
         case = cases[name]
@@ -329,8 +365,8 @@ def accuracy_vs_propellant(cases):
         spread = _orbit_spread_km(case)
         ref = _is_reference(case)
         colour = st.ENV_COLORS["reference" if ref else st.environment(case.row)]
-        marker = "*" if ref else ("o" if case.reached_orbit else "X")
-        ax.scatter(spread, prop_t, s=90 if ref else 32, marker=marker, facecolor=colour,
+        marker = "o" if case.reached_orbit else "X"
+        ax.scatter(spread, prop_t, s=36, marker=marker, facecolor=colour,
                    edgecolor="white", linewidth=0.6, zorder=5 if ref else 3)
         points.append((spread, prop_t))
         right_edge = spread > 5.0
@@ -338,7 +374,7 @@ def accuracy_vs_propellant(cases):
                                   xytext=(-7 if right_edge else 7, -2),
                                   textcoords="offset points",
                                   ha="right" if right_edge else "left",
-                                  fontsize=6.3, color=st.INK, zorder=4,
+                                  fontsize=FS, color=st.INK, zorder=4,
                                   fontweight="bold" if ref else "normal",
                                   bbox={"facecolor": "white", "edgecolor": "none",
                                         "pad": 0.4, "alpha": 0.85},
@@ -353,7 +389,7 @@ def accuracy_vs_propellant(cases):
     ax.set_xlim(-0.004, 60.0)
     ax.set_xticks([0.0, 0.1, 1.0, 10.0])
     ax.set_xticklabels(["0", "0.1", "1", "10"])
-    ax.set_xlabel("Apoapsis-periapsis spread at insertion [km]   (lower is better)")
+    ax.set_xlabel("Apoapsis-periapsis spread at insertion [km] (lower is better)")
     ax.set_ylabel("Propellant remaining [t]")
 
     envs = []
@@ -361,15 +397,15 @@ def accuracy_vs_propellant(cases):
         env = st.environment(cases[name].row)
         if env not in envs and not _is_reference(cases[name]):
             envs.append(env)
-    handles = [Line2D([], [], marker="*", markersize=9, linestyle="none",
+    handles = [Line2D([], [], marker="o", markersize=5.5, linestyle="none",
                       markerfacecolor=st.ENV_COLORS["reference"], markeredgecolor="white",
                       label="Reference")]
     handles += [Line2D([], [], marker="o", markersize=5.5, linestyle="none",
                        markerfacecolor=st.ENV_COLORS[e], markeredgecolor="white",
                        label=st.ENV_LABELS[e]) for e in envs]
     st.tidy(ax, legend=False)
-    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.17), ncol=5,
-              fontsize=6.8, handletextpad=0.3, columnspacing=1.2)
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.10), ncol=3,
+              fontsize=FS, handletextpad=0.3, columnspacing=1.2, frameon=False)
     fig.tight_layout()
     # Placed last: the placement measures rendered extents, so it has to run
     # after every artist that moves them.
@@ -449,15 +485,25 @@ def arc_structure(cases):
     colour. The gap after the first stage is the planned separation delay. The
     apogee check's impulsive circularization, which the thrust trace does not
     hold, is a diamond at the instant Case.t_insertion finds.
+
+    Every label is drawn at FS (figure review, 2026-10-13), the rows spaced to
+    hold it and the legend in two rows under the axes.
     """
     blocks = environment_blocks(cases)
     if not blocks:
         return _skip("arc structure", _data.REPORTED_CASES)
     rows, headings, y_end = _block_rows(blocks)
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS}):
+        return _draw_arc_structure(cases, rows, headings, y_end)
+
+
+def _draw_arc_structure(cases, rows, headings, y_end):
+    """arc_structure's drawing, run inside its font sizes."""
     t_max = max((cases[n].t_insertion or float(cases[n].time[-1])) for n, _y in rows)
     min_w = 0.006 * t_max
 
-    fig, ax = plt.subplots(figsize=(6.3, 0.9 + 0.235 * (y_end + 1.0)))
+    fig, ax = plt.subplots(figsize=(6.3, 1.2 + 0.27 * (y_end + 1.0)))
     half = 0.30
     for name, y in rows:
         case = cases[name]
@@ -472,7 +518,7 @@ def arc_structure(cases):
         t_end = case.t_insertion if case.t_insertion is not None else case.time[-1]
         if case.architecture == "apogee_check":
             ax.plot(t_end, y, marker="D", markersize=4.2, color=st.INK, zorder=4)
-    _block_axes(ax, cases, rows, headings)
+    _block_axes(ax, cases, rows, headings, fontsize=FS)
     ax.set_ylim(y_end + 0.6, -0.6)
     ax.set_xlim(0.0, 1.02 * t_max)
     ax.set_xlabel("Time [s]")
@@ -485,8 +531,8 @@ def arc_structure(cases):
     ]
     st.tidy(ax, legend=False)
     ax.grid(False, axis="y")
-    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.09),
-              ncol=4, fontsize=6.8)
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.08),
+              ncol=2, fontsize=FS, frameon=False)
     fig.tight_layout()
     return st.save(fig, "results_arc_structure.png")
 
