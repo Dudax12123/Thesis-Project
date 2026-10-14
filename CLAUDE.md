@@ -467,7 +467,9 @@ Since then the rotation-on residual is the in-plane centrifugal work alone.
   output, and SECO is root-found so that a coast on `pso_coast_solver`'s own coast ODE
   (`_coast_to_apoapsis`, same tolerances) reaches its apoapsis at the target. The impulsive burn
   there goes to `v_circular_rotating`, the shared target, and may be a retro-burn costing |Δv|.
-  It raises if the bracket assumption fails (a launch due east could break it).
+  The bracket holds because the conversion keeps γ_ECI = γ, which overstates the inertial
+  radial speed while the vehicle climbs, so its Kepler apogee runs ahead of the rotating coast's
+  apoapsis. It raises if that assumption fails.
   - gt_apogee re-flown: 22 168.7 → 21 534.2 kg, circularisation 89.8 → 1.1 m/s. Its search now
     finds the same coast-to-target the swarms find.
 - **Read the frame, do not infer it.** `run()` sets `ra.FINAL_STATE_INERTIAL`,

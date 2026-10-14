@@ -2273,10 +2273,13 @@ def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
     """Cutoff, coast and circularisation of apogee_check in the rotating frame.
 
     ``sol_2`` ended at the conversion-based cutoff (interrupt_single_burn_traj).
-    That conversion credits the full w*r*cos(lat) at SECO, more than the
-    rotating-frame physics credits off a due-east heading. The rotating apoapsis
-    is therefore still below the target there, and the burn is continued (dense
-    output) until it is not. SECO is the root of the rotating apoapsis miss.
+    The conversion (ecef_to_eci_velocity) credits the same w*r*cos(lat) as the
+    rotating-frame pseudo-forces, but carries the flight-path angle across
+    unchanged (gamma_eci = gamma). While the vehicle climbs, its inertial radial
+    speed v_eci*sin(gamma) therefore exceeds the true v*sin(gamma), and its Kepler
+    apogee runs ahead of the rotating-frame coast's apoapsis. The rotating apoapsis
+    is still below the target there, and the burn is continued (dense output)
+    until it is not. SECO is the root of the rotating apoapsis miss.
     The coast to that apoapsis is flown on the other architectures' coast ODE,
     and the impulsive burn there goes to their insertion target:
     v_circular_rotating at the apoapsis radius, gamma 0.
@@ -2305,8 +2308,8 @@ def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
         raise RuntimeError(
             "apogee_check (rotating coast): the rotating-frame apoapsis is already "
             "at the target when the conversion-based apogee reaches it. The cutoff "
-            "search assumes the conversion credits more than the rotating frame, "
-            "which holds for any launch off due east; this configuration breaks it.")
+            "search assumes the conversion's Kepler apogee runs ahead of the rotating "
+            "apoapsis, which holds while the vehicle climbs (gamma > 0); this flight breaks it.")
 
     # --- continue the burn, with dense output, until the rotating apoapsis is reached
     burn_events = [interrupt_radius_check, interrupt_stage_2_burnt, interrupt_ground_collision]
