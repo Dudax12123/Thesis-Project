@@ -138,4 +138,56 @@ def ea_reference_profile(cases):
     return st.save(fig, "ea_reference_profile.png")
 
 
-FIGURES = [ea_reference_profile]
+def ea_segmented(cases):
+    """The two segmented cases against the reference, altitude only, in one
+    column (review F-3).
+
+    The chapter's figure adds the angle of attack as panel (b); the abstract
+    quotes no value from it, so only panel (a) is drawn: altitude against time,
+    the reference's coast compressed, the waypoint and each hand-off marked.
+    """
+    from . import _data
+    from . import sec67_capabilities as sec67
+
+    names = ("pmp_baseline", "show_seg_fixed_alt", "show_seg_opt_alt")
+    missing = _data.missing_from(cases, *names)
+    if missing:
+        return _skip("ea segmented", missing)
+    ref = cases["pmp_baseline"]
+    fixed, opt = cases["show_seg_fixed_alt"], cases["show_seg_opt_alt"]
+    segmented_entries = [(opt, st.ACCENT, "-", st.case_label("show_seg_opt_alt")),
+                         (fixed, st.ENV_COLORS["baseline"], "-",
+                          st.case_label("show_seg_fixed_alt"))]
+    entries = [(ref, st.INK, ":", "Reference (indirect PMP)")] + segmented_entries
+
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS, "axes.titlesize": FS}):
+        fig, ax = plt.subplots(figsize=(COLUMN_IN, 3.3))
+        pn.altitude_panel(ax, entries, shade_coasts=False)
+        for curve in ax.get_lines():
+            curve.set_linewidth(1.0)
+        for case, colour, _style, _label in segmented_entries:
+            point = sec67._handoff(case)
+            if point is None:
+                continue
+            ax.plot(*point, linestyle="none", marker="D", markersize=4.2, color=colour,
+                    zorder=5)
+            ax.annotate("%.0f km" % point[1], xy=point, xytext=(5, -2),
+                        textcoords="offset points", fontsize=FS, color=st.INK,
+                        ha="left", va="top")
+        ax.plot([], [], linestyle="none", marker="D", markersize=4.2,
+                markerfacecolor="none", markeredgecolor=st.INK, label="Hand-off")
+        wp = pn.waypoint(ref)
+        if wp is not None:
+            pn.mark_waypoint(ax, wp, label="Coast-start waypoint")
+        pn.compress_long_coast(ax, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
+                               label_y=0.15, fontsize=FS, label_box=True)
+        st.tidy(ax, legend=False)
+        fig.subplots_adjust(left=0.18, right=0.97, top=0.98, bottom=0.44)
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=1, fontsize=FS,
+                   frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25)
+        return st.save(fig, "ea_segmented.png")
+
+
+FIGURES = [ea_reference_profile, ea_segmented]
