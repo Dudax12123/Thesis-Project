@@ -1,11 +1,12 @@
 """Figure (Extended Abstract): arc structure of the optimisation architectures.
 
 Abstract-only variant of fig_architecture_arc_structures.py (review item F-1,
-2026-10-22). The thesis figure is unchanged. Here the segmented row shows the
-one schedule the abstract flies, gravity turn handing over to PEG, with each
-law named inside its own thrust arc instead of in a band of generic law boxes
-above the row; the space that band took is removed. Every label stays at the
-thesis size, printed at 16 cm.
+2026-10-22). The thesis figure is unchanged. It is drawn for one column of the
+abstract (3.08 in), so the row names sit above their bars instead of beside
+them, the stage-1 box is shortened to its name, and the bars are shorter in
+proportion. The segmented row shows the one schedule the abstract flies,
+gravity turn handing over to PEG, each law named inside its thrust arc. Every
+label is 10 pt at the printed size.
 """
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -14,20 +15,35 @@ from figstyle import use_thesis_style, save, INK, GREY, THRUST, COAST
 
 use_thesis_style()
 
-FS = 10.5                  # every label
-W, H = 6.30, 2.96
-YB = 0.20                  # bottom of the drawing (one legend row)
-fig = plt.figure(figsize=(W, H - YB))
+FS = 10.0                  # every label, printed at the column width
+W = 3.08                   # one column of the abstract
+SH = 0.22                  # bar height
+NAME_DY = 0.05             # gap between a row name and its bar
+ROW = 0.53                 # row pitch: name + bar + gap
+
+X0 = 0.03                  # lift-off
+IGN = 0.86                 # second-stage ignition
+XE = 3.03                  # right end of the longest bar
+
+# rows from the top: (name, [(x0, x1, kind)], impulse x or None)
+ROWS = [
+    ("Brute-force kick search", [(IGN, 1.75, "T"), (1.75, 2.85, "C")], 2.85),
+    ("Coast-parameter and indirect PMP PSO",
+     [(IGN, 1.70, "T"), (1.70, 2.85, "C"), (2.85, XE, "T")], None),
+    ("Direct-insertion PSO", [(IGN, 2.62, "T")], None),
+]
+SEG_NAME = "Segmented multi-law"
+HAND = 1.80                # hand-off inside the first thrust arc
+SEG = [(IGN, 2.20, "T"), (2.20, 2.85, "C"), (2.85, XE, "T")]
+
+LEG = 0.50                 # height of the two legend rows
+TOP = 0.40                 # stage-1 band
+H = TOP + ROW * (len(ROWS) + 1) + 0.10 + LEG
+fig = plt.figure(figsize=(W, H))
 ax = fig.add_axes([0, 0, 1, 1])
 ax.set_xlim(0, W)
-ax.set_ylim(YB, H)
+ax.set_ylim(0, H)
 ax.axis("off")
-
-X0 = 0.05                  # lift-off
-IGN = 2.05                 # second-stage ignition
-NAME_X = 1.95              # right edge of the row names
-SH = 0.27                  # bar height
-DY = -0.34                 # every row above the segmented one moves down by the removed band
 
 
 def bar(x0, x1, y, kind):
@@ -37,80 +53,60 @@ def bar(x0, x1, y, kind):
 
 
 def impulse(x, y):
-    ax.plot([x, x], [y - 0.07, y + SH + 0.07], color=INK, lw=1.8, zorder=7)
+    ax.plot([x, x], [y - 0.06, y + SH + 0.06], color=INK, lw=1.8, zorder=7)
 
 
-def name(y, text):
-    ax.text(NAME_X, y + SH / 2, text, fontsize=FS, color=INK, ha="right",
-            va="center", linespacing=1.15)
+def row(y, name, arcs, imp=None):
+    """A row whose bar's bottom is at y, its name above it."""
+    ax.text(X0, y + SH + NAME_DY, name, fontsize=FS, color=INK, ha="left", va="bottom")
+    for x0, x1, kind in arcs:
+        bar(x0, x1, y, kind)
+    if imp is not None:
+        impulse(imp, y)
 
 
-# --- the shared first stage, drawn once -----------------------------------
-Y0 = 2.92 + DY
-ax.add_patch(Rectangle((X0, Y0), IGN - X0, SH + 0.04, fc="#ececec",
+# --- the shared first stage, shortened to its name --------------------------
+y_top = H - TOP + 0.06
+ax.add_patch(Rectangle((X0, y_top), IGN - X0, SH + 0.04, fc="#ececec",
                        ec=INK, lw=0.8, zorder=4))
-ax.text(0.5 * (X0 + IGN), Y0 + (SH + 0.04) / 2, "stage 1 (common to all)",
-        ha="center", va="center", fontsize=FS, color=INK, zorder=5)
-ax.text(IGN + 0.08, Y0 + (SH + 0.04) / 2, "second-stage ignition",
+ax.text(0.5 * (X0 + IGN), y_top + (SH + 0.04) / 2, "stage 1", ha="center",
+        va="center", fontsize=FS, color=INK, zorder=5)
+ax.text(IGN + 0.06, y_top + (SH + 0.04) / 2, "second-stage ignition",
         ha="left", va="center", fontsize=FS, color=GREY)
 
 # --- one row per arc structure -------------------------------------------
-y = 2.40 + DY                              # brute-force kick search
-name(y, "Brute-force kick search")
-bar(IGN, 3.45, y, "T")
-bar(3.45, 5.60, y, "C")
-impulse(5.60, y)
-
-y = 1.88 + DY                              # coast-parameter and indirect PMP
-name(y, "Coast-parameter PSO\nIndirect PMP PSO")
-bar(IGN, 3.35, y, "T")
-bar(3.35, 5.60, y, "C")
-bar(5.60, 5.92, y, "T")
-
-y = 1.38 + DY                              # direct insertion
-name(y, "Direct-insertion PSO")
-bar(IGN, 5.20, y, "T")
+y = y_top
+bars_y = []
+for name, arcs, imp in ROWS:
+    y -= ROW
+    row(y, name, arcs, imp)
+    bars_y.append(y)
 
 # a rule between the single-law architectures and the segmented mode
-RULE = 1.305 + DY
-ax.plot([X0, W - X0], [RULE, RULE], color=INK, lw=0.9, zorder=3)
+rule = y - 0.06
+ax.plot([X0, XE], [rule, rule], color=INK, lw=0.9, zorder=3)
 
-y = 0.62                                   # segmented: gravity turn -> PEG
-name(y, "Segmented\nmulti-law")
-HAND = 3.10                                # hand-off, drawn after ignition
-bar(IGN, 3.75, y, "T")
-bar(3.75, 5.60, y, "C")
-bar(5.60, 5.92, y, "T")
-ax.plot([HAND, HAND], [y, y + SH], color="white", lw=1.0, ls=(0, (2, 1.6)),
-        zorder=6)
-for x0, x1, lab in ((IGN, HAND, "gravity turn"), (HAND, 3.75, "PEG")):
+y -= ROW + 0.04
+row(y, SEG_NAME, SEG)
+ax.plot([HAND, HAND], [y, y + SH], color="white", lw=1.0, ls=(0, (2, 1.6)), zorder=6)
+for x0, x1, lab in ((IGN, HAND, "gravity turn"), (HAND, 2.20, "PEG")):
     ax.text(0.5 * (x0 + x1), y + SH / 2, lab, ha="center", va="center",
             fontsize=FS, color="white", zorder=7)
+y_seg = y
 
-# ignition line through every row
-ax.plot([IGN, IGN], [0.50, Y0], color=GREY, lw=1.0, ls=(0, (3, 2.2)),
-        zorder=6)
+# the ignition line is drawn across each bar only, so it never crosses a row name
+for yb in bars_y + [y_seg]:
+    ax.plot([IGN, IGN], [yb - 0.04, yb + SH + 0.04], color=GREY, lw=1.0,
+            ls=(0, (3, 2.2)), zorder=6)
 
-# --- legend, centred on the figure ------------------------------------------
-L1 = 0.27
-items = [
-    ax.add_patch(Rectangle((0.00, L1), 0.30, 0.16, fc=THRUST, ec=INK, lw=0.8)),
-    ax.text(0.37, L1 + 0.08, "thrust arc", fontsize=FS, color=INK, va="center"),
-    ax.add_patch(Rectangle((1.25, L1), 0.30, 0.16, fc=COAST, ec=INK, lw=0.8)),
-    ax.text(1.62, L1 + 0.08, "coast arc", fontsize=FS, color=INK, va="center"),
-    ax.plot([2.55, 2.55], [L1 - 0.03, L1 + 0.19], color=INK, lw=1.8)[0],
-    ax.text(2.65, L1 + 0.08, "impulsive circularization burn", fontsize=FS,
-            color=INK, va="center"),
-]
-r = fig.canvas.get_renderer()
-right = items[-1].get_window_extent(r).x1 / fig.dpi      # inches = data units
-dx = 0.5 * (W - right)
-for it in items:
-    if isinstance(it, Rectangle):
-        it.set_x(it.get_x() + dx)
-    elif hasattr(it, "set_xdata"):
-        it.set_xdata([x + dx for x in it.get_xdata()])
-    else:
-        it.set_x(it.get_position()[0] + dx)
+# --- legend, two rows --------------------------------------------------------
+L1, L2 = 0.30, 0.06
+ax.add_patch(Rectangle((X0, L1), 0.26, 0.14, fc=THRUST, ec=INK, lw=0.8))
+ax.text(X0 + 0.32, L1 + 0.07, "thrust arc", fontsize=FS, color=INK, va="center")
+ax.add_patch(Rectangle((1.45, L1), 0.26, 0.14, fc=COAST, ec=INK, lw=0.8))
+ax.text(1.45 + 0.32, L1 + 0.07, "coast arc", fontsize=FS, color=INK, va="center")
+ax.plot([X0 + 0.13, X0 + 0.13], [L2 - 0.02, L2 + 0.16], color=INK, lw=1.8)
+ax.text(X0 + 0.32, L2 + 0.07, "impulsive circularization burn", fontsize=FS,
+        color=INK, va="center")
 
 save(fig, "ea_architecture_arc_structures.png")
