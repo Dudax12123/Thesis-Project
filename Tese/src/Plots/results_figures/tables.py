@@ -864,22 +864,23 @@ def ea_all_cases(cases):
     for g, (group, members) in enumerate(EA_GROUPS):
         if g:
             rows.append(None)
-        rows.append([r"\multicolumn{8}{l}{\emph{%s}}" % group])
+        rows.append([r"\multicolumn{7}{l}{\emph{%s}}" % group])
         for n in members:
             k = cases[n]
             r = k.row
             label = EA_LABELS.get(n, label_cell(n))
+            # No t_MECO column: the first stage burns to depletion at a fixed
+            # flow in every case, so it is the same in every row (the text says so).
             rows.append([r"\quad " + label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
-                         num(k.t_meco), seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
+                         seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
                          num(r["dv_steering"], 0), orbit(k)])
     # Two-word heads take two lines and the outer padding is dropped: at 10 pt,
     # with the orbit column, the table is otherwise wider than the page.
     return tabular(
-        "@{}l r r r r r r r@{}",
-        bold("Case", "Prop.", r"$h_{\mathrm{MECO}}$", r"$t_{\mathrm{MECO}}$", "Coast",
-             "Gravity", "Steering", "Orbit"),
-        ["", "[t]", "[km]", "[s]", "[s]", "[m/s]", "[m/s]", "[km]"], rows,
-        rule_under_heads=" & ".join(bold("", "left", "", "", "", "loss", "loss", "")) + r" \\")
+        "@{}l r r r r r r@{}",
+        bold("Case", "Prop.", r"$h_{\mathrm{MECO}}$", "Coast", "Gravity", "Steering", "Orbit"),
+        ["", "[t]", "[km]", "[s]", "[m/s]", "[m/s]", "[km]"], rows,
+        rule_under_heads=" & ".join(bold("", "left", "", "", "loss", "loss", "")) + r" \\")
 
 
 EA_TABLES = [ea_all_cases]
