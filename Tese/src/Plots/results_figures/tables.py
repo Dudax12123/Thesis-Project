@@ -854,8 +854,9 @@ EA_LABELS = {"pmp_baseline": "Reference (indirect PMP)", "pmp_vacuum": "Referenc
 
 
 def ea_all_cases(cases):
-    """Every reported case: propellant left, staging, coast and the two losses
-    that account for the ranking (Extended Abstract, review C-1)."""
+    """Every reported case: propellant left, staging, coast, the two losses
+    that account for the ranking and the orbit reached (Extended Abstract,
+    review C-1)."""
     names = [n for _g, members in EA_GROUPS for n in members]
     if _missing(cases, names, "ea_all_cases"):
         return None
@@ -863,19 +864,22 @@ def ea_all_cases(cases):
     for g, (group, members) in enumerate(EA_GROUPS):
         if g:
             rows.append(None)
-        rows.append([r"\multicolumn{7}{l}{\emph{%s}}" % group])
+        rows.append([r"\multicolumn{8}{l}{\emph{%s}}" % group])
         for n in members:
             k = cases[n]
             r = k.row
             label = EA_LABELS.get(n, label_cell(n))
             rows.append([r"\quad " + label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
                          num(k.t_meco), seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
-                         num(r["dv_steering"], 0)])
+                         num(r["dv_steering"], 0), orbit(k)])
+    # Two-word heads take two lines and the outer padding is dropped: at 10 pt,
+    # with the orbit column, the table is otherwise wider than the page.
     return tabular(
-        "l r r r r r r",
-        bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", r"$t_{\mathrm{MECO}}$", "Coast",
-             "Gravity loss", "Steering loss"),
-        ["", "[t]", "[km]", "[s]", "[s]", "[m/s]", "[m/s]"], rows)
+        "@{}l r r r r r r r@{}",
+        bold("Case", "Prop.", r"$h_{\mathrm{MECO}}$", r"$t_{\mathrm{MECO}}$", "Coast",
+             "Gravity", "Steering", "Orbit"),
+        ["", "[t]", "[km]", "[s]", "[s]", "[m/s]", "[m/s]", "[km]"], rows,
+        rule_under_heads=" & ".join(bold("", "left", "", "", "", "loss", "loss", "")) + r" \\")
 
 
 EA_TABLES = [ea_all_cases]
