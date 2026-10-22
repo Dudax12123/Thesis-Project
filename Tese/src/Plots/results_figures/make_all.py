@@ -40,6 +40,7 @@ from Plots.results_figures import sec62_gravity_turn as sec62
 from Plots.results_figures import sec63_peg as sec63
 from Plots.results_figures import sec65_losses as sec65
 from Plots.results_figures import sec67_capabilities as sec67
+from Plots.results_figures import extended_abstract as ea
 
 # The cases Chapter 6 reports; the list lives in _data so the figures that draw
 # every case (the ranking, the accuracy trade, the arc structure) share it.
@@ -60,6 +61,8 @@ def main():
     parser.add_argument("--root", help="results directory "
                                        "(default: Output/results_matrix)")
     parser.add_argument("--only", help="substring filter over figure names")
+    parser.add_argument("--abstract", action="store_true",
+                        help="draw the Extended Abstract figures (ea_*.png) instead")
     args = parser.parse_args()
 
     st.use_thesis_style()
@@ -76,7 +79,8 @@ def main():
         print("not yet produced: %s" % ", ".join(absent))
 
     written, skipped = 0, 0
-    for title, figures in SECTIONS:
+    sections = [("Extended Abstract", ea.FIGURES)] if args.abstract else SECTIONS
+    for title, figures in sections:
         selected = [f for f in figures
                     if args.only is None or args.only in f.__name__]
         if not selected:
