@@ -3,15 +3,17 @@
 Abstract-only variant of fig_architecture_arc_structures.py (review item F-1,
 2026-10-22). The thesis figure is unchanged. It is drawn for one column of the
 abstract (3.08 in), so the row names sit above their bars instead of beside
-them, the stage-1 box is shortened to its name, and the bars are shorter in
-proportion. The segmented row shows the one schedule the abstract flies,
+them, the stage-1 box opens every row (no separate stage-1 band), and the bars are
+shorter in proportion. The segmented row shows the one schedule the abstract flies,
 gravity turn handing over to PEG, each law named inside its thrust arc. Every
 label is 10 pt at the printed size.
 """
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-from figstyle import use_thesis_style, save, INK, GREY, THRUST, COAST
+from figstyle import use_thesis_style, save, INK, THRUST, COAST
+
+STAGE1 = "#ececec"         # the first stage, common to every architecture
 
 use_thesis_style()
 
@@ -37,8 +39,8 @@ HAND = 1.80                # hand-off inside the first thrust arc
 SEG = [(IGN, 2.20, "T"), (2.20, 2.85, "C"), (2.85, XE, "T")]
 
 LEG = 0.50                 # height of the two legend rows
-TOP = 0.40                 # stage-1 band
-H = TOP + ROW * (len(ROWS) + 1) + 0.10 + LEG
+FIRST = 0.46               # top of the figure to the first bar's bottom
+H = FIRST + ROW * len(ROWS) + 0.04 + 0.08 + LEG + 0.04
 fig = plt.figure(figsize=(W, H))
 ax = fig.add_axes([0, 0, 1, 1])
 ax.set_xlim(0, W)
@@ -59,20 +61,17 @@ def impulse(x, y):
 def row(y, name, arcs, imp=None):
     """A row whose bar's bottom is at y, its name above it."""
     ax.text(X0, y + SH + NAME_DY, name, fontsize=FS, color=INK, ha="left", va="bottom")
+    # the shared first stage opens every row, so no separate stage-1 band is needed
+    ax.add_patch(Rectangle((X0, y), IGN - X0, SH, fc=STAGE1, ec=INK, lw=0.8, zorder=4))
+    ax.text(0.5 * (X0 + IGN), y + SH / 2, "stage 1", ha="center", va="center",
+            fontsize=FS, color=INK, zorder=5)
     for x0, x1, kind in arcs:
         bar(x0, x1, y, kind)
     if imp is not None:
         impulse(imp, y)
 
 
-# --- the shared first stage, shortened to its name --------------------------
-y_top = H - TOP + 0.06
-ax.add_patch(Rectangle((X0, y_top), IGN - X0, SH + 0.04, fc="#ececec",
-                       ec=INK, lw=0.8, zorder=4))
-ax.text(0.5 * (X0 + IGN), y_top + (SH + 0.04) / 2, "stage 1", ha="center",
-        va="center", fontsize=FS, color=INK, zorder=5)
-ax.text(IGN + 0.06, y_top + (SH + 0.04) / 2, "second-stage ignition",
-        ha="left", va="center", fontsize=FS, color=GREY)
+y_top = H - FIRST + ROW     # the loop steps down one row before drawing
 
 # --- one row per arc structure -------------------------------------------
 y = y_top
@@ -94,10 +93,6 @@ for x0, x1, lab in ((IGN, HAND, "gravity turn"), (HAND, 2.20, "PEG")):
             fontsize=FS, color="white", zorder=7)
 y_seg = y
 
-# the ignition line is drawn across each bar only, so it never crosses a row name
-for yb in bars_y + [y_seg]:
-    ax.plot([IGN, IGN], [yb - 0.04, yb + SH + 0.04], color=GREY, lw=1.0,
-            ls=(0, (3, 2.2)), zorder=6)
 
 # --- legend, two rows --------------------------------------------------------
 L1, L2 = 0.30, 0.06

@@ -835,6 +835,51 @@ def validation_states(cases):
 
 # apollo_waypoint and segmented_results need the reference-tracking cases, out
 # of the matrix since 2026-10-07; they are built on request only.
+# --- Extended Abstract -------------------------------------------------------
+# One table of every reported case replaces the abstract's Tables 4-8 (float
+# review C-1, 2026-10-22): grouped by environment and, within the baseline,
+# ordered by propellant left, as the ranking figure is. Written as ea_*.tex.
+EA_GROUPS = [
+    ("Baseline", ["pmp_baseline", "gt_apogee", "gt_baseline", "show_seg_opt_alt",
+                  "show_seg_fixed_alt", "show_bilinear_tangent", "show_cpr",
+                  "show_linear_tangent", "show_exp_shooting", "show_apollo",
+                  "peg_direct", "peg_baseline"]),
+    ("No atmosphere", ["pmp_vacuum", "peg_vacuum"]),
+    ("Non-rotating Earth", ["pmp_norot", "gt_norot"]),
+    ("Sea-level engine", ["gt_sea_level_engine"]),
+]
+EA_LABELS = {"pmp_baseline": "Reference (indirect PMP)", "pmp_vacuum": "Reference",
+             "pmp_norot": "Reference", "peg_vacuum": "PEG", "gt_norot": "Gravity turn",
+             "gt_sea_level_engine": "Gravity turn"}
+
+
+def ea_all_cases(cases):
+    """Every reported case: propellant left, staging, coast and the two losses
+    that account for the ranking (Extended Abstract, review C-1)."""
+    names = [n for _g, members in EA_GROUPS for n in members]
+    if _missing(cases, names, "ea_all_cases"):
+        return None
+    rows = []
+    for g, (group, members) in enumerate(EA_GROUPS):
+        if g:
+            rows.append(None)
+        rows.append([r"\multicolumn{7}{l}{\emph{%s}}" % group])
+        for n in members:
+            k = cases[n]
+            r = k.row
+            label = EA_LABELS.get(n, label_cell(n))
+            rows.append([r"\quad " + label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
+                         num(k.t_meco), seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
+                         num(r["dv_steering"], 0)])
+    return tabular(
+        "l r r r r r r",
+        bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", r"$t_{\mathrm{MECO}}$", "Coast",
+             "Gravity loss", "Steering loss"),
+        ["", "[t]", "[km]", "[s]", "[s]", "[m/s]", "[m/s]"], rows)
+
+
+EA_TABLES = [ea_all_cases]
+
 TABLES = [
     reference_results, reference_seeds, gt_results, peg_results, peg_waypoint,
     showcase_laws, full_results, loss_budget, architecture_cost, caption_values,
@@ -860,6 +905,8 @@ def main():
     parser.add_argument("--root", help="results directory "
                                        "(default: Output/results_matrix)")
     parser.add_argument("--only", help="substring filter over table names")
+    parser.add_argument("--abstract", action="store_true",
+                        help="write the Extended Abstract tables (ea_*.tex) instead")
     args = parser.parse_args()
     global ROOT
     ROOT = args.root
@@ -873,7 +920,7 @@ def main():
     print("=" * 70)
 
     written, skipped = 0, 0
-    for table in TABLES:
+    for table in (EA_TABLES if args.abstract else TABLES):
         if args.only is not None and args.only not in table.__name__:
             continue
         body = table(cases)
