@@ -144,7 +144,7 @@ def ea_segmented(cases):
 
     The chapter's figure adds the angle of attack as panel (b); the abstract
     quotes no value from it, so only panel (a) is drawn: altitude against time,
-    the reference's coast compressed, the waypoint and each hand-off marked.
+    on a linear time axis, the waypoint and each hand-off marked.
     """
     from . import _data
     from . import sec67_capabilities as sec67
@@ -180,8 +180,8 @@ def ea_segmented(cases):
         wp = pn.waypoint(ref)
         if wp is not None:
             pn.mark_waypoint(ax, wp, label="Coast-start waypoint")
-        pn.compress_long_coast(ax, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
-                               label_y=0.15, fontsize=FS, label_box=True)
+        # Linear time axis, the coast drawn at its true length (review F-3, edited).
+        ax.set_xlim(0.0, float(ref.time[ref.insertion_index() - 1]) + 10.0)
         st.tidy(ax, legend=False)
         fig.subplots_adjust(left=0.18, right=0.97, top=0.98, bottom=0.44)
         handles, labels = ax.get_legend_handles_labels()
