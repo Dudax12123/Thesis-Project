@@ -24,6 +24,8 @@ On request only: results_reference_card.png.
 import matplotlib.pyplot as plt
 import numpy as np
 
+from Auxiliary import rocket_specs as rs
+
 from . import _data
 from . import _panels as pn
 from . import _style as st
@@ -167,8 +169,16 @@ def peg_atmosphere(cases):
 
 
 def _draw_peg_atmosphere(flights):
-    """peg_atmosphere's drawing, run inside its font sizes."""
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(6.3, 3.0))
+    """peg_atmosphere's drawing, run inside its font sizes.
+
+    Panel (c), added 2026-10-23 (Thesis Review L-1): the drag and the dynamic
+    pressure of the flight with the atmosphere, through the first stage up to
+    separation. The flight without it has neither, so it is not drawn there.
+    """
+    fig = plt.figure(figsize=(6.3, 5.6))
+    grid = fig.add_gridspec(2, 2)
+    ax_a, ax_b = fig.add_subplot(grid[0, 0]), fig.add_subplot(grid[0, 1])
+    ax_c = fig.add_subplot(grid[1, :])
     for case, colour, label in flights:
         _t, s_km, alt_km = pn.to_insertion(case, case.downrange_km, case.alt_km)
         ax_a.plot(*st.thin(s_km, alt_km), color=colour, label=label)
@@ -195,6 +205,28 @@ def _draw_peg_atmosphere(flights):
     st.tidy(ax_b, legend_loc="lower right",
             legend_kw={"bbox_to_anchor": (1.0, 0.05), "handlelength": 1.4,
                        "borderaxespad": 0.2})
+
+    # The drag is the shared model's F_D = q C_D A (Section 5.1), evaluated on
+    # the archived state; the separation is the planned 8 s after MECO.
+    case, colour, _label = flights[0]
+    t_end = case.t_meco + 8.0 if case.t_meco is not None else case.time[-1]
+    keep = case.time <= t_end
+    t, q = st.thin(case.time[keep], np.asarray(case.q)[keep])
+    drag_kn = q * rs.C_D * rs.A / 1e3
+    # With a constant C_D the drag is the dynamic pressure times C_D A, so one
+    # curve carries both: the right axis reads it in kPa.
+    kn_per_kpa = rs.C_D * rs.A
+    ax_c.plot(t, drag_kn, color=colour)
+    ax_c.set_xlabel("Time [s]")
+    ax_c.set_ylabel("Drag [kN]")
+    ax_c.set_ylim(bottom=0)
+    ax_q = ax_c.secondary_yaxis("right", functions=(lambda d: d / kn_per_kpa,
+                                                   lambda p: p * kn_per_kpa))
+    ax_q.set_ylabel("Dynamic pressure [kPa]")
+    st.panel_tag(ax_c, "c")
+    st.tidy(ax_c, legend=False)
+    ax_c.spines["right"].set_visible(True)
+    ax_c.spines["right"].set_color(st.INK)
 
     fig.tight_layout()
     return st.save(fig, "results_peg_atmosphere.png")
