@@ -139,7 +139,9 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
       `Tese/src/Output/results_matrix_chapter6_20261007/`: untracked, 20 cases at `f350460`,
       with a README. Its three coast-parameter gravity-turn rows are their refined points
       (2026-10-07): the same recipe without costates, which a closed-loop law such as peg_new
-      cannot use.
+      cannot use. Their coast sits on the 2000 s bound, and the user kept it there (2026-10-22): refined, the
+      coast grows to whatever bound is set, and above ~3500 s it dips to 5–38 km. Thesis §6.1 gives the
+      reason (7f8c2d5). The runs are in the set's `_gt_coast_bound/`.
     - `build_matrix`'s stored extremals, the tracked `pmp_reference.npz` and this table still
       hold the 3500 s ones above.
   - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` was re-searched); the harness
