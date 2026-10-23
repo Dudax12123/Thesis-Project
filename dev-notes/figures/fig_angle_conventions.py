@@ -39,12 +39,16 @@ u = unit(DELTA)
 # The abstract's column is 7.8 cm and the copy prints at ~1.09 of its drawn size.
 FS = 10 if ABSTRACT else 11
 FL = 10 if ABSTRACT else 12  # vector and angle labels
+# vector line widths and head sizes; the abstract copy draws them thinner
+VW, VH = (1.1, 10) if ABSTRACT else (1.7, 13)
+TW, TH = (1.3, 11) if ABSTRACT else (2.0, 14)
 
 fig, ax = plt.subplots(figsize=(3.4, 2.6) if ABSTRACT else (6.2, 4.7))
 blank_axes(ax)
 
 # --- planet: surface arc with a thin crust -------------------------------
-th = np.linspace(np.deg2rad(48), np.deg2rad(120), 300)
+# the abstract copy runs the crust band along the whole drawn surface
+th = np.linspace(np.deg2rad(5 if ABSTRACT else 48), np.deg2rad(150 if ABSTRACT else 120), 300)
 xo, yo = RE * np.cos(th), RE * np.sin(th)
 xi, yi = 0.92 * RE * np.cos(th), 0.92 * RE * np.sin(th)
 ax.fill(np.r_[xo, xi[::-1]], np.r_[yo, yi[::-1]], color=EARTH, zorder=0)
@@ -95,7 +99,7 @@ sm = rr * 1.045 * unit(0.5 * (DELTA + LAUNCH))
 ax.text(sm[0], sm[1], "$s$", color=ACCENT, fontsize=FS, ha="center",
         va="bottom")
 ax.plot([L[0]], [L[1]], marker="o", ms=3.2, color=INK, zorder=5)
-ax.text(L[0] + (-0.05 if ABSTRACT else 0.06), L[1] - (0.30 if ABSTRACT else 0.10), "launch site", fontsize=FS, color=GREY,
+ax.text(L[0] + (-0.05 if ABSTRACT else 0.06), L[1] - (0.30 if ABSTRACT else 0.10), "launch site", fontsize=FS, color=INK if ABSTRACT else GREY,
         ha="center", va="top")
 
 # --- local horizon -------------------------------------------------------
@@ -113,7 +117,7 @@ ax.plot([P[0] - 0.38 * b[0] / LB, P[0] + 1.10 * b[0]],
         [P[1] - 0.38 * b[1] / LB, P[1] + 1.10 * b[1]], color=FAINT, lw=0.9,
         zorder=2)
 
-arrow(ax, P, v, color=INK, lw=1.7, scale=13)
+arrow(ax, P, v, color=INK, lw=VW, scale=VH)
 ax.text(P[0] + v[0] - (0.05 if ABSTRACT else 0.10), P[1] + v[1] - (0.22 if ABSTRACT else 0.12),
         r"$\vec{v}$", fontsize=FL,
         color=INK, ha="center", va="top")
@@ -132,21 +136,21 @@ if ABSTRACT:  # the bisector falls on v at these angles: label theta below v
 # --- forces --------------------------------------------------------------
 FT = 1.65
 ft = FT * unit(b_dir)
-arrow(ax, P, ft, color=THRUST, lw=2.0, scale=14, zorder=6)
+arrow(ax, P, ft, color=THRUST, lw=TW, scale=TH, zorder=6)
 ax.text(P[0] + ft[0] + 0.04, P[1] + ft[1] + 0.07, r"$F_T$", fontsize=FL,
         color=THRUST, ha="left", va="bottom")
 
-arrow(ax, P, 0.90 * unit(v_dir + 180), color=AMBER, lw=1.7, scale=13)
+arrow(ax, P, 0.90 * unit(v_dir + 180), color=AMBER, lw=VW, scale=VH)
 d = 0.90 * unit(v_dir + 180)
 ax.text(P[0] + d[0] - 0.05, P[1] + d[1] - 0.04, r"$F_D$", fontsize=FL,
         color=AMBER, ha="right", va="top")
 
-arrow(ax, P, 0.90 * unit(v_dir + 90), color=GREEN, lw=1.7, scale=13)
+arrow(ax, P, 0.90 * unit(v_dir + 90), color=GREEN, lw=VW, scale=VH)
 lf = 0.90 * unit(v_dir + 90)
 ax.text(P[0] + lf[0] - 0.09, P[1] + lf[1] + 0.02, r"$F_L$", fontsize=FL,
         color=GREEN, ha="right", va="bottom")
 
-arrow(ax, P, 0.78 * unit(DELTA + 180), color=INK, lw=1.7, scale=13)
+arrow(ax, P, 0.78 * unit(DELTA + 180), color=INK, lw=VW, scale=VH)
 g = 0.78 * unit(DELTA + 180)
 ax.text(P[0] + g[0] - 0.12, P[1] + g[1] + 0.02, r"$F_g$", fontsize=FL,
         color=INK, ha="right", va="center")
