@@ -369,11 +369,12 @@ def ea_peg(cases):
     red, by direct insertion blue and without the atmosphere in its environment
     colour, the legend under the axes in two columns, its labels without
     "PEG,", which the caption names (review AG-3, 2026-10-24).
-    (b) and (c) are the chapter's fig:peg_atmosphere in this column: the
-    cumulative gravity (solid) and drag (dashed) losses of PEG with and without
-    the atmosphere, in the colours of (a), and the dynamic pressure of the
+    (c) is from the chapter's fig:peg_atmosphere: the dynamic pressure of the
     flight with the atmosphere up to separation, beside the flown Intelsat 35e
     ascent (sec63.THROTTLED_FLIGHT) dotted with its throttle-down shaded.
+    The cumulative-losses panel (b) was dropped (review AG-7, 2026-10-24): its
+    values are in the text and the results table. Its slot is left empty so the
+    other two pieces keep their size.
     """
     from . import _data
     from . import validation_falcon9 as vf
@@ -392,12 +393,11 @@ def ea_peg(cases):
     ]
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        # Axes boxes in inches from the foot: (c), (b), the legend of (a), (a).
+        # Axes boxes in inches from the foot: (c), the legend of (a), (a).
         height = 6.55
         fig = plt.figure(figsize=(COLUMN_IN, height))
         box = lambda y, h: [0.19, y / height, 0.78, h / height]
         ax = fig.add_axes(box(4.83, 1.60))
-        ax_b = fig.add_axes(box(2.12, 1.10))
         ax_c = fig.add_axes(box(0.40, 1.10))
 
         pn.altitude_panel(ax, entries, shade_coasts=False)
@@ -415,28 +415,6 @@ def ea_peg(cases):
                   frameon=False, bbox_to_anchor=(0.42, -0.25), labelspacing=0.25,
                   columnspacing=1.0,
                   handlelength=1.6, borderpad=0.1)
-
-        for case, colour in ((base, st.ACCENT), (vac, st.ENV_COLORS["no_atmosphere"])):
-            hist = case.loss_histories()
-            t = case.time[:case.cutoff_index()]
-            t, grav, drag = st.thin(t, hist["gravity"], hist["drag"])
-            ax_b.plot(t, grav, color=colour, linewidth=1.1)
-            if np.any(drag > 1e-9):
-                ax_b.plot(t, drag, color=colour, linestyle="--", linewidth=1.1)
-        # (b) names its own colours, so it reads without (a) beside it.
-        ax_b.legend(handles=[Line2D([], [], color=st.INK, linewidth=1.1, label="Gravity"),
-                             Line2D([], [], color=st.INK, linestyle="--", linewidth=1.1,
-                                    label="Drag"),
-                             Line2D([], [], color=st.ACCENT, linewidth=1.1, label="Atmosphere"),
-                             Line2D([], [], color=st.ENV_COLORS["no_atmosphere"], linewidth=1.1,
-                                    label="No atmosphere")],
-                    loc="lower right", bbox_to_anchor=(1.0, 0.06), ncol=2, fontsize=FS,
-                    frameon=False, handlelength=1.0,
-                    handletextpad=0.35, columnspacing=0.6, labelspacing=0.25, borderpad=0.1)
-        ax_b.set_ylim(0.0, 2200.0)
-        ax_b.set_yticks([0, 1000, 2000])
-        ax_b.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
-        ax_b.set_ylabel("Loss [m/s]", fontsize=FS, labelpad=2)
 
         # The separation is the planned 8 s after MECO.
         t_end = base.t_meco + 8.0
@@ -462,11 +440,11 @@ def ea_peg(cases):
         ax_c.legend(loc="upper right", fontsize=FS, frameon=False, handlelength=1.2,
                     labelspacing=0.25, borderpad=0.1)
 
-        for axis in (ax, ax_b, ax_c):
+        for axis in (ax, ax_c):
             axis.xaxis.labelpad = 2
             axis.yaxis.labelpad = 2
             st.tidy(axis, legend=False)
-        return save_pieces(fig, "ea_peg_%s.png", [("altitude", [ax]), ("losses", [ax_b]),
+        return save_pieces(fig, "ea_peg_%s.png", [("altitude", [ax]),
                                                    ("dynamic_pressure", [ax_c])])
 
 
