@@ -270,32 +270,43 @@ def ea_gravity_turn(cases):
 
 def ea_peg(cases):
     """Powered explicit guidance against the reference, in one column (review
-    P-2, 2026-10-24): both PEG studies on the altitude panel of the chapter's
-    fig:peg_architectures.
+    P-2, 2026-10-24; atmosphere panels U-1, 2026-10-24).
 
-    Altitude against time, the reference's long coast compressed and shaded.
-    The reference is dotted black, PEG under the coast-parameter search red and
-    by direct insertion blue, as in the chapter, and the drag-free PEG flight,
-    the chapter's fig:peg_atmosphere, joins them in its environment colour. The
-    angle-of-attack panel was dropped in the review's third round, the event
-    lines are left out, and the legend runs under the axes.
+    (a) Altitude against time, the reference's long coast compressed and
+    shaded: the reference dotted black, PEG under the coast-parameter search
+    red, by direct insertion blue and without the atmosphere in its environment
+    colour, the legend under the axes.
+    (b) and (c) are the chapter's fig:peg_atmosphere in this column: the
+    cumulative gravity (solid) and drag (dashed) losses of PEG with and without
+    the atmosphere, in the colours of (a), and the dynamic pressure of the
+    flight with the atmosphere up to separation, beside the flown Intelsat 35e
+    ascent (sec63.THROTTLED_FLIGHT) dotted with its throttle-down shaded.
     """
     from . import _data
+    from . import validation_falcon9 as vf
 
     names = ("pmp_baseline", "peg_baseline", "peg_direct", "peg_vacuum")
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("ea peg", missing)
     ref = cases["pmp_baseline"]
+    base, vac = cases["peg_baseline"], cases["peg_vacuum"]
     entries = [
         (ref, st.INK, ":", "Reference (indirect PMP)"),
-        (cases["peg_baseline"], st.ACCENT, "-", "PEG, coast-parameter search"),
+        (base, st.ACCENT, "-", "PEG, coast-parameter search"),
         (cases["peg_direct"], st.ENV_COLORS["baseline"], "-", "PEG, direct insertion"),
-        (cases["peg_vacuum"], st.ENV_COLORS["no_atmosphere"], "-", "PEG, no atmosphere"),
+        (vac, st.ENV_COLORS["no_atmosphere"], "-", "PEG, no atmosphere"),
     ]
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        fig, ax = plt.subplots(figsize=(COLUMN_IN, 3.35))
+        # Axes boxes in inches from the foot: (c), (b), the legend of (a), (a).
+        height = 6.55
+        fig = plt.figure(figsize=(COLUMN_IN, height))
+        box = lambda y, h: [0.19, y / height, 0.78, h / height]
+        ax = fig.add_axes(box(4.83, 1.60))
+        ax_b = fig.add_axes(box(2.12, 1.10))
+        ax_c = fig.add_axes(box(0.40, 1.10))
+
         pn.altitude_panel(ax, entries, shade_coasts=False)
         for t0, t1 in ref.coast_intervals():
             ax.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0)
@@ -306,14 +317,57 @@ def ea_peg(cases):
         ax.set_yticks([0, 250, 500])
         for curve in ax.get_lines():
             curve.set_linewidth(1.1)
-        ax.xaxis.labelpad = 2
-        ax.yaxis.labelpad = 2
-        st.tidy(ax, legend=False)
-        fig.subplots_adjust(left=0.19, right=0.97, top=0.97, bottom=0.45)
         handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc="lower center", ncol=1, fontsize=FS,
-                   frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25,
-                   handlelength=1.6)
+        ax.legend(handles, labels, loc="upper center", ncol=1, fontsize=FS,
+                  frameon=False, bbox_to_anchor=(0.45, -0.30), labelspacing=0.25,
+                  handlelength=1.6, borderpad=0.1)
+
+        for case, colour in ((base, st.ACCENT), (vac, st.ENV_COLORS["no_atmosphere"])):
+            hist = case.loss_histories()
+            t = case.time[:case.cutoff_index()]
+            t, grav, drag = st.thin(t, hist["gravity"], hist["drag"])
+            ax_b.plot(t, grav, color=colour, linewidth=1.1)
+            if np.any(drag > 1e-9):
+                ax_b.plot(t, drag, color=colour, linestyle="--", linewidth=1.1)
+        ax_b.legend(handles=[Line2D([], [], color=st.INK, linewidth=1.1, label="Gravity"),
+                             Line2D([], [], color=st.INK, linestyle="--", linewidth=1.1,
+                                    label="Drag")],
+                    loc="upper left", fontsize=FS, frameon=False, handlelength=1.6,
+                    labelspacing=0.25, borderpad=0.1)
+        ax_b.set_ylim(0.0, 2200.0)
+        ax_b.set_yticks([0, 1000, 2000])
+        ax_b.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
+        ax_b.set_ylabel("Loss [m/s]", fontsize=FS, labelpad=2)
+
+        # The separation is the planned 8 s after MECO.
+        t_end = base.t_meco + 8.0
+        keep = base.time <= t_end
+        ax_c.plot(*st.thin(base.time[keep], np.asarray(base.q)[keep] / 1e3),
+                  color=st.ACCENT, linewidth=1.1, label="PEG")
+        flown = [f for f in vf.load_flights() if f.name == sec63.THROTTLED_FLIGHT]
+        if flown:
+            f = flown[0]
+            t_f, q_f = vf._q(f.time, f.v, f.alt_km)
+            sel = t_f <= t_end
+            ax_c.plot(t_f[sel], q_f[sel], color=st.INK, linestyle=":", linewidth=1.1,
+                      label=f.label)
+            t0, t1 = f.event("throttle_down_start"), f.event("throttle_down_end")
+            if np.isfinite(t0) and np.isfinite(t1):
+                ax_c.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0,
+                             label="Throttle-down")
+        ax_c.set_xlim(0.0, t_end)
+        ax_c.set_ylim(0.0, 70.0)
+        ax_c.set_yticks([0, 20, 40, 60])
+        ax_c.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
+        ax_c.set_ylabel("q [kPa]", fontsize=FS, labelpad=2)
+        ax_c.legend(loc="upper right", fontsize=FS, frameon=False, handlelength=1.2,
+                    labelspacing=0.25, borderpad=0.1)
+
+        for axis, tag in ((ax, "(a)"), (ax_b, "(b)"), (ax_c, "(c)")):
+            axis.xaxis.labelpad = 2
+            axis.yaxis.labelpad = 2
+            axis.set_title(tag, loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
+            st.tidy(axis, legend=False)
         return st.save(fig, "ea_peg.png")
 
 
