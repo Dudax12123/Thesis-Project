@@ -250,14 +250,15 @@ def ea_gravity_turn(cases):
 
 def ea_peg(cases):
     """Powered explicit guidance against the reference, in one column (review
-    P-2, 2026-10-24): both PEG studies on the chapter's fig:peg_architectures.
+    P-2, 2026-10-24): both PEG studies on the altitude panel of the chapter's
+    fig:peg_architectures.
 
-    (a) Altitude against time, the reference's long coast compressed and shaded;
-    (b) the commanded angle of attack. The reference is dotted black, PEG under
-    the coast-parameter search red and by direct insertion blue, as in the
-    chapter, and the drag-free PEG flight, the chapter's fig:peg_atmosphere,
-    joins them in its environment colour. The panels are stacked, the event
-    lines left out, and one legend runs under both.
+    Altitude against time, the reference's long coast compressed and shaded.
+    The reference is dotted black, PEG under the coast-parameter search red and
+    by direct insertion blue, as in the chapter, and the drag-free PEG flight,
+    the chapter's fig:peg_atmosphere, joins them in its environment colour. The
+    angle-of-attack panel was dropped in the review's third round, the event
+    lines are left out, and the legend runs under the axes.
     """
     from . import _data
 
@@ -274,29 +275,22 @@ def ea_peg(cases):
     ]
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        fig, (ax_a, ax_b) = plt.subplots(2, 1, figsize=(COLUMN_IN, 5.0))
-        pn.altitude_panel(ax_a, entries, shade_coasts=False)
+        fig, ax = plt.subplots(figsize=(COLUMN_IN, 3.35))
+        pn.altitude_panel(ax, entries, shade_coasts=False)
         for t0, t1 in ref.coast_intervals():
-            ax_a.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0)
-        ax_a.fill_between([], [], color=st.INK, alpha=0.12, linewidth=0,
-                          label="Coast (reference)")
-        pn.compress_long_coast(ax_a, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
+            ax.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0)
+        ax.fill_between([], [], color=st.INK, alpha=0.12, linewidth=0,
+                        label="Coast (reference)")
+        pn.compress_long_coast(ax, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
                                tick_step=200.0, label_y=0.12, fontsize=FS, label_box=True)
-        ax_a.set_yticks([0, 250, 500])
-
-        pn.alpha_panel(ax_b, entries, fontsize=FS, notes=False)
-        for t0, t1 in ref.coast_intervals():
-            ax_b.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0)
-        ax_b.set_ylabel(r"Angle of attack $\alpha$ [deg]")
-        for ax, letter in ((ax_a, "a"), (ax_b, "b")):
-            for curve in ax.get_lines():
-                curve.set_linewidth(1.1)
-            ax.xaxis.labelpad = 2
-            ax.yaxis.labelpad = 2
-            st.panel_tag(ax, letter)
-            st.tidy(ax, legend=False)
-        fig.subplots_adjust(left=0.19, right=0.97, top=0.96, bottom=0.27, hspace=0.42)
-        handles, labels = ax_a.get_legend_handles_labels()
+        ax.set_yticks([0, 250, 500])
+        for curve in ax.get_lines():
+            curve.set_linewidth(1.1)
+        ax.xaxis.labelpad = 2
+        ax.yaxis.labelpad = 2
+        st.tidy(ax, legend=False)
+        fig.subplots_adjust(left=0.19, right=0.97, top=0.97, bottom=0.45)
+        handles, labels = ax.get_legend_handles_labels()
         fig.legend(handles, labels, loc="lower center", ncol=1, fontsize=FS,
                    frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25,
                    handlelength=1.6)
