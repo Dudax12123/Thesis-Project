@@ -224,12 +224,17 @@ def ea_segmented(cases):
 
 def ea_gravity_turn(cases):
     """The gravity turn's architecture and rotation studies, in one column
-    (review P-1, edited 2026-10-24: the engine-model panel is left out).
+    (review P-1, edited 2026-10-24: the engine-model panel is left out, and
+    the pseudo-force panel of fig:gt_rotation joins as (c)).
 
     (a) Altitude under the coast-parameter search and the apogee check, each
     coast shaded in its flight's colour, as the chapter's fig:gt_architecture.
     (b) Altitude with and without the rotation of the Earth, the chapter's
-    fig:gt_rotation (a), in its colours. Both panels share one time axis.
+    fig:gt_rotation (a), in its colours. (a) and (b) share one time axis.
+    (c) The pseudo-forces along the rotating flight up to the end of its first
+    second-stage burn, fig:gt_rotation (b): the Coriolis and centrifugal
+    magnitudes and the cross-plane component, with the lateral force that would
+    cancel it on the right axis. Its legend runs under the panel.
     """
     from . import _data
     from . import sec62_gravity_turn as sec62
@@ -247,8 +252,14 @@ def ea_gravity_turn(cases):
     )
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        fig, axes = plt.subplots(2, 1, figsize=(COLUMN_IN, 4.1), sharex=True)
-        for ax, (title, entries) in zip(axes, panels):
+        # Axes boxes in inches from the foot: legend of (c), (c), (b), (a).
+        height = 6.20
+        fig = plt.figure(figsize=(COLUMN_IN, height))
+        box = lambda y, h, w=0.78: [0.19, y / height, w, h / height]
+        ax_a = fig.add_axes(box(4.50, 1.50))
+        ax_b = fig.add_axes(box(2.70, 1.50), sharex=ax_a)
+        ax_c = fig.add_axes(box(0.80, 1.30, 0.64))
+        for ax, (title, entries) in zip((ax_a, ax_b), panels):
             for case, colour, label, shade in entries:
                 end = case.insertion_index()
                 t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
@@ -262,9 +273,46 @@ def ea_gravity_turn(cases):
             st.tidy(ax, legend_loc="lower right",
                     legend_kw={"fontsize": FS, "handlelength": 1.4, "borderaxespad": 0.2,
                                "labelspacing": 0.25})
-        axes[-1].set_xlabel("Time [s]", labelpad=2)
-        axes[-1].set_xlim(0.0, None)
-        fig.subplots_adjust(left=0.19, right=0.97, top=0.95, bottom=0.11, hspace=0.32)
+        ax_a.tick_params(labelbottom=False)
+        ax_b.set_xlabel("Time [s]", labelpad=2)
+        ax_b.set_xlim(0.0, None)
+
+        forces = base.pseudo_forces_at_azimuth()
+        t_end = base.t_coast_start or float(base.time[base.insertion_index() - 1])
+        sel = base.time <= t_end
+        t, cor, cen, cross, mass = st.thin(base.time[sel], *(f[sel] for f in forces),
+                                           base.mass[sel])
+        ax_c.plot(t, cor, color=sec62.NON_ROTATING_COLOUR, linewidth=1.15, label="Coriolis")
+        ax_c.plot(t, cen, color=sec62.ROTATING_COLOUR, linewidth=1.15, label="Centrifugal")
+        ax_c.plot(t, cross, color=st.INK, linewidth=1.15, label="Cross-plane")
+        ax_f = ax_c.twinx()
+        ax_f.plot(t, mass * cross / 1e3, color=st.VIOLET, linewidth=1.15,
+                  label="Lateral force (right)")
+        ax_f.set_ylim(0.0, 24.0)
+        ax_f.set_yticks([0, 10, 20])
+        ax_f.set_ylabel("Force [kN]", labelpad=2)
+        ax_f.spines["top"].set_visible(False)
+        if base.t_meco is not None:
+            ax_c.axvline(base.t_meco, color=st.GREY, linestyle=":", linewidth=0.8)
+            # Level, in the headroom above every curve.
+            ax_c.annotate("MECO", xy=(base.t_meco, 0.99), xycoords=("data", "axes fraction"),
+                          xytext=(3, 0), textcoords="offset points", fontsize=FS,
+                          color=st.INK, ha="left", va="top")
+        ax_c.set_xlim(0.0, t_end)
+        ax_c.set_ylim(0.0, 1.2)
+        ax_c.set_yticks([0, 0.5, 1.0])
+        ax_c.set_xlabel("Time [s]", labelpad=2)
+        ax_c.set_ylabel(r"Accel. [m/s$^2$]", labelpad=2)
+        ax_c.set_title("(c)", loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
+        st.tidy(ax_c, legend=False)
+        handles, labels = [], []
+        for ax in (ax_c, ax_f):
+            h, l = ax.get_legend_handles_labels()
+            handles += h
+            labels += l
+        fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS, frameon=False,
+                   bbox_to_anchor=(0.5, 0.0), handlelength=1.2, handletextpad=0.4,
+                   columnspacing=0.8, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
         return st.save(fig, "ea_gravity_turn.png")
 
 
