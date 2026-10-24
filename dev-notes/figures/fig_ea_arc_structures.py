@@ -6,7 +6,8 @@ abstract (3.08 in), so the row names sit above their bars instead of beside
 them, the stage-1 box opens every row (no separate stage-1 band), and the bars are
 shorter in proportion. The segmented row shows the one schedule the abstract flies,
 gravity turn handing over to PEG, each law named inside its thrust arc. Every
-label is 10 pt at the printed size.
+label is 10 pt at the printed size. Review AG-4 (2026-10-24): the row names are
+the abstract's architecture names, and the legend is one row.
 """
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
@@ -29,16 +30,16 @@ XE = 3.03                  # right end of the longest bar
 
 # rows from the top: (name, [(x0, x1, kind)], impulse x or None)
 ROWS = [
-    ("Brute-force kick search", [(IGN, 1.75, "T"), (1.75, 2.85, "C")], 2.85),
-    ("Coast-parameter and indirect PMP PSO",
+    ("Apogee check", [(IGN, 1.75, "T"), (1.75, 2.85, "C")], 2.85),
+    ("Coast parameter and indirect optimal control",
      [(IGN, 1.70, "T"), (1.70, 2.85, "C"), (2.85, XE, "T")], None),
-    ("Direct-insertion PSO", [(IGN, 2.62, "T")], None),
+    ("Direct insertion", [(IGN, 2.62, "T")], None),
 ]
-SEG_NAME = "Segmented multi-law"
+SEG_NAME = "Segmented guidance"
 HAND = 1.80                # hand-off inside the first thrust arc
 SEG = [(IGN, 2.20, "T"), (2.20, 2.85, "C"), (2.85, XE, "T")]
 
-LEG = 0.50                 # height of the two legend rows
+LEG = 0.26                 # height of the one legend row
 FIRST = 0.46               # top of the figure to the first bar's bottom
 H = FIRST + ROW * len(ROWS) + 0.04 + 0.08 + LEG + 0.04
 fig = plt.figure(figsize=(W, H))
@@ -94,14 +95,13 @@ for x0, x1, lab in ((IGN, HAND, "gravity turn"), (HAND, 2.20, "PEG")):
 y_seg = y
 
 
-# --- legend, two rows --------------------------------------------------------
-L1, L2 = 0.30, 0.06
-ax.add_patch(Rectangle((X0, L1), 0.26, 0.14, fc=THRUST, ec=INK, lw=0.8))
-ax.text(X0 + 0.32, L1 + 0.07, "thrust arc", fontsize=FS, color=INK, va="center")
-ax.add_patch(Rectangle((1.45, L1), 0.26, 0.14, fc=COAST, ec=INK, lw=0.8))
-ax.text(1.45 + 0.32, L1 + 0.07, "coast arc", fontsize=FS, color=INK, va="center")
-ax.plot([X0 + 0.13, X0 + 0.13], [L2 - 0.02, L2 + 0.16], color=INK, lw=1.8)
-ax.text(X0 + 0.32, L2 + 0.07, "impulsive circularization burn", fontsize=FS,
-        color=INK, va="center")
+# --- legend, one row (review AG-4, 2026-10-24) -------------------------------
+L1 = 0.06
+ax.add_patch(Rectangle((X0, L1), 0.20, 0.14, fc=THRUST, ec=INK, lw=0.8))
+ax.text(X0 + 0.25, L1 + 0.07, "thrust", fontsize=FS, color=INK, va="center")
+ax.add_patch(Rectangle((0.78, L1), 0.20, 0.14, fc=COAST, ec=INK, lw=0.8))
+ax.text(0.78 + 0.25, L1 + 0.07, "coast", fontsize=FS, color=INK, va="center")
+ax.plot([1.58, 1.58], [L1 - 0.02, L1 + 0.16], color=INK, lw=1.8)
+ax.text(1.66, L1 + 0.07, "impulsive burn", fontsize=FS, color=INK, va="center")
 
 save(fig, "ea_architecture_arc_structures.png")

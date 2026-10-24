@@ -215,6 +215,8 @@ def ea_segmented(cases):
     The chapter's figure adds the angle of attack as panel (b); the abstract
     quotes no value from it, so only panel (a) is drawn: altitude against time,
     on a linear time axis, the waypoint and each hand-off marked.
+    Review AG-1 (2026-10-24): 2.55 in tall, short labels, the legend in two
+    columns, to save space.
     """
     from . import _data
     from . import sec67_capabilities as sec67
@@ -225,14 +227,13 @@ def ea_segmented(cases):
         return _skip("ea segmented", missing)
     ref = cases["pmp_baseline"]
     fixed, opt = cases["show_seg_fixed_alt"], cases["show_seg_opt_alt"]
-    segmented_entries = [(opt, st.ACCENT, "-", st.case_label("show_seg_opt_alt")),
-                         (fixed, st.ENV_COLORS["baseline"], "-",
-                          st.case_label("show_seg_fixed_alt"))]
-    entries = [(ref, st.INK, ":", "Reference (indirect PMP)")] + segmented_entries
+    segmented_entries = [(opt, st.ACCENT, "-", "Optimized hand-off"),
+                         (fixed, st.ENV_COLORS["baseline"], "-", "Fixed hand-off")]
+    entries = [(ref, st.INK, ":", "Reference")] + segmented_entries
 
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        fig, ax = plt.subplots(figsize=(COLUMN_IN, 3.3))
+        fig, ax = plt.subplots(figsize=(COLUMN_IN, 2.55))
         pn.altitude_panel(ax, entries, shade_coasts=False)
         for curve in ax.get_lines():
             curve.set_linewidth(1.0)
@@ -249,14 +250,16 @@ def ea_segmented(cases):
                 markerfacecolor="none", markeredgecolor=st.INK, label="Hand-off")
         wp = pn.waypoint(ref)
         if wp is not None:
-            pn.mark_waypoint(ax, wp, label="Coast-start waypoint")
+            pn.mark_waypoint(ax, wp, label="Waypoint")
         # Linear time axis, the coast drawn at its true length (review F-3, edited).
         ax.set_xlim(0.0, float(ref.time[ref.insertion_index() - 1]) + 10.0)
+        ax.set_yticks([0, 250, 500])
         st.tidy(ax, legend=False)
-        fig.subplots_adjust(left=0.18, right=0.97, top=0.98, bottom=0.44)
+        fig.subplots_adjust(left=0.18, right=0.97, top=0.975, bottom=0.425)
         handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc="lower center", ncol=1, fontsize=FS,
-                   frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25)
+        fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS,
+                   frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25,
+                   columnspacing=1.0, handlelength=1.6)
         return st.save(fig, "ea_segmented.png")
 
 
@@ -364,7 +367,8 @@ def ea_peg(cases):
     (a) Altitude against time, the reference's long coast compressed and
     shaded: the reference dotted black, PEG under the coast-parameter search
     red, by direct insertion blue and without the atmosphere in its environment
-    colour, the legend under the axes.
+    colour, the legend under the axes in two columns, its labels without
+    "PEG,", which the caption names (review AG-3, 2026-10-24).
     (b) and (c) are the chapter's fig:peg_atmosphere in this column: the
     cumulative gravity (solid) and drag (dashed) losses of PEG with and without
     the atmosphere, in the colours of (a), and the dynamic pressure of the
@@ -381,10 +385,10 @@ def ea_peg(cases):
     ref = cases["pmp_baseline"]
     base, vac = cases["peg_baseline"], cases["peg_vacuum"]
     entries = [
-        (ref, st.INK, ":", "Reference (indirect PMP)"),
-        (base, st.ACCENT, "-", "PEG, coast-parameter search"),
-        (cases["peg_direct"], st.ENV_COLORS["baseline"], "-", "PEG, direct insertion"),
-        (vac, st.ENV_COLORS["no_atmosphere"], "-", "PEG, no atmosphere"),
+        (ref, st.INK, ":", "Reference"),
+        (base, st.ACCENT, "-", "Coast parameter"),
+        (cases["peg_direct"], st.ENV_COLORS["baseline"], "-", "Direct insertion"),
+        (vac, st.ENV_COLORS["no_atmosphere"], "-", "No atmosphere"),
     ]
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
@@ -400,15 +404,16 @@ def ea_peg(cases):
         for t0, t1 in ref.coast_intervals():
             ax.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0)
         ax.fill_between([], [], color=st.INK, alpha=0.12, linewidth=0,
-                        label="Coast (reference)")
+                        label="Coast")
         pn.compress_long_coast(ax, ref, float(ref.time[ref.insertion_index() - 1]) + 10.0,
                                tick_step=200.0, label_y=0.12, fontsize=FS, label_box=True)
         ax.set_yticks([0, 250, 500])
         for curve in ax.get_lines():
             curve.set_linewidth(1.1)
         handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles, labels, loc="upper center", ncol=1, fontsize=FS,
-                  frameon=False, bbox_to_anchor=(0.45, -0.25), labelspacing=0.25,
+        ax.legend(handles, labels, loc="upper center", ncol=2, fontsize=FS,
+                  frameon=False, bbox_to_anchor=(0.42, -0.25), labelspacing=0.25,
+                  columnspacing=1.0,
                   handlelength=1.6, borderpad=0.1)
 
         for case, colour in ((base, st.ACCENT), (vac, st.ENV_COLORS["no_atmosphere"])):
@@ -470,6 +475,8 @@ def ea_vacuum_coast_bound(cases):
     against downrange, in one column (review S-1, 2026-10-24): the chapter's
     fig:vacuum_coast_bound with its legend moved below the axes, the downrange
     in thousands of kilometres, and the lowest-point label between the curves.
+    Review AG-2 (2026-10-24): one legend row, short labels, the target line
+    unlabelled, to save space.
     """
     from . import _data
 
@@ -477,9 +484,9 @@ def ea_vacuum_coast_bound(cases):
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("ea vacuum coast bound", missing)
-    fig, ax = plt.subplots(figsize=(COLUMN_IN, 2.55))
-    styles = (("pmp_vacuum", "Coast bound 2000 s (reported)", st.REFERENCE),
-              ("pmp_vacuum_c3500", "Coast bound 3500 s", st.ACCENT))
+    fig, ax = plt.subplots(figsize=(COLUMN_IN, 2.10))
+    styles = (("pmp_vacuum", "2000 s bound", st.REFERENCE),
+              ("pmp_vacuum_c3500", "3500 s bound", st.ACCENT))
     for name, label, colour in styles:
         case = cases[name]
         _t, s_km, h_km = pn.to_insertion(case, case.downrange_km, case.alt_km)
@@ -497,17 +504,17 @@ def ea_vacuum_coast_bound(cases):
                             "linewidth": 0.7, "shrinkA": 1, "shrinkB": 3})
     target = case.row.get("target_alt_km")
     if target is not None:
-        ax.axhline(target, color=st.GREY, linestyle="--", linewidth=0.8,
-                   label="Target orbit, %.0f km" % target)
+        ax.axhline(target, color=st.GREY, linestyle="--", linewidth=0.8)
     ax.axhline(0.0, color=st.INK, linewidth=0.8)
     ax.set_xlabel(r"Downrange [$10^3$ km]", fontsize=FS, labelpad=2)
     ax.set_ylabel("Altitude [km]", fontsize=FS, labelpad=2)
     ax.set_yticks([0, 250, 500])
     ax.tick_params(labelsize=FS)
     st.tidy(ax, legend=False)
-    fig.subplots_adjust(left=0.18, right=0.97, top=0.97, bottom=0.44)
+    fig.subplots_adjust(left=0.18, right=0.97, top=0.965, bottom=0.36)
     handles, labels = ax.get_legend_handles_labels()
-    fig.legend(handles, labels, loc="lower center", ncol=1, fontsize=FS, frameon=False,
+    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS, frameon=False,
+               columnspacing=1.2,
                bbox_to_anchor=(0.5, 0.0), labelspacing=0.25, handlelength=1.6)
     return st.save(fig, "ea_vacuum_coast_bound.png")
 
