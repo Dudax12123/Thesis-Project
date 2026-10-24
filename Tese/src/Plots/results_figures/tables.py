@@ -928,7 +928,15 @@ def ea_validation_timeline(cases):
     assert len(paz) == 1, "Paz row not found exactly once"
     i = paz[0]
     drop = {i, i + 1} if rows[i + 1].strip() == r"\addlinespace" else {i}
-    return "\n".join(r for k, r in enumerate(rows) if k not in drop)
+    rows = [r for k, r in enumerate(rows) if k not in drop]
+    # Each unit beside its column name, not on a row of its own (user, 2026-10-24).
+    h = next(k for k, r in enumerate(rows) if r.lstrip().startswith(r"\textbf{Source}"))
+    names = rows[h].rstrip().rstrip("\\").split("&")
+    units = rows[h + 1].rstrip().rstrip("\\").split("&")
+    assert len(names) == len(units)
+    cells = [n.strip() + (" " + u.strip() if u.strip() else "") for n, u in zip(names, units)]
+    rows[h:h + 2] = ["  " + " & ".join(cells) + r" \\"]
+    return "\n".join(rows)
 
 
 EA_TABLES = [ea_all_cases, ea_architecture_cost, ea_validation_timeline]
