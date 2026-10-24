@@ -8,6 +8,7 @@ figures, which it leaves untouched (float review X-0, 2026-10-22).
     python -m Plots.results_figures.make_all --abstract --root <results set>
 """
 
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.lines import Line2D
@@ -25,6 +26,34 @@ FS = 10.0
 def _skip(what, missing):
     print("  skip %-34s missing: %s" % (what, ", ".join(missing)))
     return None
+
+
+def save_pieces(fig, name, pieces):
+    """Save a multi-panel figure as one PNG per piece, so the abstract can place
+    the pieces in different columns under one shared caption (review AC-1).
+
+    Each piece is the union of its artists' tight boxes, cut across the full
+    width of the figure, so every piece keeps the figure's width and its text
+    prints at the same size whichever column it lands in. name holds one %s,
+    filled with the piece's suffix: ea_peg_%s.png gives ea_peg_a.png, ..."""
+    from matplotlib.transforms import Bbox
+
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    full = fig.get_tightbbox(renderer)
+    to_inches = fig.dpi_scale_trans.inverted()
+    paths = []
+    for suffix, artists in pieces:
+        boxes = [a.get_tightbbox(renderer) for a in artists]
+        union = Bbox.union([b for b in boxes if b is not None]).transformed(to_inches)
+        box = Bbox.from_extents(full.x0, union.y0, full.x1, union.y1).padded(0.03)
+        path = os.path.join(st.OUT_DIR, name % suffix)
+        os.makedirs(st.OUT_DIR, exist_ok=True)
+        fig.savefig(path, bbox_inches=box)
+        print("  wrote %s" % path)
+        paths.append(path)
+    plt.close(fig)
+    return paths
 
 
 def ea_reference_profile(cases):
@@ -71,11 +100,12 @@ def ea_reference_profile(cases):
     # Spine positions in axes fractions: two on the left, two on the right.
     spines = {"gamma": ("left", -0.135), "accel": ("right", 1.0), "q": ("right", 1.085)}
 
-    # Axes boxes in inches from the foot: legend (two columns), (b), then (a).
-    height = 4.87
+    # Axes boxes in inches from the foot: legend of (b), (b), legend of (a), (a).
+    # Each panel carries its own legend, so the two can be printed apart.
+    height = 5.40
     fig = plt.figure(figsize=(COLUMN_IN, height))
-    ax = fig.add_axes([0.150, 2.90 / height, 0.700, 1.86 / height])
-    ax_b = fig.add_axes([0.150, 1.27 / height, 0.795, 1.03 / height])
+    ax = fig.add_axes([0.150, 3.30 / height, 0.700, 1.86 / height])
+    ax_b = fig.add_axes([0.150, 1.05 / height, 0.795, 1.03 / height])
     hosts = {"alt": ax}
     for key in ("gamma", "accel", "q"):
         side, off = spines[key]
@@ -163,11 +193,20 @@ def ea_reference_profile(cases):
 
     legend += [Patch(color=st.FAINT, alpha=0.45, label="Coast (%.0f s)" % (c1 - c0)),
                ax.get_legend_handles_labels()[0][-1]]
-    legend += ax_b.get_legend_handles_labels()[0]
-    fig.legend(handles=legend, loc="lower center", ncol=2, fontsize=FS, frameon=False,
-               bbox_to_anchor=(0.486, -0.005), handlelength=1.0, handletextpad=0.35,
-               columnspacing=0.6, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
-    return st.save(fig, "ea_reference_profile.png")
+    style = dict(loc="upper center", ncol=2, fontsize=FS, frameon=False,
+                 bbox_transform=fig.transFigure, handlelength=1.0, handletextpad=0.35,
+                 columnspacing=0.6, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
+    # Column-major fill: the three long names in the first column, the three
+    # short ones in the second, so no row pairs two long names.
+    by_label = {h.get_label(): h for h in legend}
+    order = [names["gamma"], names["accel"], names["q"], names["alt"]]
+    order += [h.get_label() for h in legend if h.get_label() not in order]
+    legend = [by_label[k] for k in order]
+    leg_a = fig.legend(handles=legend, bbox_to_anchor=(0.486, 2.84 / height), **style)
+    leg_b = fig.legend(handles=ax_b.get_legend_handles_labels()[0],
+                       bbox_to_anchor=(0.486, 0.59 / height), **style)
+    return save_pieces(fig, "ea_reference_profile_%s.png",
+                       [("a", list(hosts.values()) + [leg_a]), ("b", [ax_b, leg_b])])
 
 
 def ea_segmented(cases):
@@ -252,12 +291,13 @@ def ea_gravity_turn(cases):
     )
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        # Axes boxes in inches from the foot: legend of (c), (c), (b), (a).
-        height = 6.20
+        # Axes boxes in inches from the foot: legend of (c), (c), (b), (a). Every
+        # panel labels its own time axis, so each can be printed apart.
+        height = 6.60
         fig = plt.figure(figsize=(COLUMN_IN, height))
         box = lambda y, h, w=0.78: [0.19, y / height, w, h / height]
-        ax_a = fig.add_axes(box(4.50, 1.50))
-        ax_b = fig.add_axes(box(2.70, 1.50), sharex=ax_a)
+        ax_a = fig.add_axes(box(4.90, 1.50))
+        ax_b = fig.add_axes(box(2.75, 1.50), sharex=ax_a)
         ax_c = fig.add_axes(box(0.80, 1.30, 0.64))
         for ax, (title, entries) in zip((ax_a, ax_b), panels):
             for case, colour, label, shade in entries:
@@ -273,8 +313,9 @@ def ea_gravity_turn(cases):
             st.tidy(ax, legend_loc="lower right",
                     legend_kw={"fontsize": FS, "handlelength": 1.4, "borderaxespad": 0.2,
                                "labelspacing": 0.25})
-        ax_a.tick_params(labelbottom=False)
-        ax_b.set_xlabel("Time [s]", labelpad=2)
+        for axis in (ax_a, ax_b):
+            axis.tick_params(labelbottom=True)
+            axis.set_xlabel("Time [s]", labelpad=2)
         ax_b.set_xlim(0.0, None)
 
         forces = base.pseudo_forces_at_azimuth()
@@ -310,10 +351,11 @@ def ea_gravity_turn(cases):
             h, l = ax.get_legend_handles_labels()
             handles += h
             labels += l
-        fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS, frameon=False,
+        leg_c = fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS, frameon=False,
                    bbox_to_anchor=(0.5, 0.0), handlelength=1.2, handletextpad=0.4,
                    columnspacing=0.8, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
-        return st.save(fig, "ea_gravity_turn.png")
+        return save_pieces(fig, "ea_gravity_turn_%s.png",
+                           [("a", [ax_a]), ("b", [ax_b]), ("c", [ax_c, ax_f, leg_c])])
 
 
 def ea_peg(cases):
@@ -367,7 +409,7 @@ def ea_peg(cases):
             curve.set_linewidth(1.1)
         handles, labels = ax.get_legend_handles_labels()
         ax.legend(handles, labels, loc="upper center", ncol=1, fontsize=FS,
-                  frameon=False, bbox_to_anchor=(0.45, -0.30), labelspacing=0.25,
+                  frameon=False, bbox_to_anchor=(0.45, -0.25), labelspacing=0.25,
                   handlelength=1.6, borderpad=0.1)
 
         for case, colour in ((base, st.ACCENT), (vac, st.ENV_COLORS["no_atmosphere"])):
@@ -377,11 +419,16 @@ def ea_peg(cases):
             ax_b.plot(t, grav, color=colour, linewidth=1.1)
             if np.any(drag > 1e-9):
                 ax_b.plot(t, drag, color=colour, linestyle="--", linewidth=1.1)
+        # (b) names its own colours, so it reads without (a) beside it.
         ax_b.legend(handles=[Line2D([], [], color=st.INK, linewidth=1.1, label="Gravity"),
                              Line2D([], [], color=st.INK, linestyle="--", linewidth=1.1,
-                                    label="Drag")],
-                    loc="upper left", fontsize=FS, frameon=False, handlelength=1.6,
-                    labelspacing=0.25, borderpad=0.1)
+                                    label="Drag"),
+                             Line2D([], [], color=st.ACCENT, linewidth=1.1, label="Atmosphere"),
+                             Line2D([], [], color=st.ENV_COLORS["no_atmosphere"], linewidth=1.1,
+                                    label="No atmosphere")],
+                    loc="lower right", bbox_to_anchor=(1.0, 0.06), ncol=2, fontsize=FS,
+                    frameon=False, handlelength=1.0,
+                    handletextpad=0.35, columnspacing=0.6, labelspacing=0.25, borderpad=0.1)
         ax_b.set_ylim(0.0, 2200.0)
         ax_b.set_yticks([0, 1000, 2000])
         ax_b.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
@@ -416,7 +463,7 @@ def ea_peg(cases):
             axis.yaxis.labelpad = 2
             axis.set_title(tag, loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
             st.tidy(axis, legend=False)
-        return st.save(fig, "ea_peg.png")
+        return save_pieces(fig, "ea_peg_%s.png", [("a", [ax]), ("b", [ax_b]), ("c", [ax_c])])
 
 
 def ea_vacuum_coast_bound(cases):
