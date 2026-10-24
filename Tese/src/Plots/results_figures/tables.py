@@ -919,9 +919,16 @@ def ea_architecture_cost(cases):
 
 
 def ea_validation_timeline(cases):
-    """The thesis's event-time table, unchanged, for the abstract's validation
-    subsection (Extended Abstract, review AA-2, 2026-10-24)."""
-    return validation_timeline(cases)
+    """The thesis's event-time table for the abstract's validation subsection
+    (Extended Abstract, review AA-2, 2026-10-24), without the Paz row and the
+    space that follows it (user, 2026-10-24): the abstract does not discuss
+    that flight."""
+    rows = validation_timeline(cases).split("\n")
+    paz = [i for i, r in enumerate(rows) if r.lstrip().startswith("Paz,")]
+    assert len(paz) == 1, "Paz row not found exactly once"
+    i = paz[0]
+    drop = {i, i + 1} if rows[i + 1].strip() == r"\addlinespace" else {i}
+    return "\n".join(r for k, r in enumerate(rows) if k not in drop)
 
 
 EA_TABLES = [ea_all_cases, ea_architecture_cost, ea_validation_timeline]
