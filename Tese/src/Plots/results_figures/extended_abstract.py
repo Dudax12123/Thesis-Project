@@ -28,17 +28,19 @@ def _skip(what, missing):
 
 
 def ea_reference_profile(cases):
-    """The atmospheric reference against time, in one column (review F-2, second pass).
+    """The atmospheric reference in one column: (a) the profile, (b) the steering
+    of its first second-stage burn (review F-2, second pass; Q-1, 2026-10-23;
+    T-1, 2026-10-24).
 
-    The chapter's panel (a): altitude, flight-path angle, thrust acceleration,
-    dynamic pressure and the second-stage pitch on five parallel y-axes over one
-    compressed time axis. The pitch replaces the chapter's Mach (review Q-1,
-    2026-10-23) and is drawn over the second-stage burns only, where it differs
-    from gamma; the linear-tangent law fitted to the first burn (sec63._tangent_fit,
-    as in fig:reference_tangent_fit) is dashed over it. To fit one column at 10 pt the y-axes carry tick values only, each
-    spine in its quantity's colour, and the quantities are named in a colour
-    legend below the plot. The coast is shaded, MECO and both cut-offs dotted,
-    and the waypoint marked on the altitude.
+    (a) Altitude, flight-path angle, thrust acceleration and dynamic pressure on
+    four parallel y-axes over one compressed time axis. To fit one column at
+    10 pt the y-axes carry tick values only, each spine in its quantity's
+    colour, and the quantities are named in a colour legend below the plots.
+    The coast is shaded, MECO and both cut-offs dotted, and the waypoint
+    marked on the altitude.
+    (b) The steering angles over the first second-stage burn, where the law is
+    fitted: the angle of attack, the pitch, and the linear-tangent law fitted to
+    the pitch (sec63._tangent_fit, as in fig:reference_tangent_fit) dashed.
     """
     from Auxiliary import constants as const
 
@@ -51,36 +53,31 @@ def ea_reference_profile(cases):
     crossed = np.where(case.alt_km[:end] >= alt_exit)[0]
     in_atm = t <= (t[crossed[0]] if crossed.size else t[-1])
     burns = pn.burn_intervals(case, stage2_only=True)
-    in_burn = np.zeros(t.size, dtype=bool)
-    for b0, b1 in burns:
-        in_burn |= (t >= b0) & (t <= b1)
     series = {
         "alt": case.alt_km[:end],
         "gamma": case.gamma_deg[:end],
         "accel": case.thrust[:end] / case.mass[:end] / const.G_0,
         "q": np.where(in_atm, case.q[:end] / 1e3, np.nan),
-        "theta": np.where(in_burn, case.theta_deg[:end], np.nan),
     }
     spec = {k: (c, lim) for k, _l, c, lim in sec63.PROFILE_AXES}
-    spec["theta"] = (sec63.OVERLAY_COLOURS["mach"], (0.0, 20.0 * 540.0 / 500.0))
     # Every axis starts at zero on the same baseline, and the top ticks of
     # altitude, flight-path angle and dynamic pressure sit at one height.
     spec["gamma"] = (spec["gamma"][0], (0.0, 90.0 * 540.0 / 500.0))
     spec["q"] = (spec["q"][0], (0.0, 60.0 * 540.0 / 500.0))
     names = {"alt": "Altitude [km]", "gamma": r"Flight-path angle $\gamma$ [deg]",
-             "accel": r"Thrust accel. $T/(m g_0)$ [g]", "q": "Dynamic pressure [kPa]",
-             "theta": r"Pitch $\theta$, second stage [deg]"}
+             "accel": r"Thrust accel. $T/(m g_0)$ [g]", "q": "Dynamic pressure [kPa]"}
     # Two ticks per axis, its zero and its top, so the axes can sit close.
-    ticks = {"alt": [0, 500], "gamma": [0, 90], "accel": [0, 6],
-             "q": [0, 60], "theta": [0, 20]}
-    # Spine positions in axes fractions: two on the left, three on the right.
-    spines = {"gamma": ("left", -0.135), "accel": ("right", 1.0),
-              "q": ("right", 1.075), "theta": ("right", 1.18)}
+    ticks = {"alt": [0, 500], "gamma": [0, 90], "accel": [0, 6], "q": [0, 60]}
+    # Spine positions in axes fractions: two on the left, two on the right.
+    spines = {"gamma": ("left", -0.135), "accel": ("right", 1.0), "q": ("right", 1.085)}
 
-    fig = plt.figure(figsize=(COLUMN_IN, 3.80))
-    ax = fig.add_axes([0.150, 0.500, 0.670, 0.485])
+    # Axes boxes in inches from the foot: legend (two columns), (b), then (a).
+    height = 4.87
+    fig = plt.figure(figsize=(COLUMN_IN, height))
+    ax = fig.add_axes([0.150, 2.90 / height, 0.700, 1.86 / height])
+    ax_b = fig.add_axes([0.150, 1.27 / height, 0.795, 1.03 / height])
     hosts = {"alt": ax}
-    for key in ("gamma", "accel", "q", "theta"):
+    for key in ("gamma", "accel", "q"):
         side, off = spines[key]
         tw = ax.twinx()
         tw.spines["right" if side == "left" else "left"].set_visible(False)
@@ -101,11 +98,6 @@ def ea_reference_profile(cases):
         host.spines[side].set_color(colour)
         host.spines[side].set_linewidth(1.2)
         legend.append(Line2D([], [], color=colour, linewidth=1.6, label=names[key]))
-    long_burns = [b for b in burns if b[1] - b[0] >= sec63.MIN_FIT_S]
-    tf, fitted, rms = sec63._tangent_fit(case, *long_burns[0])
-    hosts["theta"].plot(tf, fitted, color=st.INK, linestyle="--", linewidth=1.0)
-    legend.append(Line2D([], [], color=st.INK, linestyle="--", linewidth=1.0,
-                         label=r"Linear tangent, fitted"))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -141,12 +133,40 @@ def ea_reference_profile(cases):
                     bbox={"boxstyle": "square,pad=0.05", "fc": "white", "ec": "none"})
     ax.grid(True, color=st.FAINT, linewidth=0.5, alpha=0.8)
     ax.set_axisbelow(True)
+    ax.set_title("(a)", loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
+
+    # (b) The steering of the first second-stage burn, where the law is fitted.
+    long_burns = [b for b in burns if b[1] - b[0] >= sec63.MIN_FIT_S]
+    b0, b1 = long_burns[0]
+    sel = (case.time >= b0) & (case.time <= b1)
+    tb = case.time[sel]
+    keep = np.ones(tb.size, dtype=bool)
+    keep[1:] = np.diff(tb) > 0.0
+    tb = tb[keep]
+    # Colours of their own, so neither is read as a quantity of panel (a).
+    steer = (("theta", r"Pitch $\theta$", sec63.OVERLAY_COLOURS["mach"]),
+             ("alpha", r"Angle of attack $\alpha$", sec63.OVERLAY_COLOURS["thrust"]))
+    for key, label, colour in steer:
+        values = (case.theta_deg if key == "theta" else case.alpha_deg)[sel][keep]
+        ax_b.plot(*st.thin(tb, values), color=colour, linewidth=1.15, label=label)
+    tf, fitted, _rms = sec63._tangent_fit(case, b0, b1)
+    ax_b.plot(tf, fitted, color=st.INK, linestyle="--", linewidth=1.0,
+              label="Linear tangent fit")
+    ax_b.set_xlim(b0 - 5.0, b1 + 5.0)
+    ax_b.set_ylim(0.0, 16.0)
+    ax_b.set_yticks([0, 5, 10, 15])
+    ax_b.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
+    ax_b.set_ylabel("Angle [deg]", fontsize=FS, labelpad=2)
+    ax_b.tick_params(labelsize=FS)
+    ax_b.set_title("(b)", loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
+    st.tidy(ax_b, legend=False)
 
     legend += [Patch(color=st.FAINT, alpha=0.45, label="Coast (%.0f s)" % (c1 - c0)),
                ax.get_legend_handles_labels()[0][-1]]
-    fig.legend(handles=legend, loc="lower center", ncol=1, fontsize=FS, frameon=False,
-               bbox_to_anchor=(0.5, -0.01), handlelength=1.6, labelspacing=0.25,
-               borderaxespad=0.1)
+    legend += ax_b.get_legend_handles_labels()[0]
+    fig.legend(handles=legend, loc="lower center", ncol=2, fontsize=FS, frameon=False,
+               bbox_to_anchor=(0.486, -0.005), handlelength=1.0, handletextpad=0.35,
+               columnspacing=0.6, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
     return st.save(fig, "ea_reference_profile.png")
 
 
