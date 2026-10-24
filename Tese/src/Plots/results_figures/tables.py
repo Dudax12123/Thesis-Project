@@ -883,7 +883,48 @@ def ea_all_cases(cases):
         rule_under_heads=" & ".join(bold("", "left", "", "", "loss", "loss", "")) + r" \\")
 
 
-EA_TABLES = [ea_all_cases]
+EA_COST_ROWS = [
+    ("apogee_check", "Apogee check (grid)"),
+    ("direct", "Direct insertion (grid)"),
+    ("pso_coast", "Coast parameter (swarm)"),
+    ("segmented", "Segmented (swarm)"),
+    ("indirect_pmp", "Reference (swarm, refined)"),
+]
+
+
+def ea_architecture_cost(cases):
+    """Search cost per case of each architecture: flights and wall clock, as a
+    range over its cases (Extended Abstract, review AA-1, 2026-10-24). The thesis's
+    tail-improvement column is left to the text, and the labels are shortened
+    to fit one column. A refined law case counts its swarm only, as in
+    architecture_cost; the text gives the refinement's cost."""
+    rows = []
+    for arch, label in EA_COST_ROWS:
+        members = [cases[n] for n in _data.REPORTED_CASES
+                   if n in cases and cases[n].architecture == arch]
+        if not members:
+            continue
+        costs = [swarm_search(k) for k in members]
+        walls = [w for w, _e in costs if w is not None]
+        evals = sorted(set(e for _w, e in costs if e))
+        evals_cell = DASH if not evals else (
+            count(evals[0]) if len(evals) == 1
+            else "%s--%s" % (count(evals[0]), count(evals[-1])))
+        lo, hi = hours(min(walls)), hours(max(walls))
+        rows.append([label, evals_cell, lo if lo == hi else "%s--%s" % (lo, hi)])
+    return tabular(
+        "@{}l r r@{}",
+        bold("Architecture", "Flights", "Wall clock"),
+        ["", "[-]", "[h]"], rows)
+
+
+def ea_validation_timeline(cases):
+    """The thesis's event-time table, unchanged, for the abstract's validation
+    subsection (Extended Abstract, review AA-2, 2026-10-24)."""
+    return validation_timeline(cases)
+
+
+EA_TABLES = [ea_all_cases, ea_architecture_cost, ea_validation_timeline]
 
 TABLES = [
     reference_results, reference_seeds, gt_results, peg_results, peg_waypoint,
