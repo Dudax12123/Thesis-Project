@@ -921,14 +921,20 @@ def ea_architecture_cost(cases):
 def ea_validation_timeline(cases):
     """The thesis's event-time table for the abstract's validation subsection
     (Extended Abstract, review AA-2, 2026-10-24), without the Paz row and the
-    space that follows it (user, 2026-10-24): the abstract does not discuss
-    that flight."""
+    space that follows it, which the abstract does not discuss, and without the
+    500 km reference's row (user, 2026-10-24)."""
     rows = validation_timeline(cases).split("\n")
     paz = [i for i, r in enumerate(rows) if r.lstrip().startswith("Paz,")]
     assert len(paz) == 1, "Paz row not found exactly once"
     i = paz[0]
     drop = {i, i + 1} if rows[i + 1].strip() == r"\addlinespace" else {i}
     rows = [r for k, r in enumerate(rows) if k not in drop]
+    # Only the reference flown to the Starlink mission is kept (user, 2026-10-24):
+    # its coast bound, 2500 s, lies above the flight's 2161 s coast, whereas the
+    # 500 km reference's 2000 s bound lies below it.
+    ref = [k for k, r in enumerate(rows) if r.lstrip().startswith("Reference (indirect PMP)")]
+    assert len(ref) == 1, "500 km reference row not found exactly once"
+    del rows[ref[0]]
     # Every column is in seconds, which the caption states once, so the units
     # row goes (user, 2026-10-24).
     h = next(k for k, r in enumerate(rows) if r.lstrip().startswith(r"\textbf{Source}"))
