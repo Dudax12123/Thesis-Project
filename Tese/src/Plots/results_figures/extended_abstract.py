@@ -29,13 +29,13 @@ def _skip(what, missing):
 
 
 def save_pieces(fig, name, pieces):
-    """Save a multi-panel figure as one PNG per piece, so the abstract can place
-    the pieces in different columns under one shared caption (review AC-1).
+    """Save a multi-panel figure as one PNG per piece, each a figure of its own
+    in the abstract with its own caption and label (reviews AC-1, AD-1).
 
     Each piece is the union of its artists' tight boxes, cut across the full
     width of the figure, so every piece keeps the figure's width and its text
     prints at the same size whichever column it lands in. name holds one %s,
-    filled with the piece's suffix: ea_peg_%s.png gives ea_peg_a.png, ..."""
+    filled with the piece's name: ea_peg_%s.png gives ea_peg_altitude.png, ..."""
     from matplotlib.transforms import Bbox
 
     fig.canvas.draw()
@@ -163,7 +163,6 @@ def ea_reference_profile(cases):
                     bbox={"boxstyle": "square,pad=0.05", "fc": "white", "ec": "none"})
     ax.grid(True, color=st.FAINT, linewidth=0.5, alpha=0.8)
     ax.set_axisbelow(True)
-    ax.set_title("(a)", loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
 
     # (b) The steering of the first second-stage burn, where the law is fitted.
     long_burns = [b for b in burns if b[1] - b[0] >= sec63.MIN_FIT_S]
@@ -188,7 +187,6 @@ def ea_reference_profile(cases):
     ax_b.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
     ax_b.set_ylabel("Angle [deg]", fontsize=FS, labelpad=2)
     ax_b.tick_params(labelsize=FS)
-    ax_b.set_title("(b)", loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
     st.tidy(ax_b, legend=False)
 
     legend += [Patch(color=st.FAINT, alpha=0.45, label="Coast (%.0f s)" % (c1 - c0)),
@@ -205,8 +203,9 @@ def ea_reference_profile(cases):
     leg_a = fig.legend(handles=legend, bbox_to_anchor=(0.486, 2.84 / height), **style)
     leg_b = fig.legend(handles=ax_b.get_legend_handles_labels()[0],
                        bbox_to_anchor=(0.486, 0.59 / height), **style)
-    return save_pieces(fig, "ea_reference_profile_%s.png",
-                       [("a", list(hosts.values()) + [leg_a]), ("b", [ax_b, leg_b])])
+    return save_pieces(fig, "ea_reference_%s.png",
+                       [("profile", list(hosts.values()) + [leg_a]),
+                        ("steering", [ax_b, leg_b])])
 
 
 def ea_segmented(cases):
@@ -297,7 +296,7 @@ def ea_gravity_turn(cases):
         fig = plt.figure(figsize=(COLUMN_IN, height))
         box = lambda y, h, w=0.78: [0.19, y / height, w, h / height]
         ax_a = fig.add_axes(box(4.90, 1.50))
-        ax_b = fig.add_axes(box(2.75, 1.50), sharex=ax_a)
+        ax_b = fig.add_axes(box(2.75, 1.50))
         ax_c = fig.add_axes(box(0.80, 1.30, 0.64))
         for ax, (title, entries) in zip((ax_a, ax_b), panels):
             for case, colour, label, shade in entries:
@@ -309,13 +308,13 @@ def ea_gravity_turn(cases):
                         ax.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
             ax.set_ylabel("Altitude [km]", labelpad=2)
             ax.set_yticks([0, 250, 500])
-            ax.set_title(title, loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
             st.tidy(ax, legend_loc="lower right",
                     legend_kw={"fontsize": FS, "handlelength": 1.4, "borderaxespad": 0.2,
                                "labelspacing": 0.25})
         for axis in (ax_a, ax_b):
             axis.tick_params(labelbottom=True)
             axis.set_xlabel("Time [s]", labelpad=2)
+        ax_a.set_xlim(0.0, None)
         ax_b.set_xlim(0.0, None)
 
         forces = base.pseudo_forces_at_azimuth()
@@ -344,7 +343,6 @@ def ea_gravity_turn(cases):
         ax_c.set_yticks([0, 0.5, 1.0])
         ax_c.set_xlabel("Time [s]", labelpad=2)
         ax_c.set_ylabel(r"Accel. [m/s$^2$]", labelpad=2)
-        ax_c.set_title("(c)", loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
         st.tidy(ax_c, legend=False)
         handles, labels = [], []
         for ax in (ax_c, ax_f):
@@ -355,7 +353,8 @@ def ea_gravity_turn(cases):
                    bbox_to_anchor=(0.5, 0.0), handlelength=1.2, handletextpad=0.4,
                    columnspacing=0.8, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
         return save_pieces(fig, "ea_gravity_turn_%s.png",
-                           [("a", [ax_a]), ("b", [ax_b]), ("c", [ax_c, ax_f, leg_c])])
+                           [("architecture", [ax_a]), ("rotation", [ax_b]),
+                            ("pseudo_forces", [ax_c, ax_f, leg_c])])
 
 
 def ea_peg(cases):
@@ -458,12 +457,12 @@ def ea_peg(cases):
         ax_c.legend(loc="upper right", fontsize=FS, frameon=False, handlelength=1.2,
                     labelspacing=0.25, borderpad=0.1)
 
-        for axis, tag in ((ax, "(a)"), (ax_b, "(b)"), (ax_c, "(c)")):
+        for axis in (ax, ax_b, ax_c):
             axis.xaxis.labelpad = 2
             axis.yaxis.labelpad = 2
-            axis.set_title(tag, loc="left", color=st.INK, fontweight="bold", fontsize=FS, pad=2)
             st.tidy(axis, legend=False)
-        return save_pieces(fig, "ea_peg_%s.png", [("a", [ax]), ("b", [ax_b]), ("c", [ax_c])])
+        return save_pieces(fig, "ea_peg_%s.png", [("altitude", [ax]), ("losses", [ax_b]),
+                                                   ("dynamic_pressure", [ax_c])])
 
 
 def ea_vacuum_coast_bound(cases):
