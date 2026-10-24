@@ -24,12 +24,12 @@ On request only: results_reference_card.png.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from Auxiliary import rocket_specs as rs
 
 from . import _data
 from . import _panels as pn
 from . import _style as st
 from . import run_card
+from . import validation_falcon9 as vf
 
 # A burn shorter than this is not fitted with the linear-tangent form: the
 # reference's final burn lasts a fraction of a second, and two parameters
@@ -141,6 +141,11 @@ def peg_architectures(cases):
         return st.save(fig, "results_peg_architectures.png")
 
 
+# fig:peg_atmosphere (c): the flown ascent whose throttled dynamic pressure is
+# drawn beside PEG's (review P-2, 2026-10-24, user's choice of flight).
+THROTTLED_FLIGHT = "intelsat_35e"
+
+
 def peg_atmosphere(cases):
     """PEG at the baseline against the drag-free run: (a) altitude against
     downrange, (b) the cumulative gravity and drag losses.
@@ -171,9 +176,13 @@ def peg_atmosphere(cases):
 def _draw_peg_atmosphere(flights):
     """peg_atmosphere's drawing, run inside its font sizes.
 
-    Panel (c), added 2026-10-23 (Thesis Review L-1): the drag and the dynamic
-    pressure of the flight with the atmosphere, through the first stage up to
-    separation. The flight without it has neither, so it is not drawn there.
+    Panel (c), added 2026-10-23 (Thesis Review L-1): the dynamic pressure of the
+    flight with the atmosphere, through the first stage up to separation. The
+    flight without it has none, so it is not drawn there. Since review P-2
+    (2026-10-24) the panel carries no drag axis, and the flown Intelsat 35e
+    ascent (validation_falcon9, shahar603 webcast telemetry), which throttled
+    the first stage down through max-Q, is dotted beside it, its throttle-down
+    interval shaded; its q is recomputed with the simulator's atmosphere.
     """
     fig = plt.figure(figsize=(6.3, 5.6))
     grid = fig.add_gridspec(2, 2)
@@ -206,27 +215,29 @@ def _draw_peg_atmosphere(flights):
             legend_kw={"bbox_to_anchor": (1.0, 0.05), "handlelength": 1.4,
                        "borderaxespad": 0.2})
 
-    # The drag is the shared model's F_D = q C_D A (Section 5.1), evaluated on
-    # the archived state; the separation is the planned 8 s after MECO.
-    case, colour, _label = flights[0]
+    # The separation is the planned 8 s after MECO.
+    case, colour, label = flights[0]
     t_end = case.t_meco + 8.0 if case.t_meco is not None else case.time[-1]
     keep = case.time <= t_end
-    t, q = st.thin(case.time[keep], np.asarray(case.q)[keep])
-    drag_kn = q * rs.C_D * rs.A / 1e3
-    # With a constant C_D the drag is the dynamic pressure times C_D A, so one
-    # curve carries both: the right axis reads it in kPa.
-    kn_per_kpa = rs.C_D * rs.A
-    ax_c.plot(t, drag_kn, color=colour)
+    t, q = st.thin(case.time[keep], np.asarray(case.q)[keep] / 1e3)
+    ax_c.plot(t, q, color=colour, label=label)
+    flown = [f for f in vf.load_flights() if f.name == THROTTLED_FLIGHT]
+    if flown:
+        f = flown[0]
+        t_f, q_f = vf._q(f.time, f.v, f.alt_km)
+        sel = t_f <= t_end
+        ax_c.plot(t_f[sel], q_f[sel], color=st.INK, linestyle=":",
+                  label="%s, flown (throttled)" % f.label)
+        t0, t1 = f.event("throttle_down_start"), f.event("throttle_down_end")
+        if np.isfinite(t0) and np.isfinite(t1):
+            ax_c.axvspan(t0, t1, color=st.INK, alpha=0.10, linewidth=0,
+                         label="Throttle-down, %s" % f.label)
     ax_c.set_xlabel("Time [s]")
-    ax_c.set_ylabel("Drag [kN]")
+    ax_c.set_ylabel("Dynamic pressure [kPa]")
+    ax_c.set_xlim(0.0, t_end)
     ax_c.set_ylim(bottom=0)
-    ax_q = ax_c.secondary_yaxis("right", functions=(lambda d: d / kn_per_kpa,
-                                                   lambda p: p * kn_per_kpa))
-    ax_q.set_ylabel("Dynamic pressure [kPa]")
     st.panel_tag(ax_c, "c")
-    st.tidy(ax_c, legend=False)
-    ax_c.spines["right"].set_visible(True)
-    ax_c.spines["right"].set_color(st.INK)
+    st.tidy(ax_c, legend_loc="upper right", legend_kw={"handlelength": 1.6})
 
     fig.tight_layout()
     return st.save(fig, "results_peg_atmosphere.png")
