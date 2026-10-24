@@ -940,7 +940,21 @@ def ea_validation_timeline(cases):
     h = next(k for k, r in enumerate(rows) if r.lstrip().startswith(r"\textbf{Source}"))
     assert set(c.strip() for c in rows[h + 1].rstrip().rstrip("\\").split("&")) == {"", r"[\unit{\s}]"}
     del rows[h + 1]
-    return "\n".join(rows)
+    # Transposed to fit one column of the abstract (review AK-1, 2026-10-24):
+    # events down the side, the three sources across under short names that
+    # the caption explains, with the citations moved there.
+    cells = [[c.strip() for c in r.strip().rstrip("\\").strip().split("&")]
+             for r in rows if "&" in r]
+    events = [c[len(r"\textbf{"):-1] for c in cells[0][1:]]
+    sources = cells[1:]
+    assert [s[0].split("~")[0].split(",")[0] for s in sources] == ["Sample LEO mission", "Starlink", "Reference"]
+    lines = [r"\begin{tabular}{@{}l r r r@{}}", r"  \toprule",
+             r"  \textbf{Event} & \textbf{Guide} & \textbf{Starlink} & \textbf{Reference} \\",
+             r"  \midrule"]
+    lines += ["  %s & %s \\\\" % (e, " & ".join(s[i + 1] for s in sources))
+              for i, e in enumerate(events)]
+    lines += [r"  \bottomrule", r"\end{tabular}"]
+    return "\n".join(lines)
 
 
 EA_TABLES = [ea_all_cases, ea_architecture_cost, ea_validation_timeline]
