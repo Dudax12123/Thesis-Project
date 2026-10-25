@@ -177,6 +177,15 @@ def _reference_input_key():
         ("ISP_2", float(r.ISP_2)), ("F_THRUST_2", float(r.F_THRUST_2)),
         ("M_STRUCTURE_2", float(r.M_STRUCTURE_2)), ("M_PROP_2", float(r.M_PROP_2)),
     )
+    # The Stage-2 aerodynamics change it too; keyed only when switched on, so the
+    # caches built before the switches existed stay valid.
+    if getattr(sim_params, "STAGE2_DRAG", False) or \
+            getattr(sim_params, "THRUST_2_MODE", "vacuum") != "vacuum":
+        payload = payload + (
+            ("STAGE2_DRAG", bool(sim_params.STAGE2_DRAG)),
+            ("THRUST_2_MODE", str(sim_params.THRUST_2_MODE)),
+            ("A_E_2", float(r.A_E_2)),
+        )
     # Full-ascent PMP changes the reference trajectory. Only perturb the key when
     # it is enabled, so existing Stage-2-only caches remain valid by default.
     if getattr(sim_params, "INDIRECT_PMP_FULL_ASCENT", False):
@@ -262,6 +271,7 @@ _ARCHIVE_MUST_MATCH = (
     "TARGET_ORBITAL_ALTITUDE", "TARGET_ORBIT_INCLINATION", "LAUNCH_LATITUDE",
     "ISP_1_MODE", "THRUST_1_MODE",
 )
+_ARCHIVE_MUST_MATCH_DEFAULTED = (("STAGE2_DRAG", False), ("THRUST_2_MODE", "vacuum"))
 
 
 def _archive_mismatches(config, check_search=True):
@@ -289,6 +299,11 @@ def _archive_mismatches(config, check_search=True):
                                               getattr(sim_params, "PSO_SEED", None)))
     for name in _ARCHIVE_MUST_MATCH:
         have, want = norm(config.get(name)), norm(getattr(sim_params, name, None))
+        if have != want:
+            out.append("%s: %r != %r" % (name, have, want))
+    # Settings younger than most archives: one that predates them flew the default.
+    for name, default in _ARCHIVE_MUST_MATCH_DEFAULTED:
+        have, want = config.get(name, default), getattr(sim_params, name, default)
         if have != want:
             out.append("%s: %r != %r" % (name, have, want))
     return out

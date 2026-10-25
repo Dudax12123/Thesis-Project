@@ -698,8 +698,9 @@ def _compute_alpha_stage2(t, state, F_T, Isp, gs):
 
 def _stage2_ode_guidance(t, y, thrust, Isp, gs):
     """
-    Stage-2 ODE with guidance steering. Aerodynamically vacuum (F_L = F_D = 0),
-    but still integrated in the ROTATING frame — so the Coriolis and centrifugal
+    Stage-2 ODE with guidance steering. Aerodynamically vacuum (F_L = F_D = 0)
+    unless STAGE2_DRAG adds drag (ra.stage2_drag), with the flown thrust of
+    THRUST_2_MODE (ra.stage2_thrust_isp); still integrated in the ROTATING frame — so the Coriolis and centrifugal
     terms belong here even though drag and lift do not. They are not aerodynamic
     forces that vanish above the atmosphere; they are frame terms that vanish
     only when the propagation becomes inertial.
@@ -715,6 +716,7 @@ def _stage2_ode_guidance(t, y, thrust, Isp, gs):
 
     # Auto-cutoff when propellant is depleted (prevents F_T/m blow-up)
     F_T = thrust if m > _DRY_MASS_2 + 0.1 else 0.0
+    F_T, Isp = ra.stage2_thrust_isp(F_T, Isp, r_val - c.R_EARTH)
 
     if gs is not None and F_T > 0:
         alpha = _compute_alpha_stage2(t, y, F_T, Isp, gs)
@@ -722,7 +724,8 @@ def _stage2_ode_guidance(t, y, thrust, Isp, gs):
         alpha = 0.0
 
     a_grav = grav.gravitational_acceleration(r_val)
-    d = ra.diff_eom_base(s, r_val, v, gamma, m, 0.0, 0.0, F_T, a_grav, alpha, Isp)
+    F_D = ra.stage2_drag(r_val, v)    # 0 unless STAGE2_DRAG
+    d = ra.diff_eom_base(s, r_val, v, gamma, m, 0.0, F_D, F_T, a_grav, alpha, Isp)
 
     if ra._pseudo_forces_active():
         # Latitude held at launch; rotation credited as the launch-site speed.

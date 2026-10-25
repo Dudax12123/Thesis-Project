@@ -93,6 +93,14 @@ INCLUDE_DRAG = True                              # if True, include aerodynamic 
                                                  # atmosphere-exit marker uses the altitude method.
 INCLUDE_LIFT = True                              # if True, include aerodynamic lift force in the EOM (F_L = q * C_L * A).
                                                  # Only effective while INCLUDE_DRAG is True (no lift without atmosphere).
+STAGE2_DRAG = False                              # if True, the Stage-2 kernels of the population architectures
+                                                 # (pso_coast_solver._stage2_ode_guidance, shared by pso_coast, direct,
+                                                 # segmented and reference_track; indirect_pso_solver._stage2_state_rates)
+                                                 # carry drag on every Stage-2 arc, coasts included. Without it they are
+                                                 # aerodynamically vacuum, so a long coast may dip into the atmosphere for
+                                                 # free. The PMP costates stay as published (drag partials omitted).
+                                                 # The legacy apogee_check path always carries drag. No lift is added.
+                                                 # Only effective while INCLUDE_DRAG is True. Default False: byte-identical.
 
 
 # ===================================================================
@@ -165,6 +173,16 @@ ISP_1_LINEAR_UPDATE_RATE = 5.0                  # [s] step interval for linear r
 # "pressure" sits between "sea_level" and "vacuum" and does not trip that.
 THRUST_1_MODE = "pressure"                     # Options: "sea_level", "vacuum", "average", "linear", "pressure"
 THRUST_1_LINEAR_UPDATE_RATE = 5.0               # [s] step interval for linear ramp (only used when THRUST_1_MODE = "linear")
+
+# -------------- Stage 2 Thrust Mode --------------
+#   "vacuum":     F_THRUST_2 and ISP_2 throughout (default; byte-identical to before the switch)
+#   "pressure":   F(h) = F_THRUST_2 - p_a(h)*A_E_2, the Stage-1 nozzle deficit applied to the
+#                 vacuum engine, with the mass flow held at F_THRUST_2/(ISP_2*g0), so Isp falls
+#                 in proportion and every burn duration is unchanged (rocket_ascent.stage2_thrust_isp).
+#                 Negligible at a nominal ignition (~15 Pa at 75 km); it matters only on an arc
+#                 that dips back into the atmosphere. With INCLUDE_DRAG=False it is "vacuum".
+#                 rocket_specs.A_E_2 is an assumed, uncited figure (see there).
+THRUST_2_MODE = "vacuum"                       # Options: "vacuum", "pressure"
 
 
 # ===================================================================

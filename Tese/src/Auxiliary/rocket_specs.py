@@ -77,6 +77,11 @@ M_PROP_1 = 395.7e3        # mass propellant [kg]
 ISP_2 = 348              # specific impulse [s]
 F_THRUST_2 = 934e3       # thrust of engine [N]
 
+# Stage-2 (vacuum engine) nozzle exit area. Unlike A_E it cannot be derived: only the
+# vacuum figures above are published. ASSUMED, NOT CITED: a 3.3 m exit diameter.
+# Only read when THRUST_2_MODE = "pressure".
+A_E_2 = 3.141592653589793 * (3.3 / 2.0) ** 2   # nozzle exit area [m^2]
+
 # -------------- Mass Properties --------------
 M_STRUCTURE_2 = 3900            # mass structure [kg]
 M_PROP_2 = 92670                # mass propellant [kg]

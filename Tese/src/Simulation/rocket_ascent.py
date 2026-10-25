@@ -1042,6 +1042,31 @@ def _get_stage1_thrust(t, alt=None):
     return r.F_THRUST_1_SL
 
 
+def stage2_thrust_isp(thrust, Isp, alt):
+    """Flown Stage-2 (F_T, Isp) for an engine rated ``thrust`` (0 when off) in vacuum.
+
+    THRUST_2_MODE = "vacuum" returns the two unchanged. "pressure" applies the
+    nozzle deficit of THRUST_1_MODE = "pressure", F = F_VAC - p_a(h)*A_E_2, with the
+    mass flow held at its vacuum value: Isp falls by the same factor as the thrust,
+    so the propellant, and every burn duration computed from it, is unchanged.
+    Shared by every Stage-2 kernel (legacy, pso_coast, indirect PMP)."""
+    mode = sim_params.THRUST_2_MODE
+    if mode == "vacuum" or thrust <= 0.0:
+        return thrust, Isp
+    if mode != "pressure":
+        raise ValueError(f'THRUST_2_MODE must be "vacuum" or "pressure", not {mode!r}')
+    F = thrust - _ambient_pressure_for_run(alt) * r.A_E_2
+    return F, Isp * F / thrust
+
+
+def stage2_drag(r_val, v):
+    """Stage-2 drag [N] at a ground-relative state, or 0 unless STAGE2_DRAG (and
+    INCLUDE_DRAG) is on. The same drag_force(q) rocket_dynamics flies; no lift."""
+    if not (sim_params.STAGE2_DRAG and sim_params.INCLUDE_DRAG):
+        return 0.0
+    return atm.drag_force(atm.dynamic_pressure(v, r_val - c.R_EARTH))
+
+
 def thrust_Isp(t, alt=None):
     """
     Returns the current thrust and specific impulse based on engine status.
@@ -1075,6 +1100,12 @@ def thrust_Isp(t, alt=None):
     elif main_engine_cutoff and second_engine_ignition:
         F_T = r.F_THRUST_2
         Isp = r.ISP_2
+        if sim_params.THRUST_2_MODE != "vacuum":
+            if alt is None:
+                raise ValueError(
+                    'THRUST_2_MODE="pressure" needs the current altitude, but this call site '
+                    'did not supply one. Pass alt through thrust_Isp(t, alt).')
+            F_T, Isp = stage2_thrust_isp(F_T, Isp, alt)
     else:
         print("Warning: Both first stage and second stage engines are running at the same time.")
         F_T = _get_stage1_thrust(t, alt)

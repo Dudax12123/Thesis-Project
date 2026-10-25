@@ -87,6 +87,8 @@ POLISH_OUT = SRC / "Output" / "pmp_polish"
 # from it would record a configuration it was never searched under.
 ENVIRONMENT_KEYS = ("INCLUDE_DRAG", "ENABLE_EARTH_ROTATION", "INCLUDE_PSEUDO_FORCES",
                     "THRUST_1_MODE", "ISP_1_MODE")
+# Younger switches: an archive that predates them flew the default.
+ENVIRONMENT_KEYS_DEFAULTED = (("STAGE2_DRAG", False), ("THRUST_2_MODE", "vacuum"))
 
 
 def x_from(u, gp):
@@ -387,6 +389,10 @@ def load_start(path, case):
         if man.exists():
             cfg = json.loads(man.read_text(encoding="utf-8")).get("config", {})
             seed = cfg.get("PSO_SEED")
+            for key, default in ENVIRONMENT_KEYS_DEFAULTED:
+                if cfg.get(key, default) != getattr(sp, key, default):
+                    raise SystemExit(f"{path} was flown with {key}={cfg.get(key, default)!r}, "
+                                     f"--case {case} has {getattr(sp, key, default)!r}")
             for key in ENVIRONMENT_KEYS:
                 if cfg.get(key) is not None and cfg[key] != getattr(sp, key):
                     raise SystemExit(f"{path} was flown with {key}={cfg[key]!r}, "

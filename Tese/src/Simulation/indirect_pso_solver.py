@@ -278,11 +278,14 @@ def _stage2_pseudo_rates(s, r_val, v, gamma):
 
 
 def _stage2_state_rates(s, r_val, v, gamma, m, thrust, Isp, alpha, pseudo_forces):
-    """d[s, r, v, gamma, m]/dt of the Stage-2 arc: drag-free, inverse-square
-    gravity, thrust at angle of attack ``alpha``, plus the rotating-frame
-    pseudo-forces when ``pseudo_forces`` (the "rotating_pseudo_forces" form)."""
+    """d[s, r, v, gamma, m]/dt of the Stage-2 arc: inverse-square gravity, thrust
+    at angle of attack ``alpha``, plus the rotating-frame pseudo-forces when
+    ``pseudo_forces`` (the "rotating_pseudo_forces" form). Drag-free unless
+    STAGE2_DRAG; ``thrust`` is the vacuum rating, flown through THRUST_2_MODE
+    (ra.stage2_thrust_isp), as in pso_coast_solver._stage2_ode_guidance."""
     _EPS = 1e-10
     mu = c.MU_EARTH
+    thrust, Isp = ra.stage2_thrust_isp(thrust, Isp, r_val - c.R_EARTH)
 
     cg = np.cos(gamma)
     sg = np.sin(gamma)
@@ -305,8 +308,20 @@ def _stage2_state_rates(s, r_val, v, gamma, m, thrust, Isp, alpha, pseudo_forces
         d_v, d_g = _stage2_pseudo_rates(s, r_val, v, gamma)
         dvdt += d_v
         dgdt += d_g
+    if sim_params.STAGE2_DRAG:
+        dvdt -= _stage2_drag_accel(r_val, v, m)
 
     return [dsdt, drdt, dvdt, dgdt, dmdt]
+
+
+def _stage2_drag_accel(r_val, v, m):
+    """Drag deceleration [m/s²] of STAGE2_DRAG. The velocity is ground-relative only
+    in the rotating forms, so the inertial form refuses it. The costate equations
+    omit its partials, as they omit the pseudo-forces'."""
+    if _stage2_inertial():
+        raise ValueError('STAGE2_DRAG needs a ground-relative Stage-2 velocity; '
+                         'INDIRECT_PMP_STAGE2_FRAME="inertial" does not fly one')
+    return ra.stage2_drag(r_val, v) / m if m > 1e-10 else 0.0
 
 
 def _stage2_ode(t, aug_state, thrust, Isp, pseudo_forces=False):
@@ -341,7 +356,8 @@ def _stage2_ode(t, aug_state, thrust, Isp, pseudo_forces=False):
 
     dx = _stage2_state_rates(s, r_val, v, gamma, m, thrust, Isp, alpha, pseudo_forces)
 
-    # --- Costate derivatives ---
+    # --- Costate derivatives (published; at the flown thrust of THRUST_2_MODE) ---
+    thrust, _ = ra.stage2_thrust_isp(thrust, Isp, r_val - c.R_EARTH)
     dlams = costate_derivatives(r_val, v, gamma, thrust, m, lam_r, lam_v, lam_g, alpha)
 
     return dx + dlams
@@ -355,6 +371,9 @@ def _hamiltonian_at(state, lams, thrust, pseudo_forces):
     lam_r, lam_v, lam_g = (float(x) for x in lams)
     alpha = pmp_control_law(lam_v, lam_g, v)
     d_v, d_g = _stage2_pseudo_rates(s, r_val, v, gamma) if pseudo_forces else (0.0, 0.0)
+    if sim_params.STAGE2_DRAG:
+        d_v -= _stage2_drag_accel(r_val, v, m)
+    thrust, _ = ra.stage2_thrust_isp(thrust, r.ISP_2, r_val - c.R_EARTH)
     return compute_hamiltonian(r_val, v, gamma, thrust, m, alpha, lam_r, lam_v, lam_g,
                                delta_dvdt=d_v, delta_dgammadt=d_g)
 

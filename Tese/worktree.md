@@ -376,6 +376,7 @@ Unless noted, line numbers are in `Input_File/simulation_parameters.py`.
 | `ISP_1_LINEAR_UPDATE_RATE` | float s | `5.0` | Isp ramp step interval. | `ISP_1_MODE="linear"` only. |
 | `THRUST_1_MODE` | `sea_level`, `vacuum`, `average`, `linear`, `pressure` | `sea_level` | Which thrust Stage 1 uses. | `linear` activates `THRUST_1_LINEAR_UPDATE_RATE`; reads `F_THRUST_1_SL`/`_VAC`. `pressure` also reads the derived `rocket_specs.A_E`. |
 | `THRUST_1_LINEAR_UPDATE_RATE` | float s | `5.0` | Thrust ramp step interval. | `THRUST_1_MODE="linear"` only. |
+| `THRUST_2_MODE` | `vacuum`, `pressure` | `vacuum` | Which thrust Stage 2 uses. `pressure`: F = F_THRUST_2 − p_a(h)·A_E_2 with the mass flow held at its vacuum value, so Isp falls by the same factor and burn durations are unchanged (`rocket_ascent.stage2_thrust_isp`, read by all three Stage-2 kernels: legacy, `pso_coast_solver._stage2_ode_guidance`, `indirect_pso_solver._stage2_state_rates`). | Reads `rocket_specs.A_E_2`, an **assumed, uncited** 3.3 m exit diameter. Off by default (byte-identical). Collapses to `vacuum` when `INCLUDE_DRAG=False`. Negligible at a nominal ignition; matters only on an arc that dips back into the atmosphere. The archived thrust record still holds the vacuum rating on PSO Stage-2 arcs. Keys the PMP reference cache when not `vacuum`. (2026-10-25) |
 
 **The `pressure` modes (added 2026-08-18).** Altitude-based rather than time-based:
 
@@ -407,6 +408,7 @@ atmospheric arc.
 |---|---|---|---|---|
 | `INCLUDE_DRAG` (L51) | `True`/`False` | `True` | Include aerodynamic drag (F_D = q·C_D·A) in the EOM. **Master no-atmosphere switch.** | `False` ⇒ no-atmosphere mode: lift also forced off, fairing **not carried** (launched without it, `M_FAIRING` dropped from launch mass), atmosphere exit forced to the **altitude** method. No guidance depends on atmosphere exit, so nothing else changes. |
 | `INCLUDE_LIFT` (L55) | `True`/`False` | `True` | Include aerodynamic lift (F_L = q·C_L·A) in the EOM. | Reads `C_L` from `rocket_specs.py` (else `C_L` is inert). Only effective while `INCLUDE_DRAG=True`. |
+| `STAGE2_DRAG` | `True`/`False` | `False` | Drag (`atm.drag_force(q)`, no lift) on every Stage-2 arc of the population architectures, coasts included: `pso_coast`, `direct`, segmented, `reference_track` (all via `_stage2_ode_guidance`) and the PMP's state equations, whose costates stay as published (drag partials omitted, like the pseudo-forces'); H = λ·f includes it. Without it those arcs are aerodynamically vacuum, so a long coast can dip into the atmosphere for free (gt_baseline refined at a 5000 s bound: coast 3472 s, low point 36 km). | Only effective while `INCLUDE_DRAG=True`. The legacy `apogee_check` path always carries drag. Refused under `INDIRECT_PMP_STAGE2_FRAME="inertial"` (velocity not ground-relative). Keys the PMP reference cache when on; archives without the key count as `False`. (2026-10-25) |
 
 ### 2.7 Earth rotation / azimuth
 

@@ -602,3 +602,8 @@ Page: "Extended Abstract Review", https://claude.ai/artifact/7bvybMEdY2V2B4nT3ds
 - **T57. Why the shortfall follows the staging altitude (Ch 6 §6.6 Discussion states the correlation).** Join it to §6.1's "burning low and early keeps the climb under thrust short": gravity loss is the along-velocity component of gravity, zero only in horizontal flight, so staging higher and steeper keeps the second stage climbing under thrust for longer. Cite Edberg, Ulrich (as §2.4).
 - **T58. The thesis does not say what machine the wall-clock times were measured on (Ch 6 §6.6 Cost of the Architectures, tab:architecture_cost).** The hours (2.6–11.1 h per swarm case, 12.7–22.2 h per reference) mean little without the processor and how many jobs ran at once. Raised with abstract card AA-1.
 - **T59. Why the coast-parameter swarms range from 2.6 to 11.1 h at one budget (Ch 6 §6.6).** Same 250 000 flights per case, so the spread is per-flight cost by law and arc structure; the thesis states the range only. Not measured here.
+
+## Stage-2 drag and pressure thrust, 2026-10-25 (code only, nothing re-flown for the thesis)
+
+- **T60. `rocket_specs.A_E_2` (vacuum-engine nozzle exit area) is assumed, not cited:** a 3.3 m exit diameter, 8.55 m². Only `THRUST_2_MODE="pressure"` reads it. Needs a source before any thesis run uses it; the deficit at a nominal ignition is ~100 N whatever its value.
+- **T61. The archived thrust record of PSO Stage-2 arcs holds the vacuum rating** under `THRUST_2_MODE="pressure"` (the arcs are stored as `(sol, F_THRUST_2)` pieces). The flight is right; the record and any budget pressure-loss term for Stage 2 are not.
