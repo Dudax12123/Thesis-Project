@@ -844,12 +844,13 @@ EA_GROUPS = [
                   "show_seg_fixed_alt", "show_bilinear_tangent", "show_cpr",
                   "show_linear_tangent", "show_exp_shooting", "show_apollo",
                   "peg_direct", "peg_baseline"]),
-    ("No atmosphere", ["pmp_vacuum", "peg_vacuum"]),
+    # The atmosphere is varied on the reference alone (review AT-4, 2026-10-25).
+    ("No atmosphere", ["pmp_vacuum"]),
     ("Non-rotating Earth", ["pmp_norot", "gt_norot"]),
     ("Sea-level engine", ["gt_sea_level_engine"]),
 ]
 EA_LABELS = {"pmp_baseline": "Reference (indirect PMP)", "pmp_vacuum": "Reference",
-             "pmp_norot": "Reference", "peg_vacuum": "PEG", "gt_norot": "Gravity turn",
+             "pmp_norot": "Reference", "gt_norot": "Gravity turn",
              "gt_sea_level_engine": "Gravity turn"}
 
 

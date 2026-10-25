@@ -76,6 +76,7 @@ def ea_reference_profile(cases):
     the pitch (sec63._tangent_fit, as in fig:reference_tangent_fit) dashed.
     """
     from Auxiliary import constants as const
+    from . import validation_falcon9 as vf
 
     if "pmp_baseline" not in cases:
         return _skip("ea reference profile", ["pmp_baseline"])
@@ -106,9 +107,9 @@ def ea_reference_profile(cases):
 
     # Axes boxes in inches from the foot: legend of (b), (b), legend of (a), (a).
     # Each panel carries its own legend, so the two can be printed apart.
-    height = 5.40
+    height = 5.62
     fig = plt.figure(figsize=(COLUMN_IN, height))
-    ax = fig.add_axes([0.150, 3.30 / height, 0.700, 1.86 / height])
+    ax = fig.add_axes([0.150, 3.52 / height, 0.700, 1.86 / height])
     ax_b = fig.add_axes([0.150, 1.05 / height, 0.795, 1.03 / height])
     hosts = {"alt": ax}
     for key in ("gamma", "accel", "q"):
@@ -132,6 +133,18 @@ def ea_reference_profile(cases):
         host.spines[side].set_color(colour)
         host.spines[side].set_linewidth(1.2)
         legend.append(Line2D([], [], color=colour, linewidth=1.6, label=names[key]))
+    # The flown Intelsat 35e ascent's dynamic pressure, dotted on the reference's
+    # axis and cut at the same altitude (review AT-1, 2026-10-25).
+    flown = [f for f in vf.load_flights() if f.name == sec63.THROTTLED_FLIGHT]
+    if flown:
+        f = flown[0]
+        t_f, q_f = vf._q(f.time, f.v, f.alt_km)
+        below = np.interp(t_f, f.time, f.alt_km) <= alt_exit
+        hosts["q"].plot(t_f[below], q_f[below], color=spec["q"][0], linestyle=":",
+                        linewidth=1.15)
+        names["flown"] = "Intelsat 35e, flown"
+        legend.append(Line2D([], [], color=spec["q"][0], linestyle=":", linewidth=1.6,
+                             label=names["flown"]))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
 
@@ -201,10 +214,11 @@ def ea_reference_profile(cases):
     # Column-major fill: the three long names in the first column, the three
     # short ones in the second, so no row pairs two long names.
     by_label = {h.get_label(): h for h in legend}
-    order = [names["gamma"], names["accel"], names["q"], names["alt"]]
+    order = ([names["gamma"], names["accel"], names["q"]]
+             + ([names["flown"]] if "flown" in names else []) + [names["alt"]])
     order += [h.get_label() for h in legend if h.get_label() not in order]
     legend = [by_label[k] for k in order]
-    leg_a = fig.legend(handles=legend, bbox_to_anchor=(0.486, 2.84 / height), **style)
+    leg_a = fig.legend(handles=legend, bbox_to_anchor=(0.486, 3.06 / height), **style)
     leg_b = fig.legend(handles=ax_b.get_legend_handles_labels()[0],
                        bbox_to_anchor=(0.486, 0.59 / height), **style)
     return save_pieces(fig, "ea_reference_%s.png",
@@ -389,39 +403,34 @@ def ea_peg(cases):
 
     (a) Altitude against time, the reference's long coast compressed and
     shaded: the reference dotted black, PEG under the coast-parameter search
-    red, by direct insertion blue and without the atmosphere in its environment
-    colour, the legend under the axes in two columns, its labels without
-    "PEG,", which the caption names (review AG-3, 2026-10-24).
-    (c) is from the chapter's fig:peg_atmosphere: the dynamic pressure of the
-    flight with the atmosphere up to separation, beside the flown Intelsat 35e
-    ascent (sec63.THROTTLED_FLIGHT) dotted with its throttle-down shaded.
-    The cumulative-losses panel (b) was dropped (review AG-7, 2026-10-24): its
-    values are in the text and the results table. Its slot is left empty so the
-    other two pieces keep their size.
+    red and by direct insertion blue, the legend under the axes in two columns,
+    its labels without "PEG,", which the caption names (review AG-3,
+    2026-10-24). The cumulative-losses panel was dropped (review AG-7), and the
+    drag-free flight and the dynamic-pressure panel with it when the atmosphere
+    moved to the references (review AT-3, 2026-10-25); the flown Intelsat 35e
+    dynamic pressure is now drawn on the reference's profile.
     """
     from . import _data
-    from . import validation_falcon9 as vf
 
-    names = ("pmp_baseline", "peg_baseline", "peg_direct", "peg_vacuum")
+    names = ("pmp_baseline", "peg_baseline", "peg_direct")
     missing = _data.missing_from(cases, *names)
     if missing:
         return _skip("ea peg", missing)
     ref = cases["pmp_baseline"]
-    base, vac = cases["peg_baseline"], cases["peg_vacuum"]
+    base = cases["peg_baseline"]
     entries = [
         (ref, st.INK, ":", "Reference"),
         (base, st.ACCENT, "-", "Coast parameter"),
         (cases["peg_direct"], st.ENV_COLORS["baseline"], "-", "Direct insertion"),
-        (vac, st.ENV_COLORS["no_atmosphere"], "-", "No atmosphere"),
     ]
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        # Axes boxes in inches from the foot: (c), the legend of (a), (a).
+        # The axes box in inches from the foot, above the legend; the piece is
+        # cut to the axes and the legend.
         height = 6.55
         fig = plt.figure(figsize=(COLUMN_IN, height))
         box = lambda y, h: [0.19, y / height, 0.78, h / height]
         ax = fig.add_axes(box(4.83, 1.60))
-        ax_c = fig.add_axes(box(0.40, 1.10))
 
         pn.altitude_panel(ax, entries, shade_coasts=False)
         for t0, t1 in ref.coast_intervals():
@@ -439,36 +448,10 @@ def ea_peg(cases):
                   columnspacing=1.0,
                   handlelength=1.6, borderpad=0.1)
 
-        # The separation is the planned 8 s after MECO.
-        t_end = base.t_meco + 8.0
-        keep = base.time <= t_end
-        ax_c.plot(*st.thin(base.time[keep], np.asarray(base.q)[keep] / 1e3),
-                  color=st.ACCENT, linewidth=1.1, label="PEG")
-        flown = [f for f in vf.load_flights() if f.name == sec63.THROTTLED_FLIGHT]
-        if flown:
-            f = flown[0]
-            t_f, q_f = vf._q(f.time, f.v, f.alt_km)
-            sel = t_f <= t_end
-            ax_c.plot(t_f[sel], q_f[sel], color=st.INK, linestyle=":", linewidth=1.1,
-                      label=f.label)
-            t0, t1 = f.event("throttle_down_start"), f.event("throttle_down_end")
-            if np.isfinite(t0) and np.isfinite(t1):
-                ax_c.axvspan(t0, t1, color=st.INK, alpha=0.12, linewidth=0,
-                             label="Throttle-down")
-        ax_c.set_xlim(0.0, t_end)
-        ax_c.set_ylim(0.0, 70.0)
-        ax_c.set_yticks([0, 20, 40, 60])
-        ax_c.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
-        ax_c.set_ylabel("q [kPa]", fontsize=FS, labelpad=2)
-        ax_c.legend(loc="upper right", fontsize=FS, frameon=False, handlelength=1.2,
-                    labelspacing=0.25, borderpad=0.1)
-
-        for axis in (ax, ax_c):
-            axis.xaxis.labelpad = 2
-            axis.yaxis.labelpad = 2
-            st.tidy(axis, legend=False)
-        return save_pieces(fig, "ea_peg_%s.png", [("altitude", [ax]),
-                                                   ("dynamic_pressure", [ax_c])])
+        ax.xaxis.labelpad = 2
+        ax.yaxis.labelpad = 2
+        st.tidy(ax, legend=False)
+        return save_pieces(fig, "ea_peg_%s.png", [("altitude", [ax])])
 
 
 def ea_vacuum_coast_bound(cases):
