@@ -64,6 +64,7 @@ def main():
     parser.add_argument("--abstract", action="store_true",
                         help="draw the Extended Abstract figures (ea_*.png) instead")
     args = parser.parse_args()
+    ea.ROOT = args.root
 
     st.use_thesis_style()
     cases = _data.load_many(ALL_CASES + _data.SUPPLEMENTARY_CASES, root=args.root)

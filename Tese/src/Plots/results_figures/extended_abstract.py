@@ -22,6 +22,10 @@ from . import sec63_peg as sec63
 COLUMN_IN = 3.08
 FS = 10.0
 
+# The results set the figures are drawn from, set by make_all from --root, for a
+# figure that reads an archive kept beside the cases rather than one of them.
+ROOT = None
+
 
 def _skip(what, missing):
     print("  skip %-34s missing: %s" % (what, ", ".join(missing)))
@@ -497,5 +501,42 @@ def ea_vacuum_coast_bound(cases):
     return st.save(fig, "ea_vacuum_coast_bound.png")
 
 
+def ea_convergence(cases):
+    """Best objective of the atmospheric reference's swarm against generation,
+    in one column, with the extremal refined from it dashed (review AM-1,
+    2026-10-25).
+
+    The history is the 750 x 1500 seed-3 swarm the reference was refined from,
+    kept in the results set's _pmp_swarms_750x1500/ folder; the refined
+    pmp_baseline archive has none, since the refinement is not a swarm. The
+    archive samples the best objective every 25 generations.
+    """
+    from . import _data
+
+    if "pmp_baseline" not in cases:
+        return _skip("ea convergence", ["pmp_baseline"])
+    root = ROOT if ROOT is not None else _data.DEFAULT_ROOT
+    swarm = _data.load("pmp_baseline", root=os.path.join(root, "_pmp_swarms_750x1500"))
+    if swarm is None or swarm.pso_history is None:
+        return _skip("ea convergence", ["_pmp_swarms_750x1500/pmp_baseline history"])
+    gen, best = swarm.pso_history
+
+    fig, ax = plt.subplots(figsize=(COLUMN_IN, 2.05))
+    ax.semilogy(gen, best, color=st.REFERENCE, linewidth=1.15, label="Swarm best")
+    ax.axhline(cases["pmp_baseline"].row["J_prime"], color=st.ACCENT, linestyle="--",
+               linewidth=0.9, label="Refined extremal")
+    ax.set_xlim(0, gen[-1])
+    ax.set_xticks([0, 500, 1000, 1500])
+    ax.set_xlabel("Generation", fontsize=FS, labelpad=2)
+    ax.set_ylabel(r"Best objective $J$", fontsize=FS, labelpad=2)
+    ax.tick_params(labelsize=FS)
+    st.tidy(ax, legend=False)
+    fig.subplots_adjust(left=0.19, right=0.97, top=0.965, bottom=0.36)
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS, frameon=False,
+               columnspacing=1.2, bbox_to_anchor=(0.5, 0.0), handlelength=1.6)
+    return st.save(fig, "ea_convergence.png")
+
+
 FIGURES = [ea_reference_profile, ea_vacuum_coast_bound, ea_gravity_turn, ea_peg,
-           ea_segmented]
+           ea_segmented, ea_convergence]
