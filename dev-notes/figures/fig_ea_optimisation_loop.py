@@ -71,14 +71,14 @@ ax.text(REG_X0 + 0.08, REG[1] - 0.06, "One trajectory, flown to cut-off",
 GL = (2.12, 2.48)
 EOM = (1.62, 1.92)
 EV = (1.04, 1.40)
-box(BX0, BX1, *GL, [r"Guidance law: $\alpha(t,\mathbf{y})$"], fc="white")
+box(BX0, BX1, *GL, [r"Guidance law sets $\alpha$"], fc="white")
 box(BX0, BX1, *EOM, ["Equations of motion"], fc="white")
 box(BX0, BX1, *EV, ["Events: staging,", "coast, cut-off"], fc="white")
 arrow((XC, GL[0]), (XC, EOM[1]))
 arrow((XC, EOM[0]), (XC, EV[1]))
 
 # inner loop: the state goes back to the law at every step
-lane(IN_LANE, 0.5 * sum(EV), BX0, 0.5 * sum(GL), BX0, r"state $\mathbf{y}(t)$")
+lane(IN_LANE, 0.5 * sum(EV), BX0, 0.5 * sum(GL), BX0, "state")
 
 # the design vector enters at the top, the final state leaves at the bottom
 arrow((XC, OPT[0]), (XC, REG[1]))
@@ -86,9 +86,9 @@ ax.text(XC + 0.06, 0.5 * (OPT[0] + REG[1]), r"$\mathbf{x}$",
         ha="left", va="center", fontsize=FS, color=INK)
 
 COST = (0.12, 0.46)
-box(REG_X0, REG_X1, *COST, [r"Cost $J(\mathbf{x})$ from the final state"])
+box(REG_X0, REG_X1, *COST, [r"Cost $J(\mathbf{x})$"])
 arrow((XC, REG[0]), (XC, COST[1]))
-ax.text(XC + 0.06, 0.5 * (REG[0] + COST[1]), r"$\mathbf{y}_f$",
+ax.text(XC + 0.06, 0.5 * (REG[0] + COST[1]), "final state",
         ha="left", va="center", fontsize=FS, color=INK)
 
 # outer loop: the cost goes back to the optimiser
