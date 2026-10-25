@@ -267,62 +267,82 @@ def ea_segmented(cases):
         return st.save(fig, "ea_segmented.png")
 
 
-def ea_gravity_turn(cases):
-    """The gravity turn's architecture and rotation studies, in one column
-    (review P-1, edited 2026-10-24: the engine-model panel is left out, and
-    the pseudo-force panel of fig:gt_rotation joins as (c)).
+def ea_gravity_turn_altitude(cases):
+    """The gravity turn's architecture and rotation studies in one altitude
+    figure (review AO-1, 2026-10-25; before, two figures that drew the baseline
+    flight twice).
 
-    (a) Altitude under the coast-parameter search and the apogee check, each
-    coast shaded in its flight's colour, as the chapter's fig:gt_architecture.
-    (b) Altitude with and without the rotation of the Earth, the chapter's
-    fig:gt_rotation (a), in its colours. (a) and (b) share one time axis.
-    (c) The pseudo-forces along the rotating flight up to the end of its first
-    second-stage burn, fig:gt_rotation (b): the Coriolis and centrifugal
-    magnitudes and the cross-plane component, with the lateral force that would
-    cancel it on the right axis. Its legend runs under the panel.
+    The baseline (coast-parameter search, rotating Earth), the apogee check and
+    the flight without the rotation, each one factor away from the baseline.
+    Every curve is solid under thrust and dashed while coasting: shaded bands,
+    as the chapter's fig:gt_architecture draws them, would overlap for the
+    baseline and the non-rotating flight. Colours are the environment colours.
     """
     from . import _data
-    from . import sec62_gravity_turn as sec62
 
     names = ("gt_baseline", "gt_apogee", "gt_norot")
     missing = _data.missing_from(cases, *names)
     if missing:
+        return _skip("ea gravity turn altitude", missing)
+    entries = [(cases["gt_baseline"], st.ENV_COLORS["baseline"], "Baseline"),
+               (cases["gt_apogee"], st.ACCENT, "Apogee check"),
+               (cases["gt_norot"], st.ENV_COLORS["no_rotation"], "Non-rotating Earth")]
+    dashed = (0, (3.0, 1.6))
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS}):
+        fig, ax = plt.subplots(figsize=(COLUMN_IN, 2.40))
+        for case, colour, label in entries:
+            end = case.insertion_index()
+            t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
+            coast = np.zeros(t.shape, bool)
+            for t0, t1 in case.coast_intervals():
+                coast |= (t >= t0) & (t <= t1)
+            # The samples either side of each switch belong to both styles, so
+            # the solid and dashed lines join without a gap.
+            near = coast | np.r_[coast[1:], False] | np.r_[False, coast[:-1]]
+            inner = coast & np.r_[False, coast[:-1]] & np.r_[coast[1:], False]
+            ax.plot(t, np.where(inner, np.nan, alt_km), color=colour, linewidth=1.15,
+                    label=label)
+            ax.plot(t, np.where(near, alt_km, np.nan), color=colour, linewidth=1.15,
+                    linestyle=dashed)
+        ax.set_ylabel("Altitude [km]", labelpad=2)
+        ax.set_xlabel("Time [s]", labelpad=2)
+        ax.set_yticks([0, 250, 500])
+        ax.set_xlim(0.0, None)
+        st.tidy(ax, legend=False)
+        fig.subplots_adjust(left=0.18, right=0.97, top=0.975, bottom=0.36)
+        handles, labels = ax.get_legend_handles_labels()
+        handles.append(Line2D([], [], color=st.INK, linewidth=1.15, linestyle=dashed))
+        labels.append("Coast")
+        fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS, frameon=False,
+                   bbox_to_anchor=(0.5, 0.0), labelspacing=0.25, columnspacing=1.0,
+                   handlelength=1.6)
+        return st.save(fig, "ea_gravity_turn_altitude.png")
+
+
+def ea_gravity_turn(cases):
+    """The pseudo-forces along the rotating gravity-turn flight up to the end of
+    its first second-stage burn, fig:gt_rotation (b) of the chapter (review P-1,
+    edited 2026-10-24): the Coriolis and centrifugal magnitudes and the
+    cross-plane component, with the lateral force that would cancel it on the
+    right axis. Its legend runs under the panel. The altitude panels this
+    function also drew moved to ea_gravity_turn_altitude (review AO-1).
+    """
+    from . import _data
+    from . import sec62_gravity_turn as sec62
+
+    missing = _data.missing_from(cases, "gt_baseline")
+    if missing:
         return _skip("ea gravity turn", missing)
     base = cases["gt_baseline"]
-    panels = (
-        ("(a)", [(base, st.ENV_COLORS["baseline"], "Coast parameter", True),
-                 (cases["gt_apogee"], sec62.APOGEE_COLOUR, "Apogee check", True)]),
-        ("(b)", [(base, sec62.ROTATING_COLOUR, "Rotating Earth", False),
-                 (cases["gt_norot"], sec62.NON_ROTATING_COLOUR, "Non-rotating Earth", False)]),
-    )
     with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
                          "ytick.labelsize": FS, "axes.titlesize": FS}):
-        # Axes boxes in inches from the foot: legend of (c), (c), (b), (a). Every
-        # panel labels its own time axis, so each can be printed apart.
+        # The axes box in inches from the foot, above its legend; the piece is
+        # cut to it, so the PNG keeps the column width and 10 pt text.
         height = 6.60
         fig = plt.figure(figsize=(COLUMN_IN, height))
         box = lambda y, h, w=0.78: [0.19, y / height, w, h / height]
-        ax_a = fig.add_axes(box(4.90, 1.50))
-        ax_b = fig.add_axes(box(2.75, 1.50))
         ax_c = fig.add_axes(box(0.80, 1.30, 0.64))
-        for ax, (title, entries) in zip((ax_a, ax_b), panels):
-            for case, colour, label, shade in entries:
-                end = case.insertion_index()
-                t, alt_km = st.thin(case.time[:end], case.alt_km[:end])
-                ax.plot(t, alt_km, color=colour, linewidth=1.15, label=label)
-                if shade:
-                    for t0, t1 in case.coast_intervals():
-                        ax.axvspan(t0, t1, color=colour, alpha=0.12, linewidth=0)
-            ax.set_ylabel("Altitude [km]", labelpad=2)
-            ax.set_yticks([0, 250, 500])
-            st.tidy(ax, legend_loc="lower right",
-                    legend_kw={"fontsize": FS, "handlelength": 1.4, "borderaxespad": 0.2,
-                               "labelspacing": 0.25})
-        for axis in (ax_a, ax_b):
-            axis.tick_params(labelbottom=True)
-            axis.set_xlabel("Time [s]", labelpad=2)
-        ax_a.set_xlim(0.0, None)
-        ax_b.set_xlim(0.0, None)
 
         forces = base.pseudo_forces_at_azimuth()
         t_end = base.t_coast_start or float(base.time[base.insertion_index() - 1])
@@ -360,8 +380,7 @@ def ea_gravity_turn(cases):
                    bbox_to_anchor=(0.5, 0.0), handlelength=1.2, handletextpad=0.4,
                    columnspacing=0.8, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
         return save_pieces(fig, "ea_gravity_turn_%s.png",
-                           [("architecture", [ax_a]), ("rotation", [ax_b]),
-                            ("pseudo_forces", [ax_c, ax_f, leg_c])])
+                           [("pseudo_forces", [ax_c, ax_f, leg_c])])
 
 
 def ea_peg(cases):
@@ -538,5 +557,6 @@ def ea_convergence(cases):
     return st.save(fig, "ea_convergence.png")
 
 
-FIGURES = [ea_reference_profile, ea_vacuum_coast_bound, ea_gravity_turn, ea_peg,
+FIGURES = [ea_reference_profile, ea_vacuum_coast_bound, ea_gravity_turn_altitude,
+           ea_gravity_turn, ea_peg,
            ea_segmented, ea_convergence]
