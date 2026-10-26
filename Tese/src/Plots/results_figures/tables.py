@@ -857,31 +857,37 @@ EA_LABELS = {"pmp_baseline": "Reference (indirect PMP)", "pmp_vacuum": "Referenc
 def ea_all_cases(cases):
     """Every reported case: propellant left, staging, coast, the two losses
     that account for the ranking and the orbit reached (Extended Abstract,
-    review C-1)."""
+    review C-1).
+
+    The baseline block carries no group row, and each case flown in another
+    environment names it after the law (review 2026-10-26: the one-row groups
+    each spent a heading and a gap on one or two cases)."""
     names = [n for _g, members in EA_GROUPS for n in members]
     if _missing(cases, names, "ea_all_cases"):
         return None
     rows = []
     for g, (group, members) in enumerate(EA_GROUPS):
-        if g:
+        if g == 1:
             rows.append(None)
-        rows.append([r"\multicolumn{7}{l}{\emph{%s}}" % group])
         for n in members:
             k = cases[n]
             r = k.row
             label = EA_LABELS.get(n, label_cell(n))
+            if g:
+                label += ", " + group[0].lower() + group[1:]
             # No t_MECO column: the first stage burns to depletion at a fixed
             # flow in every case, so it is the same in every row (the text says so).
-            rows.append([r"\quad " + label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
+            rows.append([label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
                          seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
                          num(r["dv_steering"], 0), orbit(k)])
-    # Two-word heads take two lines and the outer padding is dropped: at 10 pt,
-    # with the orbit column, the table is otherwise wider than the page.
+    # One line of heads above the units. The losses take the symbols of the
+    # abstract's loss equation, and the outer padding is dropped: at 10 pt,
+    # with the orbit column, worded loss heads would make it wider than the page.
     return tabular(
         "@{}l r r r r r r@{}",
-        bold("Case", "Prop.", r"$h_{\mathrm{MECO}}$", "Coast", "Gravity", "Steering", "Orbit"),
-        ["", "[t]", "[km]", "[s]", "[m/s]", "[m/s]", "[km]"], rows,
-        rule_under_heads=" & ".join(bold("", "left", "", "", "loss", "loss", "")) + r" \\")
+        bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", "Coast",
+             r"$\Delta V_{\mathrm{grav}}$", r"$\Delta V_{\mathrm{steer}}$", "Orbit"),
+        ["", "[t]", "[km]", "[s]", "[m/s]", "[m/s]", "[km]"], rows)
 
 
 EA_COST_ROWS = [
