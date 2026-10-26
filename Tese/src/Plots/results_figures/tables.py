@@ -849,15 +849,21 @@ EA_GROUPS = [
     ("Non-rotating Earth", ["pmp_norot", "gt_norot"]),
     ("Sea-level engine", ["gt_sea_level_engine"]),
 ]
-EA_LABELS = {"pmp_baseline": "Reference (indirect PMP)", "pmp_vacuum": "Reference",
-             "pmp_norot": "Reference", "gt_norot": "Gravity turn",
+# The shortest names the abstract's own text and its table of cases make
+# unambiguous (review 2026-10-26): the apogee check is flown by the gravity turn
+# alone, and the segmented hand-off is optimized or fixed at 120 km.
+EA_LABELS = {"pmp_baseline": "Reference", "gt_apogee": "Apogee check",
+             "gt_baseline": "Gravity turn", "show_seg_opt_alt": "Segmented, optimized",
+             "show_seg_fixed_alt": "Segmented, 120 km", "peg_direct": "PEG, direct",
+             "pmp_vacuum": "Reference", "pmp_norot": "Reference", "gt_norot": "Gravity turn",
              "gt_sea_level_engine": "Gravity turn"}
+EA_ENVIRONMENTS = {"No atmosphere": "no atmosphere", "Non-rotating Earth": "non-rotating",
+                   "Sea-level engine": "sea-level engine"}
 
 
 def ea_all_cases(cases):
-    """Every reported case: propellant left, staging, coast, the two losses
-    that account for the ranking and the orbit reached (Extended Abstract,
-    review C-1).
+    """Every reported case: propellant left, staging, coast and the two losses
+    that account for the ranking (Extended Abstract, review C-1).
 
     The baseline block carries no group row, and each case flown in another
     environment names it after the law (review 2026-10-26: the one-row groups
@@ -874,20 +880,21 @@ def ea_all_cases(cases):
             r = k.row
             label = EA_LABELS.get(n, label_cell(n))
             if g:
-                label += ", " + group[0].lower() + group[1:]
+                label += ", " + EA_ENVIRONMENTS[group]
             # No t_MECO column: the first stage burns to depletion at a fixed
             # flow in every case, so it is the same in every row (the text says so).
+            # No orbit column: every case but PEG direct insertion reaches the
+            # target within 0.3 km, which the caption and the text state.
             rows.append([label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
                          seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
-                         num(r["dv_steering"], 0), orbit(k)])
-    # One line of heads above the units. The losses take the symbols of the
-    # abstract's loss equation, and the outer padding is dropped: at 10 pt,
-    # with the orbit column, worded loss heads would make it wider than the page.
+                         num(r["dv_steering"], 0)])
+    # One line of heads above the units; the losses take the symbols of the
+    # abstract's loss equation, and the outer padding is dropped.
     return tabular(
-        "@{}l r r r r r r@{}",
+        "@{}l r r r r r@{}",
         bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", "Coast",
-             r"$\Delta V_{\mathrm{grav}}$", r"$\Delta V_{\mathrm{steer}}$", "Orbit"),
-        ["", "[t]", "[km]", "[s]", "[m/s]", "[m/s]", "[km]"], rows)
+             r"$\Delta V_{\mathrm{grav}}$", r"$\Delta V_{\mathrm{steer}}$"),
+        ["", "[t]", "[km]", "[s]", "[m/s]", "[m/s]"], rows)
 
 
 EA_COST_ROWS = [
