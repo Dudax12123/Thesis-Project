@@ -540,6 +540,53 @@ def ea_convergence(cases):
     return st.save(fig, "ea_convergence.png")
 
 
+def ea_peg_segmented(cases):
+    """PEG aimed at the orbit and PEG aimed at the coast-start waypoint against
+    the reference, altitude only, in one column (review AW-10, 2026-10-26).
+
+    Replaces ea_peg and ea_segmented: the same law, its first burn aimed at the
+    orbit (coast-parameter search, direct insertion) or at the reference's
+    coast-start waypoint (segmented, optimized hand-off). Linear time axis, so
+    the coasts are drawn at their true length; waypoint and hand-off marked.
+    """
+    from . import _data
+    from . import sec67_capabilities as sec67
+
+    names = ("pmp_baseline", "peg_baseline", "peg_direct", "show_seg_opt_alt")
+    missing = _data.missing_from(cases, *names)
+    if missing:
+        return _skip("ea peg segmented", missing)
+    ref = cases["pmp_baseline"]
+    seg = cases["show_seg_opt_alt"]
+    entries = [
+        (ref, st.INK, ":", "Reference"),
+        (cases["peg_baseline"], st.ACCENT, "-", "To orbit, coast parameter"),
+        (cases["peg_direct"], st.ENV_COLORS["baseline"], "-", "To orbit, direct insertion"),
+        (seg, st.ENV_COLORS["no_rotation"], "-", "To waypoint, segmented"),
+    ]
+    with plt.rc_context({"axes.labelsize": FS, "xtick.labelsize": FS,
+                         "ytick.labelsize": FS, "axes.titlesize": FS}):
+        fig, ax = plt.subplots(figsize=(COLUMN_IN, 2.7))
+        pn.altitude_panel(ax, entries, shade_coasts=False)
+        for curve in ax.get_lines():
+            curve.set_linewidth(1.0)
+        point = sec67._handoff(seg)
+        if point is not None:
+            ax.plot(*point, linestyle="none", marker="D", markersize=4.2,
+                    color=entries[3][1], zorder=5, label="Hand-off")
+        wp = pn.waypoint(ref)
+        if wp is not None:
+            pn.mark_waypoint(ax, wp, label="Waypoint")
+        ax.set_xlim(0.0, float(ref.time[ref.insertion_index() - 1]) + 10.0)
+        ax.set_yticks([0, 250, 500])
+        st.tidy(ax, legend=False)
+        fig.subplots_adjust(left=0.18, right=0.97, top=0.975, bottom=0.42)
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS,
+                   frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25,
+                   columnspacing=0.8, handlelength=1.6)
+        return st.save(fig, "ea_peg_segmented.png")
+
+
 FIGURES = [ea_reference_profile, ea_gravity_turn_altitude,
-           ea_gravity_turn, ea_peg,
-           ea_segmented, ea_convergence]
+           ea_gravity_turn, ea_peg_segmented, ea_convergence]
