@@ -540,6 +540,6 @@ def ea_convergence(cases):
     return st.save(fig, "ea_convergence.png")
 
 
-FIGURES = [ea_reference_profile, ea_vacuum_coast_bound, ea_gravity_turn_altitude,
+FIGURES = [ea_reference_profile, ea_gravity_turn_altitude,
            ea_gravity_turn, ea_peg,
            ea_segmented, ea_convergence]
