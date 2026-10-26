@@ -61,19 +61,20 @@ def save_pieces(fig, name, pieces):
 
 
 def ea_reference_profile(cases):
-    """The atmospheric reference in one column: (a) the profile, (b) the steering
-    of its first second-stage burn (review F-2, second pass; Q-1, 2026-10-23;
-    T-1, 2026-10-24), saved as one figure, ea_reference.png (AW-17, 2026-10-26).
+    """The atmospheric reference in one column, one panel (review F-2, second
+    pass; Q-1, 2026-10-23; T-1, 2026-10-24), saved as ea_reference.png.
 
-    (a) Altitude, flight-path angle, thrust acceleration and dynamic pressure on
+    Altitude, flight-path angle, thrust acceleration and dynamic pressure on
     four parallel y-axes over one compressed time axis. To fit one column at
     10 pt the y-axes carry tick values only, each spine in its quantity's
-    colour, and the quantities are named in a colour legend below the plots.
+    colour, and the quantities are named in a colour legend below the plot.
     The coast is shaded, MECO and both cut-offs dotted, and the waypoint
     marked on the altitude.
-    (b) The steering angles over the first second-stage burn, where the law is
-    fitted: the angle of attack, the pitch, and the linear-tangent law fitted to
-    the pitch (sec63._tangent_fit, as in fig:reference_tangent_fit) dashed.
+    The steering of the first second-stage burn, where the law is fitted, is
+    drawn on the flight-path angle's axis, which is also in degrees: the
+    pitch, the angle of attack, and the linear-tangent law fitted to the pitch
+    (sec63._tangent_fit, as in fig:reference_tangent_fit) dashed. It was a
+    panel of its own until 2026-10-26, when the user merged the two.
     """
     from Auxiliary import constants as const
     from . import validation_falcon9 as vf
@@ -105,12 +106,10 @@ def ea_reference_profile(cases):
     # Spine positions in axes fractions: two on the left, two on the right.
     spines = {"gamma": ("left", -0.135), "accel": ("right", 1.0), "q": ("right", 1.085)}
 
-    # Axes boxes in inches from the foot: legend of (b), (b), legend of (a), (a).
-    # Each panel carries its own legend, so the two can be printed apart.
-    height = 5.62
+    # Axes box in inches from the foot, the legend below it.
+    height = 3.80
     fig = plt.figure(figsize=(COLUMN_IN, height))
-    ax = fig.add_axes([0.150, 3.52 / height, 0.700, 1.86 / height])
-    ax_b = fig.add_axes([0.150, 1.05 / height, 0.795, 1.03 / height])
+    ax = fig.add_axes([0.150, 1.70 / height, 0.700, 1.86 / height])
     hosts = {"alt": ax}
     for key in ("gamma", "accel", "q"):
         side, off = spines[key]
@@ -181,7 +180,8 @@ def ea_reference_profile(cases):
     ax.grid(True, color=st.FAINT, linewidth=0.5, alpha=0.8)
     ax.set_axisbelow(True)
 
-    # (b) The steering of the first second-stage burn, where the law is fitted.
+    # The steering of the first second-stage burn, where the law is fitted, on
+    # the flight-path angle's axis (degrees too).
     long_burns = [b for b in burns if b[1] - b[0] >= sec63.MIN_FIT_S]
     b0, b1 = long_burns[0]
     sel = (case.time >= b0) & (case.time <= b1)
@@ -189,43 +189,34 @@ def ea_reference_profile(cases):
     keep = np.ones(tb.size, dtype=bool)
     keep[1:] = np.diff(tb) > 0.0
     tb = tb[keep]
-    # Colours of their own, so neither is read as a quantity of panel (a).
+    # No unit in these two labels, which would widen the legend past the
+    # column; the caption says they share the flight-path angle's axis.
     steer = (("theta", r"Pitch $\theta$", sec63.OVERLAY_COLOURS["mach"]),
              ("alpha", r"Angle of attack $\alpha$", sec63.OVERLAY_COLOURS["thrust"]))
     for key, label, colour in steer:
         values = (case.theta_deg if key == "theta" else case.alpha_deg)[sel][keep]
-        ax_b.plot(*st.thin(tb, values), color=colour, linewidth=1.15, label=label)
+        hosts["gamma"].plot(*st.thin(tb, values), color=colour, linewidth=1.15)
+        names[key] = label
+        legend.append(Line2D([], [], color=colour, linewidth=1.6, label=label))
     tf, fitted, _rms = sec63._tangent_fit(case, b0, b1)
-    ax_b.plot(tf, fitted, color=st.INK, linestyle="--", linewidth=1.0,
-              label="Linear tangent fit")
-    ax_b.set_xlim(b0 - 5.0, b1 + 5.0)
-    ax_b.set_ylim(0.0, 16.0)
-    ax_b.set_yticks([0, 5, 10, 15])
-    ax_b.set_xlabel("Time [s]", fontsize=FS, labelpad=2)
-    ax_b.set_ylabel("Angle [deg]", fontsize=FS, labelpad=2)
-    ax_b.tick_params(labelsize=FS)
-    st.tidy(ax_b, legend=False)
+    hosts["gamma"].plot(tf, fitted, color=st.INK, linestyle="--", linewidth=1.0)
+    names["fit"] = "Linear tangent fit"
+    legend.append(Line2D([], [], color=st.INK, linestyle="--", linewidth=1.3, label=names["fit"]))
 
     legend += [Patch(color=st.FAINT, alpha=0.45, label="Coast (%.0f s)" % (c1 - c0)),
                ax.get_legend_handles_labels()[0][-1]]
     style = dict(loc="upper center", ncol=2, fontsize=FS, frameon=False,
                  bbox_transform=fig.transFigure, handlelength=1.0, handletextpad=0.35,
                  columnspacing=0.6, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
-    # Column-major fill: the three long names in the first column, the three
-    # short ones in the second, so no row pairs two long names.
+    # Column-major fill: the profile's quantities in the first column, the
+    # steering, the coast and the waypoint in the second.
     by_label = {h.get_label(): h for h in legend}
     order = ([names["gamma"], names["accel"], names["q"]]
-             + ([names["flown"]] if "flown" in names else []) + [names["alt"]])
+             + ([names["flown"]] if "flown" in names else []) + [names["alt"]]
+             + [names["theta"], names["alpha"], names["fit"]])
     order += [h.get_label() for h in legend if h.get_label() not in order]
     legend = [by_label[k] for k in order]
-    fig.legend(handles=legend, bbox_to_anchor=(0.486, 3.06 / height), **style)
-    fig.legend(handles=ax_b.get_legend_handles_labels()[0],
-               bbox_to_anchor=(0.486, 0.59 / height), **style)
-    # One figure, (a) above (b), since review AW-17 (2026-10-26) merged the two
-    # floats; each letter sits just above its axes.
-    for letter, panel in (("a", ax), ("b", ax_b)):
-        fig.text(0.012, panel.get_position().y1 + 0.006, "(%s)" % letter,
-                 fontsize=FS, va="bottom", ha="left")
+    fig.legend(handles=legend, bbox_to_anchor=(0.486, 1.24 / height), **style)
     os.makedirs(st.OUT_DIR, exist_ok=True)
     path = os.path.join(st.OUT_DIR, "ea_reference.png")
     fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
