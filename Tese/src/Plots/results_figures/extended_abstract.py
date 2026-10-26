@@ -63,7 +63,7 @@ def save_pieces(fig, name, pieces):
 def ea_reference_profile(cases):
     """The atmospheric reference in one column: (a) the profile, (b) the steering
     of its first second-stage burn (review F-2, second pass; Q-1, 2026-10-23;
-    T-1, 2026-10-24).
+    T-1, 2026-10-24), saved as one figure, ea_reference.png (AW-17, 2026-10-26).
 
     (a) Altitude, flight-path angle, thrust acceleration and dynamic pressure on
     four parallel y-axes over one compressed time axis. To fit one column at
@@ -218,12 +218,20 @@ def ea_reference_profile(cases):
              + ([names["flown"]] if "flown" in names else []) + [names["alt"]])
     order += [h.get_label() for h in legend if h.get_label() not in order]
     legend = [by_label[k] for k in order]
-    leg_a = fig.legend(handles=legend, bbox_to_anchor=(0.486, 3.06 / height), **style)
-    leg_b = fig.legend(handles=ax_b.get_legend_handles_labels()[0],
-                       bbox_to_anchor=(0.486, 0.59 / height), **style)
-    return save_pieces(fig, "ea_reference_%s.png",
-                       [("profile", list(hosts.values()) + [leg_a]),
-                        ("steering", [ax_b, leg_b])])
+    fig.legend(handles=legend, bbox_to_anchor=(0.486, 3.06 / height), **style)
+    fig.legend(handles=ax_b.get_legend_handles_labels()[0],
+               bbox_to_anchor=(0.486, 0.59 / height), **style)
+    # One figure, (a) above (b), since review AW-17 (2026-10-26) merged the two
+    # floats; each letter sits just above its axes.
+    for letter, panel in (("a", ax), ("b", ax_b)):
+        fig.text(0.012, panel.get_position().y1 + 0.006, "(%s)" % letter,
+                 fontsize=FS, va="bottom", ha="left")
+    os.makedirs(st.OUT_DIR, exist_ok=True)
+    path = os.path.join(st.OUT_DIR, "ea_reference.png")
+    fig.savefig(path, bbox_inches="tight", pad_inches=0.03)
+    plt.close(fig)
+    print("  wrote %s" % path)
+    return path
 
 
 def ea_segmented(cases):
