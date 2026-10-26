@@ -597,8 +597,12 @@ def ea_peg_segmented(cases):
         ax.set_yticks([0, 250, 500])
         st.tidy(ax, legend=False)
         fig.subplots_adjust(left=0.18, right=0.97, top=0.975, bottom=0.42)
+        # The three PEG flights in the first column, the short labels in the
+        # second, so the legend fits the column at 10 pt.
         handles, labels = ax.get_legend_handles_labels()
-        fig.legend(handles, labels, loc="lower center", ncol=2, fontsize=FS,
+        order = [1, 2, 3, 0, 4, 5]
+        fig.legend([handles[i] for i in order], [labels[i] for i in order],
+                   loc="lower center", ncol=2, fontsize=FS,
                    frameon=False, bbox_to_anchor=(0.5, 0.0), labelspacing=0.25,
                    columnspacing=0.8, handlelength=1.6)
         return st.save(fig, "ea_peg_segmented.png")
