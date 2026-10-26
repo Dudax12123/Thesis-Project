@@ -850,49 +850,47 @@ EA_GROUPS = [
     ("Sea-level engine", ["gt_sea_level_engine"]),
 ]
 # The shortest names the abstract's own text and its table of cases make
-# unambiguous (review 2026-10-26): the apogee check is flown by the gravity turn
-# alone, and the segmented hand-off is optimized or fixed at 120 km.
+# unambiguous, so the table fits one column at 10 pt (review 2026-10-26): the
+# apogee check is flown by the gravity turn alone, the segmented hand-off is
+# optimized or fixed at 120 km, and the open-loop laws go by their adjective.
 EA_LABELS = {"pmp_baseline": "Reference", "gt_apogee": "Apogee check",
-             "gt_baseline": "Gravity turn", "show_seg_opt_alt": "Segmented, optimized",
-             "show_seg_fixed_alt": "Segmented, 120 km", "peg_direct": "PEG, direct",
+             "gt_baseline": "Gravity turn", "show_seg_opt_alt": "Segmented",
+             "show_seg_fixed_alt": "Seg., 120 km", "show_bilinear_tangent": "Bilinear",
+             "show_cpr": "Pitch rate", "show_linear_tangent": "Linear",
+             "show_exp_shooting": "Exponential", "peg_direct": "PEG, direct",
              "pmp_vacuum": "Reference", "pmp_norot": "Reference", "gt_norot": "Gravity turn",
              "gt_sea_level_engine": "Gravity turn"}
-EA_ENVIRONMENTS = {"No atmosphere": "no atmosphere", "Non-rotating Earth": "non-rotating",
-                   "Sea-level engine": "sea-level engine"}
 
 
 def ea_all_cases(cases):
     """Every reported case: propellant left, staging, coast and the two losses
     that account for the ranking (Extended Abstract, review C-1).
 
-    The baseline block carries no group row, and each case flown in another
-    environment names it after the law (review 2026-10-26: the one-row groups
-    each spent a heading and a gap on one or two cases)."""
+    One column at 10 pt (review 2026-10-26): the baseline block comes first with
+    no heading, each other environment is an italic heading spanning the row, so
+    its name costs no width, and the outer padding is dropped; the abstract sets
+    \tabcolsep to 2 pt around it. No orbit column: the text gives the one case
+    that misses the target."""
     names = [n for _g, members in EA_GROUPS for n in members]
     if _missing(cases, names, "ea_all_cases"):
         return None
     rows = []
     for g, (group, members) in enumerate(EA_GROUPS):
-        if g == 1:
-            rows.append(None)
+        if g:
+            rows.append([r"\multicolumn{6}{@{}l}{\emph{%s}}" % group])
         for n in members:
             k = cases[n]
             r = k.row
-            label = EA_LABELS.get(n, label_cell(n))
-            if g:
-                label += ", " + EA_ENVIRONMENTS[group]
             # No t_MECO column: the first stage burns to depletion at a fixed
             # flow in every case, so it is the same in every row (the text says so).
-            # No orbit column: every case but PEG direct insertion reaches the
-            # target within 0.3 km, which the caption and the text state.
-            rows.append([label, tonnes(prop(k)), num(altitude_at(k, k.t_meco)),
-                         seconds(arcs(k)[1]), num(r["dv_gravity"], 0),
-                         num(r["dv_steering"], 0)])
+            rows.append([EA_LABELS.get(n, label_cell(n)), tonnes(prop(k)),
+                         num(altitude_at(k, k.t_meco)), seconds(arcs(k)[1]),
+                         num(r["dv_gravity"], 0), num(r["dv_steering"], 0)])
     # One line of heads above the units; the losses take the symbols of the
-    # abstract's loss equation, and the outer padding is dropped.
+    # abstract's loss equation.
     return tabular(
         "@{}l r r r r r@{}",
-        bold("Case", "Prop. left", r"$h_{\mathrm{MECO}}$", "Coast",
+        bold("Case", "Prop.", r"$h_{\mathrm{MECO}}$", "Coast",
              r"$\Delta V_{\mathrm{grav}}$", r"$\Delta V_{\mathrm{steer}}$"),
         ["", "[t]", "[km]", "[s]", "[m/s]", "[m/s]"], rows)
 
