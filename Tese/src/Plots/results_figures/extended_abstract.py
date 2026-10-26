@@ -60,6 +60,24 @@ def save_pieces(fig, name, pieces):
     return paths
 
 
+def _plot_with_jumps(host, t, y, span, **style):
+    """Plot y(t) solid, with every instant change of value dotted.
+
+    An instant change is a step between two samples at most 0.05 s apart (the
+    record repeats the time at an event: the kick, a cut-off, an ignition) of
+    more than 0.5 % of the axis span. The pieces between are thinned as usual.
+    """
+    dt, dy = np.diff(t), np.abs(np.diff(y))
+    jumps = np.where((dt <= 0.05) & np.isfinite(dy) & (dy > 0.005 * span))[0]
+    start = 0
+    for i in list(jumps) + [len(t) - 1]:
+        if i >= start:
+            host.plot(*st.thin(t[start:i + 1], y[start:i + 1]), **style)
+        if i < len(t) - 1:
+            host.plot(t[i:i + 2], y[i:i + 2], **dict(style, linestyle=":"))
+        start = i + 1
+
+
 def ea_reference_profile(cases):
     """The atmospheric reference in one column, one panel (review F-2, second
     pass; Q-1, 2026-10-23; T-1, 2026-10-24), saved as ea_reference.png.
@@ -70,11 +88,11 @@ def ea_reference_profile(cases):
     colour, and the quantities are named in a colour legend below the plot.
     The coast is shaded, MECO and both cut-offs dotted, and the waypoint
     marked on the altitude.
-    The steering of the first second-stage burn, where the law is fitted, is
-    drawn on the flight-path angle's axis, which is also in degrees: the
-    pitch, the angle of attack, and the linear-tangent law fitted to the pitch
-    (sec63._tangent_fit, as in fig:reference_tangent_fit) dashed. It was a
-    panel of its own until 2026-10-26, when the user merged the two.
+    The steering, the angle of attack over the whole flight, is drawn on the
+    flight-path angle's axis, which is also in degrees. Until 2026-10-26 the
+    first second-stage burn's pitch, angle of attack and fitted linear-tangent
+    law were a panel of their own; the user merged them in, then kept only the
+    angle of attack, over the whole flight.
     """
     from Auxiliary import constants as const
     from . import validation_falcon9 as vf
@@ -95,21 +113,28 @@ def ea_reference_profile(cases):
         "q": np.where(in_atm, case.q[:end] / 1e3, np.nan),
     }
     spec = {k: (c, lim) for k, _l, c, lim in sec63.PROFILE_AXES}
-    # Every axis starts at zero on the same baseline, and the top ticks of
+    # Every axis but the degrees one starts at zero on the same baseline, and the top ticks of
     # altitude, flight-path angle and dynamic pressure sit at one height.
-    spec["gamma"] = (spec["gamma"][0], (0.0, 90.0 * 540.0 / 500.0))
+    # The degrees axis alone reaches below zero, to -10 deg: the angle of attack
+    # is about -8 deg in the final burn, and its zero (the first stage, the
+    # coast) then shows above the baseline instead of under it.
+    spec["gamma"] = (spec["gamma"][0], (-10.0, -10.0 + 100.0 * 540.0 / 500.0))
     spec["q"] = (spec["q"][0], (0.0, 60.0 * 540.0 / 500.0))
     names = {"alt": "Altitude [km]", "gamma": r"Flight-path angle $\gamma$ [deg]",
              "accel": r"Thrust accel. $T/(m g_0)$ [g]", "q": "Dynamic pressure [kPa]"}
+    # Data lines thin, so the crossing curves stay apart; the legend keys a little
+    # heavier, so their colours read.
+    LW, LW_KEY = 0.75, 1.2
     # Two ticks per axis, its zero and its top, so the axes can sit close.
-    ticks = {"alt": [0, 500], "gamma": [0, 90], "accel": [0, 6], "q": [0, 60]}
+    ticks = {"alt": [0, 500], "gamma": [-10, 0, 90], "accel": [0, 6], "q": [0, 60]}
     # Spine positions in axes fractions: two on the left, two on the right.
-    spines = {"gamma": ("left", -0.135), "accel": ("right", 1.0), "q": ("right", 1.085)}
+    spines = {"gamma": ("left", -0.135), "accel": ("right", 1.0), "q": ("right", 1.11)}
+    units = {"gamma": "deg", "alt": "km", "accel": "g", "q": "kPa"}
 
     # Axes box in inches from the foot, the legend below it.
     height = 3.80
     fig = plt.figure(figsize=(COLUMN_IN, height))
-    ax = fig.add_axes([0.150, 1.70 / height, 0.700, 1.86 / height])
+    ax = fig.add_axes([0.186, 1.70 / height, 0.655, 1.86 / height])
     hosts = {"alt": ax}
     for key in ("gamma", "accel", "q"):
         side, off = spines[key]
@@ -123,15 +148,22 @@ def ea_reference_profile(cases):
     legend = []
     for key, host in hosts.items():
         colour, lim = spec[key]
-        tt, yy = st.thin(t, series[key])
-        host.plot(tt, yy, color=colour, linewidth=1.15)
+        _plot_with_jumps(host, t, series[key], lim[1] - lim[0], color=colour, linewidth=LW)
         host.set_ylim(*lim)
         host.set_yticks(ticks[key])
-        host.tick_params(axis="y", colors=colour, labelcolor=colour, labelsize=FS, pad=1.0, length=2)
+        # The axes are black and named by their units, not coloured by a
+        # quantity: two quantities (the two angles) share one of them.
+        host.tick_params(axis="y", colors=st.INK, labelcolor=st.INK, labelsize=FS, pad=1.0, length=2)
         side = "left" if key in ("alt", "gamma") else "right"
-        host.spines[side].set_color(colour)
-        host.spines[side].set_linewidth(1.2)
-        legend.append(Line2D([], [], color=colour, linewidth=1.6, label=names[key]))
+        host.spines[side].set_color(st.INK)
+        host.spines[side].set_linewidth(0.8)
+        legend.append(Line2D([], [], color=colour, linewidth=LW_KEY, label=names[key]))
+    # Each axis's unit just above its top, centred on its spine.
+    for key, unit in units.items():
+        off = spines[key][1] if key in spines else 0.0
+        ax.annotate(unit, xy=(off, 1.0),
+                    xycoords="axes fraction", xytext=(0, 3), textcoords="offset points",
+                    ha="center", va="bottom", fontsize=FS, color=st.INK)
     # The flown Intelsat 35e ascent's dynamic pressure, dotted on the reference's
     # axis and cut at the same altitude (review AT-1, 2026-10-25).
     flown = [f for f in vf.load_flights() if f.name == sec63.THROTTLED_FLIGHT]
@@ -140,9 +172,9 @@ def ea_reference_profile(cases):
         t_f, q_f = vf._q(f.time, f.v, f.alt_km)
         below = np.interp(t_f, f.time, f.alt_km) <= alt_exit
         hosts["q"].plot(t_f[below], q_f[below], color=spec["q"][0], linestyle=":",
-                        linewidth=1.15)
+                        linewidth=LW)
         names["flown"] = "Intelsat 35e, flown"
-        legend.append(Line2D([], [], color=spec["q"][0], linestyle=":", linewidth=1.6,
+        legend.append(Line2D([], [], color=spec["q"][0], linestyle=":", linewidth=LW_KEY,
                              label=names["flown"]))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
@@ -180,40 +212,25 @@ def ea_reference_profile(cases):
     ax.grid(True, color=st.FAINT, linewidth=0.5, alpha=0.8)
     ax.set_axisbelow(True)
 
-    # The steering of the first second-stage burn, where the law is fitted, on
-    # the flight-path angle's axis (degrees too).
-    long_burns = [b for b in burns if b[1] - b[0] >= sec63.MIN_FIT_S]
-    b0, b1 = long_burns[0]
-    sel = (case.time >= b0) & (case.time <= b1)
-    tb = case.time[sel]
-    keep = np.ones(tb.size, dtype=bool)
-    keep[1:] = np.diff(tb) > 0.0
-    tb = tb[keep]
-    # No unit in these two labels, which would widen the legend past the
-    # column; the caption says they share the flight-path angle's axis.
-    steer = (("theta", r"Pitch $\theta$", sec63.OVERLAY_COLOURS["mach"]),
-             ("alpha", r"Angle of attack $\alpha$", sec63.OVERLAY_COLOURS["thrust"]))
-    for key, label, colour in steer:
-        values = (case.theta_deg if key == "theta" else case.alpha_deg)[sel][keep]
-        hosts["gamma"].plot(*st.thin(tb, values), color=colour, linewidth=1.15)
-        names[key] = label
-        legend.append(Line2D([], [], color=colour, linewidth=1.6, label=label))
-    tf, fitted, _rms = sec63._tangent_fit(case, b0, b1)
-    hosts["gamma"].plot(tf, fitted, color=st.INK, linestyle="--", linewidth=1.0)
-    names["fit"] = "Linear tangent fit"
-    legend.append(Line2D([], [], color=st.INK, linestyle="--", linewidth=1.3, label=names["fit"]))
+    # The steering, the angle of attack, over the whole flight to insertion, on
+    # the flight-path angle's axis (degrees too); zero wherever the engine is off.
+    colour = sec63.OVERLAY_COLOURS["thrust"]
+    lim = spec["gamma"][1]
+    _plot_with_jumps(hosts["gamma"], t, case.alpha_deg[:end], lim[1] - lim[0],
+                     color=colour, linewidth=LW)
+    names["alpha"] = r"Angle of attack $\alpha$ [deg]"
+    legend.append(Line2D([], [], color=colour, linewidth=LW_KEY, label=names["alpha"]))
 
     legend += [Patch(color=st.FAINT, alpha=0.45, label="Coast (%.0f s)" % (c1 - c0)),
                ax.get_legend_handles_labels()[0][-1]]
     style = dict(loc="upper center", ncol=2, fontsize=FS, frameon=False,
                  bbox_transform=fig.transFigure, handlelength=1.0, handletextpad=0.35,
                  columnspacing=0.6, labelspacing=0.2, borderaxespad=0.1, borderpad=0.1)
-    # Column-major fill: the profile's quantities in the first column, the
-    # steering, the coast and the waypoint in the second.
+    # Column-major fill: the two angles together at the head of the first
+    # column, the long names in the first column, the short in the second.
     by_label = {h.get_label(): h for h in legend}
-    order = ([names["gamma"], names["accel"], names["q"]]
-             + ([names["flown"]] if "flown" in names else []) + [names["alt"]]
-             + [names["theta"], names["alpha"], names["fit"]])
+    order = ([names["gamma"], names["alpha"], names["accel"], names["q"]]
+             + ([names["flown"]] if "flown" in names else []) + [names["alt"]])
     order += [h.get_label() for h in legend if h.get_label() not in order]
     legend = [by_label[k] for k in order]
     fig.legend(handles=legend, bbox_to_anchor=(0.486, 1.24 / height), **style)
