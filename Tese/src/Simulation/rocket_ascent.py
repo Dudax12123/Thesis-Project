@@ -2285,6 +2285,8 @@ def _coast_to_apoapsis(t0, y0, t_eval_step=None, horizon=_APOAPSIS_COAST_HORIZON
     t_eval = None
     if t_eval_step is not None:
         t_eval = np.arange(t0 + t_eval_step, t0 + horizon, t_eval_step)
+        # arange can round its last point past t0 + horizon, which solve_ivp refuses.
+        t_eval = t_eval[t_eval <= t0 + horizon]
     events = [crash, apoapsis] if stop_at_apoapsis else [crash]
     return solve_ivp(_coast_rates, (t0, t0 + horizon), np.asarray(y0, dtype=float)[:5],
                      t_eval=t_eval, events=events, rtol=pcs._RTOL, atol=pcs._ATOL,
