@@ -169,12 +169,4 @@ if not ABSTRACT:
 
 ax.set_xlim(-1.62, 3.55 if ABSTRACT else 4.05)
 ax.set_ylim(0.32, 4.52)
-if not ABSTRACT:
-    # the thesis copy shows the plane of motion: the drawing plane, tinted grey
-    from matplotlib.patches import Rectangle
-    x0, x1 = ax.get_xlim(); y0, y1 = ax.get_ylim()
-    ax.add_patch(Rectangle((x0, y0), x1 - x0, y1 - y0, facecolor="#ececec",
-                           edgecolor="none", zorder=-5))
-    ax.text(x0 + 0.08, y1 - 0.08, "plane of motion", color=GREY, fontsize=FS,
-            style="italic", ha="left", va="top")
 save(fig, "ea_frame.png" if ABSTRACT else "angle_conventions.png")
