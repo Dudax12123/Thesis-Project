@@ -39,16 +39,16 @@ u = unit(DELTA)
 # The abstract's column is 7.8 cm and the copy prints at ~1.09 of its drawn size.
 FS = 10 if ABSTRACT else 11
 FL = 10 if ABSTRACT else 12  # vector and angle labels
-# vector line widths and head sizes; the abstract copy draws them thinner
-VW, VH = (1.1, 10) if ABSTRACT else (1.7, 13)
-TW, TH = (1.3, 11) if ABSTRACT else (2.0, 14)
+# vector line widths and head sizes (thinner, as in the abstract copy)
+VW, VH = 1.1, 10
+TW, TH = 1.3, 11
 
 fig, ax = plt.subplots(figsize=(3.4, 2.6) if ABSTRACT else (6.2, 4.7))
 blank_axes(ax)
 
 # --- planet: surface arc with a thin crust -------------------------------
-# the abstract copy runs the crust band along the whole drawn surface
-th = np.linspace(np.deg2rad(5 if ABSTRACT else 48), np.deg2rad(150 if ABSTRACT else 120), 300)
+# the crust band runs along the whole drawn surface
+th = np.linspace(np.deg2rad(5), np.deg2rad(150), 300)
 xo, yo = RE * np.cos(th), RE * np.sin(th)
 xi, yi = 0.92 * RE * np.cos(th), 0.92 * RE * np.sin(th)
 ax.fill(np.r_[xo, xi[::-1]], np.r_[yo, yi[::-1]], color=EARTH, zorder=0)
@@ -99,7 +99,7 @@ sm = rr * 1.045 * unit(0.5 * (DELTA + LAUNCH))
 ax.text(sm[0], sm[1], "$s$", color=ACCENT, fontsize=FS, ha="center",
         va="bottom")
 ax.plot([L[0]], [L[1]], marker="o", ms=3.2, color=INK, zorder=5)
-ax.text(L[0] + (-0.05 if ABSTRACT else 0.06), L[1] - (0.30 if ABSTRACT else 0.10), "launch site", fontsize=FS, color=INK if ABSTRACT else GREY,
+ax.text(L[0] + (-0.05 if ABSTRACT else 0.06), L[1] - (0.30 if ABSTRACT else 0.10), "launch site", fontsize=FS, color=INK,
         ha="center", va="top")
 
 # --- local horizon -------------------------------------------------------
