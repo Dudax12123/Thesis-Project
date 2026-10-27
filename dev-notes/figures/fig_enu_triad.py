@@ -62,11 +62,15 @@ for a, b in ((O, P_N), (P_N, H), (O, P_E), (P_E, H), (H, V), (O, H)):
     ax.plot([a[0], b[0]], [a[1], b[1]], color=GREY, lw=0.9, ls=(0, (3, 2.2)),
             zorder=4)
 
-# v_U is marked at the tip of v, at the top of the vertical leg H -> V.
+# The three components are drawn as vectors along their own axes, each
+# labelled at its tip; a dashed edge closes the box on the vertical side.
+P_U = L * sg * U2
+ax.plot([P_U[0], V[0]], [P_U[1], V[1]], color=GREY, lw=0.9, ls=(0, (3, 2.2)),
+        zorder=4)
 for p, lab, ha, va, off in ((P_N, r"$v_N$", "right", "bottom", (-0.09, 0.05)),
                             (P_E, r"$v_E$", "center", "top", (0.04, -0.10)),
-                            (V, r"$v_U$", "left", "center", (0.13, 0.0))):
-    ax.plot([p[0]], [p[1]], marker="o", ms=3.2, color=THRUST, zorder=8)
+                            (P_U, r"$v_U$", "right", "center", (-0.10, 0.0))):
+    arrow(ax, O, p, color=THRUST, lw=1.9, scale=11, zorder=6)
     ax.text(p[0] + off[0], p[1] + off[1], lab, fontsize=LABEL_PT, color=THRUST,
             ha=ha, va=va)
 ax.plot([H[0]], [H[1]], marker="o", ms=3.6, color=GREY, zorder=6)
