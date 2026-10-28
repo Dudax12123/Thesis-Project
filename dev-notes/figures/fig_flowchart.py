@@ -93,7 +93,7 @@ label(W - 0.04, R2 + 0.52, "Guidance law in use", GREY, ha="right",
 proc(A, R1, "Simulate vertical\nascent")
 IN_TXT = "Input: Choose an\ninitial kick angle\nafter vertical\nphase"
 proc(B, R1, IN_TXT, fc=IO)
-h_c1 = proc(C, R1, "Simulate gravity\nturn until\natmosphere exit")
+h_c1 = proc(C, R1, "Simulate Gravity\nTurn until\natmosphere exit")
 
 h_a2 = proc(A, R2, "Discard the initial\nkick angle value")
 h_c2 = proc(C, R2, "Calculate apogee\nof resulting orbit\nif engines stopped")
