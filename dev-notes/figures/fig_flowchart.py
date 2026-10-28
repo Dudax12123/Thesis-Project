@@ -104,8 +104,8 @@ decision(C, R3, DWC, DHC, "$R_{apogee}$\n$=R_{desired}$")
 h_d3 = proc(D, R3, "Simulate ascent\ntrajectory if\nengine continues\nuntil next\ntime step",
             w=1.18)
 
-h_a4 = proc(A, R4, "Output: calculate\ntotal propellant\nused", fc=IO)
-proc(B, R4, "Impulsive\ncircularization at\napoapsis: $\\Delta v=$\n$|v_{circ}-v_{apo}|$,\npropellant from the\nrocket equation")
+h_a4 = proc(A, R4, "Output: Use total\n$\\Delta v$ to calculate\ntotal propellant\nused from the\nrocket equation", fc=IO)
+proc(B, R4, "Impulsive\ncircularization at\napoapsis: $\\Delta v=$\n$|v_{circ}-v_{apo}|$")
 h_c4 = proc(C, R4, "Place the cut-off\nby root search so\nthe coast reaches\nthe target apoapsis")
 h_r1 = box_h(IN_TXT)
 
