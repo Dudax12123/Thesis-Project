@@ -22,7 +22,10 @@ use_thesis_style()
 FS = 9.0
 PW = 0.75 * 6.30                # placed at 0.75\linewidth
 
-H2, H3 = 0.10, 0.75                       # hand-off altitudes, generic; h_3 is crossed coasting
+# hand-off altitudes, generic: h_3 lies just above the end of law 2's burn, so it is
+# crossed early in the coast and law 3 flies the burn after it
+H2 = 0.10
+H3 = float(ga.h(ga.T_COAST0)) + 0.01
 T2, T3 = ga.t_at(H2), ga.t_at(H3)
 
 fig, ax = plt.subplots(figsize=(4.8, 2.75))
@@ -54,7 +57,7 @@ ax.text(0.9, ga.H_ORB + 0.02, "target orbit", fontsize=FS, color=INK, ha="left",
 
 ax.text(0.0, 0.195, "law 1 aims at\nwaypoint 2", fontsize=FS, color=GREEN, ha="left",
         va="bottom", linespacing=1.15)
-ax.text(0.50, 0.47, "law 2 aims at\nwaypoint 3", fontsize=FS, color=AMBER, ha="left",
+ax.text(0.50, 0.52, "law 2 aims at\nwaypoint 3", fontsize=FS, color=AMBER, ha="left",
         va="bottom", linespacing=1.15)
 ax.text(1.21, 0.665, "coast", fontsize=FS, color=GREY, ha="right", va="center")
 ax.text(ga.T_END + 0.07, 0.90, "law 3 aims\nat the orbit", fontsize=FS, color=ACCENT,
