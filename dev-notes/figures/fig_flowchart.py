@@ -8,6 +8,9 @@ Thesis_Optimization_Background.tex:
   2. "stoped" -> "stopped".
 All other wording is kept verbatim from the original.
 
+C3-19 (2026-10-28): block labels name the method (numerical integration, root
+search for the cut-off, impulsive circularization).
+
 Figure review, 2026-10-12 (approved as is, to meet the 10 pt rule): the same
 boxes, flow and wording, laid out in inches at the printed size. The thesis
 places the figure at \\linewidth (16 cm = 6.30 in) and the drawing is that
@@ -89,7 +92,7 @@ label(W - 0.04, R2 + 0.52, "Guidance law in use", GREY, ha="right",
 # --- boxes ---------------------------------------------------------------
 proc(A, R1, "Simulate vertical\nascent")
 proc(B, R1, "Input: choose an\ninitial kick angle", fc=IO)
-h_c1 = proc(C, R1, "Simulate the ascent\ntrajectory until\nMECO & negligible\natmosphere")
+h_c1 = proc(C, R1, "Integrate the ascent\nnumerically until\nMECO and exit from\nthe atmosphere")
 
 h_a2 = proc(A, R2, "Discard the initial\nkick angle value")
 h_c2 = proc(C, R2, "Calculate apogee\nof resulting orbit\nif engines stopped")
@@ -101,8 +104,8 @@ h_d3 = proc(D, R3, "Simulate ascent\ntrajectory if\nengine continues\nuntil next
             w=1.18)
 
 h_a4 = proc(A, R4, "Output: calculate\ntotal propellant\nused", fc=IO)
-proc(B, R4, "Calculate $\\Delta v$ and\npropellant required\nfor circularization")
-h_c4 = proc(C, R4, "Simulate coasting\nuntil orbit\nreached")
+proc(B, R4, "Impulsive burn at\napoapsis, $\\Delta v=$\n$|v_{circ}-v_{apo}|$,\nrocket equation")
+h_c4 = proc(C, R4, "Place the cut-off\nby root search so\nthe coast reaches\nthe target apoapsis")
 h_r1 = box_h("x\nx")
 
 # --- flow ----------------------------------------------------------------
