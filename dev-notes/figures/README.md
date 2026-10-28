@@ -38,7 +38,7 @@ also needs `scipy`. All are in `pygmo-env`.
 | `fig_mission_phase_timeline.py` | `mission_phase_timeline.png` | §2.8.2 |
 | `fig_architecture_arc_structures.py` | `architecture_arc_structures.png` | §3.4 |
 | `fig_flowchart.py` | `FlowChart.png` | §3.4.1 |
-| `fig_segmented_schedule.py` | `segmented_schedule.png` | §4.5.3 |
+| `fig_segmented_schedule.py` | `segmented_schedule.png` | not placed (dropped from §4.5.3, 2026-10-28) |
 | `fig_segmented_waypoints.py` | `segmented_waypoints.png` | §4.5.3 |
 | `fig_kick_profiles.py` | `kick_profiles.png` | §4.2 |
 | `fig_module_dependency_graph.py` | `module_dependency_graph.png` | ch. 5 |
