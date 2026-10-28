@@ -592,7 +592,8 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 #   SECO); under EARTH_ROTATION_MODEL = "launch_site" they credit the same speed,
 #   and the two coasts differ only by ecef_to_eci_velocity keeping gamma.
 # - "rotating": the coast is flown in the rotating frame with the pseudo-forces,
-#   on pso_coast_solver's own coast ODE. SECO is root-found so that coast's
+#   on pso_coast_solver's own coast ODE. SECO is the apogee event, converted with the exact
+#   planar transform (ra._apogee_check_inertial_state), so that coast's
 #   apoapsis is the target altitude. The impulsive burn there goes to the target
 #   every coast case inserts at: v_circular_rotating (the launch-site credit), gamma 0.
 #   It may be a retro-burn; its cost is |dv|. The default since 2026-10-03, and what

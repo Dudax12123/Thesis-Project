@@ -478,6 +478,22 @@ def interrupt_kick_time(t, y):
     return t - sim_params.TIME_TO_START_KICK
 
 
+def _apogee_check_inertial_state(v, gamma, lat, r_val):
+    """Inertial (v, gamma) of a ground-relative state, for apogee_check's apogee.
+
+    Under APOGEE_CHECK_COAST_FRAME = "rotating" the angle is rotated with the vector
+    (earth_rot.rotating_to_inertial_planar), so the Kepler apogee of the state is the
+    apoapsis the rotating-frame coast reaches, to the integrator's tolerance
+    (dev-notes/exact_conversion_check.py: 0.0 m at every sampled instant).
+    Under "inertial" it is ecef_to_eci_velocity, which keeps gamma, unchanged.
+    """
+    if not sim_params.ENABLE_EARTH_ROTATION:
+        return v, gamma
+    if getattr(sim_params, "APOGEE_CHECK_COAST_FRAME", "inertial") == "rotating":
+        return earth_rot.rotating_to_inertial_planar(v, gamma, lat, r_val)
+    return earth_rot.ecef_to_eci_velocity(v, gamma, lat, r_val)
+
+
 def interrupt_single_burn_traj(t, y):
     """
     Checks if the current apogee matches the desired altitude if the rocket 
@@ -504,8 +520,7 @@ def interrupt_single_burn_traj(t, y):
     if alt < sim_params.ALT_NO_ATMOSPHERE:
         return 1
     else:
-        if sim_params.ENABLE_EARTH_ROTATION:
-            v, gamma = earth_rot.ecef_to_eci_velocity(v, gamma, lat, r_val)
+        v, gamma = _apogee_check_inertial_state(v, gamma, lat, r_val)
 
         # Compute current orbital elements
         a, e, r_apo, r_peri, _ = get_orbital_elements(r_val, v, gamma)
@@ -2251,8 +2266,6 @@ def _fly_stage1(initial_state, time_horizon=500.0, use_kick_helper=True):
 # Longest coast searched for the next apoapsis [s]: more than one orbit, so a
 # state just past apoapsis still finds the next one.
 _APOAPSIS_COAST_HORIZON_S = 8000.0
-# Probe step when bracketing the rotating-frame cutoff after the conversion-based one [s].
-_SECO_BRACKET_STEP_S = 10.0
 
 
 def _coast_rates(t, y):
@@ -2302,18 +2315,23 @@ def _apoapsis_radius_miss(t0, y0, r_target):
     return float(sol.y_events[1][0][1]) - r_target
 
 
+# Position of interrupt_single_burn_traj in simulate_trajectory's Stage-2 event list.
+_SINGLE_BURN_EVENT = 3
+
+
 def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
     """Cutoff, coast and circularisation of apogee_check in the rotating frame.
 
-    ``sol_2`` ended at the conversion-based cutoff (interrupt_single_burn_traj).
-    The conversion (ecef_to_eci_velocity) credits the same w*r*cos(lat) as the
-    rotating-frame pseudo-forces, but carries the flight-path angle across
-    unchanged (gamma_eci = gamma). While the vehicle climbs, its inertial radial
-    speed v_eci*sin(gamma) therefore exceeds the true v*sin(gamma), and its Kepler
-    apogee runs ahead of the rotating-frame coast's apoapsis. The rotating apoapsis
-    is still below the target there, and the burn is continued (dense output)
-    until it is not. SECO is the root of the rotating apoapsis miss.
-    The coast to that apoapsis is flown on the other architectures' coast ODE,
+    ``sol_2`` ended at the event of interrupt_single_burn_traj, whose Kepler apogee is
+    computed from the state converted with the exact planar transform
+    (_apogee_check_inertial_state: the launch-site speed w*r*cos(lat) added along-track
+    and the flight-path angle rotated with the vector), the same credit the
+    rotating-frame pseudo-forces carry. That apogee is therefore the apoapsis the
+    rotating-frame coast reaches, and the event is SECO. Until 2026-10-28 the angle was
+    kept (gamma_eci = gamma), the event fired early while the vehicle climbed, and SECO
+    was root-found on the coast's apoapsis; the two agree to metres at the optimum
+    kick (dev-notes/exact_conversion_check.py).
+    The coast to the apoapsis is flown on the other architectures' coast ODE,
     and the impulsive burn there goes to their insertion target:
     v_circular_rotating at the apoapsis radius, gamma 0.
 
@@ -2337,44 +2355,18 @@ def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
     t_asc = np.concatenate((sol_1.t, sol_2.t))
     y_asc = np.concatenate((sol_1.y, sol_2.y), axis=1)
 
-    if _apoapsis_radius_miss(t_a, y_a, r_target) >= 0.0:
-        raise RuntimeError(
-            "apogee_check (rotating coast): the rotating-frame apoapsis is already "
-            "at the target when the conversion-based apogee reaches it. The cutoff "
-            "search assumes the conversion's Kepler apogee runs ahead of the rotating "
-            "apoapsis, which holds while the vehicle climbs (gamma > 0); this flight breaks it.")
-
-    # --- continue the burn, with dense output, until the rotating apoapsis is reached
-    burn_events = [interrupt_radius_check, interrupt_stage_2_burnt, interrupt_ground_collision]
-    for ev in burn_events:
-        ev.terminal, ev.direction = True, 0
-    t_burnout_cap = t_a + r.M_PROP_2 / (r.F_THRUST_2 / (c.G_0 * r.ISP_2)) + 1.0
-    burn = solve_ivp(rocket_dynamics, (t_a, t_burnout_cap), y_a, dense_output=True,
-                     max_step=1, events=burn_events, atol=1e-8)
-    if len(burn.t_events[2]) > 0:
-        return infeasible(t_asc, y_asc)
-    t_end = float(burn.t[-1])
-
-    def miss(t):
-        return _apoapsis_radius_miss(t, burn.sol(t), r_target)
-
-    lo, hi = t_a, None
-    probe = t_a
-    while probe < t_end:
-        probe = min(probe + _SECO_BRACKET_STEP_S, t_end)
-        if miss(probe) >= 0.0:
-            hi = probe
-            break
-        lo = probe
-    if hi is None:
-        return infeasible(t_asc, y_asc)       # burnt out below the target apoapsis
-    t_seco = float(brentq(miss, lo, hi, xtol=1e-6))
-    y_seco = np.asarray(burn.sol(t_seco), dtype=float)
-
-    t_grid = np.arange(t_a + sim_params.TIME_STEP, t_seco, sim_params.TIME_STEP)
-    t_asc = np.concatenate((t_asc, t_grid, [t_seco]))
-    y_asc = np.concatenate((y_asc, burn.sol(t_grid) if len(t_grid) else np.empty((5, 0)),
-                            y_seco[:, None]), axis=1)
+    # The event is the cut-off: the exact conversion makes its Kepler apogee the apoapsis
+    # the coast reaches. Read the crossing from t_events/y_events, not from sol_2.t[-1]:
+    # with a terminal event scipy truncates t_eval at the last grid point at or before
+    # the root, up to TIME_STEP early (0.2-0.9 km of apoapsis here).
+    if len(sol_2.t_events[_SINGLE_BURN_EVENT]) > 0:
+        t_seco = float(sol_2.t_events[_SINGLE_BURN_EVENT][0])
+        y_seco = np.asarray(sol_2.y_events[_SINGLE_BURN_EVENT][0], dtype=float)
+        if t_seco > t_a:
+            t_asc = np.concatenate((t_asc, [t_seco]))
+            y_asc = np.concatenate((y_asc, y_seco[:, None]), axis=1)
+    else:
+        t_seco, y_seco = t_a, y_a
 
     # --- coast to the apoapsis and the impulsive burn to the target
     coast = _coast_to_apoapsis(t_seco, y_seco,
@@ -2402,7 +2394,7 @@ def _finish_single_burn_rotating(sol_1, sol_2, fairing_in_mass):
     alt_stop = y_seco[1] - c.R_EARTH
 
     if sim_params.EVENTS_PRINT:
-        print(f"    [rotating coast] SECO T+{t_seco:.3f} s (conversion cutoff T+{t_a:.2f} s), "
+        print(f"    [rotating coast] SECO T+{t_seco:.3f} s, "
               f"apoapsis {(y_apo[1] - c.R_EARTH)/1e3:.3f} km at T+{t_apo:.1f} s, "
               f"dv {dv_signed:+.2f} m/s -> objective {m_propellant_total_used_2nd_stage}")
 
@@ -2722,6 +2714,7 @@ def run(initial_kick_angle, azimuth_override=None):
                 t = np.concatenate([sol_2a.t, sol_2b.t])
                 y = np.concatenate([sol_2a.y, sol_2b.y], axis=1)
                 t_events = sol_2b.t_events
+                y_events = sol_2b.y_events
 
             sol_2 = _Sol2()
 
@@ -2774,7 +2767,7 @@ def run(initial_kick_angle, azimuth_override=None):
         LAST_INCLINATION_DRIFT_DEG = LAST_ACHIEVED_INCLINATION_DEG - sim_params.TARGET_ORBIT_INCLINATION
 
     # Convert from rotating frame to inertial frame for orbital mechanics.
-    v_stop, gamma_stop = get_inertial_state_components(r_stop, v_stop, gamma_stop, LAUNCH_LATITUDE_RAD)
+    v_stop, gamma_stop = _apogee_check_inertial_state(v_stop, gamma_stop, LAUNCH_LATITUDE_RAD, r_stop)
     
     # Calculate orbital elements at stop
     a_stop, e_stop, r_apo_stop, r_peri_stop, orbit_period_stop = get_orbital_elements(

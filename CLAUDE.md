@@ -464,14 +464,16 @@ Since then the rotation-on residual is the in-plane centrifugal work alone.
   credited only the share of that speed along the heading (before `EARTH_ROTATION_MODEL`,
   2026-10-05). Coasted their way, gt_apogee's SECO
   state peaked at 184.6 km, not 499 km, and the old row was over-credited by ~0.7 t.
-- **The "rotating" coast** (`ra._finish_single_burn_rotating`): the conversion-based event
-  (`interrupt_single_burn_traj`) now only brackets SECO from below. The burn continues with dense
-  output, and SECO is root-found so that a coast on `pso_coast_solver`'s own coast ODE
-  (`_coast_to_apoapsis`, same tolerances) reaches its apoapsis at the target. The impulsive burn
-  there goes to `v_circular_rotating`, the shared target, and may be a retro-burn costing |Δv|.
-  The bracket holds because the conversion keeps γ_ECI = γ, which overstates the inertial
-  radial speed while the vehicle climbs, so its Kepler apogee runs ahead of the rotating coast's
-  apoapsis. It raises if that assumption fails.
+- **The "rotating" coast** (`ra._finish_single_burn_rotating`): since 2026-10-28 the event
+  (`interrupt_single_burn_traj`) IS SECO. It converts the state with the exact planar transform
+  (`ra._apogee_check_inertial_state` → `earth_rot.rotating_to_inertial_planar`, γ rotated with the
+  vector), so its Kepler apogee is the apoapsis a coast on `pso_coast_solver`'s own coast ODE
+  (`_coast_to_apoapsis`, same tolerances) reaches (`dev-notes/exact_conversion_check.py`: 0.0 m).
+  SECO is read from `t_events`/`y_events`, not `sol_2.t[-1]` (a grid point up to TIME_STEP early).
+  The impulsive burn at the apoapsis goes to `v_circular_rotating`, the shared target, and may be a
+  retro-burn costing |Δv|. Before, the conversion kept γ_ECI = γ, the event fired early while the
+  vehicle climbed (0.2–0.9 s at kicks 0.0015–0.003 rad off the optimum, ~30 µs at it), and SECO
+  was root-found on the coast. The "inertial" frame still uses `ecef_to_eci_velocity`.
   - gt_apogee re-flown: 22 168.7 → 21 534.2 kg, circularisation 89.8 → 1.1 m/s. Its search now
     finds the same coast-to-target the swarms find.
 - **Read the frame, do not infer it.** `run()` sets `ra.FINAL_STATE_INERTIAL`,
