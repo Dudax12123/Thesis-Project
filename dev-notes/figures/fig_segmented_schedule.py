@@ -21,19 +21,20 @@ import generic_ascent as ga
 from figstyle import use_thesis_style, save, INK, GREY, ACCENT, GREEN, VIOLET
 
 use_thesis_style()
-FS = 9.5
+FS = 9.0
+PW = 0.75 * 6.30                # placed at 0.75\linewidth
 
 H_HAND = 0.30                               # the hand-off altitude, generic
 T_HAND = ga.t_at(H_HAND)
 
-fig, ax = plt.subplots(figsize=(6.3, 3.6))
+fig, ax = plt.subplots(figsize=(4.8, 2.75))
 ax.spines[["top", "right"]].set_visible(False)
 
 t = ga.grid(ga.T_KICK, T_HAND)
-ax.plot(t, ga.h(t), color=GREEN, lw=3.0, zorder=5, solid_capstyle="butt")
+ax.plot(t, ga.h(t), color=GREEN, lw=2.4, zorder=5, solid_capstyle="butt")
 for a, b in ((T_HAND, ga.T_COAST0), (ga.T_COAST1, ga.T_END)):
     t = ga.grid(a, b)
-    ax.plot(t, ga.h(t), color=ACCENT, lw=3.0, zorder=5, solid_capstyle="butt")
+    ax.plot(t, ga.h(t), color=ACCENT, lw=2.4, zorder=5, solid_capstyle="butt")
 t = ga.grid(ga.T_COAST0, ga.T_COAST1)
 ax.plot(t, ga.h(t), color=GREY, lw=1.6, ls=(0, (1.5, 2.2)), zorder=4)
 ax.plot([ga.T_END, ga.T_END], [ga.H_ORB - 0.035, ga.H_ORB + 0.035], color=ACCENT, lw=1.8,
@@ -53,7 +54,7 @@ ax.plot([ga.T_MECO], [h_meco], marker="s", ms=6.0, color=INK, zorder=9)
 ax.text(ga.T_MECO - 0.03, h_meco + 0.02, "MECO / staging", fontsize=FS, color=INK,
         ha="right", va="bottom")
 ax.plot([T_HAND], [H_HAND], marker="o", ms=5.5, mfc="white", mec=INK, mew=1.2, zorder=8)
-ax.text(T_HAND + 0.03, H_HAND - 0.015, "hand-off altitude\n(fixed or swarm)", fontsize=FS,
+ax.text(T_HAND + 0.03, H_HAND - 0.015, "hand-off altitude\n(fixed or optimized)", fontsize=FS,
         color=INK, ha="left", va="top", linespacing=1.15)
 h_c0 = float(ga.h(ga.T_COAST0))
 ax.plot([ga.T_COAST0], [h_c0], marker="o", ms=7, mfc="white", mec=VIOLET, mew=1.7, zorder=9)
@@ -65,8 +66,8 @@ ax.text(ga.T_END + 0.07, ga.H_ORB - 0.10, "insertion:\ncut-off on\nPEG's $t_{go}
         fontsize=FS, color=ACCENT, ha="right", va="top", linespacing=1.15)
 
 ax.legend(handles=[
-    Line2D([], [], color=GREEN, lw=3.0, label="gravity turn"),
-    Line2D([], [], color=ACCENT, lw=3.0, label="vector PEG"),
+    Line2D([], [], color=GREEN, lw=2.4, label="gravity turn"),
+    Line2D([], [], color=ACCENT, lw=2.4, label="vector PEG"),
     Line2D([], [], color=GREY, lw=1.6, ls=(0, (1.5, 2.2)), label="coast")],
     loc="upper left", fontsize=FS, frameon=False, handlelength=2.6)
 
@@ -79,4 +80,4 @@ ax.set_ylim(-0.12, 1.10)
 
 p = save(fig, "segmented_schedule.png")
 w_in = plt.imread(p).shape[1] / 300.0
-print("printed scale %.3f -> labels at %.1f pt" % (6.30 / w_in, FS * 6.30 / w_in))
+print("printed scale %.3f -> labels at %.1f pt" % (PW / w_in, FS * PW / w_in))

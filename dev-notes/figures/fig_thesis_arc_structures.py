@@ -18,12 +18,12 @@ STAGE1 = "#ececec"         # the first stage, common to every architecture
 
 use_thesis_style()
 
-FS = 10.0                  # every label, printed at the column width
+FS = 10.2                  # every label, printed at the column width
 W = 6.30                   # the thesis text width
 K = W / 3.08               # the abstract layout stretched to it, labels unchanged
-SH = 0.22                  # bar height
+SH = 0.20                  # bar height
 NAME_DY = 0.05             # gap between a row name and its bar
-ROW = 0.53                 # row pitch: name + bar + gap
+ROW = 0.47                 # row pitch: name + bar + gap
 
 X0 = 0.03                  # lift-off
 IGN = 0.86 * K                 # second-stage ignition
@@ -42,10 +42,10 @@ SEG_NAME = "E  Segmented multi-law guidance"
 # and the final law flies both burns. The laws are named on spans under the bar.
 HANDS = (0.70 * K, 1.32 * K)
 SEG = [(IGN, 2.20 * K, "T"), (2.20 * K, 2.85 * K, "C"), (2.85 * K, XE, "T")]
-SPANS = 0.28               # room under the segmented bar for the law spans
+SPANS = 0.26               # room under the segmented bar for the law spans
 
 LEG = 0.26                 # height of the one legend row
-FIRST = 0.46               # top of the figure to the first bar's bottom
+FIRST = 0.42               # top of the figure to the first bar's bottom
 H = FIRST + ROW * len(ROWS) + 0.08 + LEG + 0.04 + SPANS
 fig = plt.figure(figsize=(W, H))
 ax = fig.add_axes([0, 0, 1, 1])
