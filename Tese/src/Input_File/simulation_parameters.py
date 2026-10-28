@@ -599,6 +599,12 @@ APOGEE_MATCH_TOL_FRAC = 0.0002                   # apogee match tolerance (fract
 #   It may be a retro-burn; its cost is |dv|. The default since 2026-10-03, and what
 #   the results matrix and the thesis fly.
 APOGEE_CHECK_COAST_FRAME = "rotating"            # "inertial" | "rotating"
+# apogee_check, instantaneous kick: refine the brute grid's best gamma_p with
+# Brent's bounded method between its two neighbours, as DIRECT_OPTIMIZER =
+# "grid_brent" does (~20 more ascents; kept only if it beats the grid point).
+# False is the plain grid, byte-identical to the search as it was.
+APOGEE_CHECK_BRENT_REFINE = False
+APOGEE_CHECK_BRENT_XATOL  = 1e-7                 # rad
 
 
 # ===================================================================

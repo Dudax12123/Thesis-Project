@@ -219,6 +219,10 @@ BASELINE = {
     # and was measured to credit gt_apogee 0.36-0.70 t (worktree.md §4). Reaches
     # the apogee_check case only.
     "APOGEE_CHECK_COAST_FRAME": "rotating",
+    # The kick grid refined by Brent between the best point's neighbours, the
+    # direct architecture's grid_brent (decision 2026-10-28; +3.2 kg on gt_apogee,
+    # 16 more ascents). Reaches the apogee_check case only.
+    "APOGEE_CHECK_BRENT_REFINE": True,
     # The two halves of one nozzle model — see rocket_ascent._get_stage1_isp.
     # Required for the pressure loss of Auxiliary/losses.py to be meaningful.
     "ISP_1_MODE": "pressure",
@@ -395,9 +399,13 @@ def build_matrix():
     # 5000 evaluations, so a true optimum rather than under-convergence). Paired
     # with peg_direct below it is the argument of the chapter for why coast arcs
     # exist. Reported via periapsis_km, which will be negative.
+    # Searched by the nested grid + Brent (gamma_p outside, burn length inside),
+    # decision 2026-10-28: it lands on the 250x1000 swarm's point (J 42.07327
+    # against 42.07300) with 26 067 trajectories against 250 000.
     cases.append(dict(name="gt_direct", section="6.2", factor="architecture",
                       overrides={"GUIDANCE_MODE": "gravity_turn",
-                                 "COAST_METHOD": "direct"}))
+                                 "COAST_METHOD": "direct",
+                                 "DIRECT_OPTIMIZER": "grid_brent"}))
     # INCLUDE_DRAG=False is the master no-atmosphere switch: it also drops the
     # fairing and zeroes ambient pressure, so this run flies vacuum thrust and
     # vacuum Isp. It differs from the baseline on two counts, not one.

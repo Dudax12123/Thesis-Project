@@ -22,6 +22,9 @@ from Simulation import rocket_ascent as ra
 # Points of the brute kick grid. brute runs with finish=None, so this is exactly
 # the number of trajectories the search flies; the archive reports it.
 BRUTE_GRID_POINTS = 1000
+# Trajectories the last search flew: the grid, plus Brent's under
+# APOGEE_CHECK_BRENT_REFINE. None before any search.
+LAST_N_EVALUATIONS = None
 
 
 #===================================================
@@ -89,16 +92,33 @@ def find_initial_kick_angle_coast_single_burn():
     # Time measurement
     start_time = time.time()
 
-    # Brute force grid search
-    result = brute(
-        objective,
-        ranges=bounds,
-        Ns=BRUTE_GRID_POINTS,
-        finish=None,
-        full_output=True
-    )
-    x_optimal = float(result[0])
-    best_obj  = float(result[1])
+    global LAST_N_EVALUATIONS
+    if getattr(sim_params, 'APOGEE_CHECK_BRENT_REFINE', False):
+        # The same grid, then Brent's bounded method between the best grid point
+        # and its two neighbours -- the direct architecture's grid_brent search.
+        from Simulation.direct_pso_solver import _grid_then_brent
+        n_eval = [0]
+
+        def counted(x):
+            n_eval[0] += 1
+            return objective([x])
+
+        x_optimal, best_obj, _, _, _ = _grid_then_brent(
+            counted, bounds[0][0], bounds[0][1], BRUTE_GRID_POINTS,
+            sim_params.APOGEE_CHECK_BRENT_XATOL)
+        LAST_N_EVALUATIONS = n_eval[0]
+    else:
+        # Brute force grid search
+        result = brute(
+            objective,
+            ranges=bounds,
+            Ns=BRUTE_GRID_POINTS,
+            finish=None,
+            full_output=True
+        )
+        x_optimal = float(result[0])
+        best_obj  = float(result[1])
+        LAST_N_EVALUATIONS = BRUTE_GRID_POINTS
 
     # When Stage-1 over-performs (commonly THRUST_1_MODE="vacuum"), the osculating
     # apogee never falls to the target for ANY kick, so every grid point returns

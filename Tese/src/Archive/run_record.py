@@ -184,7 +184,8 @@ def n_evaluations(sim_params, extra=None):
         return int(extra['n_evaluations'])
     if architecture(sim_params) == 'apogee_check':
         from Simulation import solver
-        return solver.BRUTE_GRID_POINTS
+        return (solver.LAST_N_EVALUATIONS if solver.LAST_N_EVALUATIONS is not None
+                else solver.BRUTE_GRID_POINTS)
     if (architecture(sim_params) == 'direct'
             and getattr(sim_params, 'DIRECT_OPTIMIZER', 'pso') == 'grid_brent'):
         from Simulation import direct_pso_solver as dps
