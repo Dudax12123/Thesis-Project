@@ -31,10 +31,10 @@ XE = 3.03 * K                  # right end of the longest bar
 
 # rows from the top: (name, [(x0, x1, kind)], impulse x or None)
 ROWS = [
-    ("Apogee check", [(IGN, 1.75 * K, "T"), (1.75 * K, 2.85 * K, "C")], 2.85 * K),
+    ("Apogee check", [(IGN, 1.75 * K, "T"), (1.75 * K, XE, "C")], XE),
     ("Coast parameter and indirect optimal control",
      [(IGN, 1.70 * K, "T"), (1.70 * K, 2.85 * K, "C"), (2.85 * K, XE, "T")], None),
-    ("Direct insertion", [(IGN, 2.62 * K, "T")], None),
+    ("Direct insertion", [(IGN, XE, "T")], None),
 ]
 SEG_NAME = "Segmented guidance"
 HANDS = (1.32 * K, 1.76 * K)       # the two hand-offs inside the first thrust arc
