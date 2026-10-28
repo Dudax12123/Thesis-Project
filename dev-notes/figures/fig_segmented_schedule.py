@@ -1,136 +1,82 @@
-"""Figure: the segmented schedule flown in Chapter 6.
+"""Figure: a law-terminated segmented schedule.
 
-Spec: Thesis_Optimization_Background.tex, Section 3.4.7 (fig:segmented_schedule).
+Spec: Thesis_Optimization_Background.tex, Section 4.5.3 (fig:segmented_schedule);
+dev-notes/segmented-4.5.3-draft-2026-10-28.tex.
 
-One schedule, in its law-terminated form: the gravity turn from the kick to the
+The schedule of the Chapter 6 cases in its law-terminated form, drawn on a
+generic ascent (generic_ascent.py; user request 2026-10-28, replacing the flown
+show_seg_fixed_alt against its reference): the gravity turn from the kick to the
 hand-off altitude, then vector PEG, which aims its first burn at the coast-start
-waypoint read off the indirect reference, coasts, and inserts.
+waypoint, ends it on its own time-to-go, coasts, and ends the insertion burn the
+same way. Each decision is marked with who makes it: the swarm (kick, coast) or
+the law (both cut-offs). The axes carry no numbers.
 
-Since 2026-10-12 the curves are the flown archives, not an illustrative shape:
-show_seg_fixed_alt and its reference pmp_baseline, from the Chapter 6 results
-set (Output/results_matrix_chapter6_20261007). Read through the plot library's
-loader, Plots/results_figures/_data.py. Time is the horizontal axis, compressed
-over the coast, which would otherwise take nine tenths of the width.
-
-The thesis places the figure at \\linewidth (16 cm = 6.30 in): every label is
-drawn at FS so that none prints below the 10 pt body text.
+The thesis places the figure at \\linewidth (6.30 in): the script prints the
+scale, so every label can be checked against the 10 pt body text.
 """
-import os
-import sys
-
-import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
+import generic_ascent as ga
 from figstyle import use_thesis_style, save, INK, GREY, ACCENT, GREEN, VIOLET
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.normpath(os.path.join(HERE, "..", "..", "Tese", "src"))
-sys.path.insert(0, SRC)
-from Plots.results_figures import _data  # noqa: E402
-
-ROOT = os.path.join(SRC, "Output", "results_matrix_chapter6_20261007")
-flown = _data.load("show_seg_fixed_alt", root=ROOT)
-ref = _data.load("pmp_baseline", root=ROOT)
-
 use_thesis_style()
-FS = 9.0                         # prints at ~10.4 pt: the drawing is placed wider than it is drawn
+FS = 9.5
 
-# --- events, read off the archives ----------------------------------------
-H_HAND = flown.segment_schedule[1][1] / 1000.0          # 120 km
-T_KICK = 7.5
-T_MECO = float(flown.row["t_meco"])
-(TC0, TC1), = [iv for iv in flown.coast_intervals() if iv[1] - iv[0] > 100]
-(RC0, RC1), = [iv for iv in ref.coast_intervals() if iv[1] - iv[0] > 100]
-T_INS, R_INS = flown.t_insertion, ref.t_insertion
+H_HAND = 0.30                               # the hand-off altitude, generic
+T_HAND = ga.t_at(H_HAND)
 
-# --- the coast is drawn compressed ----------------------------------------
-T_BREAK = 425.0                 # the axis is true time up to here
-X_END = 600.0                   # where the latest insertion lands
-K = (X_END - T_BREAK) / (R_INS - T_BREAK)
-
-
-def x_of(t):
-    t = np.asarray(t, dtype=float)
-    return np.where(t <= T_BREAK, t, T_BREAK + (t - T_BREAK) * K)
-
-
-def h_at(case, t):
-    return float(np.interp(t, case.time, case.alt_km))
-
-
-fig, ax = plt.subplots(figsize=(6.3, 4.0))
+fig, ax = plt.subplots(figsize=(6.3, 3.6))
 ax.spines[["top", "right"]].set_visible(False)
-ax.tick_params(labelsize=FS, length=3, width=0.7)
 
-# --- indirect reference, behind everything --------------------------------
-m = ref.time <= R_INS
-ax.plot(x_of(ref.time[m]), ref.alt_km[m], color=VIOLET, lw=1.5, ls=(0, (5, 3)),
-        alpha=0.65, zorder=2)
-ax.text(x_of(1500), 330, "reference", color=VIOLET, fontsize=FS, ha="left",
-        va="center")
+t = ga.grid(ga.T_KICK, T_HAND)
+ax.plot(t, ga.h(t), color=GREEN, lw=3.0, zorder=5, solid_capstyle="butt")
+for a, b in ((T_HAND, ga.T_COAST0), (ga.T_COAST1, ga.T_END)):
+    t = ga.grid(a, b)
+    ax.plot(t, ga.h(t), color=ACCENT, lw=3.0, zorder=5, solid_capstyle="butt")
+t = ga.grid(ga.T_COAST0, ga.T_COAST1)
+ax.plot(t, ga.h(t), color=GREY, lw=1.6, ls=(0, (1.5, 2.2)), zorder=4)
+ax.plot([ga.T_END, ga.T_END], [ga.H_ORB - 0.035, ga.H_ORB + 0.035], color=ACCENT, lw=1.8,
+        zorder=7)
 
-# --- flown schedule: gravity turn, then vector PEG -------------------------
-t, h = flown.time, flown.alt_km
-t_hand = float(t[np.argmax(h >= H_HAND)])
-g = t <= t_hand
-ax.plot(x_of(t[g]), h[g], color=GREEN, lw=3.0, zorder=5, solid_capstyle="butt")
-b1 = (t >= t_hand) & (t <= TC0)
-ax.plot(x_of(t[b1]), h[b1], color=ACCENT, lw=3.0, zorder=5, solid_capstyle="butt")
-c = (t >= TC0) & (t <= TC1)
-ax.plot(x_of(t[c]), h[c], color=ACCENT, lw=1.3, ls=(0, (1.5, 2.2)), zorder=4)
-# the final burn, drawn to the same compressed time scale as the coast and on
-# top of its dotted end: it lasts seconds, so it is a short stroke
-fb = (t >= TC1) & (t <= T_INS)
-ax.plot(x_of(t[fb]), h[fb], color=ACCENT, lw=3.0, zorder=6,
-        solid_capstyle="butt")
-xe = float(x_of(T_INS))
-# and a short tick across the curve at the insertion burn, perpendicular to it
-# on the page (worked in display coordinates, since the axes are not isotropic)
-fig.canvas.draw()
-p1 = ax.transData.transform((float(x_of(TC1 - 60.0)), h_at(flown, TC1 - 60.0)))
-p2 = ax.transData.transform((xe, h_at(flown, T_INS)))
-d = (p2 - p1) / np.hypot(*(p2 - p1))
-# on the upper-left side only, away from the reference just below the curve
-n = np.array([-d[1], d[0]]) * (0.06 * fig.dpi)              # 0.06 in long
-ends = ax.transData.inverted().transform(np.array([p2, p2 + n]))
-ax.plot(ends[:, 0], ends[:, 1], color=ACCENT, lw=1.8, zorder=7,
-        solid_capstyle="butt")
+# target orbit
+ax.plot([0.9, ga.T_END + 0.08], [ga.H_ORB, ga.H_ORB], color=INK, lw=0.9, ls=(0, (6, 3)),
+        zorder=1)
+ax.text(0.9, ga.H_ORB + 0.02, "target orbit", fontsize=FS, color=INK, ha="left", va="bottom")
 
-ax.text(6, 70, "gravity turn", color=GREEN, fontsize=FS, ha="left",
-        va="bottom")
-ax.text(x_of(1000) - 14, 330, "coast", color=ACCENT, fontsize=FS, ha="right",
-        va="center")
-ax.text(xe - 4, h_at(flown, T_INS) + 16, "final burn,\norbit insertion",
-        color=ACCENT, fontsize=FS, ha="right", va="bottom", linespacing=1.2)
+# events and who decides them
+ax.plot([ga.T_KICK], [0.0], marker="o", ms=4.6, color=INK, zorder=8)
+ax.text(ga.T_KICK + 0.01, -0.03, r"kick, $\gamma_p$ (swarm)", fontsize=FS, color=INK,
+        ha="left", va="top")
+h_meco = float(ga.h(ga.T_MECO))
+ax.plot([ga.T_MECO], [h_meco], marker="s", ms=6.0, color=INK, zorder=9)
+ax.text(ga.T_MECO - 0.03, h_meco + 0.02, "MECO / staging", fontsize=FS, color=INK,
+        ha="right", va="bottom")
+ax.plot([T_HAND], [H_HAND], marker="o", ms=5.5, mfc="white", mec=INK, mew=1.2, zorder=8)
+ax.text(T_HAND + 0.03, H_HAND - 0.015, "hand-off altitude\n(fixed or swarm)", fontsize=FS,
+        color=INK, ha="left", va="top", linespacing=1.15)
+h_c0 = float(ga.h(ga.T_COAST0))
+ax.plot([ga.T_COAST0], [h_c0], marker="o", ms=7, mfc="white", mec=VIOLET, mew=1.7, zorder=9)
+ax.text(ga.T_COAST0 - 0.02, h_c0 + 0.04, "coast-start waypoint:\ncut-off on PEG's $t_{go}$",
+        fontsize=FS, color=VIOLET, ha="right", va="bottom", linespacing=1.15)
+ax.text(1.28, 0.72, "coast,\n" r"$\Delta t_c$ (swarm)", fontsize=FS, color=GREY, ha="right",
+        va="center", linespacing=1.15)
+ax.text(ga.T_END + 0.07, ga.H_ORB - 0.10, "insertion:\ncut-off on\nPEG's $t_{go}$",
+        fontsize=FS, color=ACCENT, ha="right", va="top", linespacing=1.15)
 
-# --- hand-off and coast-start waypoint ------------------------------------
-ax.plot([t_hand], [H_HAND], marker="o", ms=5.5, mfc="white", mec=INK, mew=1.2,
-        zorder=8)
-ax.plot([x_of(RC0)], [h_at(ref, RC0)], marker="o", ms=7, mfc="white",
-        mec=VIOLET, mew=1.7, zorder=9)
-ax.text(x_of(RC0) - 8, h_at(ref, RC0) + 22, "coast-start\nwaypoint",
-        fontsize=FS, color=VIOLET, ha="right", va="bottom", linespacing=1.2)
+ax.legend(handles=[
+    Line2D([], [], color=GREEN, lw=3.0, label="gravity turn"),
+    Line2D([], [], color=ACCENT, lw=3.0, label="vector PEG"),
+    Line2D([], [], color=GREY, lw=1.6, ls=(0, (1.5, 2.2)), label="coast")],
+    loc="upper left", fontsize=FS, frameon=False, handlelength=2.6)
 
-# --- kick and staging -----------------------------------------------------
-ax.plot([T_KICK], [h_at(flown, T_KICK)], marker="o", ms=4.6, color=INK, zorder=8)
-ax.text(T_KICK + 4, -14, "kick", fontsize=FS, color=INK, ha="left", va="top")
-ax.plot([T_MECO], [h_at(flown, T_MECO)], marker="s", ms=6.0, color=INK, zorder=9)
-ax.text(T_MECO + 8, h_at(flown, T_MECO) - 6, "MECO / staging", fontsize=FS,
-        color=INK, ha="left", va="top")
+ax.set_xlabel("time", fontsize=FS)
+ax.set_ylabel("altitude", fontsize=FS)
+ax.set_xticks([])
+ax.set_yticks([])
+ax.set_xlim(-0.05, ga.T_END + 0.08)
+ax.set_ylim(-0.12, 1.10)
 
-# --- axes, with the coast compressed --------------------------------------
-ax.set_xlabel("time from lift-off  [s]", fontsize=FS)
-ax.set_ylabel("altitude  [km]", fontsize=FS)
-ax.set_xlim(-30, X_END + 15)
-ax.set_ylim(-40, 575)
-ticks = [0, 100, 200, 300, 400, 1000, 2000]
-ax.set_xticks(x_of(ticks))
-ax.set_xticklabels([str(v) for v in ticks])
-xb = float(x_of(T_BREAK)) + 6
-for dx in (-4, 4):
-    ax.plot([xb + dx - 4, xb + dx + 4], [-49, -31], color=INK, lw=0.9,
-            clip_on=False, zorder=10)
-ax.text(xb + 14, -34, "coast compressed", fontsize=FS, color=GREY,
-        ha="left", va="bottom")
-
-save(fig, "segmented_schedule.png")
+p = save(fig, "segmented_schedule.png")
+w_in = plt.imread(p).shape[1] / 300.0
+print("printed scale %.3f -> labels at %.1f pt" % (6.30 / w_in, FS * 6.30 / w_in))

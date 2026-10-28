@@ -38,7 +38,8 @@ also needs `scipy`. All are in `pygmo-env`.
 | `fig_mission_phase_timeline.py` | `mission_phase_timeline.png` | §2.8.2 |
 | `fig_architecture_arc_structures.py` | `architecture_arc_structures.png` | §3.4 |
 | `fig_flowchart.py` | `FlowChart.png` | §3.4.1 |
-| `fig_segmented_schedule.py` | `segmented_schedule.png` | §3.4.4 |
+| `fig_segmented_schedule.py` | `segmented_schedule.png` | §4.5.3 |
+| `fig_segmented_waypoints.py` | `segmented_waypoints.png` | §4.5.3 |
 | `fig_kick_profiles.py` | `kick_profiles.png` | §4.2 |
 | `fig_module_dependency_graph.py` | `module_dependency_graph.png` | ch. 5 |
 | `fig_configuration_map.py` | `configuration_map.png` | App. A.1 |
@@ -57,12 +58,11 @@ Two carry curves, and **neither is simulator output**:
   Integrating a literal −3° angle of attack held for 45 s over-turns badly —
   `gamma` goes negative before 160 s — because the simulator's triangular
   profile ramps *pitch*, not `alpha`.
-- `fig_segmented_schedule.py` — the law-terminated schedule flown in Chapter 6
-  (gravity turn, then vector PEG aimed at the coast-start waypoint). The shape
-  is illustrative but placed on the flown events of `show_seg_fixed_alt` and the
-  reference (MECO 146 s at ~62 km, coast start 411 s at 165 km, insertion
-  ~1700 s). Altitude is plotted against time, with the coast compressed behind
-  an axis break.
+- `fig_segmented_schedule.py` and `fig_segmented_waypoints.py` (§4.5.3) — a
+  law-terminated schedule and the targets of a three-law schedule, both drawn on
+  one generic ascent from `generic_ascent.py` (a smooth normalized shape, no
+  numbers on the axes; 2026-10-28, replacing the flown `show_seg_fixed_alt`
+  against its reference).
 
 `fig_kick_profiles.py` should be rebuilt from a real run.
 

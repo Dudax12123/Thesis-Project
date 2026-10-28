@@ -31,18 +31,22 @@ XE = 3.03 * K                  # right end of the longest bar
 
 # rows from the top: (name, [(x0, x1, kind)], impulse x or None)
 ROWS = [
-    ("Brute-force search",[(IGN, 1.75 * K, "T"), (1.75 * K, XE, "C")], XE),
-    ("Coast parameter and indirect optimal control",
+    ("A  Apogee circularization",[(IGN, 1.75 * K, "T"), (1.75 * K, XE, "C")], XE),
+    ("B  Swarm optimized coast, C  Optimal control",
      [(IGN, 1.70 * K, "T"), (1.70 * K, 2.85 * K, "C"), (2.85 * K, XE, "T")], None),
-    ("Direct insertion", [(IGN, XE, "T")], None),
+    ("D  Direct insertion", [(IGN, XE, "T")], None),
 ]
-SEG_NAME = "Segmented guidance"
-HANDS = (1.32 * K, 1.76 * K)       # the two hand-offs inside the first thrust arc
+SEG_NAME = "E  Segmented multi-law guidance"
+# The hand-offs are altitudes, independent of staging (Section 4.5.3 draft,
+# 2026-10-28): the first falls inside stage 1, the second inside the first burn,
+# and the final law flies both burns. The laws are named on spans under the bar.
+HANDS = (0.70 * K, 1.32 * K)
 SEG = [(IGN, 2.20 * K, "T"), (2.20 * K, 2.85 * K, "C"), (2.85 * K, XE, "T")]
+SPANS = 0.28               # room under the segmented bar for the law spans
 
 LEG = 0.26                 # height of the one legend row
 FIRST = 0.46               # top of the figure to the first bar's bottom
-H = FIRST + ROW * len(ROWS) + 0.08 + LEG + 0.04
+H = FIRST + ROW * len(ROWS) + 0.08 + LEG + 0.04 + SPANS
 fig = plt.figure(figsize=(W, H))
 ax = fig.add_axes([0, 0, 1, 1])
 ax.set_xlim(0, W)
@@ -86,11 +90,18 @@ for name, arcs, imp in ROWS:
 y -= ROW
 row(y, SEG_NAME, SEG)
 for xh in HANDS:
-    ax.plot([xh, xh], [y, y + SH], color="white", lw=1.0, ls=(0, (2, 1.6)), zorder=6)
-edges = (IGN,) + HANDS + (2.20 * K,)
+    ax.plot([xh, xh], [y, y + SH], color=INK if xh < IGN else "white", lw=1.0,
+            ls=(0, (2, 1.6)), zorder=6)
+# the law spans, under the bar: hand-offs at altitudes, the last law flying both burns
+edges = (X0,) + HANDS + (XE,)
+ys = y - 0.07
 for k, (x0, x1) in enumerate(zip(edges[:-1], edges[1:]), start=1):
-    ax.text(0.5 * (x0 + x1), y + SH / 2, "law %d" % k, ha="center", va="center",
-            fontsize=FS, color="white", zorder=7)
+    a, b = x0 + 0.02, x1 - 0.02
+    ax.plot([a, b], [ys, ys], color=INK, lw=0.8, zorder=6)
+    for xx in (a, b):
+        ax.plot([xx, xx], [ys, ys + 0.05], color=INK, lw=0.8, zorder=6)
+    ax.text(0.5 * (x0 + x1), ys - 0.03, "law %d" % k, ha="center", va="top",
+            fontsize=FS, color=INK, zorder=7)
 y_seg = y
 
 

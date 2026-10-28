@@ -1,0 +1,128 @@
+% DRAFT 2026-10-28 -- replacement for Thesis_Optimization_Background.tex,
+% \subsection{Architecture E: Segmented Multi-Law Guidance} (lines 589-636 at Overleaf 9bbba1d).
+% Not applied. Figures: dev-notes/figures/fig_segmented_waypoints.py (new),
+% fig_segmented_schedule.py (redrawn), fig_thesis_arc_structures.py (row E).
+
+\subsection{Architecture E: Segmented Multi-Law Guidance}
+\label{ssec:segmented}
+
+Architectures A to D fly one guidance law from second-stage ignition to cut-off. Architecture E
+divides the ascent among several laws, so that each part of it can be flown by the law suited to
+it, a passive law through the dense atmosphere and closed-loop guidance above it
+(Section~\ref{sec:guidance_classification}). It also gives the burn before the coast a target of
+its own, where architecture B aims it at the final orbit.
+
+\paragraph{Schedule.}
+A schedule is an ordered list of $n$ laws with activation altitudes $0 = h_1 < h_2 < \dots < h_n$.
+Law $k$ steers from the instant the vehicle climbs through $h_k$ until it climbs through
+$h_{k+1}$: the first takes over at the pitch-over kick and the last flies to insertion. A hand-off
+changes the steering objective, not the vehicle, so it is independent of staging and may fall in
+the first stage. The segment laws are the gravity turn, the Apollo law, vector PEG, the two tangent
+laws, and the indirect law, which replays the reference's optimal $\alpha$ at the current altitude
+instead of running live. Any of them may occupy any position; Table~\ref{tab:segment_roles} lists
+what each aims at and the difficulty it meets in each position.
+
+\begin{table}[htbp]
+  \centering
+  \caption{The segment laws: what each aims at, and the difficulty it meets as the first,
+    an intermediate or the final law.}
+  \label{tab:segment_roles}
+  \begin{tabular}{p{0.13\linewidth} p{0.15\linewidth} p{0.19\linewidth} p{0.19\linewidth} p{0.22\linewidth}}
+    \toprule
+    \textbf{Law} & \textbf{Aims at} & \textbf{First} & \textbf{Intermediate} & \textbf{Final} \\
+    \midrule
+    Gravity turn & nothing, $\alpha = 0$ & none & cannot reach its waypoint; the next law inherits the miss & insertion set by the kick and burn timing alone \\
+    Apollo & full state at a set time & steers at high dynamic pressure, where lift is neglected & none & burn lengths must be set externally \\
+    Vector PEG & full state, own $t_{go}$ & steers at high dynamic pressure & a coefficient freeze below about \qty{10}{\s} destabilizes its corrector & a burn shorter than the freeze flies one frozen solution \\
+    Tangent laws & flight-path angle only & steers at high dynamic pressure & altitude and speed at the waypoint uncontrolled & radius and speed set by burn timing alone \\
+    Indirect & stored optimal $\alpha$ & replays the reference's gravity turn & open loop: departures persist & open loop: insertion errors uncorrected \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Targets and timing.}
+Law $k < n$ aims at the waypoint $(h_{k+1}, v_{k+1}, \gamma_{k+1})$, the state of the indirect
+reference of Section~\ref{ssec:indirect_pmp_impl} where it climbs through $h_{k+1}$, and the final
+law at the target orbit (Figure~\ref{fig:segmented_waypoints}). The reference's optimal control
+acts in the second stage only, so below second-stage ignition its waypoints are states of a
+gravity turn. The time-to-go of Eq.~\eqref{eq:tgo_rocket} collapses at the stage boundary, so a
+law that needs one counts down instead to the time the reference takes to the waypoint,
+\begin{equation}
+  t_{go} = t_{\mathrm{deadline}} - t, \qquad
+  t_{\mathrm{deadline}} = t_0 + t_{\mathrm{ref}}(h_{k+1}) - t_{\mathrm{ref}}\bigl(h(t_0)\bigr),
+  \label{eq:segment_deadline}
+\end{equation}
+where $t_0$ is the instant law $k$ takes over or a burn restarts, and $t_{\mathrm{ref}}(h)$ is the
+reference's time at altitude $h$ on its ascent.
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{Figures/segmented_waypoints.png}
+  \caption{Targets of a three-law schedule. Each law aims at the reference's state at the next
+    hand-off altitude, and the last at the target orbit.}
+  \label{fig:segmented_waypoints}
+\end{figure}
+
+\paragraph{Ending the second-stage burns.}
+The second stage is flown thrust--coast--thrust, as in architecture B, and the hand-offs fall in it
+wherever their altitudes place them. Two rules end its burns (Table~\ref{tab:segmented_forms}). In
+the swarm-timed form the swarm sets both burn lengths and the final law aims at the orbit in both,
+so the design vector is that of Eq.~\eqref{eq:pso_coast_vector} extended by the hand-off altitudes,
+\begin{equation}
+  \mathbf{x} = \bigl[\,\Delta t_c,\; \Delta t_r\%,\; \text{coast-start}\%,\; \gamma_p,\;
+                     f_2, \dots, f_n\,\bigr].
+  \label{eq:segmented_vector_swarm}
+\end{equation}
+In the law-terminated form the final law ends each burn on its own time-to-go. It aims the first
+burn at the \emph{coast-start waypoint}, the reference's state where its first second-stage burn
+ends, coasts for $\Delta t_c$, and aims the second at the orbit. The burn lengths become outputs,
+\begin{equation}
+  \mathbf{x} = \bigl[\,\Delta t_c,\; \gamma_p,\; f_2, \dots, f_n\,\bigr].
+  \label{eq:segmented_vector_lt}
+\end{equation}
+This form needs a final law with a cut-off rule of its own, which among the implemented laws only
+vector PEG has, and every hand-off must precede the coast-start waypoint. It is the form flown in
+Chapter~\ref{chapter:results_and_discussion} (Figure~\ref{fig:segmented_schedule}).
+
+\begin{table}[htbp]
+  \centering
+  \caption{The two forms of architecture E.}
+  \label{tab:segmented_forms}
+  \begin{tabular}{p{0.24\linewidth} p{0.33\linewidth} p{0.33\linewidth}}
+    \toprule
+     & \textbf{Swarm-timed} & \textbf{Law-terminated} \\
+    \midrule
+    Burns ended by & the swarm & the final law's time-to-go \\
+    First burn aims at & the target orbit & the coast-start waypoint \\
+    Final law & any & one with its own cut-off rule \\
+    Hand-offs & up to the target orbit & below the coast-start waypoint \\
+    Design vector & Eq.~\eqref{eq:segmented_vector_swarm} & Eq.~\eqref{eq:segmented_vector_lt} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{Figures/segmented_schedule.png}
+  \caption{A law-terminated schedule: a gravity turn hands over to vector PEG, which ends both
+    burns on its own time-to-go. The swarm chooses the kick and the coast.}
+  \label{fig:segmented_schedule}
+\end{figure}
+
+\paragraph{Hand-off altitudes.}
+The hand-off altitudes are fixed or searched with the other variables. Searched, they enter
+$\mathbf{x}$ as fractions $f_k \in [0, 1]$ mapped cumulatively onto
+$[h_{\mathrm{lb}}, h_{\mathrm{ub}}]$,
+\begin{equation}
+  h_2 = h_{\mathrm{lb}} + f_2\,(h_{\mathrm{ub}} - h_{\mathrm{lb}}), \qquad
+  h_k = h_{k-1} + f_k\,(h_{\mathrm{ub}} - h_{k-1}), \quad k = 3, \dots, n,
+  \label{eq:handoff_mapping}
+\end{equation}
+so that every particle yields a strictly increasing schedule and none is rejected for ordering the
+laws out of sequence. Both forms minimize the penalized burn-time sum $J$ of
+Section~\ref{ssec:pso}, as architecture B does.
+
+% ---------------------------------------------------------------------------
+% Knock-on edit, same file, Table tab:architectures, row E:
+%   OLD: E\; Segmented multi-law & several laws, coast, thrust & those of B and the law activation altitudes & particle swarm \\
+%   NEW: E\; Segmented multi-law & thrust, coast, thrust, laws handed over by altitude & pitch-over angle, coast and hand-off altitudes; B's burn timing when swarm-timed & particle swarm \\
