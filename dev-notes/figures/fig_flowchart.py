@@ -40,7 +40,7 @@ SHADE = "#f0f0f0"       # the guidance-law region
 
 LOOP = 0.30                              # the outer False loop, left of A
 A, B, C, D = 1.08, 2.58, 4.08, 5.63      # column centres
-R1, R2, R3, R4 = 4.30, 3.18, 1.88, 0.55  # row centres
+R1, R2, R3, R4 = 4.30, 3.18, 1.88, 0.68  # row centres
 BW = 1.30                                # box width
 DWA, DHA = 1.36, 0.82                    # decision at A
 DWC, DHC = 1.30, 0.78                    # decision at C
@@ -91,8 +91,9 @@ label(W - 0.04, R2 + 0.52, "Guidance law in use", GREY, ha="right",
 
 # --- boxes ---------------------------------------------------------------
 proc(A, R1, "Simulate vertical\nascent")
-proc(B, R1, "Input: choose an\ninitial kick angle", fc=IO)
-h_c1 = proc(C, R1, "Integrate the ascent\nnumerically until\nMECO and exit from\nthe atmosphere")
+IN_TXT = "Input: Choose an\ninitial kick angle\nafter vertical\nphase"
+proc(B, R1, IN_TXT, fc=IO)
+h_c1 = proc(C, R1, "Simulate gravity\nturn until\natmosphere exit")
 
 h_a2 = proc(A, R2, "Discard the initial\nkick angle value")
 h_c2 = proc(C, R2, "Calculate apogee\nof resulting orbit\nif engines stopped")
@@ -104,9 +105,9 @@ h_d3 = proc(D, R3, "Simulate ascent\ntrajectory if\nengine continues\nuntil next
             w=1.18)
 
 h_a4 = proc(A, R4, "Output: calculate\ntotal propellant\nused", fc=IO)
-proc(B, R4, "Impulsive burn at\napoapsis, $\\Delta v=$\n$|v_{circ}-v_{apo}|$,\nrocket equation")
+proc(B, R4, "Impulsive\ncircularization at\napoapsis: $\\Delta v=$\n$|v_{circ}-v_{apo}|$,\npropellant from the\nrocket equation")
 h_c4 = proc(C, R4, "Place the cut-off\nby root search so\nthe coast reaches\nthe target apoapsis")
-h_r1 = box_h("x\nx")
+h_r1 = box_h(IN_TXT)
 
 # --- flow ----------------------------------------------------------------
 line([[A + BW / 2, R1], [B - BW / 2, R1]])
