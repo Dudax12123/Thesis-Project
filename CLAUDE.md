@@ -144,6 +144,13 @@ two invocations would leave `results_matrix.csv` holding only the second one's r
       reason (7f8c2d5). The runs are in the set's `_gt_coast_bound/`.
     - `build_matrix`'s stored extremals, the tracked `pmp_reference.npz` and this table still
       hold the 3500 s ones above.
+    - **The thesis Chapter 6 is drawn from `Tese/src/Output/results_matrix_chapter6_s2aero_20261029/`
+      since 2026-10-29** (untracked): the 2026-10-07 set with eight cases replaced by the Stage-2-drag
+      re-flights of `results_matrix_s2aero_c5000_20261025/` (`STAGE2_DRAG=True`,
+      `THRUST_2_MODE="pressure"`, refinements at a 5000 s coast bound): the three references, the
+      three refined gravity turns, the two segmented cases. gt_apogee and gt_direct keep their
+      grid + Brent rows; the other laws are not re-flown (under 1 kg). Its five-seed table reads the
+      5000 s refinements. Reference extremals: 22 633.9 / 25 206.5 / 19 553.9 kg.
   - `--swarm-extremal` swarms a case that has one (how `pmp_vacuum` was re-searched); the harness
     refuses it on any other case.
   - `dev-notes/pmp_swarm_polish.py --case` takes any `indirect_pmp` case, and refuses a start

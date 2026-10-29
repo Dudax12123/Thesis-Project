@@ -783,5 +783,7 @@ def vacuum_coast_bound(cases):
 # rather than as a card (S1-F1); reference_card is drawn on request. Since
 # 2026-10-08 (red-note review S3.1) Section 6.3 draws its two architectures and
 # PEG with and without the atmosphere; the waypoint flight moved to Section 6.4.
-FIGURES = [reference_profiles, reference_tangent_fit, vacuum_coast_bound,
+# vacuum_coast_bound is no longer in the list: with Stage-2 drag on no atmospheric coast
+# dips, and Section 6.1 states the drag-free reference's descent in one sentence.
+FIGURES = [reference_profiles, reference_tangent_fit,
            peg_architectures, peg_atmosphere]

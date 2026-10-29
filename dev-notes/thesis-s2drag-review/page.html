@@ -1,0 +1,291 @@
+<title>Thesis Stage-2 Drag Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap">
+<style>
+/* Layout: one column of decision cards under a short brief and a before/after table of the reference values. */
+:root{
+  --bg:#f5f7f8; --panel:#ffffff; --ink:#17212b; --muted:#5a6773; --rule:#d5dce1;
+  --accent:#17607a; --accent-ink:#ffffff;
+  --ins:#0f6b3a; --ins-bg:#dff3e6; --del:#a3262a; --del-bg:#fbe3e3;
+  --ok:#0f6b3a; --warn:#8a5a00; --low:#a3262a;
+  --body:"IBM Plex Sans",system-ui,sans-serif; --display:"Newsreader",Georgia,serif; --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#12181d; --panel:#1a232a; --ink:#e4eaee; --muted:#9aa8b3; --rule:#2e3b45;
+  --accent:#5fb4d0; --accent-ink:#0b1a22;
+  --ins:#7fd6a0; --ins-bg:#16382a; --del:#f19a9d; --del-bg:#43201f;
+  --ok:#7fd6a0; --warn:#e2b15a; --low:#f19a9d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12181d; --panel:#1a232a; --ink:#e4eaee; --muted:#9aa8b3; --rule:#2e3b45;
+  --accent:#5fb4d0; --accent-ink:#0b1a22;
+  --ins:#7fd6a0; --ins-bg:#16382a; --del:#f19a9d; --del-bg:#43201f;
+  --ok:#7fd6a0; --warn:#e2b15a; --low:#f19a9d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);padding-block:28px 80px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:60rem;margin:0 auto;display:grid;gap:22px}
+h1{font:600 2rem/1.2 var(--display);margin:0;text-wrap:balance}
+h2{font:600 1.35rem/1.3 var(--display);margin:0;text-wrap:balance}
+h3{font:600 1.05rem/1.35 var(--body);margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:68ch}
+code,pre{font-family:var(--mono);font-size:.84rem}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:grid;gap:10px;min-width:0}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.92rem;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600}
+td.n,th.n{text-align:right}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--rule);padding-block:8px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.bar .tally{font-size:.88rem;color:var(--muted)}
+#banner{font-size:.82rem;color:var(--muted);margin-left:auto}
+.card{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:grid;gap:12px;min-width:0}
+.card header{display:grid;gap:4px}
+.idt{font:500 .8rem var(--mono);color:var(--accent);margin-right:10px}
+.where{font-size:.84rem;color:var(--muted)}
+.why{color:var(--ink);max-width:72ch}
+.edit{border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+.edit .eh{font-size:.78rem;color:var(--muted);padding:5px 10px;border-bottom:1px solid var(--rule)}
+.edit pre{margin:0;padding:10px;white-space:pre-wrap;overflow-wrap:anywhere}
+ins{background:var(--ins-bg);color:var(--ins);text-decoration:none}
+del{background:var(--del-bg);color:var(--del)}
+.ctx{color:var(--muted)}
+.rec{font-size:.92rem}
+.flag{border-left:3px solid var(--warn);padding-left:10px;font-size:.92rem}
+.decide{display:grid;gap:8px;border-top:1px solid var(--rule);padding-top:10px}
+.acts{display:flex;flex-wrap:wrap;gap:8px}
+.dec{font:500 .9rem var(--body);border:1.5px solid var(--rule);background:var(--panel);color:var(--ink);border-radius:4px;padding:6px 14px;cursor:pointer;min-height:36px}
+.dec[aria-pressed="true"]{color:#fff;border-color:transparent}
+.dec[data-d="approve"][aria-pressed="true"]{background:var(--ok)}
+.dec[data-d="edit"][aria-pressed="true"]{background:var(--warn)}
+.dec[data-d="reject"][aria-pressed="true"]{background:var(--low)}
+.dec[aria-pressed="true"]::before{content:"✓ "}
+label.lab{font-size:.82rem;color:var(--muted);font-weight:600}
+textarea{font:15px/1.45 var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--rule);border-radius:4px;padding:8px 10px;min-height:64px;resize:vertical;width:100%}
+.save{font-size:.8rem;color:var(--muted);min-height:1.2em}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:640px){#banner{margin-left:0}}
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:10px">
+    <h1>Thesis Stage-2 Drag Review</h1>
+    <p class="lede">Chapter 6 and its neighbours still describe the old model: no drag on the second stage, a 2000 s coast bound. The Extended Abstract already reports the new one. These cards list what the thesis would change to follow it, in the order I would apply them. Nothing here is applied. Each card keeps your decision and notes on this page.</p>
+  </header>
+
+  <section class="panel" aria-labelledby="t-ref">
+    <h2 id="t-ref">What the new set is</h2>
+    <p>Settings <code>STAGE2_DRAG=True</code> and <code>THRUST_2_MODE="pressure"</code>, refinements with the coast bound at 5000 s (swarms stay at 2000 s), seed 3 for every reference. Source: <code>Output/results_matrix_s2aero_c5000_20261025/</code>, a scratch set of 20 cases. The tracked <code>pmp_reference.npz</code> is untouched.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Case</th><th class="n">Thesis now (kg)</th><th class="n">New set (kg)</th><th class="n">Change (kg)</th></tr></thead>
+      <tbody>
+        <tr><td>pmp_baseline (atmospheric reference)</td><td class="n">22 649.0</td><td class="n">22 633.9</td><td class="n">−15.1</td></tr>
+        <tr><td>pmp_vacuum (drag-free reference)</td><td class="n">24 536.4</td><td class="n">25 206.5</td><td class="n">+670.1</td></tr>
+        <tr><td>pmp_norot (non-rotating reference)</td><td class="n">19 345.3</td><td class="n">19 553.9</td><td class="n">+208.6</td></tr>
+        <tr><td>gt_baseline (refined gravity turn)</td><td class="n">not read</td><td class="n">22 473.7</td><td class="n">–</td></tr>
+        <tr><td>gt_norot</td><td class="n">not read</td><td class="n">19 112.7</td><td class="n">–</td></tr>
+        <tr><td>gt_sea_level_engine</td><td class="n">not read</td><td class="n">19 510.2</td><td class="n">–</td></tr>
+        <tr><td>show_seg_opt_alt (segmented, optimized hand-off)</td><td class="n">not read</td><td class="n">21 928.1</td><td class="n">–</td></tr>
+        <tr><td>show_seg_fixed_alt (segmented, 120 km hand-off)</td><td class="n">not read</td><td class="n">21 821.6</td><td class="n">–</td></tr>
+      </tbody></table></div>
+    <p class="where">“Thesis now” for the three references is the 2000 s first-pass extremal in the CLAUDE.md table. The other laws and gt_apogee keep their Chapter 6 rows; the handoff says the new switches move them by less than 1 kg. Where a cell says “not read”, I did not pull the thesis value for this page.</p>
+  </section>
+
+  <div class="bar">
+    <span class="tally" id="tally">0 of 8 decided</span>
+    <span id="banner">Connecting to the review store…</span>
+  </div>
+
+  <article class="card" data-id="T-1">
+    <header>
+      <h3><span class="idt">T-1</span>Adopt the Stage-2 drag set as the thesis results set</h3>
+      <p class="where">Decision. Affects Chapters 5, 6, 7, the thesis abstract and every generated table and figure.</p>
+    </header>
+    <p class="why">Without this decision the other cards have nothing to stand on. If approved, the Chapter 6 figures and tables are regenerated from the new set with <code>make_all</code> and <code>tables</code> (<code>--root</code> pointing at it), so no number is typed by hand. The scratch set is promoted to a dated folder under <code>Output/</code> first. Before that, <code>tab:reference_seeds</code> (five seeds) needs the same recipe at 5000 s; the handoff covers seed 3 only, so I would check whether the other four seeds were run.</p>
+    <p class="rec"><b>Recommendation.</b> Approve, and promote the scratch set to <code>results_matrix_chapter6_s2aero_c5000_20261025/</code> before any figure is rendered.</p>
+  </article>
+
+  <article class="card" data-id="T-2">
+    <header>
+      <h3><span class="idt">T-2</span>§6.1: replace the coast-bound figure and discussion with one caveat</h3>
+      <p class="where">Thesis_Results.tex ll. 66–70 (figure introduction), ll. 79–84 (fig:vacuum_coast_bound), ll. 124–140 (the discussion)</p>
+    </header>
+    <p class="why">The dips of the old model came from a second stage that felt no drag. With drag on, no atmospheric coast dips, and the longest refined coast, the sea-level gravity turn’s, is 3333 s, short of 5000 s. The drag-free reference still coasts down to 13 km, because it has no atmosphere by construction. So the figure, its 3500 s comparison and the 4000 s gravity-turn sentence go, and one sentence states what the drag-free reference flies. The wording is the abstract’s card AV-16.</p>
+    <div class="edit"><p class="eh">Thesis_Results.tex, l. 66–70 <span class="ctx">(removed / added)</span></p><pre><span class="ctx">Figure~\ref{fig:reference_tangent_fit} compares the pitch of the atmospheric reference's first
+second-stage burn with the linear-tangent law of Chapter~\ref{ssec:tangent} fitted to it by
+least squares.</span><del> Figure~\ref{fig:vacuum_coast_bound} draws the
+drag-free reference again with its coast bound raised from \qtyrange{2000}{3500}{\s}, as altitude
+against downrange.</del></pre></div>
+    <div class="edit"><p class="eh">Thesis_Results.tex, l. 79–84</p><pre><del>\begin{figure}[htbp]
+  \centering
+  \resultsfig{results_vacuum_coast_bound}
+  \caption{The drag-free reference at the \qty{2000}{\s} and \qty{3500}{\s} coast bounds.}
+  \label{fig:vacuum_coast_bound}
+\end{figure}</del></pre></div>
+    <div class="edit"><p class="eh">Thesis_Results.tex, l. 129–140 (the paragraph from “With the coast bound raised…” to the end)</p><pre><span class="ctx">Because every case flies the
+first stage as a gravity turn shaped only by its kick (Chapters~\ref{ssec:kick}
+and~\ref{sec:optimization}), the optimum can turn towards the horizontal only after staging: it
+is the second stage that descends.</span> <del>With the coast bound raised to \qty{3500}{\s}, the drag-free
+reference stages at \qty{52}{\km}, ends its first second-stage burn descending through \qty{50}{\km} at
+\qty{7.58}{\km\per\s}, and coasts for \qty{3129}{\s} on an ellipse whose lowest point lies \qty{4.4}{\km} above the
+surface before it rises to the target altitude (Figure~\ref{fig:vacuum_coast_bound}). It keeps
+\qty{25.22}{\tonne}, \qty{0.68}{\tonne} more than with the \qty{2000}{\s} bound, through \qty{83}{\m\per\s} less gravity loss.
+Such a trajectory is not flyable. It would cross the atmosphere that the drag-free model omits,
+with the drag and heating that brings; its lowest point lies below the highest terrain on
+Earth, close to \qty{9}{\km}, so its ground track would have to be chosen to clear the relief; and it
+leaves no margin for dispersions. The \qty{2000}{\s} bound shared with the guidance laws excludes
+it. The same bound holds the refined gravity turn, whose propellant grows with its coast up to
+the bound: raised to \qty{4000}{\s}, the bound lets its coast
+descend to \qty{36}{\km} above the surface, and to \qty{5}{\km} with the sea-level engine.</del><ins>The drag-free reference stages at \qty{52}{\km}, ends its first
+second-stage burn there descending, and coasts down to \qty{13}{\km} above the surface, so its saving is
+that of an unconstrained model, not of a flyable ascent.</ins></pre></div>
+    <p class="flag"><b>Check before applying.</b> The abstract card gives 52 km and 13 km. The “1018 s below 65 km” figure in its explanation is left out here; I could not tell from the notes how it was measured. The gravity-turn sentence is removed on the evidence of your A/B re-fly (s2aero_ab_20261025, refined gravity turn, baseline engine): drag off at a 5000 s bound the coast’s lowest point is 35.9 km; drag on it is 65.8 km at 5000 s and at 8000 s (the optimum, 22 473.7 kg with a 3240 s coast, is interior and identical for both bounds) and 71.1 km at 2000 s. That A/B does not show the sea-level-engine gravity turn’s lowest point with drag on.</p>
+    <p class="rec"><b>Recommendation.</b> Apply the three edits, and delete <code>vacuum_coast_bound</code> from the figure list in the plot library.</p>
+  </article>
+
+  <article class="card" data-id="T-3">
+    <header>
+      <h3><span class="idt">T-3</span>§6.1: the numbers from the new references</h3>
+      <p class="where">Thesis_Results.tex ll. 91–122 (Discussion)</p>
+    </header>
+    <p class="why">Values from the abstract’s card AV-10, which read them from the same set. The thesis sentences differ slightly from the abstract’s, so each change below is a replacement of the number inside the thesis sentence.</p>
+    <div class="edit"><p class="eh">Passage and numbers</p><pre><span class="ctx">They stage between </span><del>$59$ and \qty{63}{\km}</del><ins>$52$ and \qty{60}{\km}</ins><span class="ctx">. … it ends </span><del>\qtyrange{124}{144}{\km}</del><ins>\qtyrange{111}{135}{\km}</ins><span class="ctx"> …</span>
+<span class="ctx">The vehicle coasts for </span><del>\qtyrange{1823}{1987}{\s}</del><ins>\qtyrange{1840}{3091}{\s}</ins><span class="ctx"> to that apoapsis and circularizes in </span><del>\qtyrange{3}{4}{\s}</del><ins>\qtyrange{3}{5}{\s}</ins><span class="ctx">.</span>
+<span class="ctx">… gravity loss: </span><del>\qty{1484}{\m\per\s}</del><ins>\qty{1483}{\m\per\s}</ins><span class="ctx"> for the atmospheric reference …</span>
+<span class="ctx">… the law departs from it by </span><del>\ang{0.32}</del><ins>\ang{0.33}</ins><span class="ctx"> root mean square …</span>
+<span class="ctx">Without the atmosphere the reference keeps </span><del>\qty{1.89}{\tonne}</del><ins>\qty{2.57}{\tonne}</ins><span class="ctx"> more, through </span><del>\qty{183}{\m\per\s}</del><ins>\qty{265}{\m\per\s}</ins><span class="ctx"> less ideal ΔV</span>
+<span class="ctx">Without the rotation it keeps </span><del>\qty{3.30}{\tonne}</del><ins>\qty{3.08}{\tonne}</ins><span class="ctx"> less</span>
+<span class="ctx">The refinement added </span><del>\qtyrange{1.71}{2.56}{\tonne}</del><ins>\qtyrange{1.92}{3.23}{\tonne}</ins><span class="ctx"> to the reported swarm points</span></pre></div>
+    <p class="flag"><b>Still to settle.</b> (1) The 1.89 → 2.57 t change is large because the atmosphere is now charged for the second stage too; the thesis sentence splitting “117 m/s of drag and pressure loss and 67 m/s of gravity loss” needs the new split, and the abstract only gives 48 m/s of drag. I would read the split from the set. (2) The thesis says the second stage “flies without drag” (l. 106); that is no longer exact for the atmospheric reference, which pays 2.8 m/s of drag before its coast. The abstract says “above the dense atmosphere”. (3) The burn-duration range “245–265 s” and the swarm-point coast “about 300 s” are not in my notes for the new set; they come from the archives.</p>
+    <p class="rec"><b>Recommendation.</b> Apply the replacements after T-1, then read the three open items from the set.</p>
+  </article>
+
+  <article class="card" data-id="T-4">
+    <header>
+      <h3><span class="idt">T-4</span>§6.2: the gravity turn against the reference and the apogee check</h3>
+      <p class="where">Thesis_Results.tex §6.2 Discussion, and ll. 248, 271, 761 where the coast bound is named</p>
+    </header>
+    <p class="why">The abstract’s card AV-11 found three changes of substance: the refined gravity turn is 0.16 t short of the reference where the abstract said 0.58 t; it now keeps 0.16 t more than the apogee check; and the old explanation of the apogee check’s lead, that its coast was free of the 2000 s bound, no longer holds, since every coast is now free of the bound. I have not read the thesis passages in §6.2 against those numbers, so I do not draft replacement text here.</p>
+    <p class="flag"><b>Not drafted.</b> On approval I read §6.2 and ll. 248, 271 and 761 against the set, then bring the exact edits back as a new card.</p>
+    <p class="rec"><b>Recommendation.</b> Approve the review pass.</p>
+  </article>
+
+  <article class="card" data-id="T-5">
+    <header>
+      <h3><span class="idt">T-5</span>Chapter 5: say that the second stage carries drag, and state the coast bounds once</h3>
+      <p class="where">Thesis_Methodology.tex: the environment description and the local-refinement text. Chapter 3 if it repeats either.</p>
+    </header>
+    <p class="why">The abstract adds two sentences (cards AV-7 and AV-8). They are the same facts the thesis needs once, in Chapter 5, where the how and why belong.</p>
+    <div class="edit"><p class="eh">Proposed sentences</p><pre><ins>The state equations carry the pseudo-forces and the second-stage drag; the costate equations are kept as published.</ins>
+<ins>The swarms bound the coast at \qty{2000}{\s} and the refinements at \qty{5000}{\s}, which no refined coast reaches.</ins></pre></div>
+    <p class="flag"><b>Check before applying.</b> The second sentence holds for the atmospheric references and the gravity turn. It does not hold for the drag-free reference, which the abstract treats separately (coast down to 13 km). The thesis sentence needs to say so, or T-2 and this card contradict each other. I would add “except the drag-free reference”. The exact insertion points in Thesis_Methodology.tex are not located yet.</p>
+    <p class="rec"><b>Recommendation.</b> Approve with the drag-free exception added to the second sentence.</p>
+  </article>
+
+  <article class="card" data-id="T-6">
+    <header>
+      <h3><span class="idt">T-6</span>§6.4: segmented guidance against the seed-3 reference</h3>
+      <p class="where">Thesis_Results.tex §6.4 and its table</p>
+    </header>
+    <p class="why">The abstract’s card AV-17: the two segmented cases are re-flown against the new reference. Optimized hand-off 21 928.1 kg, 0.71 t short of the reference (was 0.77 t). PEG recovers 6.1 of its 6.8 t. The first burn ends 37 m high and 0.06° steep of the waypoint. The final burn pays 87 m/s of steering loss (was 88). The swarm now puts the hand-off at about 67 km, just after second-stage ignition at 65.6 km, so PEG flies almost the whole second stage. The fixed 120 km hand-off costs 107 kg, where it cost 57 kg. The 50 kg change is inside what the abstract calls unresolved for a single-seed swarm.</p>
+    <p class="flag"><b>Not drafted.</b> The thesis wording around these numbers may differ from the abstract’s. I read the section and bring exact replacements on approval.</p>
+    <p class="rec"><b>Recommendation.</b> Approve the review pass.</p>
+  </article>
+
+  <article class="card" data-id="T-7">
+    <header>
+      <h3><span class="idt">T-7</span>The open thesis cards on the Extended Abstract Review page</h3>
+      <p class="where">AB-1 to AB-3, AU-1 to AU-4, BC-9</p>
+    </header>
+    <p class="why">Written against the old numbers. Effects, by card:</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Card</th><th>Effect of adopting the new set</th></tr></thead>
+      <tbody>
+        <tr><td>AB-1</td><td>The 6–8 kg per m/s rests on final masses of 19.8–26.5 t. Recompute from the new set.</td></tr>
+        <tr><td>AB-2</td><td>The exponential law’s ignition pitch comes from the show_exp_shooting archive. Check it still holds after the re-fly.</td></tr>
+        <tr><td>AB-3</td><td>A physical argument about staging altitude. Unaffected, but its quoted loss ranges come from the table.</td></tr>
+        <tr><td>AU-1</td><td>Peak q is still 54.5 kPa for the reference; only the caption’s wording about the drag-free second stage changes.</td></tr>
+        <tr><td>AU-2, AU-3, AU-4</td><td>Remove the drag-free PEG case and change “seventeen” to “sixteen” cases. Independent of the new set, but the regenerated table must come from it. Do T-1 first.</td></tr>
+        <tr><td>BC-9</td><td>Abstract and Chapter 7 wording; independent.</td></tr>
+      </tbody></table></div>
+    <p class="rec"><b>Recommendation.</b> Leave these cards open until T-1 is applied, then re-check AB-1, AB-2 and AU-1.</p>
+  </article>
+
+  <article class="card" data-id="T-8">
+    <header>
+      <h3><span class="idt">T-8</span>Everything else that carries a number from the old set</h3>
+      <p class="where">Chapter 7, the thesis abstract, §6.6 loss budget, §6.7 validation, tab:reference_seeds, project notes</p>
+    </header>
+    <p class="why">These are found only by regenerating from the new set and sweeping for the old values; they are not drafted. The list I know of: the thesis abstract and Chapter 7 echoes of the reference propellant and the coast bound; the §6.6 loss ranges and the 6–8 kg per m/s; the §6.7 validation comparison, which uses the reference; the five-seed table; CLAUDE.md’s reference table; and the optional re-run of the Starlink validation reference at 5000 s with the switches on (abstract card AV-3, not yet done).</p>
+    <p class="rec"><b>Recommendation.</b> After T-1 to T-6, sweep the thesis for the old values and bring the remaining edits back as one card.</p>
+  </article>
+</div>
+
+<script>
+(function(){
+  var cards=[].slice.call(document.querySelectorAll('article.card[data-id]'));
+  var banner=document.getElementById('banner'), tally=document.getElementById('tally');
+  var state={}, store=null, LS='tsd_review_v1';
+  function lsGet(){try{return JSON.parse(localStorage.getItem(LS)||'{}')}catch(e){return {}}}
+  function lsSet(){try{localStorage.setItem(LS,JSON.stringify(state))}catch(e){}}
+  cards.forEach(function(c){
+    var id=c.getAttribute('data-id');
+    var d=document.createElement('div'); d.className='decide';
+    d.innerHTML='<div class="acts" role="group" aria-label="Decision for '+id+'">'+
+      ['approve','edit','reject'].map(function(k){return '<button type="button" class="dec" data-d="'+k+'" aria-pressed="false">'+k[0].toUpperCase()+k.slice(1)+'</button>'}).join('')+'</div>'+
+      '<label class="lab" for="nt-'+id+'">Notes (what you want changed or kept)</label>'+
+      '<textarea id="nt-'+id+'" placeholder="Anything I should take into account when I implement this card"></textarea>'+
+      '<p class="save" aria-live="polite"></p>';
+    c.appendChild(d);
+  });
+  function paint(){
+    var n=0;
+    cards.forEach(function(c){
+      var id=c.getAttribute('data-id'), s=state[id]||{};
+      [].forEach.call(c.querySelectorAll('.dec'),function(b){b.setAttribute('aria-pressed',String(s.decision===b.getAttribute('data-d')))});
+      var t=c.querySelector('textarea'); if(document.activeElement!==t) t.value=s.note||'';
+      var sv=c.querySelector('.save'); sv.textContent=s.at?('Saved '+new Date(s.at).toLocaleString()):'';
+      if(s.decision) n++;
+    });
+    tally.textContent=n+' of '+cards.length+' decided';
+  }
+  var timers={};
+  function persist(id){
+    var s=state[id]; s.at=new Date().toISOString(); lsSet();
+    if(!store) return;
+    clearTimeout(timers[id]);
+    timers[id]=setTimeout(function(){
+      store.collection('reviews').doc(id).set({decision:s.decision||'',note:s.note||'',at:s.at}).then(function(){
+        banner.textContent='Saved to the review store.';
+      },function(e){banner.textContent='Not saved to the store ('+(e&&e.code||'error')+'); kept on this device.'});
+    },400);
+  }
+  cards.forEach(function(c){
+    var id=c.getAttribute('data-id');
+    c.addEventListener('click',function(ev){
+      var b=ev.target.closest('.dec'); if(!b) return;
+      var s=state[id]||(state[id]={}), k=b.getAttribute('data-d');
+      s.decision=(s.decision===k)?'':k; persist(id); paint();
+    });
+    c.querySelector('textarea').addEventListener('input',function(ev){
+      var s=state[id]||(state[id]={}); s.note=ev.target.value; persist(id); paint();
+    });
+  });
+  state=lsGet(); paint();
+  banner.textContent='Store not connected; answers are kept on this device only.';
+  if(window.claude&&claude.use){
+    claude.use('db').then(function(db){
+      if(!db) return;
+      store=db;
+      banner.textContent='Connected. Answers are saved to the page and to this device.';
+      db.collection('reviews').onSnapshot(function(snap){
+        snap.docs.forEach(function(d){
+          var v=d.data(); if(!v) return;
+          var cur=state[d.id];
+          if(!cur||!cur.at||v.at>cur.at) state[d.id]={decision:v.decision,note:v.note,at:v.at};
+        });
+        lsSet(); paint();
+      },function(){banner.textContent='Store read failed; answers are kept on this device.'});
+    },function(){});
+  }
+})();
+</script>
