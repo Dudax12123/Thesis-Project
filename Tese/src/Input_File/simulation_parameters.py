@@ -878,7 +878,21 @@ DIRECT_OPTIMIZER = "pso"
 #           INERT for every other law (no cutoff of their own), and direct only: the
 #           pso_coast arcs still end on the swarm's times.
 DIRECT_LAW_TERMINATED_CUTOFF = False
-DIRECT_GRID_GAMMA_P_BOUNDS    = (1.50, 1.57)    # rad, = PSO_DIRECT_LB/UB[0]
+# DIRECT_OPEN_LOOP_CONSTANTS (2026-10-30) -- the open-loop laws under "direct":
+#   False : x = [gamma_p, t_burn_pct]; the laws fly their closed-loop fallbacks.
+#   True  : for linear_tangent, bilinear_tangent, cpr and exp_shooting the law's own
+#           constants join the decision vector, exactly as under pso_coast (same
+#           PSO_COAST_* bounds): linear_tangent [theta0, thetaf], bilinear_tangent
+#           [theta0, thetaf, mu], cpr [theta_dot], exp_shooting [a, b]. The tangent
+#           span runs from ignition to the burn end. Needs DIRECT_OPTIMIZER = "pso"
+#           (a grid cannot carry 3-5 variables). INERT for every other law.
+DIRECT_OPEN_LOOP_CONSTANTS = False
+# DIRECT_REFINE -- after the swarm, a local Nelder-Mead on the same objective from the
+#   swarm's best point, inside the same bounds. The swarm point is kept if the
+#   refinement does not beat it. Applies to the open-loop cases only.
+DIRECT_REFINE = False
+DIRECT_REFINE_MAX_EVALS = 400
+DIRECT_GRID_GAMMA_P_BOUNDS   = (1.50, 1.57)    # rad, = PSO_DIRECT_LB/UB[0]
 DIRECT_GRID_GAMMA_P_POINTS    = 500
 DIRECT_GRID_T_BURN_PCT_BOUNDS = (50.0, 100.0)   # % of T_MAX_2, = PSO_DIRECT_LB/UB[1]
 # 21, not fewer: at fixed gamma_p the gravity turn's J(t_burn) has two branches

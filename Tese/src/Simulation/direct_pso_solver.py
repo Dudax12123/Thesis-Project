@@ -51,6 +51,8 @@ from Simulation.pso_coast_solver import (
     _v_circular_rotating,
     GuidanceState,
     _stage2_ode_guidance,
+    _coast_bounds,
+    _unpack_coast_x,
     solve_guided_arc,
     _event_crash,
     _T_MAX_2,
@@ -66,6 +68,8 @@ LAST_PSO_DIRECT_HISTORY = None
 # grid_brent only: the grid it searched and the evaluations it spent (None after a PSO).
 LAST_DIRECT_GRID = None
 LAST_DIRECT_N_EVALUATIONS = None
+# DIRECT_REFINE only: swarm vs refined J and point of the last run (None otherwise).
+LAST_DIRECT_REFINE = None
 
 
 def law_terminated():
@@ -77,12 +81,48 @@ def law_terminated():
             and sim_params.GUIDANCE_MODE == "peg_new")
 
 
+_OPEN_LOOP_MODES = ("linear_tangent", "bilinear_tangent", "cpr", "exp_shooting")
+
+
+def open_loop_constants():
+    """True when the law's own constants are in the decision vector
+    (DIRECT_OPEN_LOOP_CONSTANTS, open-loop laws only)."""
+    return (bool(getattr(sim_params, "DIRECT_OPEN_LOOP_CONSTANTS", False))
+            and sim_params.GUIDANCE_MODE in _OPEN_LOOP_MODES)
+
+
 def _decision_bounds():
     """(lb, ub) of the PSO's decision vector: [gamma_p, t_burn_pct], or [gamma_p]
-    when the law ends the burn."""
+    when the law ends the burn; the open-loop laws append their constants, with the
+    bounds pso_coast uses for them."""
     if law_terminated():
         return [sim_params.PSO_DIRECT_LB[0]], [sim_params.PSO_DIRECT_UB[0]]
-    return sim_params.PSO_DIRECT_LB, sim_params.PSO_DIRECT_UB
+    lb, ub = list(sim_params.PSO_DIRECT_LB), list(sim_params.PSO_DIRECT_UB)
+    if open_loop_constants():
+        clb, cub = _coast_bounds()
+        lb += list(clb[4:])
+        ub += list(cub[4:])
+    return lb, ub
+
+
+def _extras_from_x(x):
+    """The open-loop constants of a direct decision vector, keyed as pso_coast's
+    _unpack_coast_x keys them (empty unless open_loop_constants())."""
+    if not open_loop_constants() or len(x) <= 2:
+        return {}
+    return _unpack_coast_x(list(x[:2]) + [0.0, 0.0] + list(x[2:]))[4]
+
+
+def _apply_open_loop_extras(gs, extras, t_ignition, t_burn_end):
+    """Hand the swarm's constants to the guidance state, as pso_coast does."""
+    gs.pso_cpr_theta_dot = extras.get("cpr_theta_dot")
+    gs.pso_exp_a = extras.get("exp_a")
+    gs.pso_exp_b = extras.get("exp_b")
+    gs.pso_tan_theta0 = extras.get("tan_theta0")
+    gs.pso_tan_thetaf = extras.get("tan_thetaf")
+    gs.pso_tan_mu = extras.get("tan_mu")
+    gs.tan_t0 = t_ignition
+    gs.tan_tf = t_burn_end
 
 
 def _fly_law_terminated_burn(t_ignition, y0, gs, t_eval_fn=None):
@@ -147,7 +187,7 @@ def _fly_law_terminated_burn(t_ignition, y0, gs, t_eval_fn=None):
 # Full Stage-1 -> Stage-2 trajectory runner (PSO inner loop)
 # ===========================================================================
 
-def run_pso_direct_trajectory(gamma_p, t_burn_pct=None, verbose=False):
+def run_pso_direct_trajectory(gamma_p, t_burn_pct=None, *law_constants, verbose=False):
     """
     Simulate a Stage-1-kick + single-thrust-arc direct-insertion trajectory
     for one PSO particle.
@@ -157,6 +197,8 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct=None, verbose=False):
     gamma_p    : float  Pitch maneuver angle [rad]  (kick_angle = gamma_p - pi/2)
     t_burn_pct : float  Stage-2 continuous burn duration as % of T_MAX_2 [%];
                         ignored (and may be omitted) when law_terminated()
+    law_constants : the open-loop law's constants after t_burn_pct, in
+                        pso_coast's order (open_loop_constants() only)
     verbose    : bool
 
     Returns
@@ -223,6 +265,10 @@ def run_pso_direct_trajectory(gamma_p, t_burn_pct=None, verbose=False):
     else:
         t_burn_end = t_ignition + t_burn
         gs.tgo_deadline = t_burn_end
+        if open_loop_constants():
+            _apply_open_loop_extras(
+                gs, _extras_from_x([gamma_p, t_burn_pct, *law_constants]),
+                t_ignition, t_burn_end)
         sol_burn = solve_guided_arc(
             lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs), gs,
             t_span=(t_ignition, t_burn_end),
@@ -321,6 +367,45 @@ class DirectPSOProblem:
 
 
 # ===========================================================================
+# Local refinement of the swarm's point (DIRECT_REFINE)
+# ===========================================================================
+
+def _refine_local(x0, f0, lb, ub, verbose=True):
+    """Nelder-Mead on the direct objective from the swarm's best point, inside the
+    decision box. Returns the refined (x, J) only if it beats the swarm's J; the
+    swarm point is otherwise kept. No costates: this is the law-side counterpart of
+    the PMP polish, the same objective the swarm minimised."""
+    from scipy.optimize import minimize
+
+    def f(x):
+        return compute_direct_objective(run_pso_direct_trajectory(*x))
+
+    n_eval = [0]
+
+    def counted(x):
+        n_eval[0] += 1
+        return f(x)
+
+    t0 = time.time()
+    res = minimize(counted, np.asarray(x0, dtype=float), method="Nelder-Mead",
+                   bounds=list(zip(lb, ub)),
+                   options={"maxfev": int(sim_params.DIRECT_REFINE_MAX_EVALS),
+                            "xatol": 1e-9, "fatol": 1e-10})
+    kept = res.fun < f0
+    if verbose:
+        print(f"\n[direct refine] Nelder-Mead, {n_eval[0]} ascents, "
+              f"{time.time() - t0:.1f}s: J {f0:.6f} -> {res.fun:.6f} "
+              f"({'refined point kept' if kept else 'swarm point kept'})")
+        if kept:
+            _print_direct_solution(list(res.x), float(res.fun))
+    global LAST_DIRECT_REFINE
+    LAST_DIRECT_REFINE = {'J_swarm': float(f0), 'J_refined': float(res.fun),
+                          'x_swarm': list(map(float, x0)), 'n_evaluations': n_eval[0],
+                          'kept': bool(kept)}
+    return (list(res.x), float(res.fun)) if kept else (list(x0), float(f0))
+
+
+# ===========================================================================
 # PSO runner
 # ===========================================================================
 
@@ -345,7 +430,8 @@ def run_pso_direct_optimization(verbose=True):
     # budget-independently), the other laws settle on a SUBORBITAL insertion under
     # "direct" — warn so the result is not mistaken for a convergence failure.
     # Use "pso_coast"/"apogee_check" (which have a coast) for those laws instead.
-    if verbose and sim_params.GUIDANCE_MODE not in ("apollo", "peg", "peg_new"):
+    if (verbose and not open_loop_constants()
+            and sim_params.GUIDANCE_MODE not in ("apollo", "peg", "peg_new")):
         print("\n" + "!" * 60)
         print(f"WARNING: COAST_METHOD='direct' with GUIDANCE_MODE="
               f"'{sim_params.GUIDANCE_MODE}' is not a reliable pairing.")
@@ -361,7 +447,8 @@ def run_pso_direct_optimization(verbose=True):
         print(f"PSO DIRECT-INSERTION OPTIMISATION — {sim_params.GUIDANCE_MODE.upper()}")
         print("=" * 60)
         print("  Optimising 1 variable: gamma_p (peg_new ends the burn)" if law_terminated()
-              else "  Optimising 2 variables: gamma_p, t_burn%")
+              else f"  Optimising {len(lb)} variables: gamma_p, t_burn%"
+                   + (" + the law's constants" if open_loop_constants() else ""))
         print(f"  Particles : {n_particles}")
         print(f"  Max gen.  : {n_gen}")
         print(f"  Bounds    : {list(zip(lb, ub))}")
@@ -407,6 +494,9 @@ def run_pso_direct_optimization(verbose=True):
             print(f"\n[PSO direct] Finished in {time.time() - t_start:.1f}s")
             print(f"  Best J = {best_f:.6f}")
             _print_direct_solution(best_x, best_f)
+
+        if open_loop_constants() and getattr(sim_params, "DIRECT_REFINE", False):
+            best_x, best_f = _refine_local(best_x, best_f, lb, ub, verbose)
 
         return best_x, best_f
 
@@ -534,8 +624,12 @@ def run_direct_grid_optimization(verbose=True):
 
 def run_direct_optimization(verbose=True):
     """The direct architecture's optimiser, as DIRECT_OPTIMIZER selects it."""
-    global LAST_DIRECT_GRID, LAST_DIRECT_N_EVALUATIONS
+    global LAST_DIRECT_GRID, LAST_DIRECT_N_EVALUATIONS, LAST_DIRECT_REFINE
     method = getattr(sim_params, "DIRECT_OPTIMIZER", "pso")
+    LAST_DIRECT_REFINE = None
+    if open_loop_constants() and method != "pso":
+        raise ValueError("DIRECT_OPEN_LOOP_CONSTANTS needs DIRECT_OPTIMIZER = 'pso': "
+                         "a grid cannot carry the law's constants")
     if method == "pso":
         LAST_DIRECT_GRID = None
         LAST_DIRECT_N_EVALUATIONS = None
@@ -634,6 +728,9 @@ def run_pso_direct_full(optimal_params, verbose=True):
         t_burn     = (t_burn_pct / 100.0) * _T_MAX_2
         t_burn_end = t_ignition + t_burn
         gs_full.tgo_deadline = t_burn_end
+        if open_loop_constants():
+            _apply_open_loop_extras(gs_full, _extras_from_x(list(optimal_params)),
+                                    t_ignition, t_burn_end)
         sol_burn = solve_guided_arc(
             lambda t, y: _stage2_ode_guidance(t, y, r.F_THRUST_2, r.ISP_2, gs_full), gs_full,
             t_span=(t_ignition, t_burn_end),
@@ -794,6 +891,8 @@ def _print_direct_solution(x, J):
     print("\nOptimal direct-insertion parameters:")
     print(f"  Pitch angle gamma_p = {np.rad2deg(gamma_p):.4f} deg  ({gamma_p:.6f} rad)")
     print(f"  Kick angle          = {np.rad2deg(kick_angle):.4f} deg")
+    if len(x) > 2:
+        print(f"  Law constants       = {_extras_from_x(x)}")
     if len(x) > 1:
         t_burn_pct = x[1]
         t_burn = (t_burn_pct / 100.0) * _T_MAX_2
