@@ -568,6 +568,10 @@ REFERENCE_TRACK_COAST_MODE = "duration"   # Options: "duration", "target_altitud
 # the printed "Clean insertion (within tol)" verdict (see interrupt_direct_insertion
 # in rocket_ascent.py and the report in main.py). Otherwise the achieved orbit is
 # reported as-is.
+# The ALTITUDE and FPA tolerances are also the gate of the orbit trim, for EVERY
+# architecture: inside them, the archive row and the console report price the two
+# impulsive apsidal burns that would circularise the achieved orbit at the target
+# (Auxiliary/orbit_trim.py, trim_* columns). Report only; the velocity error does not gate it.
 DIRECT_INSERTION_VELOCITY_TOL_MS  = 10.0   # |v_inertial − √(μ/r_target)| [m/s]
 DIRECT_INSERTION_FPA_TOL_DEG      = 0.5    # |flight-path angle|          [deg]
 DIRECT_INSERTION_ALTITUDE_TOL_KM  = 5.0    # |altitude − target|         [km]

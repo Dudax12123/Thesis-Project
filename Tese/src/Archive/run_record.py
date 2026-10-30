@@ -473,6 +473,35 @@ def objective_terms(sim_params, result):
         return None
 
 
+def _trim_columns(sim_params, sf, v_in, g_in, prop_remaining):
+    """``trim_*`` columns: the two apsidal burns that would circularise the orbit.
+
+    Priced only when the insertion altitude and flight-path angle are inside the
+    DIRECT_INSERTION_* tolerances, since a burn at an apsis can fix the speed but
+    not a miss in position. The burns fly the Stage-2 engine from the insertion
+    mass, which is the state's own (state_final[4]).
+    """
+    from Auxiliary import constants as c
+    from Auxiliary import orbit_trim
+    from Auxiliary import rocket_specs as r_specs
+
+    r_target = c.R_EARTH + float(sim_params.TARGET_ORBITAL_ALTITUDE)
+    ok = orbit_trim.in_position(
+        float(sf[1]), g_in, r_target,
+        float(sim_params.DIRECT_INSERTION_ALTITUDE_TOL_KM) * 1e3,
+        np.deg2rad(float(sim_params.DIRECT_INSERTION_FPA_TOL_DEG)))
+    cols = {'trim_in_position': ok}
+    if not ok:
+        return cols
+    trim = orbit_trim.apsidal_trim(float(sf[1]), v_in, g_in, float(sf[4]),
+                                   r_target, r_specs.ISP_2, r_specs.F_THRUST_2)
+    cols.update({'trim_' + k: v for k, v in trim.items()})
+    if trim['status'] == 'ok':
+        cols['trim_prop_remaining_after_kg'] = prop_remaining - trim['prop_total_kg']
+        cols['trim_prop_sufficient'] = bool(cols['trim_prop_remaining_after_kg'] >= 0.0)
+    return cols
+
+
 def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
                 history, wall_clock, extra, tags=None):
     """Reduce one trajectory to the scalars the results table needs.
@@ -588,6 +617,11 @@ def collect_row(name, sim_params, time_a, data, thrust, alpha, result, J,
     m_final = float(data[4, -1])
     row['prop_remaining_kg'] = max(
         0.0, m_final - (r_specs.M_STRUCTURE_2 + r_specs.M_PAYLOAD))
+
+    # The cost of trimming an insertion that is in position but not circular
+    # into the target orbit (Auxiliary/orbit_trim.py). Report only.
+    if 'orbit_error' not in row:
+        row.update(_trim_columns(sim_params, sf, v_in, g_in, row['prop_remaining_kg']))
 
     # --- delta-v budget, over the powered ascent only ---------------------
     # The apogee check's coast to apoapsis is part of its ascent, as every

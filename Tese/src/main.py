@@ -267,6 +267,7 @@ def _archive_run(time, data, thrust_data, time_thrust, alpha_data,
             J=J, history=history, extra=extra, suite=suite,
             wall_clock=wall_clock, source="main.py",
             label=getattr(sim_params, "ARCHIVE_LABEL", ""))
+        _print_orbit_trim(saved['row'])
         # The id is handed on to the plot dispatch so this run's figures land in
         # Output_Plots/<id>/ -- same name as the archive, different root.
         return saved['name']
@@ -433,6 +434,34 @@ def _print_final_orbital_elements(a, e, r_apo, r_peri, T, data):
     if sim_params.ENABLE_EARTH_ROTATION:
         print(f"\t* Azimuth/inclination mode:\t\t{sim_params.AZIMUTH_INCLINATION_MODE}")
         print(f"\t* Cross-heading counter-force:\t\t{'ON' if sim_params.COMPUTE_CROSS_HEADING_COUNTER_FORCE else 'OFF'}")
+
+
+def _print_orbit_trim(row):
+    """Print the ORBIT TRIM block from the archive row's trim_* columns (shared)."""
+    if 'trim_in_position' not in row:
+        return
+    print("\n" + "="*60)
+    print("ORBIT TRIM (two impulsive apsidal burns to the target circle)")
+    print("="*60)
+    if not row['trim_in_position']:
+        print("\t* Not priced: insertion altitude or FPA outside the DIRECT_INSERTION_* tolerances")
+        return
+    if row['trim_status'] != 'ok':
+        print(f"\t* Not priced: orbit is {row['trim_status']}")
+        return
+    print(f"\t* Burn 1 at {row['trim_burn1_at']} ({row['trim_burn1_alt_km']:.2f} km), "
+          f"after {row['trim_coast_to_burn1_s']:.1f} s coast:")
+    print(f"\t\tdv {row['trim_dv1_ms']:+.3f} m/s, propellant {row['trim_prop1_kg']:.2f} kg, "
+          f"burn {row['trim_burn1_s']:.3f} s "
+          f"({row['trim_burn2_at']} {row['trim_moved_apsis_alt_km']:.2f} -> {row['trim_burn2_alt_km']:.2f} km)")
+    print(f"\t* Burn 2 at {row['trim_burn2_at']} ({row['trim_burn2_alt_km']:.2f} km), "
+          f"{row['trim_coast_between_burns_s']:.1f} s later:")
+    print(f"\t\tdv {row['trim_dv2_ms']:+.3f} m/s, propellant {row['trim_prop2_kg']:.2f} kg, "
+          f"burn {row['trim_burn2_s']:.3f} s (circularises)")
+    print(f"\t* Total:\t\t\t\t|dv| {row['trim_dv_total_ms']:.3f} m/s, "
+          f"{row['trim_prop_total_kg']:.2f} kg, {row['trim_burn_total_s']:.3f} s")
+    print(f"\t* Propellant left after trim:\t\t{row['trim_prop_remaining_after_kg']:.1f} kg"
+          + ("" if row['trim_prop_sufficient'] else "  (INSUFFICIENT)"))
 
 
 def _print_propellant_losses():
