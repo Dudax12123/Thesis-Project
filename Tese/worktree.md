@@ -215,7 +215,11 @@ dense re-run's J exactly. `tests/test_segmented_law_terminated.py` pins all of t
 | `PMP_REFERENCE_PSO_GENERATIONS` | int or `None` | `1000` | Reference-build generations. `None` ⇒ use `PSO_MAX_GENERATIONS`. Set equal to it on 2026-09-16 (see above). |
 
 **Supported laws** in `GUIDANCE_SEGMENTS`: `gravity_turn`, `apollo`, `peg_new`, `linear_tangent`,
-`bilinear_tangent`, `indirect_pmp` (classic `peg` deferred). The two tangent laws are **angle-only** —
+`bilinear_tangent`, `indirect_pmp`, `cpr`, `exp_shooting` (classic `peg` deferred). `cpr` (θ̇) and
+`exp_shooting` (a, b) steer by constants the swarm chooses (2026-10-30): each such segment appends
+them to the decision vector in schedule order, after the base variables and before any altitude
+fractions, with the `PSO_COAST_*` bounds. Both re-initialise at every restart (hand-off, Stage-2
+ignition, end of coast); exp_shooting restarts from the same `a` each time, so it steps at each. The two tangent laws are **angle-only** —
 they match a waypoint's flight-path angle but not its altitude/velocity, so their waypoint tracking is
 weaker than apollo/peg_new (they still reach orbit because the final segment does the insertion). An
 `indirect_pmp` segment does not run a live law — it **replays** the stored optimal α from the PMP

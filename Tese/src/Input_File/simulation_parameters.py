@@ -376,7 +376,10 @@ MULTI_GUIDANCE_ENABLED = False
 # Ordered list of (guidance_law, activation_altitude_m). Altitudes MUST be strictly
 # increasing. Supported laws:
 #   "gravity_turn", "apollo", "peg_new", "linear_tangent", "bilinear_tangent",
-#   "indirect_pmp".
+#   "indirect_pmp", "cpr", "exp_shooting".
+# cpr and exp_shooting steer by constants the swarm chooses (theta_dot; a, b), appended
+# to the decision vector per segment in schedule order, with the PSO_COAST_* bounds.
+# Both are re-initialised at every restart (hand-off, Stage-2 ignition, end of coast).
 # The FIRST entry flies right after the kick (its altitude is treated as 0 / the
 # floor): pick "gravity_turn" here for a passive turn straight after the kick, or an
 # active law to steer from launch. The LAST entry always inserts to orbit.

@@ -80,6 +80,26 @@ def _base_bounds(segs):
     return lb, ub
 
 
+# Laws that steer by constants the swarm chooses, as under pso_coast: cpr by its
+# pitch rate, exp_shooting by (a, b). Each segment flying one of them appends its
+# constants to the decision vector, in schedule order, after the base variables and
+# before the activation-altitude fractions. Bounds are pso_coast's (PSO_COAST_*).
+_LAW_PARAMS = {"cpr": ("cpr_theta_dot",), "exp_shooting": ("exp_a", "exp_b")}
+
+
+def _law_param_bounds(schedule):
+    """(lb, ub) of the constants the schedule's cpr / exp_shooting segments append."""
+    lb, ub = [], []
+    for mode, _alt in schedule:
+        if mode == "cpr":
+            lb.append(np.deg2rad(sim_params.PSO_COAST_CPR_THETA_DOT_LB_DEG))
+            ub.append(np.deg2rad(sim_params.PSO_COAST_CPR_THETA_DOT_UB_DEG))
+        elif mode == "exp_shooting":
+            lb += [sim_params.PSO_COAST_EXP_A_LB, sim_params.PSO_COAST_EXP_B_LB]
+            ub += [sim_params.PSO_COAST_EXP_A_UB, sim_params.PSO_COAST_EXP_B_UB]
+    return lb, ub
+
+
 def reference_coast_start(verbose=False):
     """The PMP reference's state where its first Stage-2 burn ends, as a SegmentTarget.
 
@@ -170,6 +190,10 @@ class _Segments:
             _alt, _al = self._alt_asc, self._alpha_asc
             self.replay_alpha = lambda state: float(np.interp(state[1] - c.R_EARTH, _alt, _al))
 
+        # Per-segment constants of the cpr / exp_shooting segments, {idx: {name: value}};
+        # empty (so every gs field below stays None) for any other schedule.
+        self.law_params = {}
+
         self.coast_start = coast_start
         if law_terminated() and self.coast_start is None:
             self.coast_start = reference_coast_start()
@@ -220,6 +244,19 @@ class _Segments:
             self.schedule[i] = (self.schedule[i][0], float(a))
         self._build_targets()
 
+    def set_law_params(self, values):
+        """Hand each cpr / exp_shooting segment its constants from the decision vector.
+
+        ``values`` is the slice of x that _law_param_bounds sized, in schedule order.
+        Serial PSO evaluation makes the in-place update safe, as for the altitudes.
+        """
+        self.law_params = {}
+        it = iter(values)
+        for idx, (mode, _alt) in enumerate(self.schedule):
+            names = _LAW_PARAMS.get(mode)
+            if names:
+                self.law_params[idx] = {nm: float(next(it)) for nm in names}
+
     def mode(self, idx):
         return self.schedule[idx][0]
 
@@ -242,6 +279,10 @@ class _Segments:
         """Point the GuidanceState at segment ``idx``."""
         gs.mode_override = self.schedule[idx][0]
         gs.target = self.target[idx]
+        p = self.law_params.get(idx, {})
+        gs.pso_cpr_theta_dot = p.get("cpr_theta_dot")
+        gs.pso_exp_a = p.get("exp_a")
+        gs.pso_exp_b = p.get("exp_b")
 
     def set_deadline(self, gs, idx, t_now, alt_now):
         """Planned-deadline countdown from the PMP reference timing.
@@ -668,7 +709,9 @@ class SegmentedPSOProblem:
 
     Decision vector: the 4 base coast vars ``[delta_tc, delta_tr_pct,
     coast_start_pct, gamma_p]`` -- or ``[delta_tc, gamma_p]`` when the final law
-    ends the burns (SEGMENTED_LAW_TERMINATED_ARCS) -- plus, when ``optimize_alts``,
+    ends the burns (SEGMENTED_LAW_TERMINATED_ARCS) -- plus the constants of any cpr
+    (theta_dot) or exp_shooting (a, b) segment, in schedule order, plus, when
+    ``optimize_alts``,
     ``(n-1)`` activation-altitude fractions in [0,1] mapped cumulatively into
     ``[alt_lb, alt_ub]`` (segment 0 stays "after the kick", so its altitude is not
     a variable). The objective is unchanged (pso_coast's Stage-2 burn-time term +
@@ -679,6 +722,7 @@ class SegmentedPSOProblem:
     def __init__(self, segs, optimize_alts=False, alt_bounds=None):
         self._segs = segs
         self._n_base = len(_base_bounds(segs)[0])
+        self._n_law = len(_law_param_bounds(segs.schedule)[0])
         self._optimize_alts = bool(optimize_alts)
         self._n_alt = (segs.n - 1) if self._optimize_alts else 0
         self._alt_lb, self._alt_ub = (alt_bounds if alt_bounds is not None else (0.0, 0.0))
@@ -686,8 +730,10 @@ class SegmentedPSOProblem:
     def fitness(self, x):
         try:
             nb = self._n_base
+            nl = self._n_law
+            self._segs.set_law_params(x[nb:nb + nl])
             if self._n_alt > 0:
-                alts = _alts_from_fractions(x[nb:nb + self._n_alt],
+                alts = _alts_from_fractions(x[nb + nl:nb + nl + self._n_alt],
                                             self._alt_lb, self._alt_ub)
                 self._segs.set_activation_altitudes(alts)
             result = _fly(x[:nb], self._segs)
@@ -697,6 +743,9 @@ class SegmentedPSOProblem:
 
     def get_bounds(self):
         lb, ub = _base_bounds(self._segs)
+        law_lb, law_ub = _law_param_bounds(self._segs.schedule)
+        lb += law_lb
+        ub += law_ub
         if self._n_alt > 0:
             lb += [0.0] * self._n_alt
             ub += [1.0] * self._n_alt
@@ -939,7 +988,7 @@ def validate_schedule():
     """Raise ValueError on a malformed GUIDANCE_SEGMENTS schedule."""
     segments = sim_params.GUIDANCE_SEGMENTS
     supported = {"apollo", "peg_new", "linear_tangent", "bilinear_tangent",
-                 "gravity_turn", "indirect_pmp"}
+                 "gravity_turn", "indirect_pmp", "cpr", "exp_shooting"}
     if not segments:
         raise ValueError("GUIDANCE_SEGMENTS is empty.")
     if law_terminated() and str(segments[-1][0]) != "peg_new":
@@ -1013,9 +1062,11 @@ def run_segmented(verbose=True):
     # Bake the optimal activation altitudes into segs before the dense re-run
     # (run_segmented_full uses only the base params).
     nb = len(_base_bounds(segs)[0])
+    nl = len(_law_param_bounds(segs.schedule)[0])
+    segs.set_law_params(best_x[nb:nb + nl])
     opt_alts = None
     if optimize_alts:
-        opt_alts = _alts_from_fractions(best_x[nb:nb + (segs.n - 1)],
+        opt_alts = _alts_from_fractions(best_x[nb + nl:nb + nl + (segs.n - 1)],
                                         alt_bounds[0], alt_bounds[1])
         segs.set_activation_altitudes(opt_alts)
         if verbose:

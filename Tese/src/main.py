@@ -479,6 +479,11 @@ def _report_segmented(result, segs, best_x, best_f, data_full, optimized_altitud
         print(f"  Kick angle (gamma_p-pi/2): {np.rad2deg(best_x[3] - np.pi/2.0):.4f} deg")
         print(f"  PSO [dtc, dtr%, cs%, gamma_p]: "
               f"[{best_x[0]:.2f}, {best_x[1]:.2f}, {best_x[2]:.2f}, {np.rad2deg(best_x[3]):.3f}deg]")
+    for _idx, _p in sorted(segs.law_params.items()):
+        _txt = ", ".join(
+            f"{k}={np.rad2deg(v):.4f} deg/s" if k == "cpr_theta_dot" else f"{k}={v:.5f}"
+            for k, v in _p.items())
+        print(f"  {segs.mode(_idx)} constants (segment {_idx}): {_txt}")
     if optimized_altitudes:
         print(f"  Optimised activation altitudes: " +
               ", ".join(f"{a/1e3:.1f} km" for a in optimized_altitudes))
