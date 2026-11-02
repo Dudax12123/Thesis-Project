@@ -1,0 +1,373 @@
+\chapter{Implementation}
+\label{chapter:implementation}
+
+% =============================================================================
+\begin{comment}
+\section{Vehicle Configuration and Baseline Mission}
+
+
+\subsection{First-Stage Engine Model}
+\label{ssec:engine_model}
+
+Thrust and specific impulse switch at the staging events, and the second stage flies its
+vacuum values, less the pressure deficit of its nozzle in the cases of Chapter~\ref{ssec:case_definitions}
+that carry it. The first stage is flown with one of two models of the
+ambient-pressure dependence of Chapter~\ref{ssec:thrust}, summarized in
+Table~\ref{tab:engine_models}.
+
+The pressure-dependent model, flown in every case but one, evaluates
+Eq.~\eqref{eq:thrust_pressure_alt} with the nozzle exit area of Table~\ref{tab:stage_params}.
+As in Chapter~\ref{ssec:thrust}, its specific impulse is linear in the ambient pressure, and is
+scaled between its published endpoints,
+\begin{equation}
+  I_{sp}(h) = I_{sp,\mathrm{vac}}
+     - \frac{p_a(h)}{p_0}\,\bigl(I_{sp,\mathrm{vac}} - I_{sp,SL}\bigr) \ ,
+  \label{eq:isp_pressure}
+\end{equation}
+with the mass flow following as $\dot m_p = T/(g_0 I_{sp})$. A constant mass flow requires
+$T_{SL}/T_{vac} = I_{sp,SL}/I_{sp,vac}$; the published figures give $0.925$ and $0.910$. They are
+kept as published, so the mass flow falls by \qty{1.6}{\percent} over the burn. This is the only model
+under which the pressure loss of Chapter~\ref{sec:performance} is defined.
+
+The sea-level model holds the lift-off values for the whole burn. It is the most conservative
+constant choice: with the same propellant and the highest mass flow, it ends the first-stage
+burn earliest and delivers the least impulse.
+
+\begin{table}[htbp]
+  \centering
+  \caption{The two first-stage engine models.}
+  \label{tab:engine_models}
+  \begin{tabular}{l l l}
+    \toprule
+     & \textbf{Pressure-dependent (baseline)} & \textbf{Sea level, constant} \\
+    \midrule
+    Thrust           & \qty{7.61}{\mega\newton} at lift-off to \qty{8.23}{\mega\newton} in vacuum & \qty{7.61}{\mega\newton} throughout \\
+    Specific impulse & \qtyrange{283}{311}{\s}                             & \qty{283}{\s} throughout \\
+    Mass flow        & \qtyrange{2741}{2698}{\kg\per\s} (\qty{-1.6}{\percent})       & \qty{2741}{\kg\per\s} throughout \\
+    First-stage burn & \qty{146.0}{\s}                                    & \qty{144.4}{\s} \\
+    Pressure loss    & defined                   & not defined \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Payload Fairing}
+\label{ssec:fairing_jettison}
+
+The \qty{1900}{\kg} payload fairing~\cite{NASA_Falcon9v12_Datasheet_2018} is booked within the first-stage empty mass of
+Table~\ref{tab:stage_params} rather than added to it; stage separation drops only the rest of
+that mass. It is jettisoned, and the atmosphere taken as left, as the vehicle climbs through
+\qty{65}{\km}~\cite{kluever2018space}. Of the criteria of Chapter~\ref{ssec:fairing}, the altitude
+is preferred because it
+is the same for every trajectory, whereas a load- or heating-based threshold would move the
+jettison with the variables being optimized. The criterion governs the jettison alone: drag
+is modeled throughout the first-stage flight, and the exo-atmospheric laws engage at
+second-stage ignition (Chapter~\ref{sec:numerical_methods}).
+
+The jettison is an instantaneous drop in mass at the altitude crossing, handled as an arc
+boundary, like staging (Chapter~\ref{ssec:integration})~\cite{BettsSurvey1998}. If the first
+stage burns out below \qty{65}{\km}, the drop is applied at the next arc boundary, stage separation
+or second-stage ignition, so the fairing is never carried under thrust above that altitude.
+
+\end{comment}
+
+% =============================================================================
+\begin{comment}
+
+
+\section{Software Implementation}
+\label{sec:software}
+
+\subsection{Architecture}
+\label{ssec:architecture}
+
+The code is organized as a layered dependency graph. At the bottom sit leaf data
+and models that depend on nothing else: the physical constants and vehicle
+specifications, and the environment models (gravity, atmosphere, Earth rotation).
+Above them the configuration layer exposes every user-facing switch. The guidance
+laws are also leaves --- pure functions that map a state to a steering command ---
+so that dependencies always run from the simulation core towards the guidance
+modules and never the reverse, which keeps each law testable in isolation. At the
+center is the physics hub \texttt{rocket\_ascent.py}, which imports all guidance
+and auxiliary modules and integrates the equations of motion; the solvers and
+optimizers wrap the hub, and the plotting layer consumes plain result arrays,
+decoupled from the solvers.
+
+The solver layer is not flat, and the way it is stacked matters.
+\texttt{pso\_coast\_solver.py} owns the second-stage vacuum dynamics and the
+per-trajectory guidance state described in the next subsection, and two further solvers
+are built \emph{on} it rather than beside it: \texttt{direct\_pso\_solver.py} imports its
+integrator and guidance machinery and contributes only a different arc layout and objective,
+and \texttt{segmented\_guidance\_solver.py} does likewise while drawing its waypoints from
+\texttt{segment\_reference.py}, which builds the indirect reference trajectory once and caches
+it to disk, keyed on the target orbit, the vehicle, the environment and the budget of its
+solve. The cache is the only
+piece of state the tool carries between runs. Figure~\ref{fig:dependency_tree} shows the
+resulting layering.
+
+\begin{figure}[h!]
+\centering
+\includegraphics[width=0.95\linewidth]{Figures/module_dependency_graph.png}
+\caption{Module dependency graph.}
+\label{fig:dependency_tree}
+\end{figure}
+
+Every architecture of Chapter~\ref{sec:optimization}, and the segmented mode, wraps the
+same inner engine in its outer optimizer; only the design vector, the termination
+condition and the objective differ. Figure~\ref{fig:flowchart} shows the loop for the
+apogee-circularization architecture (A), and Figure~\ref{fig:arc_structures} the arc structures of the
+others (B to E).
+
+The numerical machinery is provided by established libraries rather than
+reimplemented: the Dormand--Prince integrator, the root finders, and the grid search come
+from \texttt{SciPy}~\cite{virtanen2020scipy}, and the particle swarm optimizer from
+\texttt{PyGMO}~\cite{biscani2020pagmo}.
+
+\subsection{Guidance Dispatch and Trajectory State}
+\label{ssec:dispatch}
+
+Section~\ref{sec:laws_implemented} stated that every guidance law is a stateless
+function and that the memory it needs is held by the caller. Where that memory
+lives is the one structural feature of the implementation that a reader would not
+guess, and it explains a behavior reported later, so it is set out here.
+
+The nine laws are driven through \emph{two} independent dispatchers. The
+apogee-circularization architecture steers from inside the equations-of-motion routine itself
+(\texttt{rocket\_ascent.rocket\_dynamics}), which selects the active law and keeps
+its working variables --- the explicit-guidance steering constants, the epoch at
+which they were last recomputed, the coefficient-freeze flags, the constant pitch
+rate --- in module-level variables, reset in a block at the start of each run. The
+three population-based architectures and the segmented mode instead steer from
+\texttt{pso\_coast\_solver}, which carries exactly the same variables in a
+\texttt{GuidanceState} object created fresh for each candidate trajectory and
+re-initialized at every arc boundary.
+
+The duplication is deliberate rather than accidental. A swarm evaluates many
+thousands of trajectories inside a single process, so any guidance variable cached
+at module level survives from one candidate to the next and quietly corrupts the
+evaluation that follows; binding that state to an object which is discarded with
+the particle removes the failure mode by construction. The same hazard exists in
+the shared first-stage code, where a running engine-performance ramp has to be
+explicitly reset at the start of every trajectory for precisely this reason.
+
+Where the closed-loop laws recompute their steering coefficients matters for the same reason.
+Recomputed inside the equations-of-motion routine, they would also be updated at the trial
+points at which the adaptive integrator evaluates the derivatives before accepting or
+rejecting a step --- instants the trajectory may never reach. In every case of
+Chapter~\ref{chapter:results_and_discussion} they are recomputed once per guidance cycle, on
+the state the integrator has accepted.
+
+Two consequences follow, and both are relevant when reading the results. First, all
+three population-based architectures share a single first-stage routine, which
+always applies the instantaneous pitch-over of Chapter~\ref{ssec:kick}; the
+triangular kick profile is therefore exercised only by the apogee-circularization
+architecture, whatever the configuration requests. Second, a law can behave
+differently under different architectures even though the law itself is unchanged.
+The documented case is the constant-pitch-rate law, whose ramp starts from the
+vertical in the apogee-circularization path but from the current flight-path angle in the
+population-based path, so that the commanded angle of attack is continuous at
+ignition; the two produce visibly different trajectories from the same nominal
+guidance selection. Differences of this kind are properties of the dispatch, not of
+the steering logic, and are noted wherever they affect a comparison.
+
+A third consequence proved more serious, and is recorded here because the way it arose is
+instructive rather than incidental. The equations of motion are implemented in two layers: a
+small routine holding the dynamics of Eqs.~\eqref{eq:planar_eom_a}--\eqref{eq:planar_eom_e}, which is
+by construction the \emph{non-rotating} model, and above it the dispatcher, which adds the
+rotating-frame corrections of Eqs.~\eqref{eq:sim_dv_pseudo}--\eqref{eq:sim_dgamma_pseudo}
+before returning. The population-based solvers cannot call the dispatcher for their upper
+stage --- it carries the guidance state, event side-effects and history logging described
+above, none of which can be executed thousands of times inside a swarm --- so they call the
+inner routine directly. In doing so they inherited the dynamics but not the corrections
+applied above them, and their upper stage was integrated in a rotating frame without the
+terms that frame requires. Nothing failed: the omission produced no error, and the optimizer
+simply converged to a slightly different control.
+
+The corrections are now applied inside the shared upper-stage routine as well, so that no
+trajectory is integrated under one force model before staging and another after it; the
+optimal-control architecture carries them too (Chapter~\ref{ssec:indirect_pmp_impl}). The general
+point applies to any further development of the tool: a term added to the dispatcher rather
+than to the shared inner routine will be missing, silently, from every architecture that
+bypasses the dispatcher.
+
+    
+\end{comment}
+
+\begin{comment}
+    
+
+
+\subsection{Configuration}
+\label{ssec:configuration}
+
+All user-facing behavior is controlled from
+\texttt{Input\_File/simulation\_parameters.py}, without editing the solver code.
+Table~\ref{tab:config} groups the principal switches by function; each mission is
+fully specified by a choice within these groups plus the vehicle and
+mission-geometry parameters of Section~\ref{sec:vehicle}.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Principal configuration switches, grouped by function.}
+  \label{tab:config}
+  \begin{tabular}{l p{0.7\textwidth}}
+    \toprule
+    \textbf{Group} & \textbf{Representative parameters} \\
+    \midrule
+    Guidance selection      & \texttt{GUIDANCE\_MODE} (nine laws),
+                              \texttt{TGO\_ESTIMATOR}, \texttt{PEG\_CONVERGENCE\_MODE},
+                              \texttt{CPR\_THETA\_DOT\_MODE},
+                              \texttt{GUIDANCE\_REFRESH\_MODE} \\
+    Mission architecture    & \texttt{COAST\_METHOD}
+                              (\texttt{apogee\_check}/\texttt{pso\_coast}/\texttt{direct}/%
+                              \texttt{reference\_track}),
+                              \texttt{DIRECT\_LAW\_TERMINATED\_CUTOFF},
+                              \texttt{DIRECT\_OPTIMIZER} \\
+    Segmented guidance      & \texttt{MULTI\_GUIDANCE\_ENABLED},
+                              \texttt{GUIDANCE\_SEGMENTS},
+                              \texttt{MULTI\_GUIDANCE\_OPTIMIZE\_ALTITUDES},
+                              \texttt{MULTI\_GUIDANCE\_ALT\_LB}/\texttt{\_UB},
+                              \texttt{SEGMENTED\_LAW\_TERMINATED\_ARCS} \\
+    Reference cache         & \texttt{PMP\_REFERENCE\_USE\_CACHE},
+                              \texttt{PMP\_REFERENCE\_FORCE\_RERUN},
+                              \texttt{PMP\_REFERENCE\_PSO\_PARTICLES}/%
+                              \texttt{\_GENERATIONS}
+                              (fidelity of the cached reference) \\
+    Earth-rotation / frames & \texttt{ENABLE\_EARTH\_ROTATION},
+                              \texttt{INCLUDE\_PSEUDO\_FORCES},
+                              \texttt{AZIMUTH\_INCLINATION\_MODE} \\
+    Atmosphere / aero       & \texttt{INCLUDE\_DRAG}, \texttt{INCLUDE\_LIFT},
+                              \texttt{ATMOSPHERE\_EXIT\_METHOD}
+                              (altitude / dynamic pressure / aerothermal flux),
+                              \texttt{FAIRING\_JETTISON\_MODE} \\
+    Kick profile            & \texttt{KICK\_PROFILE\_MODE} (triangular / instantaneous;
+                              triangular honored only under \texttt{apogee\_check}) \\
+    Engine modes            & \texttt{ISP\_1\_MODE}, \texttt{THRUST\_1\_MODE}
+                              (sea-level / vacuum / average / linear / pressure;
+                              set the two alike) \\
+    Optimizer settings      & \texttt{RUN\_FAST}; four independent PSO blocks
+                              (indirect, coast, direct, segmented), each with
+                              $\omega$, $c_1$, $c_2$, $v_{\max}$, swarm size,
+                              generations, seed and variable bounds \\
+    Integration / output    & tolerances and maximum step
+                              (Table~\ref{tab:numerics}), output sampling
+                              interval, \texttt{SAVE\_PLOTS} and its target
+                              directory \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Not every combination of switches is meaningful, and the selections are read in a definite
+order rather than independently. Enabling the segmented mode overrides both the guidance-law
+and the mission-architecture selections outright, since the schedule supplies the former and
+the segmented solver fixes the latter; selecting the indirect law overrides the
+mission-architecture selection alone, that architecture running its own dedicated search. Of
+the settings that survive, the triangular kick profile is honored only under the
+apogee-circularization architecture, the population-based solvers always applying the instantaneous
+form (Section~\ref{ssec:dispatch}), and the direct architecture closes an orbit only for
+those guidance laws capable of a single continuous insertion burn. Where such a dependency
+would otherwise fail silently --- leaving the user with a plausible-looking trajectory
+produced by settings that were never applied --- it is enforced explicitly, either by
+raising on the incompatible combination or by warning and falling back to a defensible
+default.
+
+\subsection{Usage}
+\label{ssec:usage}
+
+A single mission is configured entirely in
+\texttt{Input\_File/simulation\_parameters.py} and run through \texttt{main.py},
+which selects the guidance law and mission architecture, runs the appropriate
+optimizer, propagates the optimal trajectory, and writes the result arrays and
+summary metrics. Vehicle and environment models are taken from the
+\texttt{Auxiliary/} package, and no source-code edits are needed to change the
+vehicle, mission, guidance law, or optimizer.
+
+Every run writes a self-describing archive --- the trajectory, the scalar results and the full
+configuration, including the version of the code --- so that it can be inspected, compared
+with other runs or re-plotted later without being flown again. The cases of
+Chapter~\ref{chapter:results_and_discussion} are defined and flown by
+\texttt{run\_results\_matrix.py}, which collects their archives into a single table, and the
+figures of that chapter are drawn from those archives by \texttt{Plots/results\_figures/}.
+Two older batch runners (\texttt{all\_guidance\_plotting/} and
+\texttt{guidance\_comparison/}) cover only the four classical laws and are superseded by it.
+\end{comment}
+\begin{comment}
+\section{Guidance Laws as Implemented}
+\label{sec:laws_implemented}
+
+Chapter~\ref{chapter:guidance} presents each law as derived. This section states how the
+laws are realized in the simulator where the derivation leaves a decision open.
+
+Each law is a stateless function: given the state, the target and a time-to-go, it returns a
+steering command, and whatever memory it needs is held by the simulation core and handed back
+at its next call. This makes the laws interchangeable within the simulation and the comparison
+between them fair. Appendix~\ref{chapter:appendix_guidance_options} describes the options not
+used in this work: further time-to-go estimators, kick programs, and variants of several laws.
+
+The gravity turn commands $\alpha = 0$ after the kick for the remainder of the flight, exactly
+as derived.
+
+The constant pitch rate law engages at second-stage ignition, with $\theta_{\mathrm{init}}$ equal
+to the flight-path angle there, and the pitch rate $\dot\theta$ is its one free constant
+(Table~\ref{tab:law_constants}). The ramp therefore shapes the second-stage arc rather than the
+climb through the atmosphere. The apogee-circularization form of the law, presented in
+Appendix~\ref{sec:app_cpr}, ramps from the vertical and so steers from the atmospheric arc
+until insertion.
+
+The constants $(a,b)$ of the exponential pitch law are searched by the optimizer
+(Table~\ref{tab:law_constants}). Architectures that do not optimize them fix them by a shooting
+solve (Appendix~\ref{sec:app_exp_shooting}).
+
+\end{comment}
+
+% =============================================================================
+\section{Experimental Design}
+\label{sec:experimental_design}
+
+\subsection{One Factor at a Time}
+\label{ssec:one_factor}
+
+\subsection{The Cases}
+\label{ssec:case_definitions}
+
+\subsection{Reporting Conventions}
+\label{ssec:reporting_template}
+
+\begin{comment}
+Two conventions apply to every number that follows. First, every swarm-based case is the
+result of a single run at a fixed seed; no replication across seeds was performed, so small
+differences between cases carry no estimate of their repeatability. Second, the velocity
+target is the rotating-frame circular speed of Eq.~\eqref{eq:v_target}, which credits the
+full eastward speed of the launch site as if the vehicle flew due east
+(Chapter~\ref{ssec:frames}). The insertion state is therefore not a circular orbit but the apoapsis of an ellipse
+whose periapsis lies below the target altitude, and an eccentricity computed with the same
+convention reads zero by construction and cannot reveal it. The convention is shared by every
+case, the reference included, so it does not favor one case over another; the $\Delta V$ budget
+exposes it through its residual.
+\end{comment}
+
+%The tolerances, the step bound and the output sampling differ between execution paths. The values are given in Table~\ref{tab:numerics}, whose output grid is the sampling used for post-processing, not the internal step.
+%The population-based paths use the tight setting because their objective scores the terminal radius directly, through the altitude penalty of Section~\ref{ssec:cost_function}: under the default tolerance a kilometer-level error in the radius is indistinguishable from a mis-targeted trajectory, and the swarm converges on the numerical artifact. Their maximum step is relaxed to \qty{10}{\s}, since the exo-atmospheric dynamics are smooth and the crash event remains reliably bracketed. The brute-force path keeps the default for its powered arcs: its cut-off is located by an event and a root search rather than scored by a penalty, so it is far less sensitive to the same error. 
+%Its coast to apogee is the coast arc of the population-based paths and uses their settings (Section~\ref{ssec:grid_search}). 
+
+\begin{comment}
+    
+
+\begin{table}[htbp]
+  \centering
+  \caption{Integration settings by execution path.}
+  \label{tab:numerics}
+  \begin{tabular}{l c c c l}
+    \toprule
+    \textbf{Execution path} & \textbf{rtol} & \textbf{atol} &
+      \textbf{max.\ step} & \textbf{Output grid} \\
+    \midrule
+    Apogee circularization, powered arcs        & $10^{-3}$ (default) & $10^{-8}$ & \qty{1}{\s}  & \qty{0.01}{\s} \\
+    Apogee circularization, coast to apogee     & $10^{-9}$ & $10^{-9}$ & \qty{10}{\s} & \qty{0.01}{\s} \\
+    Coast / direct / indirect / segmented & $10^{-9}$ & $10^{-9}$ & \qty{10}{\s}
+                                     & \qty{0.01}{\s} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+\end{comment}
+
+

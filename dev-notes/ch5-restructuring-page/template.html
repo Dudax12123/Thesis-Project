@@ -1,0 +1,304 @@
+<title>Supervisor Annotation Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Literata:opsz,wght@7..72,400;7..72,600&display=swap">
+<style>
+/* Layout: a sticky bar (title, progress, tabs) over a single reading column of review cards; each card ends in a decision bar. */
+:root {
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --ink: #17202b;
+  --muted: #5a6675;
+  --line: #d8dee6;
+  --accent: #21508f;
+  --accent-soft: #e4ecf7;
+  --ok: #1b7a48;
+  --ok-soft: #dff1e7;
+  --chg: #9c5a09;
+  --chg-soft: #fbecd3;
+  --no: #ac2a22;
+  --no-soft: #f8e1df;
+  --code-bg: #eceff3;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-read: "Literata", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171d; --surface: #1a212a; --ink: #e5eaf0; --muted: #9aa6b5; --line: #2d3743;
+    --accent: #7fb0ee; --accent-soft: #1e2d42; --ok: #5cc88c; --ok-soft: #173325;
+    --chg: #e8b05e; --chg-soft: #3a2c14; --no: #f08a82; --no-soft: #3b1c1a; --code-bg: #232c37;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171d; --surface: #1a212a; --ink: #e5eaf0; --muted: #9aa6b5; --line: #2d3743;
+  --accent: #7fb0ee; --accent-soft: #1e2d42; --ok: #5cc88c; --ok-soft: #173325;
+  --chg: #e8b05e; --chg-soft: #3a2c14; --no: #f08a82; --no-soft: #3b1c1a; --code-bg: #232c37;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.55; }
+a { color: var(--accent); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 20; background: var(--surface); }
+
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); border-bottom: 1px solid var(--line); }
+.bar-in { max-width: 62rem; margin: 0 auto; padding-block: 10px 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; justify-content: space-between; }
+.bar h1 { font-family: var(--font-read); font-size: 1.15rem; font-weight: 600; margin: 0; }
+.prog { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.meter { width: 120px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+.filter { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; margin-top: 8px; scrollbar-width: thin; }
+.tab { flex: none; appearance: none; background: none; border: 0; border-bottom: 3px solid transparent; padding: 8px 12px; font: inherit; font-size: 13.5px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.tab .n { font-family: var(--font-mono); font-size: 11.5px; margin-left: 4px; color: var(--muted); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+main { max-width: 62rem; margin: 0 auto; padding-block: 24px 80px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.lead { color: var(--muted); max-width: 46rem; margin: 0 0 20px; }
+.md { min-width: 0; font-family: var(--font-read); font-size: 15.5px; line-height: 1.62; overflow-wrap: anywhere; }
+.md h1, .md h2, .md h3, .md h4 { font-family: var(--font-ui); line-height: 1.3; text-wrap: balance; }
+.md h2 { font-size: 1.25rem; margin: 1.8em 0 .5em; }
+.md h3 { font-size: 1.1rem; margin: 1.4em 0 .4em; }
+.md h4 { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 1.4em 0 .4em; font-weight: 600; }
+.md p, .md li { max-width: 46rem; }
+.md p { margin: .6em 0; }
+.md code { font-family: var(--font-mono); font-size: .86em; background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+.md pre { background: var(--code-bg); padding: 10px 12px; overflow-x: auto; border-radius: 4px; }
+.md pre code { background: none; padding: 0; }
+.md blockquote { margin: .8em 0; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--muted); }
+.md ins { color: var(--ok); background: var(--ok-soft); text-decoration: none; }
+.md del { color: var(--no); background: var(--no-soft); text-decoration: line-through; }
+.md hr { border: 0; border-top: 1px solid var(--line); }
+.tw { overflow-x: auto; margin: 1em 0; max-width: 100%; }
+.md table { border-collapse: collapse; font-family: var(--font-ui); font-size: 13.5px; }
+.md th, .md td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.md th { background: var(--code-bg); }
+.md td { min-width: 5rem; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; margin: 0 0 22px; scroll-margin-top: 130px; }
+.card-h { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 12px 18px 0; font-size: 13px; color: var(--muted); }
+.cid { font-family: var(--font-mono); font-weight: 500; color: var(--ink); background: var(--accent-soft); padding: 2px 8px; border-radius: 3px; }
+.pill { border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; font-size: 12px; }
+.state { margin-left: auto; font-size: 12px; font-weight: 600; padding: 1px 9px; border-radius: 10px; background: var(--code-bg); color: var(--muted); }
+.state[data-d="approve"] { background: var(--ok-soft); color: var(--ok); }
+.state[data-d="change"] { background: var(--chg-soft); color: var(--chg); }
+.state[data-d="reject"] { background: var(--no-soft); color: var(--no); }
+.card-b { padding: 0 18px 8px; }
+.card-b > h3:first-child { margin-top: .5em; font-size: 1.2rem; }
+.dec { border-top: 1px solid var(--line); padding: 12px 18px 14px; display: grid; gap: 10px; background: color-mix(in srgb, var(--bg) 55%, var(--surface)); border-radius: 0 0 6px 6px; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { appearance: none; font: inherit; font-size: 13.5px; font-weight: 500; padding: 6px 14px; border-radius: 5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn:hover { border-color: var(--muted); }
+.btn[aria-pressed="true"][data-d="approve"] { background: var(--ok); border-color: var(--ok); color: var(--surface); }
+.btn[aria-pressed="true"][data-d="change"] { background: var(--chg); border-color: var(--chg); color: var(--surface); }
+.btn[aria-pressed="true"][data-d="reject"] { background: var(--no); border-color: var(--no); color: var(--surface); }
+textarea { width: 100%; min-height: 3.4rem; resize: vertical; font: inherit; font-size: 14px; padding: 8px 10px; border-radius: 5px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+.saved { font-size: 12px; color: var(--muted); min-height: 1.1em; }
+.saved.warn { color: var(--chg); }
+.empty { color: var(--muted); padding: 40px 0; text-align: center; }
+.banner { background: var(--chg-soft); color: var(--chg); border-radius: 5px; padding: 8px 12px; font-size: 13px; margin-bottom: 16px; }
+@media (max-width: 560px) { .meter { width: 70px; } .card-h, .card-b, .dec { padding-left: 12px; padding-right: 12px; } }
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+
+<header class="bar"><div class="bar-in">
+  <div class="bar-top">
+    <h1>Supervisor annotations, section by section</h1>
+    <div class="prog"><label class="filter"><input type="checkbox" id="onlyOpen"> Unanswered only</label><span id="progText">0 of 147 answered</span><span class="meter"><i id="progBar"></i></span></div>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Sections"></nav>
+</div></header>
+<main id="main"></main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+const LS_PENDING = "sar-pending", LS_TAB = "sar-tab";
+const COLL = "reviews";
+const $ = (s, r = document) => r.querySelector(s);
+const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+
+const cards = {};            // id -> card
+DATA.sections.forEach(s => s.cards.forEach(c => { cards[c.id] = c; c.sec = s.id; }));
+const TOTAL = Object.keys(cards).length;
+
+// answers: id -> {decision, comment, at}; pending: ids whose latest edit is not yet in the db
+let answers = {};
+let pending = {};
+try { pending = JSON.parse(lsGet(LS_PENDING) || "{}"); } catch (e) { pending = {}; }
+Object.keys(pending).forEach(id => { answers[id] = pending[id]; });
+let db = null, dbReady = false;
+const timers = {}, inflight = {}, retry = {};
+
+const tabs = [{ id: "overview", title: "Overview", n: null }]
+  .concat(DATA.sections.filter(s => s.id !== "list").map(s => ({ id: s.id, title: s.title, n: s.cards.length })))
+  .concat(DATA.sections.filter(s => s.id === "list").map(s => ({ id: "list", title: "All annotations", n: null })));
+let current = lsGet(LS_TAB);
+if (!tabs.some(t => t.id === current)) current = "overview";
+
+function answered(id) { const a = answers[id]; return !!(a && a.decision); }
+function counts() { let n = 0; for (const id in cards) if (answered(id)) n++; return n; }
+function updateProgress() {
+  const n = counts();
+  $("#progText").textContent = n + " of " + TOTAL + " answered";
+  $("#progBar").style.width = (100 * n / TOTAL) + "%";
+}
+
+function renderTabs() {
+  const el = $("#tabs"); el.textContent = "";
+  tabs.forEach(t => {
+    const b = document.createElement("button");
+    b.className = "tab"; b.setAttribute("role", "tab"); b.id = "tab-" + t.id;
+    b.setAttribute("aria-selected", t.id === current ? "true" : "false");
+    b.append(t.title);
+    if (t.n != null) {
+      const open = DATA.sections.find(s => s.id === t.id).cards.filter(c => !answered(c.id)).length;
+      const sp = document.createElement("span"); sp.className = "n"; sp.textContent = open + "/" + t.n; sp.title = "unanswered / cards";
+      b.append(sp);
+    }
+    b.onclick = () => show(t.id);
+    el.append(b);
+  });
+}
+
+function mdEl(md, cls) {
+  const d = document.createElement("div"); d.className = "md " + (cls || "");
+  d.innerHTML = marked.parse(md, { gfm: true });
+  d.querySelectorAll("table").forEach(t => { const w = document.createElement("div"); w.className = "tw"; t.replaceWith(w); w.append(t); });
+  d.querySelectorAll("a").forEach(a => { const h = a.getAttribute("href") || ""; if (/^https?:/.test(h)) { a.target = "_blank"; a.rel = "noopener"; } });
+  return d;
+}
+
+const LABEL = { approve: "Approve", change: "Make changes", reject: "Reject" };
+function cardEl(c) {
+  const art = document.createElement("article"); art.className = "card"; art.id = c.id; art.dataset.id = c.id;
+  const h = document.createElement("div"); h.className = "card-h";
+  h.innerHTML = '<span class="cid"></span><span class="where"></span><span class="pill"></span><span class="state" data-d=""></span>';
+  h.children[0].textContent = c.id; h.children[1].textContent = c.where; h.children[2].textContent = c.size;
+  art.append(h);
+  const b = document.createElement("div"); b.className = "card-b"; b.append(mdEl(c.md)); art.append(b);
+  const d = document.createElement("div"); d.className = "dec";
+  const bt = document.createElement("div"); bt.className = "btns";
+  ["approve", "change", "reject"].forEach(k => {
+    const x = document.createElement("button"); x.className = "btn"; x.dataset.d = k; x.textContent = LABEL[k]; x.setAttribute("aria-pressed", "false");
+    x.onclick = () => { const cur = (answers[c.id] || {}).decision; setAnswer(c.id, { decision: cur === k ? "" : k }); };
+    bt.append(x);
+  });
+  const ta = document.createElement("textarea"); ta.id = "cm-" + c.id; ta.placeholder = "Your comment";
+  ta.setAttribute("aria-label", "Comment on " + c.id);
+  ta.oninput = () => setAnswer(c.id, { comment: ta.value });
+  const sv = document.createElement("div"); sv.className = "saved";
+  d.append(bt, ta, sv); art.append(d);
+  paintCard(art);
+  return art;
+}
+
+function paintCard(art) {
+  const id = art.dataset.id, a = answers[id] || {};
+  art.querySelectorAll(".btn").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.d === a.decision)));
+  const st = $(".state", art); st.dataset.d = a.decision || ""; st.textContent = a.decision ? LABEL[a.decision] : "Open";
+  const ta = $("textarea", art); if (document.activeElement !== ta && ta.value !== (a.comment || "")) ta.value = a.comment || "";
+  const sv = $(".saved", art);
+  if (pending[id]) { sv.textContent = "Kept on this device, saving…"; sv.className = "saved warn"; }
+  else if (a.at) { const t = new Date(a.at); sv.textContent = isNaN(t) ? "" : "Saved " + t.toTimeString().slice(0, 5); sv.className = "saved"; }
+  else { sv.textContent = ""; sv.className = "saved"; }
+}
+function paintAll() { document.querySelectorAll(".card").forEach(paintCard); updateProgress(); renderTabs(); applyFilter(); }
+function applyFilter() {
+  const only = $("#onlyOpen").checked;
+  document.querySelectorAll(".card").forEach(a => { a.hidden = only && answered(a.dataset.id); });
+}
+
+function persistPending() { lsSet(LS_PENDING, JSON.stringify(pending)); }
+function setAnswer(id, patch) {
+  const a = Object.assign({ decision: "", comment: "" }, answers[id] || {}, patch);
+  a.at = new Date().toISOString();
+  answers[id] = a; pending[id] = a; persistPending();
+  const art = document.getElementById(id); if (art) paintCard(art);
+  updateProgress(); renderTabs();
+  clearTimeout(timers[id]); timers[id] = setTimeout(() => flush(id), 600);
+}
+async function flush(id) {
+  clearTimeout(timers[id]);
+  if (!db || !pending[id]) return;
+  if (inflight[id]) { timers[id] = setTimeout(() => flush(id), 300); return; }
+  const a = pending[id];
+  inflight[id] = true;
+  try {
+    await db.collection(COLL).doc(id).set({ decision: a.decision || "", comment: a.comment || "", at: a.at });
+    if (pending[id] === a) { delete pending[id]; persistPending(); }
+    retry[id] = 0;
+  } catch (e) {
+    retry[id] = Math.min((retry[id] || 0) + 1, 6);
+    timers[id] = setTimeout(() => flush(id), 1000 * Math.pow(2, retry[id]));
+  } finally { inflight[id] = false; }
+  const art = document.getElementById(id); if (art) paintCard(art);
+  if (pending[id]) { clearTimeout(timers[id]); timers[id] = setTimeout(() => flush(id), 200); }
+}
+function flushAll() { Object.keys(pending).forEach(flush); }
+document.addEventListener("visibilitychange", () => { if (document.hidden) flushAll(); });
+window.addEventListener("pagehide", flushAll);
+
+const rendered = {};
+function show(id) {
+  current = id; lsSet(LS_TAB, id); renderTabs();
+  const main = $("#main"); main.textContent = "";
+  if (id === "overview") {
+    main.append(mdEl(DATA.overview));
+  } else {
+    const s = DATA.sections.find(x => x.id === id);
+    if (s.intro) main.append(mdEl(s.intro, "lead"));
+    if (id !== "list") s.cards.forEach(c => main.append(cardEl(c)));
+    if (id !== "list" && !s.cards.length) { const e = document.createElement("p"); e.className = "empty"; e.textContent = "No cards in this section."; main.append(e); }
+  }
+  applyFilter(); window.scrollTo(0, 0);
+}
+function goTo(hash) {
+  const id = decodeURIComponent(hash.replace(/^#/, ""));
+  const c = cards[id];
+  if (c) { if (current !== c.sec) show(c.sec); const el = document.getElementById(id); if (el) { el.hidden = false; el.scrollIntoView({ block: "start" }); } return true; }
+  const t = tabs.find(x => x.id === id); if (t) { show(id); return true; }
+  return false;
+}
+document.addEventListener("click", ev => {
+  const a = ev.target.closest && ev.target.closest('a[href^="#"]');
+  if (!a) return;
+  ev.preventDefault();
+  const h = a.getAttribute("href");
+  if (!goTo(h)) {
+    // the original page used heading anchors such as #overview, #x, #front
+    const map = { "#x": "x", "#front": "front", "#ch1": "ch1", "#ch2": "ch2", "#ch3": "ch3", "#rn": "rn", "#fg": "fg", "#of": "of", "#tf": "tf", "#re": "re", "#list": "list", "#overview": "overview" };
+    if (map[h]) show(map[h]);
+  }
+});
+$("#onlyOpen").addEventListener("change", applyFilter);
+
+async function loadDb() {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    db = await window.claude.use("db");
+    if (!db) return;
+    const snap = await db.collection(COLL).get();
+    snap.docs.forEach(d => {
+      const v = d.data() || {};
+      if (!cards[d.id] || pending[d.id]) return;
+      answers[d.id] = { decision: v.decision || "", comment: v.comment || "", at: v.at || "" };
+    });
+    dbReady = true;
+    paintAll();
+    flushAll();
+  } catch (e) {
+    const b = document.createElement("div"); b.className = "banner";
+    b.textContent = "Saved answers could not be loaded. What you type is kept on this device and sent when the connection returns.";
+    document.querySelector("main").prepend(b);
+  }
+}
+
+renderTabs(); show(current); updateProgress();
+loadDb();
+</script>
