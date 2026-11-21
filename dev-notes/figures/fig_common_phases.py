@@ -5,12 +5,14 @@ it marks the variables Table tab:events fixes for all four architectures, each w
 the 7.5 s vertical rise, the instantaneous kick to gamma_p, the atmospheric exit at 65 km, MECO at
 first-stage propellant exhaustion, separation at MECO + 3 s, second-stage ignition at MECO + 8 s,
 the 280 km circular orbit. The second stage is one possible burn-coast-burn, drawn faint (its
-structure is what each architecture sets), with the coast marked.
+structure is what each architecture sets), with the coast marked, and the hand-off between law 1
+and law 2 is copied from Figure 5.1.
 Schematic, not simulator output: neither axis is to scale. Text at 10 pt for \\linewidth (6.3 in).
 Output: common_phases.png.
 """
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch, ConnectionPatch
 from scipy.interpolate import PchipInterpolator
 
 from figstyle import use_thesis_style, save, INK, GREY, THRUST
@@ -25,10 +27,12 @@ H_ORB, H_FAIR = 1.0, 0.27
 _curve = PchipInterpolator([0.0, T_RISE, 0.45, T_MECO, T_IGN, 1.18, T_C0, 1.55, T_C1, T_END],
                            [0.0, 0.04, 0.20, 0.38, 0.44, 0.55, 0.62, 0.84, 0.985, 1.0])
 h = lambda t: _curve(np.asarray(t, dtype=float))
+T_HO = 1.08   # hand-off early in burn 1, as in Figure 5.1
 T_FAIR = float(np.interp(H_FAIR, h(np.linspace(T_RISE, T_MECO, 400)), np.linspace(T_RISE, T_MECO, 400)))
 
-fig = plt.figure(figsize=(6.3, 3.3))
-ax = fig.add_axes([0.07, 0.10, 0.91, 0.88])
+fig = plt.figure(figsize=(6.3, 3.48))
+ax = fig.add_axes([0.07, 0.2228, 0.91, 0.754])
+lane = fig.add_axes([0.07, 0.0172, 0.91, 0.1118], sharex=ax)
 ax.set_xlim(-0.02, 2.06)
 ax.set_ylim(-0.06, 1.22)
 
@@ -53,7 +57,7 @@ seg(T_IGN, T_C0, color=THRUST, lw=2.2, alpha=0.35)
 seg(T_C0, T_C1, color=GREY, lw=1.6, ls=(0, (4, 2.5)))
 ax.axvspan(T_C0, T_C1, color="#ffffff", lw=0, zorder=0)   # the coast stands out of the stage-2 band
 seg(T_C1, T_END, color=THRUST, lw=2.2, alpha=0.35)
-ax.text(1.15, 0.25, "set by each\narchitecture", ha="center", va="center",
+ax.text(1.66, 0.25, "set by each\narchitecture", ha="center", va="center",
         fontsize=FS, color=GREY, style="italic", linespacing=1.05)
 
 # target orbit
@@ -108,6 +112,18 @@ ax.set_yticks([])
 for k in ("top", "right"):
     ax.spines[k].set_visible(False)
 ax.set_ylabel("Altitude (not to scale)", fontsize=FS)
-ax.text(2.06, -0.08, "Time (not to scale)", ha="right", va="top", fontsize=FS, clip_on=False)
+
+# hand-off between the two laws (as in Figure 5.1)
+call(T_HO, (1.14, 0.22), r"hand-off $h_{\mathrm{ho}}$")
+lane.set_ylim(-0.6, 1.0)
+lane.axis("off")
+for a, b in [(T_RISE, T_HO), (T_HO, T_END)]:
+    lane.add_patch(FancyBboxPatch((a, -0.45), b - a, 0.9, boxstyle="round,pad=0,rounding_size=0.02",
+                                  fc="#eef3f9", ec=THRUST, lw=0.8, mutation_aspect=12))
+fig.add_artist(ConnectionPatch(xyA=(T_HO, float(h(T_HO))), coordsA=ax.transData, xyB=(T_HO, 0.45),
+                               coordsB=lane.transData, color=INK, lw=0.9, ls=(0, (1.2, 1.8)), zorder=2))
+lane.text((T_RISE + T_HO) / 2, 0, "law 1", ha="center", va="center", fontsize=FS, color=THRUST)
+lane.text((T_HO + T_END) / 2, 0, "law 2", ha="center", va="center", fontsize=FS, color=THRUST)
+lane.text(2.06, 0.75, "Time (not to scale)", ha="right", va="bottom", fontsize=FS)
 
 save(fig, "common_phases.png")
