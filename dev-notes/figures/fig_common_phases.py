@@ -4,8 +4,8 @@ Companion of fig_ascent_variables_b.py (Figure 5.1): the same altitude-against-t
 it marks the variables Table tab:events fixes for all four architectures, each with its value:
 the 7.5 s vertical rise, the instantaneous kick to gamma_p, the atmospheric exit at 65 km, MECO at
 first-stage propellant exhaustion, separation at MECO + 3 s, second-stage ignition at MECO + 8 s,
-the 280 km circular orbit and the ground-collision abort. The second-stage arcs are drawn faint:
-their structure is what each architecture sets.
+the 280 km circular orbit. The second stage is one possible burn-coast-burn, drawn faint (its
+structure is what each architecture sets), with the coast marked.
 Schematic, not simulator output: neither axis is to scale. Text at 10 pt for \\linewidth (6.3 in).
 Output: common_phases.png.
 """
@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import PchipInterpolator
 
-from figstyle import use_thesis_style, save, INK, GREY, THRUST, ACCENT
+from figstyle import use_thesis_style, save, INK, GREY, THRUST
 
 use_thesis_style()
 FS = 10
@@ -50,7 +50,8 @@ seg(T_RISE, T_MECO, color=THRUST, lw=2.2)                  # stage-1 burn
 seg(T_MECO, T_IGN, color=INK, lw=1.0, ls=(0, (1.5, 1.5)))  # staging, unpowered
 # second stage: one possible burn-coast-burn, faint, since its arcs are the architecture's
 seg(T_IGN, T_C0, color=THRUST, lw=2.2, alpha=0.35)
-seg(T_C0, T_C1, color=GREY, lw=1.4, ls=(0, (4, 2.5)), alpha=0.6)
+seg(T_C0, T_C1, color=GREY, lw=1.6, ls=(0, (4, 2.5)))
+ax.axvspan(T_C0, T_C1, color="#ffffff", lw=0, zorder=0)   # the coast stands out of the stage-2 band
 seg(T_C1, T_END, color=THRUST, lw=2.2, alpha=0.35)
 ax.text(1.15, 0.25, "set by each\narchitecture", ha="center", va="center",
         fontsize=FS, color=GREY, style="italic", linespacing=1.05)
@@ -94,13 +95,13 @@ span(0.0, T_RISE, 0.16, r"7.5 s")
 span(T_MECO, T_SEP, 0.24, r"3 s")
 span(T_MECO, T_IGN, 0.12, r"8 s")
 
-# ground collision: a failed trajectory that falls back to r = R_E
-tg = np.linspace(T_C0, 1.64, 100)
-yg = float(h(T_C0)) * (1 - ((tg - T_C0) / (1.64 - T_C0)) ** 2)
-ax.plot(tg, yg, color=ACCENT, lw=1.0, ls=(0, (3, 2)), zorder=2)
-ax.plot([1.64], [0.0], marker="x", ms=7, mew=1.5, color=ACCENT, zorder=5)
-ax.text(1.67, 0.02, "$r < R_E$: abandoned,\ncrash penalty", ha="left", va="bottom", fontsize=FS,
-        color=ACCENT, linespacing=1.05)
+# the second stage's arcs, named: burn, coast, burn
+span(T_C0, T_C1, 0.50, "coast")
+for a, b in [(T_C0, T_C0), (T_C1, T_C1)]:
+    ax.plot([a, a], [0.50, float(h(a)) - 0.02], color=INK, lw=0.5, ls=(0, (1.5, 1.5)), zorder=1)
+ax.text((T_IGN + T_C0) / 2, float(h((T_IGN + T_C0) / 2)) - 0.06, "burn", ha="center", va="top",
+        fontsize=FS, color=THRUST)
+ax.text((T_C1 + T_END) / 2, H_ORB - 0.06, "burn", ha="center", va="top", fontsize=FS, color=THRUST)
 
 ax.set_xticks([])
 ax.set_yticks([])
