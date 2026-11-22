@@ -1,0 +1,467 @@
+
+
+<title>Chapter 5 Open Items</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout: sticky tab rail on wide screens, tab strip on phones; one card per annotation group, professor's words set apart in a red-pen margin block. */
+:root {
+  --bg: #f3f4f7;
+  --surface: #ffffff;
+  --fg: #1a1f29;
+  --muted: #586070;
+  --line: #d6dae2;
+  --accent: #1c4f82;
+  --accentbg: #e6eef7;
+  --pen: #b3261e;
+  --penbg: #fbeceb;
+  --prop: #12633f;
+  --propbg: #e8f3ed;
+  --warn: #8a5a00;
+  --warnbg: #fbf1dc;
+  --codebg: #eef0f4;
+  --font-ui: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --surface: #1a1e26; --fg: #e7eaf0; --muted: #98a2b3; --line: #2d333e;
+    --accent: #86b6e8; --accentbg: #17263a; --pen: #ff9a90; --penbg: #2b1a1a;
+    --prop: #74d3a1; --propbg: #14261d; --warn: #e8b85a; --warnbg: #2b2412; --codebg: #12161d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --surface: #1a1e26; --fg: #e7eaf0; --muted: #98a2b3; --line: #2d333e;
+  --accent: #86b6e8; --accentbg: #17263a; --pen: #ff9a90; --penbg: #2b1a1a;
+  --prop: #74d3a1; --propbg: #14261d; --warn: #e8b85a; --warnbg: #2b2412; --codebg: #12161d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.55; }
+.wrap {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 64px;
+}
+header.top { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: end; justify-content: space-between; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+header.top h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+header.top .sub { margin: 2px 0 0; color: var(--muted); font-size: 13px; max-width: 62ch; }
+.progress { min-width: 220px; }
+.progress .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; display: flex; }
+.progress .bar i { display: block; height: 100%; }
+.progress .bar .a { background: var(--prop); }
+.progress .bar .c { background: var(--warn); }
+.progress .bar .r { background: var(--pen); }
+.progress .txt { font-size: 12px; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 28px; margin-top: 18px; align-items: start; }
+nav.tabs { position: sticky; top: env(safe-area-inset-top, 0px); padding-top: 4px; display: flex; flex-direction: column; gap: 2px; }
+.tab { display: flex; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; font-size: 14px; border-left: 3px solid transparent; }
+.tab:hover { background: var(--accentbg); }
+.tab[aria-current="true"] { background: var(--accentbg); border-left-color: var(--accent); font-weight: 600; }
+.tab .n { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.tab:focus-visible, button:focus-visible, textarea:focus-visible, a:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+main { min-width: 0; }
+.phead h2, .ov h2 { margin: 6px 0 4px; font-size: 19px; letter-spacing: -0.01em; }
+.phead p { margin: 0 0 14px; color: var(--muted); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; align-items: center; }
+.toolbar button, .toolbar select { font: inherit; font-size: 13px; padding: 5px 11px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; cursor: pointer; }
+.toolbar button[aria-pressed="true"] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px 16px; margin: 0 0 18px; min-width: 0; scroll-margin-top: 16px; }
+.card[data-state="approve"] { border-color: var(--prop); }
+.card[data-state="change"] { border-color: var(--warn); }
+.card[data-state="reject"] { border-color: var(--pen); }
+.idrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+.idchip { font-family: var(--font-mono); font-weight: 500; background: var(--fg); color: var(--surface); padding: 2px 8px; border-radius: 4px; }
+.pg { color: var(--muted); }
+.size { padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.s-structural { color: var(--warn); border-color: var(--warn); }
+.status { margin-left: auto; color: var(--muted); font-weight: 500; }
+.card[data-state="approve"] .status { color: var(--prop); }
+.card[data-state="change"] .status { color: var(--warn); }
+.card[data-state="reject"] .status { color: var(--pen); }
+.card h3 { margin: 8px 0 12px; font-size: 17px; line-height: 1.3; font-weight: 600; text-wrap: balance; }
+h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.prof { border-left: 3px solid var(--pen); background: var(--penbg); border-radius: 0 6px 6px 0; padding: 10px 14px; margin-bottom: 14px; }
+.prof h4 { color: var(--pen); }
+.prof ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.prof li { min-width: 0; }
+.kind { display: inline-block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--pen); border: 1px solid var(--pen); border-radius: 3px; padding: 0 5px; margin-bottom: 3px; }
+.pt { font-family: var(--font-serif); font-size: 15.5px; line-height: 1.5; overflow-wrap: anywhere; }
+.en { font-size: 13px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+.blk { margin: 0 0 14px; min-width: 0; }
+.blk p { margin: 0 0 6px; max-width: 74ch; }
+.src { font-family: var(--font-mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.rec { border-left: 3px solid var(--prop); background: var(--propbg); border-radius: 0 6px 6px 0; padding: 10px 14px; }
+.rec h4 { color: var(--prop); }
+.check { background: var(--warnbg); color: var(--fg); border-left: 3px solid var(--warn); padding: 6px 10px; border-radius: 0 4px 4px 0; font-size: 13.5px; }
+.tex { margin: 0 0 10px; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.texhead { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--codebg); padding: 4px 10px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.copy { font: inherit; font-size: 12px; padding: 2px 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 4px; cursor: pointer; }
+pre { margin: 0; padding: 10px 12px; overflow-x: auto; background: var(--codebg); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+code { font-family: var(--font-mono); font-size: 0.92em; }
+.meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 4px 0 14px; padding-top: 12px; border-top: 1px dashed var(--line); }
+.meta p, .meta ul { margin: 0; font-size: 14px; }
+.meta ul { padding-left: 18px; display: grid; gap: 4px; }
+.decide { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.impl { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.implbtn { font: inherit; font-size: 14px; padding: 6px 16px; border: 1px solid var(--prop); background: var(--surface); color: var(--prop); border-radius: 6px; cursor: pointer; }
+.implbtn[aria-pressed="true"] { background: var(--prop); color: var(--surface); }
+.implnote { font-size: 12.5px; color: var(--muted, var(--fg)); opacity: .75; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btns button { font: inherit; font-size: 14px; padding: 6px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 6px; cursor: pointer; }
+.btns button[aria-pressed="true"][data-d="approve"] { background: var(--prop); border-color: var(--prop); color: var(--surface); }
+.btns button[aria-pressed="true"][data-d="change"] { background: var(--warn); border-color: var(--warn); color: var(--surface); }
+.btns button[aria-pressed="true"][data-d="reject"] { background: var(--pen); border-color: var(--pen); color: var(--surface); }
+.ibtns { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 2px; font-size: 12px; color: var(--muted); }
+.ibtns button { font: inherit; font-size: 12.5px; padding: 3px 12px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 5px; cursor: pointer; }
+.ibtns button[aria-pressed="true"][data-d="approve"] { background: var(--prop); border-color: var(--prop); color: var(--surface); }
+.ibtns button[aria-pressed="true"][data-d="change"] { background: var(--warn); border-color: var(--warn); color: var(--surface); }
+.ibtns button[aria-pressed="true"][data-d="reject"] { background: var(--pen); border-color: var(--pen); color: var(--surface); }
+ol.recs { padding-left: 20px; display: grid; gap: 10px; }
+.cmt { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.cmt textarea { font: inherit; font-size: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100%; resize: vertical; min-height: 56px; }
+.saved { font-size: 12px; color: var(--muted); min-height: 16px; }
+.saved.warn { color: var(--warn); }
+.diagram { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 8px; padding: 10px; background: var(--bg); overflow-x: auto; }
+.diagram svg { width: 100%; min-width: 560px; height: auto; display: block; }
+.diagram .t { font-family: var(--font-ui); fill: var(--fg); font-size: 13px; }
+.diagram .t.b { font-weight: 600; }
+.diagram .t.s { font-size: 11.5px; fill: var(--muted); }
+.diagram figcaption { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+table.mini { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+table.mini th, table.mini td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+table.mini th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.alist { width: 100%; border-collapse: collapse; font-size: 13px; }
+.alist th, .alist td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.alist thead th { position: sticky; top: 0; background: var(--surface); }
+.alist tr.grp th { background: var(--surface); font-size: 14px; padding-top: 14px; }
+.alist .en { color: var(--muted); margin-top: 2px; }
+.alist .ph { max-width: 340px; color: var(--muted); }
+.alist tr.done td { opacity: .72; }
+.stdone { color: var(--prop); font-weight: 600; }
+.stopen { color: var(--muted); }
+.edbox { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 10px; background: var(--bg); }
+.edbox summary { cursor: pointer; padding: 6px 10px; display: flex; gap: 12px; align-items: baseline; font-size: 13px; }
+.edflag { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--propbg); color: var(--prop); }
+.edta { display: block; width: calc(100% - 20px); margin: 4px 10px 8px; box-sizing: border-box; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; padding: 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--fg); resize: vertical; }
+.edreset { font: inherit; font-size: 12px; margin: 0 10px 10px; padding: 2px 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 4px; cursor: pointer; }
+.diffbox { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 10px; background: var(--bg); }
+.diffbox summary { cursor: pointer; padding: 6px 10px; display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; font-size: 13px; }
+.diffbox .dl { font-weight: 500; }
+.diffbox .df { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); }
+.diff { padding: 10px 14px 12px; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; overflow-wrap: anywhere; border-top: 1px solid var(--line); background: var(--surface); }
+.diff ins { background: var(--propbg); color: var(--prop); text-decoration: none; border-radius: 2px; padding: 0 1px; box-shadow: inset 0 -1px 0 var(--prop); }
+.diff del { background: var(--penbg); color: var(--pen); text-decoration: line-through; border-radius: 2px; padding: 0 1px; }
+.diff .gap { color: var(--muted); font-style: italic; }
+.legend ins { background: var(--propbg); color: var(--prop); text-decoration: none; padding: 0 4px; border-radius: 2px; }
+.legend del { background: var(--penbg); color: var(--pen); padding: 0 4px; border-radius: 2px; }
+.archive { margin: 8px 0 18px; border: 1px dashed var(--line); border-radius: 10px; padding: 0 14px; }
+.archive > summary { cursor: pointer; padding: 12px 0; font-weight: 600; color: var(--muted); }
+.archive[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.tablewrap { overflow-x: auto; margin-bottom: 8px; }
+.ov { max-width: 80ch; }
+.ov p, .ov li { max-width: 74ch; }
+.order li, .notes li { margin-bottom: 6px; }
+a { color: var(--accent); }
+.hide { display: none !important; }
+@media (max-width: 820px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  nav.tabs { position: static; flex-direction: row; flex-wrap: wrap; gap: 6px; }
+  .tab { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; background: var(--surface); }
+  .tab[aria-current="true"] { border-color: var(--accent); }
+  .meta { grid-template-columns: minmax(0, 1fr); }
+  .card { padding: 14px 14px 12px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<style>
+.guide { border-left-color: var(--accent); background: var(--accentbg); }
+.guide h4 { color: var(--accent); }
+.plist { display: flex !important; flex-wrap: wrap; gap: 6px 14px !important; }
+.plist .pt { font-size: 14.5px; }
+.verdict { font-size: 11px; padding: 1px 8px; border-radius: 10px; background: var(--warnbg); color: var(--warn); }
+ol.principles li { margin-bottom: 8px; }
+.ptag { font-family: var(--font-serif); font-style: italic; color: var(--muted); font-size: 13.5px; }
+</style>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Chapter 5, open items</h1>
+      <p class="sub">4 cards in one section: two still unanswered and two drafts. Each carries a recommendation and the proposed LaTeX as tracked changes.</p>
+    </div>
+    <div class="progress" aria-label="Progress">
+      <div class="bar"><i class="a" id="bar-a"></i><i class="c" id="bar-c"></i><i class="r" id="bar-r"></i></div>
+      <div class="txt" id="prog-txt">0 of 4 answered</div>
+    </div>
+  </header>
+  <div class="shell">
+    <nav class="tabs" aria-label="Sections"><a class="tab" href="#overview" data-tab="overview">Overview</a><a class="tab" href="#open" data-tab="open">Open items <span class="n">4</span></a><a class="tab" href="#list" data-tab="list">All cards</a></nav>
+    <main>
+      <div class="toolbar" id="toolbar" hidden>
+        <button type="button" data-f="all" aria-pressed="true">All</button>
+        <button type="button" data-f="open" aria-pressed="false">Open</button>
+        <button type="button" data-f="approve" aria-pressed="false">Approved</button>
+        <button type="button" data-f="change" aria-pressed="false">Change</button>
+        <button type="button" data-f="reject" aria-pressed="false">Rejected</button>
+        <label for="sizef" class="sr" style="position:absolute;left:-9999px">Size</label>
+        <select id="sizef"><option value="all">Any size</option><option value="quick">Quick edits</option><option value="moderate">Moderate</option><option value="structural">Structural</option></select>
+      </div>
+<section class="panel" id="p-overview" data-panel="overview" hidden><div class="phead"><h2>Overview</h2><p>Everything from the Chapter 5 review that is still waiting for you, in one section.</p></div>
+<h2>What is here</h2>
+<ul class="notes">
+<li><b>Two cards from the Chapter 5 page still unanswered:</b> <a href="#HW-02" data-goto="HW-02">HW-02</a> (fixed values with no reason) and <a href="#WCIT-03" data-goto="WCIT-03">WCIT-03</a> (two citations I could not check).</li>
+<li><b>Two drafts</b> from renaming &ldquo;architecture&rdquo; in the other chapters: <a href="#NUM-01" data-goto="NUM-01">NUM-01</a> (the Abstract and Conclusions count of ascent cases) and <a href="#NUM-02" data-goto="NUM-02">NUM-02</a> (the letter A and two wrong references in Chapter 6).</li>
+</ul>
+<h2>What is already done</h2>
+<ul class="notes">
+<li>Your approvals of MCIT-01 to MCIT-03, BIB-01 and TERM-05 are applied (f5e9120); WCIT-01 and WCIT-02 needed no edit.</li>
+<li>Chapter 5 has been edited with your 27 earlier decisions, and the name &ldquo;Ascent Case&rdquo; is applied in every chapter; the flown cases of Chapter 6, the appendices, the Conclusions, the Abstract and the Introduction are now &ldquo;runs&rdquo;. The old page keeps its saved answers and is not changed.</li>
+<li>The Extended Abstract folder is not touched. It is a stand-alone document that still lists five architectures A&ndash;E.</li>
+</ul>
+<h2>Cards that need a fact from you</h2>
+<ul class="notes">
+<li><a href="#HW-02" data-goto="HW-02">HW-02</a>: a source or a one-clause reason for each fixed value.</li>
+</ul>
+<h2>Cards</h2><div class="tablewrap"><table class="mini"><tr><th>Tab</th><th>Cards</th><th>What is checked</th></tr><tr><td><a href="#open" data-tab="open">Open items</a></td><td>4</td><td>The two cards still without an answer and the two drafts from the renaming.</td></tr></table></div>
+<h2>Files the proposed edits touch</h2><div class="tablewrap"><table class="mini"><tr><th>File</th><th>Cards</th></tr><tr><td><code>Thesis_Conclusions.tex</code></td><td><a href="#NUM-01" data-goto="NUM-01">NUM-01</a></td></tr><tr><td><code>Thesis_Abstract.tex</code></td><td><a href="#NUM-01" data-goto="NUM-01">NUM-01</a></td></tr><tr><td><code>Thesis_Results.tex</code></td><td><a href="#NUM-02" data-goto="NUM-02">NUM-02</a></td></tr></table></div>
+<p class="note">4 edits in total. Edits touching the same sentence: none (checked by position).</p>
+<ul class="notes" hidden></ul>
+</section>
+<section class="panel" id="p-open" data-panel="open" hidden><div class="phead"><h2>Open items</h2><p>The two cards still without an answer and the two drafts from the renaming.</p></div><article class="card" id="HW-02" data-id="HW-02" data-size="moderate"><header><div class="idrow"><span class="idchip">HW-02</span><span class="pg">Ch 5 Table events (l.337&ndash;343), D (l.540), Appendix A.7</span><span class="size s-moderate">Moderate</span><span class="status" data-status>Open</span></div><h3>Values fixed without a source or a reason</h3></header><section class="prof guide"><h4>Writing guide</h4><ul class="plist"><li><span class="kind">Principle 5</span><div class="pt">Define before use, and say how it is measured</div></li><li><span class="kind">Principle 9</span><div class="pt">Match the strength of claims to the evidence</div></li></ul></section><section class="blk"><h4>What it refers to</h4><p>Vertical rise 7.5 s; stage separation 3 s and second-stage ignition 8 s after MECO; final orbit 280 km; the 500-point and 21-point grids of Ascent Case D, the 2 s guidance update and the 10 s coefficient freeze (Appendix A.7).</p></section><section class="blk"><h4>Reading</h4><p>A &ldquo;how and why&rdquo; chapter should say why each fixed value was chosen, or where it comes from (the rules list the fairing threshold as the example of this fault). Only the 65 km altitude has a reason in Chapter 5 (the footnote). I checked the first three against the code: 3 s and 8 s are <code>TIME_First_STAGE_SEPARATION</code> and <code>TIME_SECOND_ENGINE_IGNITION</code>, 7.5 s is <code>TIME_TO_START_KICK</code>.</p></section><section class="blk rec"><h4>Recommendation</h4><p>Question for you, no edit: for each value, a source or a reason in one clause (&ldquo;as in a Falcon 9 webcast timeline&rdquo;, &ldquo;representative of Starlink missions&rdquo;, &ldquo;resolution of 1.4&times;10<sup>&minus;4</sup> rad&rdquo;, &hellip;). The 280 km orbit is also stated in Chapter 6 §6.1.1; one of the two should point to the other.</p></section><section class="blk"><h4>Note</h4><p>Needs sources or reasons from you.</p></section><section class="blk"><h4>Proposed change in context</h4><p>No LaTeX is proposed for this card; it needs your answer or is a finding only. Use Change and the comment box to tell me what you want.</p></section><section class="meta"><div><h4>Where the change is made</h4><p>Thesis_Implementation.tex, Table events</p></div><div><h4>What else is affected</h4><ul><li>Chapter 6 §6.1.1 (Baseline Mission) repeats the 280 km, and gives the inclination and latitude, which Chapter 5 says &ldquo;any&rdquo;.</li></ul></div></section><footer class="decide"><div class="btns" role="group" aria-label="Decision for HW-02"><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div><div class="impl"><button type="button" class="implbtn" data-impl aria-pressed="false">Implement this card</button><span class="implnote" data-implnote>Sends only this card to Claude, who implements it at once.</span></div><label class="cmt" for="cm-HW-02"><span>Your comment</span><textarea id="cm-HW-02" rows="2" placeholder="Optional: your version, a condition, or why"></textarea></label><div class="saved" data-saved aria-live="polite"></div></footer></article><article class="card" id="WCIT-03" data-id="WCIT-03" data-size="quick"><header><div class="idrow"><span class="idchip">WCIT-03</span><span class="pg">Ch 5 §5.1 (l.56, 60) &mdash; Vallado, U.S. Standard Atmosphere</span><span class="size s-quick">Quick</span><span class="status" data-status>Open</span></div><h3>Two citations I could not check</h3></header><section class="prof guide"><h4>Writing guide</h4><ul class="plist"><li><span class="kind">Principle 9</span><div class="pt">Match the strength of claims to the evidence</div></li></ul></section><section class="blk"><h4>What it refers to</h4><p>&ldquo;&hellip; a full harmonic expansion~\cite{vallado2013fundamentals}&rdquo; and &ldquo;tabulated as in the U.S. Standard Atmosphere~\cite{usstandard1976}&rdquo;.</p></section><section class="blk"><h4>Reading</h4><p><b>Not verified.</b> Vallado&rsquo;s book is not in the references folder; the Standard Atmosphere is the obvious source for the tabulated model and is cited correctly in Chapter 2. Both are general statements of the option space and carry little weight.</p></section><section class="blk rec"><h4>Recommendation</h4><p>Leave. Tell me if you want a page for Vallado.</p></section><section class="blk"><h4>Note</h4><p>Not verified; no edit proposed.</p></section><section class="blk"><h4>Proposed change in context</h4><p>No LaTeX is proposed for this card; it needs your answer or is a finding only. Use Change and the comment box to tell me what you want.</p></section><section class="meta"><div><h4>Where the change is made</h4><p>Thesis_Implementation.tex, l.56 and l.60</p></div><div><h4>What else is affected</h4><ul></ul></div></section><footer class="decide"><div class="btns" role="group" aria-label="Decision for WCIT-03"><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div><div class="impl"><button type="button" class="implbtn" data-impl aria-pressed="false">Implement this card</button><span class="implnote" data-implnote>Sends only this card to Claude, who implements it at once.</span></div><label class="cmt" for="cm-WCIT-03"><span>Your comment</span><textarea id="cm-WCIT-03" rows="2" placeholder="Optional: your version, a condition, or why"></textarea></label><div class="saved" data-saved aria-live="polite"></div></footer></article><article class="card" id="NUM-01" data-id="NUM-01" data-size="quick"><header><div class="idrow"><span class="idchip">NUM-01</span><span class="pg">Abstract l.21&ndash;23 and Conclusions l.26&ndash;28</span><span class="size s-quick">Quick</span><span class="status" data-status>Open</span></div><h3>The Abstract and the Conclusions still count the ascent cases the old way</h3></header><section class="prof guide"><h4>Writing guide</h4><ul class="plist"><li><span class="kind">Principle 4</span><div class="pt">One stable name per concept</div></li><li><span class="kind">Principle 9</span><div class="pt">Match the strength of claims to the evidence</div></li></ul></section><section class="blk"><h4>What it refers to</h4><p>Abstract: &ldquo;under four ascent cases and a segmented multi-law schedule&rdquo;. Conclusions: &ldquo;under five ascent cases, from a one-dimensional grid search (A) to the optimal-control solution (C), one of them a segmented multi-law schedule (E)&rdquo;.</p></section><section class="blk"><h4>Reading</h4><p>Chapter 5 has four ascent cases: A the segmented schedule, B the swarm-optimized coast, C the optimal-control solution, D direct insertion. The Abstract counts the segmented schedule twice (four and one more), and the Conclusions use the old lettering in which A was the grid search and E the segmented schedule. The grid search of the pitch-over angle is not an ascent case of Chapter 5 (Appendix A.5 says so) but it is flown in Chapter 6.</p></section><section class="blk rec"><h4>Recommendation</h4><p>Four ascent cases with the letters of Chapter 5, and the grid search named separately.</p></section><section class="blk"><h4>Note</h4><p>The Abstract wording follows the Conclusions; if you prefer the grid search in the Abstract too, say so.</p></section><section class="blk"><h4>Proposed change in context</h4><p class="legend"><del>Red</del> is removed from the current text, <ins>green</ins> is added. Every removed passage was checked to occur exactly once in the current source.</p><details class="diffbox" open><summary><span class="dl">Edit 1 of 2</span><span class="df">Thesis_Abstract.tex</span></summary><div class="diff">under four ascent <del>cases</del><ins>cases,</ins> <del>and</del><ins>one of them</ins> a segmented multi-law
+schedule.</div><div class="ibtns" data-item="e0" role="group" aria-label="Decision for edit 1"><span>This edit:</span><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div></details><details class="diffbox" open><summary><span class="dl">Edit 2 of 2</span><span class="df">Thesis_Conclusions.tex</span></summary><div class="diff">under <del>five</del><ins>four</ins> ascent cases,<del> from a
+one-dimensional grid search (A) to the optimal-control solution (C), one of them</del> a segmented
+multi-law schedule <del>(E),</del><ins>(A), a swarm-optimized coast (B), the optimal-control solution (C) and direct
+insertion (D), and a one-dimensional grid search,</ins> on one vehicle</div><div class="ibtns" data-item="e1" role="group" aria-label="Decision for edit 2"><span>This edit:</span><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div></details></section><section class="blk edit"><h4>Edit the proposed text</h4><p class="legend">Change the LaTeX to what you want; it is saved with your answer and is what I apply. The tracked-change view above does not update.</p><details class="edbox"><summary><span class="dl">Edit 1 (Thesis_Abstract.tex)</span><span class="edflag" data-edflag="0" hidden>edited</span></summary><textarea class="edta" data-i="0" rows="3" spellcheck="false" aria-label="Edit 1">under four ascent cases, one of them a segmented multi-law
+schedule.</textarea><button type="button" class="edreset" data-i="0">Reset to the proposal</button></details><details class="edbox"><summary><span class="dl">Edit 2 (Thesis_Conclusions.tex)</span><span class="edflag" data-edflag="1" hidden>edited</span></summary><textarea class="edta" data-i="1" rows="4" spellcheck="false" aria-label="Edit 2">under four ascent cases, a segmented
+multi-law schedule (A), a swarm-optimized coast (B), the optimal-control solution (C) and direct
+insertion (D), and a one-dimensional grid search, on one vehicle</textarea><button type="button" class="edreset" data-i="1">Reset to the proposal</button></details></section><section class="meta"><div><h4>Where the change is made</h4><p>Thesis_Abstract.tex l.21&ndash;22; Thesis_Conclusions.tex l.26&ndash;28</p></div><div><h4>What else is affected</h4><ul><li>Extended Abstract (stand-alone folder) still lists five architectures A&ndash;E; not touched.</li></ul></div></section><footer class="decide"><div class="btns" role="group" aria-label="Decision for NUM-01"><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div><div class="impl"><button type="button" class="implbtn" data-impl aria-pressed="false">Implement this card</button><span class="implnote" data-implnote>Sends only this card to Claude, who implements it at once.</span></div><label class="cmt" for="cm-NUM-01"><span>Your comment</span><textarea id="cm-NUM-01" rows="2" placeholder="Optional: your version, a condition, or why"></textarea></label><div class="saved" data-saved aria-live="polite"></div></footer></article><article class="card" id="NUM-02" data-id="NUM-02" data-size="quick"><header><div class="idrow"><span class="idchip">NUM-02</span><span class="pg">Ch 6 l.345 and l.377</span><span class="size s-quick">Quick</span><span class="status" data-status>Open</span></div><h3>Chapter 6 gives the grid search the letter A and points to an appendix as a chapter</h3></header><section class="prof guide"><h4>Writing guide</h4><ul class="plist"><li><span class="kind">Principle 4</span><div class="pt">One stable name per concept</div></li><li><span class="kind">Principle 6</span><div class="pt">Recall details retrieved from far away</div></li></ul></section><section class="blk"><h4>What it refers to</h4><p>&ldquo;The gravity turn is taken through the apogee-circularization ascent case (A, Chapter~\ref{ssec:grid_search})&rdquo; and &ldquo;the swarm optimized coast (B) of Section~\ref{ssec:pso_coast} and the apogee-matching grid search of Section~\ref{ssec:grid_search}&rdquo;.</p></section><section class="blk"><h4>Reading</h4><p>In Chapter 5, A is the segmented schedule and B the swarm-optimized coast. The grid search has no letter there, and its label <code>ssec:grid_search</code> is in Appendix A.5, so &ldquo;Chapter&rdquo; and &ldquo;Section&rdquo; are both wrong references (check 11). The pso_settings table of Chapter 6 already uses the new letters.</p></section><section class="blk rec"><h4>Recommendation</h4><p>Drop the letter A, point to the appendix by its own name, and give B its full name once.</p></section><section class="blk"><h4>Proposed change in context</h4><p class="legend"><del>Red</del> is removed from the current text, <ins>green</ins> is added. Every removed passage was checked to occur exactly once in the current source.</p><details class="diffbox" open><summary><span class="dl">Edit 1 of 2</span><span class="df">Thesis_Results.tex</span></summary><div class="diff"><del>(A, Chapter~\ref{ssec:grid_search})</del><ins>(Appendix~\ref{ssec:grid_search})</ins></div><div class="ibtns" data-item="e0" role="group" aria-label="Decision for edit 1"><span>This edit:</span><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div></details><details class="diffbox" open><summary><span class="dl">Edit 2 of 2</span><span class="df">Thesis_Results.tex</span></summary><div class="diff">swarm optimized coast <del>(B)</del><ins>(Ascent</ins> <del>of</del><ins>Case</ins> <del>Section~\ref{ssec:pso_coast}</del><ins>B, Section~\ref{ssec:pso_coast})</ins> and the
+apogee-matching grid search of <del>Section~\ref{ssec:grid_search}.</del><ins>Appendix~\ref{ssec:grid_search}.</ins></div><div class="ibtns" data-item="e1" role="group" aria-label="Decision for edit 2"><span>This edit:</span><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div></details></section><section class="blk edit"><h4>Edit the proposed text</h4><p class="legend">Change the LaTeX to what you want; it is saved with your answer and is what I apply. The tracked-change view above does not update.</p><details class="edbox"><summary><span class="dl">Edit 1 (Thesis_Results.tex)</span><span class="edflag" data-edflag="0" hidden>edited</span></summary><textarea class="edta" data-i="0" rows="3" spellcheck="false" aria-label="Edit 1">(Appendix~\ref{ssec:grid_search})</textarea><button type="button" class="edreset" data-i="0">Reset to the proposal</button></details><details class="edbox"><summary><span class="dl">Edit 2 (Thesis_Results.tex)</span><span class="edflag" data-edflag="1" hidden>edited</span></summary><textarea class="edta" data-i="1" rows="3" spellcheck="false" aria-label="Edit 2">swarm optimized coast (Ascent Case B, Section~\ref{ssec:pso_coast}) and the
+apogee-matching grid search of Appendix~\ref{ssec:grid_search}.</textarea><button type="button" class="edreset" data-i="1">Reset to the proposal</button></details></section><section class="meta"><div><h4>Where the change is made</h4><p>Thesis_Results.tex l.345, 377</p></div><div><h4>What else is affected</h4><ul><li>The Ch 6 table calls the grid search an &ldquo;apogee-circularization ascent case&rdquo;, while Appendix A.5 says it is not one of Chapter 5&rsquo;s. Tell me if Chapter 6 should call it a reference search instead.</li></ul></div></section><footer class="decide"><div class="btns" role="group" aria-label="Decision for NUM-02"><button type="button" data-d="approve">Approve</button><button type="button" data-d="change">Change</button><button type="button" data-d="reject">Reject</button></div><div class="impl"><button type="button" class="implbtn" data-impl aria-pressed="false">Implement this card</button><span class="implnote" data-implnote>Sends only this card to Claude, who implements it at once.</span></div><label class="cmt" for="cm-NUM-02"><span>Your comment</span><textarea id="cm-NUM-02" rows="2" placeholder="Optional: your version, a condition, or why"></textarea></label><div class="saved" data-saved aria-live="polite"></div></footer></article></section>
+<section class="panel" id="p-list" data-panel="list" hidden><div class="phead"><h2>All cards</h2><p>Every card in one list, by tab.</p></div><div class="tablewrap"><table class="mini"><tr><th>Card</th><th>Size</th><th>Where</th><th>Problem</th></tr><tr><th colspan="4">Open items</th></tr><tr><td><a href="#HW-02" data-goto="HW-02">HW-02</a></td><td>Moderate</td><td>Ch 5 Table events (l.337&ndash;343), D (l.540), Appendix A.7</td><td>Values fixed without a source or a reason</td></tr><tr><td><a href="#WCIT-03" data-goto="WCIT-03">WCIT-03</a></td><td>Quick</td><td>Ch 5 §5.1 (l.56, 60) &mdash; Vallado, U.S. Standard Atmosphere</td><td>Two citations I could not check</td></tr><tr><td><a href="#NUM-01" data-goto="NUM-01">NUM-01</a></td><td>Quick</td><td>Abstract l.21&ndash;23 and Conclusions l.26&ndash;28</td><td>The Abstract and the Conclusions still count the ascent cases the old way</td></tr><tr><td><a href="#NUM-02" data-goto="NUM-02">NUM-02</a></td><td>Quick</td><td>Ch 6 l.345 and l.377</td><td>Chapter 6 gives the grid search the letter A and points to an appendix as a chapter</td></tr></table></div></section>
+    </main>
+  </div>
+</div>
+<script>
+(function () {
+  var IDS = ["HW-02", "WCIT-03", "NUM-01", "NUM-02"];
+  var SECOF = {"HW-02": "open", "WCIT-03": "open", "NUM-01": "open", "NUM-02": "open"};
+  var TOTAL = 4;
+  var LS = "wr5open-state-v1";
+  var state = {};      // id -> {decision, comment, at, pending}
+  var dbRef = null;
+  var timers = {};
+  var retry = {};
+  var filter = "all", sizeFilter = "all";
+
+  function lsGet() { try { return JSON.parse(localStorage.getItem(LS) || "{}"); } catch (e) { return {}; } }
+  function lsSet() { try { localStorage.setItem(LS, JSON.stringify(state)); } catch (e) {} }
+  function $(s, r) { return (r || document).querySelector(s); }
+  function $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
+  function hhmm(iso) { try { var d = new Date(iso); return d.toTimeString().slice(0, 5); } catch (e) { return ""; } }
+
+  var NAMES = { approve: "Approved", change: "Change", reject: "Rejected", "": "Open" };
+
+  function paint(id) {
+    var card = document.getElementById(id); if (!card) return;
+    var s = state[id] || {};
+    var d = s.decision || "";
+    card.setAttribute("data-state", d);
+    $("[data-status]", card).textContent = NAMES[d] || "Open";
+    $$(".btns button", card).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-d") === d)); });
+    $$(".edta", card).forEach(function (e) {
+      var i = e.getAttribute("data-i"), v = (s.edits || {})[i];
+      var cur = (v === undefined) ? e.defaultValue : v;
+      if (document.activeElement !== e && e.value !== cur) e.value = cur;
+      var fl = $('[data-edflag="' + i + '"]', card); if (fl) fl.hidden = (e.value === e.defaultValue);
+    });
+    $$(".ibtns", card).forEach(function (g) {
+      var cur = (s.items || {})[g.getAttribute("data-item")] || "";
+      $$("button", g).forEach(function (b) { b.setAttribute("aria-pressed", String(b.getAttribute("data-d") === cur)); });
+    });
+    var ib = $("[data-impl]", card), inote = $("[data-implnote]", card);
+    if (ib) {
+      var on = !!s.implement;
+      ib.setAttribute("aria-pressed", String(on));
+      ib.textContent = (on && sendInfo[id + "!"]) ? "Retry sending to Claude" : on ? "Implementation requested (click to cancel)" : "Implement this card";
+      if (inote) inote.textContent = (sendInfo[id] && on) ? sendInfo[id] : on ? "Queued " + hhmm(s.implement) + ". Click to cancel, or tell Claude to implement it." : "Sends only this card to Claude, who implements it at once.";
+    }
+    var ta = $(".cmt textarea", card);
+    if (ta && document.activeElement !== ta && ta.value !== (s.comment || "")) ta.value = s.comment || "";
+    var sv = $("[data-saved]", card);
+    if (s.pending) { sv.textContent = dbRef ? "Saving…" : "Kept on this device"; sv.className = "saved warn"; }
+    else if (s.at && (d || s.comment || s.implement || Object.keys(s.edits || {}).length)) { sv.textContent = "Saved " + hhmm(s.at); sv.className = "saved"; }
+    else { sv.textContent = ""; sv.className = "saved"; }
+    applyFilter(card);
+  }
+
+  function applyFilter(card) {
+    var d = (state[card.id] || {}).decision || "";
+    var okS = filter === "all" || (filter === "open" ? d === "" : d === filter);
+    var okZ = sizeFilter === "all" || card.getAttribute("data-size") === sizeFilter;
+    card.classList.toggle("hide", !(okS && okZ));
+  }
+
+  function progress() {
+    var a = 0, c = 0, r = 0;
+    IDS.forEach(function (id) { var d = (state[id] || {}).decision; if (d === "approve") a++; else if (d === "change") c++; else if (d === "reject") r++; });
+    $("#bar-a").style.width = (100 * a / TOTAL) + "%";
+    $("#bar-c").style.width = (100 * c / TOTAL) + "%";
+    $("#bar-r").style.width = (100 * r / TOTAL) + "%";
+    $("#prog-txt").textContent = (a + c + r) + " of " + TOTAL + " answered: " + a + " approved, " + c + " change, " + r + " rejected";
+  }
+
+  function push(id) {
+    var s = state[id]; if (!s || !s.pending) return;
+    if (!dbRef) { paint(id); return; }
+    var body = { decision: s.decision || "", comment: s.comment || "", edits: s.edits || {}, items: s.items || {}, implement: s.implement || "", at: s.at };
+    dbRef.collection("reviews").doc(id).set(body).then(function () {
+      if (state[id] && state[id].at === body.at) { state[id].pending = false; lsSet(); }
+      retry[id] = 0; paint(id);
+    }).catch(function () {
+      retry[id] = Math.min((retry[id] || 0) + 1, 6);
+      paint(id);
+      clearTimeout(timers[id]);
+      timers[id] = setTimeout(function () { push(id); }, 1500 * Math.pow(2, retry[id]));
+    });
+  }
+
+  var sendInfo = {};
+  function sendToClaude(id, btn) {
+    sendInfo[id] = "Sending to Claude…"; paint(id);
+    var cl = window.claude;
+    var fail = function (m) { sendInfo[id] = m; sendInfo[id + "!"] = true; paint(id); };
+    if (!cl || !cl.use) { fail("Could not reach Claude from this page. Click again to retry, or tell Claude in chat."); return; }
+    cl.use("comments").then(function (c) {
+      if (!c || !c.sendToClaude) { fail("Sending to Claude is not available here. Tell Claude in chat to implement " + id + "."); return; }
+      return c.anchorFor(btn).then(function (anchor) {
+        return c.sendToClaude({ anchor: anchor, text: "Implement card " + id + " now. Read its decision, comment and edited drafts from the reviews database and apply only this card." });
+      }).then(function () {
+        sendInfo[id] = "Sent to Claude at " + hhmm(new Date().toISOString()) + ". Claude is implementing " + id + "; the progress message appears in the chat."; paint(id);
+      });
+    }).catch(function (e) {
+      var code = e && e.code;
+      fail(code === "claude_unavailable" ? "No Claude session is listening to this page now. Tell Claude in chat to implement " + id + "." :
+           code === "consent_required" ? "Allow the page to comment as you, then click again." :
+           code === "rate_limited" ? "Too fast; wait a moment and click again." :
+           "Send failed (" + (code || "error") + "). Click again to retry, or tell Claude in chat.");
+    });
+  }
+
+  function change(id, patch) {
+    var s = state[id] || { decision: "", comment: "" };
+    for (var k in patch) s[k] = patch[k];
+    s.at = new Date().toISOString(); s.pending = true;
+    state[id] = s; lsSet(); paint(id); progress();
+    clearTimeout(timers[id]);
+    timers[id] = setTimeout(function () { push(id); }, 600);
+  }
+
+  function wire() {
+    $$(".card").forEach(function (card) {
+      var id = card.id;
+      $$(".btns button", card).forEach(function (b) {
+        b.addEventListener("click", function () {
+          var d = b.getAttribute("data-d");
+          change(id, { decision: ((state[id] || {}).decision === d) ? "" : d });
+        });
+      });
+      $$(".ibtns button", card).forEach(function (b) {
+        b.addEventListener("click", function () {
+          var k = b.parentNode.getAttribute("data-item"), d = b.getAttribute("data-d");
+          var it = JSON.parse(JSON.stringify((state[id] || {}).items || {}));
+          if (it[k] === d) delete it[k]; else it[k] = d;
+          change(id, { items: it });
+        });
+      });
+      var ib = $("[data-impl]", card);
+      if (ib) ib.addEventListener("click", function () {
+        var st = state[id] || {};
+        if (st.implement && !sendInfo[id + "!"]) { sendInfo[id] = ""; change(id, { implement: "" }); return; }
+        sendInfo[id + "!"] = false;
+        if (!st.implement) change(id, { implement: new Date().toISOString() });
+        sendToClaude(id, ib);
+      });
+      var ta = $(".cmt textarea", card);
+      ta.addEventListener("input", function () { change(id, { comment: ta.value }); });
+      function edits() {
+        var o = {};
+        $$(".edta", card).forEach(function (e) { if (e.value !== e.defaultValue) o[e.getAttribute("data-i")] = e.value; });
+        return o;
+      }
+      $$(".edta", card).forEach(function (e) { e.addEventListener("input", function () { change(id, { edits: edits() }); }); });
+      $$(".edreset", card).forEach(function (b) {
+        b.addEventListener("click", function () {
+          var e = $('.edta[data-i="' + b.getAttribute("data-i") + '"]', card);
+          e.value = e.defaultValue; change(id, { edits: edits() });
+        });
+      });
+    });
+    $$(".copy").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var code = b.closest(".tex").querySelector("code");
+        var txt = code.textContent;
+        function fallback() { var r = document.createRange(); r.selectNodeContents(code); var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); b.textContent = "Selected"; setTimeout(function () { b.textContent = "Copy"; }, 1200); }
+        try { navigator.clipboard.writeText(txt).then(function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = "Copy"; }, 1200); }, fallback); }
+        catch (e) { fallback(); }
+      });
+    });
+    $$("#toolbar [data-f]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        filter = b.getAttribute("data-f");
+        $$("#toolbar [data-f]").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+        $$(".card").forEach(applyFilter);
+      });
+    });
+    $("#sizef").addEventListener("change", function (e) { sizeFilter = e.target.value; $$(".card").forEach(applyFilter); });
+    document.addEventListener("visibilitychange", function () { if (document.hidden) IDS.forEach(function (id) { if ((state[id] || {}).pending) push(id); }); });
+    window.addEventListener("hashchange", route);
+    $$("[data-goto]").forEach(function (a) { a.addEventListener("click", function () { setTimeout(route, 0); }); });
+  }
+
+  function show(tab, cardId) {
+    $$(".panel").forEach(function (p) { p.hidden = p.getAttribute("data-panel") !== tab; });
+    $$(".tab").forEach(function (t) { t.setAttribute("aria-current", String(t.getAttribute("data-tab") === tab)); });
+    $("#toolbar").hidden = (tab === "overview" || tab === "list");
+    if (cardId) { var c = document.getElementById(cardId); if (c) { c.classList.remove("hide"); var ar = c.closest("details.archive"); if (ar) ar.open = true; c.scrollIntoView(); } }
+    else window.scrollTo(0, 0);
+  }
+  function route() {
+    var h = (location.hash || "").replace(/^#/, "");
+    if (!h) { show("overview"); return; }
+    if (SECOF[h]) { show(SECOF[h], h); return; }
+    if (document.querySelector('[data-panel="' + h + '"]')) { show(h); return; }
+    show("overview");
+  }
+
+  function init() {
+    state = lsGet();
+    IDS.forEach(function (id) { paint(id); });
+    progress(); wire(); route();
+    var cl = window.claude;
+    if (!cl || !cl.use) return;
+    cl.use("db").then(function (db) {
+      if (!db) return;
+      dbRef = db;
+      return db.collection("reviews").get().then(function (snap) {
+        snap.docs.forEach(function (d) {
+          var id = d.id; if (IDS.indexOf(id) < 0) return;
+          var v = d.data() || {};
+          var cur = state[id];
+          if (cur && cur.pending) return;
+          state[id] = { decision: v.decision || "", comment: v.comment || "", edits: v.edits || {}, items: v.items || {}, implement: v.implement || "", at: v.at || "", pending: false };
+        });
+        lsSet();
+        IDS.forEach(function (id) { paint(id); });
+        progress();
+        IDS.forEach(function (id) { if ((state[id] || {}).pending) push(id); });
+      });
+    }).catch(function () { dbRef = null; IDS.forEach(function (id) { if ((state[id] || {}).pending) paint(id); }); });
+  }
+  init();
+})();
+</script>
