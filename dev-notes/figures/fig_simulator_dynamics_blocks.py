@@ -1,4 +1,4 @@
-"""Figures: the simulator as a Simulink-style block diagram, in four sheets.
+"""Figures: the simulator as a Simulink-style block diagram, in five sheets.
 
 Every sheet is drawn at its printed width (16 cm text width, 6.3 in), so a font size here is
 the printed size: no text is below the 10 pt body size. Each sheet is cropped to its content.
@@ -10,6 +10,7 @@ the printed size: no text is below the 10 pt body size. Each sheet is cropped to
 3. simulator_schedule_blocks.png   the phase schedules (switch input k, active law, engine delta,
                                    stage j) and the insertion schedule
 4. simulator_parameter_blocks.png  the state resets and the fixed parameters
+5. simulator_optimization_blocks.png  the optimizer, one ascent per design vector x, the cost J
 
 Style: block fill = role (legend on each sheet), white = library block (integrator, clock,
 merge, switch); every subsystem sits in a dashed group frame; every integrator takes its
@@ -25,6 +26,8 @@ Read from the code:
   eps = ENABLE_EARTH_ROTATION;
 - Stage 2: Delta t_1 = coast-start% Delta t_r% T_max,2, T_max,2 = m_p2 / mdot_2
   (pso_coast_solver.run_pso_coast_trajectory). Law-terminated burns are left out;
+- cost: pso_coast_solver._coast_objective_terms, PENALTY_FORM "abs"; the burn-time term
+  (t_f - t_cf)/T_max,2 = 1 - m_prop/m_p2;
 - insertion: earth_rotation.rotating_to_inertial_planar, ra.get_orbital_elements.
 """
 import matplotlib.pyplot as plt
@@ -52,6 +55,7 @@ DYN = "#e2ebf8"      # equations of motion
 GUI = "#f8e6ee"      # guidance laws
 EVT = "#eceef2"      # schedules and event logic
 PAR = "#ffffff"      # parameter sources and library blocks
+OPZ = "#fdeedd"      # optimizer and cost
 W = 6.3              # printed text width [in]
 
 
@@ -626,4 +630,77 @@ S.notes(PBOT - 0.25, [
     r"Earth's rotation rate, $\varphi_0$: launch latitude.",
     r"$m_{dry,2}$: Stage 2 structure and payload, the mass left when its propellant is spent."])
 S.legend(PBOT - 1.0, [("event logic", EVT), ("parameter source", PAR), TAG_ITEM])
+S.save()
+
+
+# ============================================================= 5. optimization
+S = Sheet("simulator_optimization_blocks.png")
+
+
+def ports(b, labels, side, ys):
+    """Port labels written inside a subsystem block, on its left or right edge."""
+    for y, s in zip(ys, labels):
+        if side == "left":
+            S.text(b[0] + 0.08, y, s, ha="left")
+        else:
+            S.text(b[1] - 0.08, y, s, ha="right")
+
+
+# outer loop: the optimizer proposes x and keeps the best
+S.frame(0.01, 6.3, W - 0.01, 8.3, "Outer loop: optimizer")
+OPT = (1.75, 4.3, 6.5, 8.0)
+S.block(*OPT, ["Optimizer", r"particle swarm: $N_p$ particles,",
+               r"$N_g$ generations, one $J$ per particle",
+               r"$\mathbf{x}$ kept within $[\mathbf{x}_{lb},\ \mathbf{x}_{ub}]$",
+               r"keeps the best: $\mathbf{x}^*,\ J^*$"], fc=OPZ)
+S.stack(1.65, [7.6, 7.25, 6.9], [r"$J$", r"$\mathbf{x}_{lb},\ \mathbf{x}_{ub}$",
+                                 r"$N_p,\ N_g$"], OPT[0])
+S.gotos(OPT[1], 4.5, [7.6, 6.9], [r"$\mathbf{x}$", r"$\mathbf{x}^*,\ J^*$"])
+
+# inner loop: one ascent per x
+S.frame(0.01, 3.25, W - 0.01, 6.05, "Inner loop: one ascent")
+ASC = (1.75, 4.3, 3.45, 5.75)
+S.block(*ASC, [], fc=DYN)
+S.text(0.5 * (ASC[0] + ASC[1]), ASC[3] - 0.2, "One ascent", fs=FT, fontweight="bold")
+S.text(0.5 * (ASC[0] + ASC[1]), ASC[2] + 0.17, "sheets 1 to 4")
+YIN = [5.25 - 0.3 * i for i in range(6)]
+XIN = [r"$\gamma_p$", r"$\Delta t_c$", r"$\Delta t_r\%$", r"coast-start$\%$",
+       r"$\mathbf{c}$", r"$\boldsymbol{\lambda}_0$"]
+ports(ASC, XIN, "left", YIN)
+S.tag(0.62, 0.5 * (YIN[0] + YIN[-1]), r"$\mathbf{x}$")
+XD = 0.95
+S.wire([(0.62, 0.5 * (YIN[0] + YIN[-1])), (XD, 0.5 * (YIN[0] + YIN[-1]))])
+S.bar(XD, YIN[-1] - 0.14, YIN[0] + 0.14)
+S.text(XD + 0.045, YIN[-1] - 0.3, "Demux")
+for y in YIN:
+    S.wire([(XD + 0.09, y), (ASC[0], y)])
+YOUT = [5.25 - 0.36 * i for i in range(5)]
+OUT = [r"$m_{prop}$", r"$\Delta r$", r"$\Delta v$", r"$\Delta\gamma$", "crash"]
+ports(ASC, OUT, "right", YOUT)
+S.gotos(ASC[1], 4.5, YOUT, [r"$m_{prop}$", r"$\Delta r$", r"$\Delta v$",
+                            r"$\Delta\gamma$", "crash"])
+
+# the cost of that ascent
+S.frame(0.01, 0.97, W - 0.01, 3.0, "Cost")
+CST = (1.75, 5.3, 1.17, 2.75)
+S.block(*CST, ["Cost",
+               r"$J = w_J\,(1 - m_{prop}/m_{p2})$",
+               r"$+\ w_r\,|\Delta r|/h_f + w_v\,|\Delta v|/v_f$",
+               r"$+\ w_\gamma\,|\Delta\gamma|/\gamma_{ref}$",
+               r"$+\ J_{crash}$ if the ascent crashes"], fc=OPZ, lh=0.24)
+S.stack(1.65, [2.62 - 0.22 * i for i in range(7)],
+        [r"$m_{prop}$", r"$\Delta r$", r"$\Delta v$", r"$\Delta\gamma$", "crash",
+         r"$w_J,\ w_r,\ w_v,\ w_\gamma$", r"$m_{p2},\ h_f,\ v_f,\ \gamma_{ref}$"], CST[0])
+S.goto((CST[1], 1.96), 5.5, 1.96, r"$J$")
+
+S.notes(0.67, [
+    r"Each particle's $\mathbf{x}$ flies one ascent, and its cost $J$ returns to the "
+    r"optimizer (tag $J$).",
+    r"An ascent case fixes some entries of $\mathbf{x}$ as constants; the others are "
+    r"searched.",
+    r"$1 - m_{prop}/m_{p2}$ is the Stage 2 burn time over $T_{\max,2}$. $h_f$: target "
+    r"altitude, $\gamma_{ref} = 1^\circ$.",
+    r"Crash: the ascent ends below the surface, with $v < 0$, or fails to integrate."],
+    dy=0.22)
+S.legend(-0.33, [("optimizer and cost", OPZ), ("ascent (sheets 1 to 4)", DYN), TAG_ITEM])
 S.save()
