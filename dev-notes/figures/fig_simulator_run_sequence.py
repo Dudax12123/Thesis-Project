@@ -197,7 +197,7 @@ OUT = (1.25, 2.6, 5.15, 5.55)
 ax.add_patch(FancyBboxPatch((OUT[0], OUT[2]), OUT[1] - OUT[0], OUT[3] - OUT[2],
                             boxstyle="round,pad=0,rounding_size=0.12",
                             fc="#ffffff", ec=INK, lw=1.0, zorder=3))
-label(0.5 * (OUT[0] + OUT[1]), y2, r"$\mathbf{x}(t_f)$", va="center")
+label(0.5 * (OUT[0] + OUT[1]), y2, r"$\mathbf{y}(t_f)$", va="center")
 wire([(OUT[0], y2), (0.75, y2), (0.75, COST[2])])
 
 label(3.85, 4.72, r"any phase:  $[r = R_E]$  $\to$  crash, trajectory stops,"
@@ -242,14 +242,14 @@ wire([(SX, PSF[3]), (SX, SY - SR)])
 INT = (8.3, 9.0, 1.75, 2.45)
 block(*INT, [r"$\frac{1}{s}$"], fs=FS + 6, name="Integrator")
 wire([(SX + SR, SY), (INT[0], SY)])
-label(8.05, 2.15, r"$\dot{\mathbf{x}}$")
+label(8.05, 2.15, r"$\dot{\mathbf{y}}$")
 
 # state out
 NF, NE = 9.45, 10.0
 wire([(INT[1], SY), (12.75, SY)])
 dot(NF, SY)
 dot(NE, SY)
-label(11.3, 2.15, r"$\mathbf{x}(t)$")
+label(11.3, 2.15, r"$\mathbf{y}(t)$")
 EVT = (10.4, 12.6, 2.7, 3.65)
 block(*EVT, ["Event detection", "zero crossing of the phase's",
              r"end condition and of $r = R_E$"], fs=FS - 0.5)
@@ -269,6 +269,6 @@ dot(1.5, 1.7)
 wire([(1.5, 1.7), (FR[0], 1.7)])
 dot(SX, 0.5)
 wire([(SX, 0.5), (SX, PSF[2])])
-label(5.3, 0.56, r"state feedback  $\mathbf{x}(t) = [\,s,\ r,\ v,\ \gamma,\ m\,]$")
+label(5.3, 0.56, r"state feedback  $\mathbf{y}(t) = [\,s,\ r,\ v,\ \gamma,\ m\,]$")
 
 save(fig, "simulator_run_sequence.png")

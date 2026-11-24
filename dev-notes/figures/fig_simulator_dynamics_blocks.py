@@ -131,7 +131,7 @@ label(5.47, 9.58, r"$t$", fs=FS - 1)
 block(4.75, 5.3, 8.17, 8.43, ["Clock"], fs=FS, title=False)
 wire([(5.3, 8.3), (BX0, 8.3)])
 label(5.47, 8.33, r"$t$", fs=FS - 1)
-for y, s in [(8.03, r"$\mathbf{x}$"), (7.78, r"$F_T$"), (7.53, r"$I_{sp}$")]:
+for y, s in [(8.03, r"$\mathbf{y}$"), (7.78, r"$F_T$"), (7.53, r"$I_{sp}$")]:
     tag(4.75, 5.35, y, s, h=0.2)
     wire([(5.35, y), (BX0, y)])
 # q -> aero
@@ -222,7 +222,7 @@ for y, sin_, sout, xsrc in rows:
     wire([(IX1, y), (GX0, y)])
 
 label(W / 2, 0.45,
-      r"State $\mathbf{x} = [\,s,\ r,\ v,\ \gamma,\ m\,]$.  Goto and From tags with the"
+      r"State $\mathbf{y} = [\,s,\ r,\ v,\ \gamma,\ m\,]$.  Goto and From tags with the"
       r" same name carry the same signal.  The initial state of each phase is the"
       r" state at the end of the previous one.", va="center", fs=FS - 0.5,
       color=GREY)
