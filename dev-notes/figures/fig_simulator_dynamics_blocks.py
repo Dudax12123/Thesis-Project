@@ -13,7 +13,7 @@ the printed size: no text is below the 10 pt body size. Each sheet is cropped to
 5. simulator_optimization_blocks.png  the optimizer, one ascent per design vector x, the cost J
 6. simulator_overview_blocks.png  how the sheets relate: optimizer, guidance, dynamics, cost
                                    and the two loops
-7. simulator_full_blocks.png       every sheet on one page (51 x 39 cm), the links between
+7. simulator_full_blocks.png/.pdf  every sheet on one page (51 x 39 cm), the links between
                                    them wired: cost loop, kick/sep, law/k, alpha
 
 Style: block fill = role (legend on each sheet), white = library block (integrator, clock,
@@ -40,7 +40,8 @@ from matplotlib.text import Text
 from matplotlib.spines import Spine
 from matplotlib.axis import Axis
 
-from figstyle import use_thesis_style, save, INK
+from figstyle import use_thesis_style, save, INK, OUT_DIR
+import os
 
 use_thesis_style()
 plt.rcParams["savefig.pad_inches"] = 0.0   # keep the sheet exactly W wide: printed = drawn
@@ -66,8 +67,9 @@ W = 6.3              # printed text width [in]
 class Sheet:
     """One figure whose data units are printed inches; cropped to its content on save."""
 
-    def __init__(self, name, width=W, height=14.0):
+    def __init__(self, name, width=W, height=14.0, pdf=False):
         self.name = name
+        self.pdf = pdf               # also write a vector PDF beside the PNG
         self.W = width
         self.ox = self.oy = 0.0      # offset added to every coordinate drawn
         self.fig = plt.figure(figsize=(width, height))
@@ -288,6 +290,11 @@ class Sheet:
         m = 0.03
         self.ax.set_ylim(lo - m, hi + m)
         self.fig.set_size_inches(self.W, hi - lo + 2 * m)
+        if self.pdf:
+            os.makedirs(OUT_DIR, exist_ok=True)
+            path = os.path.join(OUT_DIR, os.path.splitext(self.name)[0] + ".pdf")
+            self.fig.savefig(path)
+            print("wrote " + path)
         save(self.fig, self.name)
 
 
@@ -781,7 +788,7 @@ S.save()
 # guidance) and alpha (guidance -> dynamics). The design entries, the state, the engine
 # commands, the resets and the defined variables stay From/Goto tags, as within each sheet.
 XL, XM, XR = 0.25, 7.0, 13.75          # left, middle and right column
-S = Sheet("simulator_full_blocks.png", width=XR + W, height=17.0)
+S = Sheet("simulator_full_blocks.png", width=XR + W, height=17.0, pdf=True)
 
 
 def at(ox=0.0, oy=0.0):
