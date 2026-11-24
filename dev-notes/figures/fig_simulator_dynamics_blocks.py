@@ -9,7 +9,7 @@ the printed size: no text is below the 10 pt body size. Each sheet is cropped to
                                    the state y and the design vector x
 3. simulator_schedule_blocks.png   the phase schedules (switch input k, active law, engine delta,
                                    stage j) and the insertion schedule
-4. simulator_parameter_blocks.png  the state resets and the fixed parameters
+4. simulator_parameter_blocks.png  the instant state changes and the fixed parameters
 5. simulator_optimization_blocks.png  the optimizer, one ascent per design vector x, the cost J
 6. simulator_overview_blocks.png  how the sheets relate: optimizer, guidance, dynamics, cost
                                    and the two loops
@@ -578,9 +578,9 @@ S.save()
 
 # ====================================================== 4. resets and parameters
 S = Sheet("simulator_parameter_blocks.png")
-S.frame(0.01, 6.75, W - 0.01, 8.92, "State resets")
+S.frame(0.01, 6.75, W - 0.01, 8.92, "Instant State Changes")
 JMP = (1.55, 3.75, 6.9, 8.68)
-S.block(*JMP, ["State resets", r"start: $\gamma^+ = \gamma_0$, $m^+ = m_0$",
+S.block(*JMP, ["Instant State Changes", r"start: $\gamma^+ = \gamma_0$, $m^+ = m_0$",
                r"kick: $\gamma^+ = \gamma_p$",
                r"fairing: $m^+ = m - m_{fair}$",
                r"separation: $m^+ = m - m_{s1}$"], fc=EVT)
@@ -777,7 +777,7 @@ S.save()
 
 # ==================================================================== 7. full
 # Every sheet on one page and joined. Wired between the sheets: the cost loop (insertion ->
-# cost -> J -> optimizer), the schedule events (kick, sep -> state resets; law, k ->
+# cost -> J -> optimizer), the schedule events (kick, sep -> instant state changes; law, k ->
 # guidance) and alpha (guidance -> dynamics). The design entries, the state, the engine
 # commands, the resets and the defined variables stay From/Goto tags, as within each sheet.
 XL, XM, XR = 0.25, 7.0, 13.75          # left, middle and right column
@@ -895,12 +895,12 @@ for xw, s in [(2.3, r"$m_{prop}$"), (3.5, r"$\Delta r,\ \Delta v,\ \Delta\gamma$
     S.wire([(xw, YINB), (xw, CST[3])])
     S.text(xw + 0.08, 0.5 * (YINB + 2.85), s, ha="left")
 
-# ---- middle column: state resets --------------------------------------------
+# ---- middle column: instant state changes --------------------------------------------
 OYR = 13.0 - 8.92
 at(XM, OYR)
-S.frame(0.01, 6.75, W - 0.01, 8.92, "State resets")
+S.frame(0.01, 6.75, W - 0.01, 8.92, "Instant State Changes")
 JMP = (1.55, 3.75, 6.9, 8.68)
-S.block(*JMP, ["State resets", r"start: $\gamma^+ = \gamma_0$, $m^+ = m_0$",
+S.block(*JMP, ["Instant State Changes", r"start: $\gamma^+ = \gamma_0$, $m^+ = m_0$",
                r"kick: $\gamma^+ = \gamma_p$",
                r"fairing: $m^+ = m - m_{fair}$",
                r"separation: $m^+ = m - m_{s1}$"], fc=EVT)
@@ -1099,7 +1099,7 @@ S.legend(0.6, [TAG_ITEM])
 
 # ---- wires between the columns (page coordinates) ---------------------------
 at()
-# kick and sep: schedules -> state resets
+# kick and sep: schedules -> instant state changes
 for yfrom, xv, yto, s in [(8.45 + OYS, 6.7, RR[0] + OYR, "kick"),
                           (7.05 + OYS, 6.8, RR[1] + OYR, "sep")]:
     S.wire([(XL + SX1, yfrom), (xv, yfrom), (xv, yto), (XM + JMP[0], yto)])
