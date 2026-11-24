@@ -13,8 +13,9 @@ the printed size: no text is below the 10 pt body size. Each sheet is cropped to
 5. simulator_optimization_blocks.png  the optimizer, one ascent per design vector x, the cost J
 6. simulator_overview_blocks.png  how the sheets relate: optimizer, guidance, dynamics, cost
                                    and the two loops
-7. simulator_full_blocks.png/.pdf  every sheet on one page (51 x 39 cm), the links between
-                                   them wired: cost loop, kick/sep, law/k, alpha
+7. simulator_full_blocks.png/.pdf  every sheet on one page (51 x 32 cm), the links between
+                                   them wired: cost loop, kick/sep, law/k, alpha; the PDF's
+                                   page 2 is the reading guide (simulator_full_guide.py)
 
 Style: block fill = role (legend on each sheet), white = library block (integrator, clock,
 merge, switch); every subsystem sits in a dashed group frame; every integrator takes its
@@ -1139,3 +1140,6 @@ S.wire([(XL + CST[1], 1.675), (XL + 5.75, 1.675), (XL + 5.75, YJB), (0.1, YJB),
 S.text(XL + 5.25, 1.785, r"$J$")
 S.text(0.85, YJIN + 0.11, r"$J$")
 S.save()
+
+from simulator_full_guide import append_guide
+append_guide(os.path.join(OUT_DIR, "simulator_full_blocks.pdf"))
