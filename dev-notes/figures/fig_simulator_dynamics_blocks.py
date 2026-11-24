@@ -1,4 +1,4 @@
-"""Figures: the simulator as a Simulink-style block diagram, in five sheets.
+"""Figures: the simulator as a Simulink-style block diagram, in five sheets and an overview.
 
 Every sheet is drawn at its printed width (16 cm text width, 6.3 in), so a font size here is
 the printed size: no text is below the 10 pt body size. Each sheet is cropped to its content.
@@ -11,6 +11,8 @@ the printed size: no text is below the 10 pt body size. Each sheet is cropped to
                                    stage j) and the insertion schedule
 4. simulator_parameter_blocks.png  the state resets and the fixed parameters
 5. simulator_optimization_blocks.png  the optimizer, one ascent per design vector x, the cost J
+6. simulator_overview_blocks.png  how the sheets relate: optimizer, guidance, dynamics, cost
+                                   and the two loops
 
 Style: block fill = role (legend on each sheet), white = library block (integrator, clock,
 merge, switch); every subsystem sits in a dashed group frame; every integrator takes its
@@ -703,4 +705,56 @@ S.notes(0.67, [
     r"Crash: the ascent ends below the surface, with $v < 0$, or fails to integrate."],
     dy=0.22)
 S.legend(-0.33, [("optimizer and cost", OPZ), ("ascent (sheets 1 to 4)", DYN), TAG_ITEM])
+S.save()
+
+
+# ================================================================ 6. overview
+# How the sheets relate, with no simulator specifics: optimizer and cost on top, one ascent
+# (guidance -> dynamics -> integrator, the state fed back) below. The schedules, the
+# insertion and the defined variables are left out.
+S = Sheet("simulator_overview_blocks.png")
+
+
+def lab(x, y, s, ha="center"):
+    S.text(x, y, s, ha=ha)
+
+
+# outer loop, top row
+OPT = (0.1, 1.9, 4.6, 5.2)
+CST = (5.0, 6.2, 4.6, 5.2)
+S.block(*OPT, ["Optimizer"], fc=OPZ)
+S.block(*CST, ["Cost"], fc=OPZ)
+YC = 0.5 * (OPT[2] + OPT[3])
+S.wire([(CST[0], YC), (OPT[1], YC)])
+lab(0.5 * (OPT[1] + CST[0]), YC + 0.17, "cost")
+
+# one ascent
+S.frame(0.45, 2.4, W - 0.01, 4.15, "One ascent")
+YR = 3.4
+GU = (1.0, 2.2, 3.1, 3.7)
+DY_ = (3.0, 4.1, 3.0, 3.8)
+INT = 4.5
+S.block(*GU, ["Guidance"], fc=GUI)
+S.block(*DY_, ["Dynamics"], fc=DYN)
+S.integ(INT, YR)
+XG = 0.5 * (GU[0] + GU[1])
+S.wire([(XG, OPT[2]), (XG, GU[3])])
+lab(XG + 0.08, 4.38, "design variables", ha="left")
+S.wire([(GU[1], YR), (DY_[0], YR)])
+lab(0.5 * (GU[1] + DY_[0]), YR + 0.17, "steering")
+S.wire([(DY_[1], YR), (INT, YR)])
+lab(0.5 * (DY_[1] + INT), YR + 0.17, "rates")
+
+# the state: to the cost, and back under the bottom
+XS = 0.5 * (CST[0] + CST[1])
+YB = 2.65
+S.wire([(INT + 0.36, YR), (XS, YR), (XS, CST[2])])
+S.dot(XS, YR)
+lab(0.5 * (INT + 0.36 + XS), YR + 0.17, "state")
+lab(XS + 0.08, 4.38, "final state", ha="left")
+S.wire([(XS, YR), (XS, YB), (XG, YB), (XG, GU[2])])
+XDB = 0.5 * (DY_[0] + DY_[1])
+S.wire([(XDB, YB), (XDB, DY_[2])])
+S.dot(XDB, YB)
+
 S.save()
